@@ -16,6 +16,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
+import { createPortal } from "react-dom";
 
 interface DragStateStyleDivProps {
   children: React.ReactNode;
@@ -347,17 +348,20 @@ export function Timeline({
           </div>
         )}
       </DragStateStyleDiv>
-      <DragOverlay>
-        {draggedFrame != null && (
-          <FrameEditor
-            frame={draggedFrame}
-            isPlaceholder={false}
-            onUpdate={() => {}}
-            isSelected={false}
-            onClick={() => {}}
-          />
-        )}
-      </DragOverlay>
+      {createPortal(
+        <DragOverlay>
+          {draggedFrame != null && (
+            <FrameEditor
+              frame={draggedFrame}
+              isPlaceholder={false}
+              onUpdate={() => {}}
+              isSelected={false}
+              onClick={() => {}}
+            />
+          )}
+        </DragOverlay>,
+        document.body,
+      )}
     </FrameMoveTogetherDndContext>
   );
 }
