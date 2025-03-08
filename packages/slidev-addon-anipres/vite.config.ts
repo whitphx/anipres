@@ -4,7 +4,8 @@
 import fs from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+import Font from "vite-plugin-font";
 
 let root = process.cwd();
 function resolveSnapshotPath() {
@@ -30,6 +31,7 @@ export default defineConfig({
     ],
   },
   plugins: [
+    Font.vite() as Plugin,
     {
       name: "anipres-server",
       configureServer(server) {
