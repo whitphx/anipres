@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   useDroppable,
   useDndContext,
@@ -190,6 +191,13 @@ export function Timeline({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       sensors={sensors}
+      autoScroll={{
+        // Disable vertical auto-scroll. Ref: https://github.com/clauderic/dnd-kit/issues/825#issuecomment-1459162477
+        threshold: {
+          x: 0.2, // Default value: https://github.com/clauderic/dnd-kit/blob/e9215e820798459ae036896fce7fd9a6fe855772/packages/core/src/utilities/scroll/getScrollDirectionAndSpeed.ts#L8
+          y: 0,
+        },
+      }}
     >
       <DragStateStyleDiv
         className={styles.timelineContainer}
@@ -347,17 +355,20 @@ export function Timeline({
           </div>
         )}
       </DragStateStyleDiv>
-      <DragOverlay>
-        {draggedFrame != null && (
-          <FrameEditor
-            frame={draggedFrame}
-            isPlaceholder={false}
-            onUpdate={() => {}}
-            isSelected={false}
-            onClick={() => {}}
-          />
-        )}
-      </DragOverlay>
+      {createPortal(
+        <DragOverlay>
+          {draggedFrame != null && (
+            <FrameEditor
+              frame={draggedFrame}
+              isPlaceholder={false}
+              onUpdate={() => {}}
+              isSelected={false}
+              onClick={() => {}}
+            />
+          )}
+        </DragOverlay>,
+        document.body,
+      )}
     </FrameMoveTogetherDndContext>
   );
 }
