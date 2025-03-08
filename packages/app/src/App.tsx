@@ -1,5 +1,5 @@
 import { Anipres } from "anipres";
-import * as xiaolai from "../public/XiaolaiSC-Regular.ttf";
+import * as xiaolai from "./fonts/XiaolaiSC-Regular.ttf";
 import "anipres/anipres.css";
 
 function App() {
