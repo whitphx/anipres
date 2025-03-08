@@ -11,8 +11,11 @@ let root = process.cwd();
 function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
 }
+function resolveXiaolaiFontPath() {
+  return join(root, "./components/fonts/XiaolaiSC-Regular.ttf");
+}
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     /*
      * In dev mode, Vite serves native ESM, so CommonJS packages like "react" don't expose named exports (e.g., useCallback) correctly,
@@ -31,7 +34,26 @@ export default defineConfig({
     ],
   },
   plugins: [
-    Font.vite() as Plugin,
+    {
+      name: "set-font-subset",
+      resolveId(id) {
+        if (id === "/@xiaolai-font") {
+          // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
+          // by adding `?subsets` to the font URL only in production mode.
+          // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.
+          return (
+            resolveXiaolaiFontPath() + (mode === "production" ? "?subsets" : "")
+          );
+        }
+      },
+    },
+    Font.vite({
+      // Enable optimization only in production mode. See the comment in the `resolveId` hook above.
+      scanFiles:
+        mode === "production"
+          ? ["**/.slidev/anipres/snapshots/*.json"]
+          : undefined,
+    }) as Plugin,
     {
       name: "anipres-server",
       configureServer(server) {
@@ -100,4 +122,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));
