@@ -31,6 +31,7 @@ import {
   type Editor,
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
+  type TLTextShape,
 } from "tldraw";
 import { ref, useTemplateRef, watch, computed } from "vue";
 import { useCssVar, useStyleTag, onClickOutside } from "@vueuse/core";
@@ -150,6 +151,30 @@ const handleMount = (editor: Editor) => {
     },
     { immediate: true },
   );
+
+  // HACK: This is a workaround to set the size of the text shapes with `autoSize: true` correctly.
+  // Tldraw automatically calculates the shape size for text shapes with `autoSize: true`
+  // but its result may be incorrect before the container size becomes stable and the font is loaded.
+  // So we trigger the text shape size calculation (https://github.com/tldraw/tldraw/blob/7190fa82f20c24bd239f456c6c941ff638f57e9f/packages/tldraw/src/lib/shapes/text/TextShapeUtil.tsx#L196)
+  // by updating the shapes.
+  const container = editor.getContainer();
+  const observer = new ResizeObserver(() => {
+    const shapes = editor.getCurrentPageShapes();
+    const textShapes = shapes.filter(
+      (shape) => shape.type === "text" && (shape as TLTextShape).props.autoSize,
+    ) as TLTextShape[];
+    const dummyUpdatedShapes = textShapes.map((shape) => ({
+      ...shape,
+      props: { ...shape.props, scale: shape.props.scale - 0.0001 },
+    }));
+    editor.updateShapes(dummyUpdatedShapes);
+    editor.updateShapes(textShapes); // We don't want to actually update the shapes, so revert the dummy update immediately.
+  });
+  observer.observe(container);
+
+  return () => {
+    observer.disconnect();
+  };
 };
 
 // Disable the browser's two-finger swipe for page navigation.
