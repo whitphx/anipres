@@ -219,6 +219,14 @@ const drawStyleFontFamily = computed(() => {
   }
   return `'tldraw_draw'`;
 });
+
+function onKeyDown(e: KeyboardEvent) {
+  if (isEditing.value) {
+    // Prevent the keydown event from being propagated
+    // for keyboard shortcuts to work in edit mode.
+    e.stopPropagation();
+  }
+}
 </script>
 
 <template>
@@ -226,6 +234,7 @@ const drawStyleFontFamily = computed(() => {
     :class="['container', 'inverse-transform', { editing: isEditing }]"
     ref="container"
     @dblclick="onDblclick"
+    @keydown="onKeyDown"
   >
     <Anipres
       v-if="isMountedOnce"
