@@ -147,6 +147,11 @@ export function getNextGlobalIndex(editor: Editor): number {
   return getNextGlobalIndexFromCueFrames(allCueFrames);
 }
 
+function newTrackId(): string {
+  // Use a timestamp to make the tracks sorted in the timeline.
+  return `track-${Date.now()}-${uniqueId()}`;
+}
+
 export function attachCueFrame(
   editor: Editor,
   shapeId: TLShapeId,
@@ -156,7 +161,7 @@ export function attachCueFrame(
     id: shapeId,
     type: "cue",
     globalIndex: getNextGlobalIndex(editor),
-    trackId: uniqueId(),
+    trackId: newTrackId(),
     action: frameAction,
   };
 
