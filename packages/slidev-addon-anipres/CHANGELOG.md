@@ -1,5 +1,16 @@
 # slidev-addon-anipres
 
+## 0.1.0
+
+### Minor Changes
+
+- [#125](https://github.com/whitphx/anipres/pull/125) [`344b393`](https://github.com/whitphx/anipres/commit/344b3935aadd76ce8087b8b270fb891edeb584fe) Thanks [@whitphx](https://github.com/whitphx)! - Add excalidrawLikeFont option
+
+### Patch Changes
+
+- Updated dependencies [[`0c8565f`](https://github.com/whitphx/anipres/commit/0c8565fb8c9fa597c236c78c8fd7278d1dfeddf0)]:
+  - anipres@0.1.0
+
 ## 0.0.16
 
 ### Patch Changes

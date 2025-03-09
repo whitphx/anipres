@@ -1,5 +1,11 @@
 # anipres
 
+## 0.1.0
+
+### Minor Changes
+
+- [#124](https://github.com/whitphx/anipres/pull/124) [`0c8565f`](https://github.com/whitphx/anipres/commit/0c8565fb8c9fa597c236c78c8fd7278d1dfeddf0) Thanks [@whitphx](https://github.com/whitphx)! - Mount the dragged element as a portal so that it works in Slidev addon
+
 ## 0.0.12
 
 ### Patch Changes
