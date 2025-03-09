@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => ({
           // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
           // by adding `?subsets` to the font URL only in production mode.
           // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.
+          // We use this plugin-based approach to modify the module name dynamically at build time.
           return (
             resolveXiaolaiFontPath() + (mode === "production" ? "?subsets" : "")
           );
