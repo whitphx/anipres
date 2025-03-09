@@ -152,13 +152,13 @@ const handleMount = (editor: Editor) => {
     { immediate: true },
   );
 
-  // HACK: This is a workaround to set the size of the text shapes with `autoSize: true` correctly.
+  // HACK: This is a workaround to correctly set the sizes of text shapes with `autoSize: true`.
   // Tldraw automatically calculates the shape size for text shapes with `autoSize: true`
   // but its result may be incorrect before the container size becomes stable and the font is loaded.
   // So we trigger the text shape size calculation (https://github.com/tldraw/tldraw/blob/7190fa82f20c24bd239f456c6c941ff638f57e9f/packages/tldraw/src/lib/shapes/text/TextShapeUtil.tsx#L196)
   // by updating the shapes.
   const container = editor.getContainer();
-  const observer = new ResizeObserver(() => {
+  function resetTextAutoSize() {
     const shapes = editor.getCurrentPageShapes();
     const textShapes = shapes.filter(
       (shape) => shape.type === "text" && (shape as TLTextShape).props.autoSize,
@@ -169,11 +169,16 @@ const handleMount = (editor: Editor) => {
     }));
     editor.updateShapes(dummyUpdatedShapes);
     editor.updateShapes(textShapes); // We don't want to actually update the shapes, so revert the dummy update immediately.
-  });
+  }
+
+  const observer = new ResizeObserver(resetTextAutoSize);
   observer.observe(container);
+
+  document.fonts.addEventListener("loadingdone", resetTextAutoSize);
 
   return () => {
     observer.disconnect();
+    document.fonts.removeEventListener("loadingdone", resetTextAutoSize);
   };
 };
 
