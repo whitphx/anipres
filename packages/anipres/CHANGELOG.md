@@ -1,5 +1,11 @@
 # anipres
 
+## 0.1.1
+
+### Patch Changes
+
+- [#140](https://github.com/whitphx/anipres/pull/140) [`39cfc12`](https://github.com/whitphx/anipres/commit/39cfc125c88192dfeecd8622236d0f5c0cc221e7) Thanks [@whitphx](https://github.com/whitphx)! - Prevent click events on <DragOverlay /> from being propagated to document.body, which unexpectedly exits the edit mode of Slidev addon
+
 ## 0.1.0
 
 ### Minor Changes

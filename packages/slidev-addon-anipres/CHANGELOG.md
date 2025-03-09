@@ -1,5 +1,16 @@
 # slidev-addon-anipres
 
+## 0.1.5
+
+### Patch Changes
+
+- [#141](https://github.com/whitphx/anipres/pull/141) [`a65275f`](https://github.com/whitphx/anipres/commit/a65275f9c2a0eba6fd2a92247441dff11d5ee564) Thanks [@whitphx](https://github.com/whitphx)! - Prevent keydown events from being propagated for keyboard shortcuts to work in edit mode on the Slidev addon
+
+- [#140](https://github.com/whitphx/anipres/pull/140) [`39cfc12`](https://github.com/whitphx/anipres/commit/39cfc125c88192dfeecd8622236d0f5c0cc221e7) Thanks [@whitphx](https://github.com/whitphx)! - Prevent click events on <DragOverlay /> from being propagated to document.body, which unexpectedly exits the edit mode of Slidev addon
+
+- Updated dependencies [[`39cfc12`](https://github.com/whitphx/anipres/commit/39cfc125c88192dfeecd8622236d0f5c0cc221e7)]:
+  - anipres@0.1.1
+
 ## 0.1.4
 
 ### Patch Changes
