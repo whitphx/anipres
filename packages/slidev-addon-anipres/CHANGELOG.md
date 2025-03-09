@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.1.1
+
+### Patch Changes
+
+- [#128](https://github.com/whitphx/anipres/pull/128) [`56ac692`](https://github.com/whitphx/anipres/commit/56ac69262d58ed3520fd69f918eec6b199b6559f) Thanks [@whitphx](https://github.com/whitphx)! - Include the assets dir to the NPM package
+
 ## 0.1.0
 
 ### Minor Changes
