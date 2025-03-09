@@ -90,7 +90,7 @@ export function calcFrameBatchUIData(frameBatches: FrameBatch[]) {
     if (b.type === "cameraZoom") {
       return 1;
     }
-    return a.id.localeCompare(b.id); // TODO: Better sorting criteria?
+    return a.id.localeCompare(b.id);
   });
 
   return { steps: stepsUIData, tracks };
