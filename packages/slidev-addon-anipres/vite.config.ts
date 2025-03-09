@@ -11,9 +11,6 @@ let root = process.cwd();
 function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
 }
-function resolveXiaolaiFontPath() {
-  return join(root, "./assets/fonts/XiaolaiSC-Regular.ttf");
-}
 
 export default defineConfig(({ mode }) => ({
   optimizeDeps: {
@@ -42,9 +39,11 @@ export default defineConfig(({ mode }) => ({
           // by adding `?subsets` to the font URL only in production mode.
           // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.
           // We use this plugin-based approach to modify the module name dynamically at build time.
-          return (
-            resolveXiaolaiFontPath() + (mode === "production" ? "?subsets" : "")
+          const xiaolaiFontPath = join(
+            __dirname,
+            "./assets/fonts/XiaolaiSC-Regular.ttf",
           );
+          return xiaolaiFontPath + (mode === "production" ? "?subsets" : "");
         }
       },
     },
