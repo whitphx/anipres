@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.1.2
+
+### Patch Changes
+
+- [#132](https://github.com/whitphx/anipres/pull/132) [`c1c8317`](https://github.com/whitphx/anipres/commit/c1c8317c216994bdabd60ee38427ee29f35dae28) Thanks [@whitphx](https://github.com/whitphx)! - Fix the font path resolution
+
 ## 0.1.1
 
 ### Patch Changes
