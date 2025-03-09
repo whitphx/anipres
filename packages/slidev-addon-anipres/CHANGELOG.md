@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.1.4
+
+### Patch Changes
+
+- [#138](https://github.com/whitphx/anipres/pull/138) [`b5ba494`](https://github.com/whitphx/anipres/commit/b5ba494c185c20c51b03d06b580cafa150ec8bb5) Thanks [@whitphx](https://github.com/whitphx)! - Reset text shape sizes when a font loaded
+
 ## 0.1.3
 
 ### Patch Changes
