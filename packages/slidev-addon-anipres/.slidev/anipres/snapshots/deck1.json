@@ -210,8 +210,8 @@
         "props": {
           "color": "black",
           "size": "m",
-          "w": 151.53121948242188,
-          "text": "Hello World\nこんにちは世界",
+          "w": 169,
+          "text": "Hello World\nこんにちは世界\n你好",
           "font": "draw",
           "textAlign": "start",
           "autoSize": true,
