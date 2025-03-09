@@ -10,6 +10,7 @@
   "main": "index.ts",
   "files": [
     "components",
+    "assets",
     "public/Excalifont-Regular.woff2",
     "index.ts",
     "vite.config.ts"
