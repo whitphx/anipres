@@ -42,7 +42,7 @@ import {
 } from "@slidev/client";
 import "anipres/anipres.css";
 // @ts-expect-error virtual import
-import * as xiaolai from "/@xiaolai-font";
+import * as xiaolaiFont from "/@xiaolai-font";
 // @ts-expect-error virtual import
 import ALL_SNAPSHOT from "/@slidev-anipres-snapshot";
 
@@ -184,9 +184,9 @@ onSlideEnter(() => {
   isMountedOnce.value = true;
 });
 
-const fontFamily = computed(() => {
+const drawStyleFontFamily = computed(() => {
   if (props.excalidrawLikeFont) {
-    return `Excalifont-Regular, "${xiaolai.css.family}", ${xiaolai.fontFamilyFallback}, 'tldraw_draw'`;
+    return `Excalifont-Regular, "${xiaolaiFont.css.family}", ${xiaolaiFont.fontFamilyFallback}, 'tldraw_draw'`;
   }
   return `'tldraw_draw'`;
 });
@@ -248,7 +248,7 @@ const fontFamily = computed(() => {
 }
 
 :deep(.tl-container) {
-  --tl-font-draw: v-bind(fontFamily);
+  --tl-font-draw: v-bind(drawStyleFontFamily);
 }
 </style>
 
