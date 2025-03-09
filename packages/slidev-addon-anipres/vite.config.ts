@@ -12,7 +12,7 @@ function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
 }
 function resolveXiaolaiFontPath() {
-  return join(root, "./components/fonts/XiaolaiSC-Regular.ttf");
+  return join(root, "./assets/fonts/XiaolaiSC-Regular.ttf");
 }
 
 export default defineConfig(({ mode }) => ({
