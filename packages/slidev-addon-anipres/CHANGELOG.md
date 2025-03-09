@@ -1,5 +1,16 @@
 # slidev-addon-anipres
 
+## 0.2.0
+
+### Minor Changes
+
+- [#143](https://github.com/whitphx/anipres/pull/143) [`090ecf2`](https://github.com/whitphx/anipres/commit/090ecf21c2e66cb67b88ad32391ba0b83060aa90) Thanks [@whitphx](https://github.com/whitphx)! - Add timestamp to each track so that the tracks are sorted in the created time order
+
+### Patch Changes
+
+- Updated dependencies [[`090ecf2`](https://github.com/whitphx/anipres/commit/090ecf21c2e66cb67b88ad32391ba0b83060aa90)]:
+  - anipres@0.2.0
+
 ## 0.1.5
 
 ### Patch Changes
