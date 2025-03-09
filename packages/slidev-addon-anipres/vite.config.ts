@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => ({
     {
       name: "set-font-subsets",
       resolveId(id) {
-        if (id === "/@xiaolai-font") {
+        if (id === "/@xiaolai-font.ttf") {
           // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
           // by adding `?subsets` to the font URL only in production mode.
           // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.

@@ -41,8 +41,7 @@ import {
   useSlideContext,
 } from "@slidev/client";
 import "anipres/anipres.css";
-// @ts-expect-error virtual import
-import * as xiaolaiFont from "/@xiaolai-font";
+import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
 import ALL_SNAPSHOT from "/@slidev-anipres-snapshot";
 
