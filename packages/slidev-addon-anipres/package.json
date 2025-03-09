@@ -10,6 +10,7 @@
   "main": "index.ts",
   "files": [
     "components",
+    "public/Excalifont-Regular.woff2",
     "index.ts",
     "vite.config.ts"
   ],
@@ -28,7 +29,8 @@
     "anipres": "workspace:*",
     "react-dom": "^18.3.1",
     "tldraw": "^3.7.2",
-    "veaury": "^2.6.2"
+    "veaury": "^2.6.2",
+    "vite-plugin-font": "^5.1.0"
   },
   "devDependencies": {
     "@slidev/cli": "51.1.0",

@@ -4,14 +4,18 @@
 import fs from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+import Font from "vite-plugin-font";
 
 let root = process.cwd();
 function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
 }
+function resolveXiaolaiFontPath() {
+  return join(root, "./assets/fonts/XiaolaiSC-Regular.ttf");
+}
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     /*
      * In dev mode, Vite serves native ESM, so CommonJS packages like "react" don't expose named exports (e.g., useCallback) correctly,
@@ -30,6 +34,27 @@ export default defineConfig({
     ],
   },
   plugins: [
+    {
+      name: "set-font-subsets",
+      resolveId(id) {
+        if (id === "/@xiaolai-font.ttf") {
+          // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
+          // by adding `?subsets` to the font URL only in production mode.
+          // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.
+          // We use this plugin-based approach to modify the module name dynamically at build time.
+          return (
+            resolveXiaolaiFontPath() + (mode === "production" ? "?subsets" : "")
+          );
+        }
+      },
+    },
+    Font.vite({
+      // Enable optimization only in production mode. See the comment in the `resolveId` hook above.
+      scanFiles:
+        mode === "production"
+          ? ["**/.slidev/anipres/snapshots/*.json"]
+          : undefined,
+    }) as Plugin,
     {
       name: "anipres-server",
       configureServer(server) {
@@ -98,4 +123,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));

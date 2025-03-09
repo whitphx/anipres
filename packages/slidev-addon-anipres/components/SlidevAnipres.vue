@@ -41,6 +41,7 @@ import {
   useSlideContext,
 } from "@slidev/client";
 import "anipres/anipres.css";
+import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
 import ALL_SNAPSHOT from "/@slidev-anipres-snapshot";
 
@@ -55,12 +56,14 @@ const props = withDefaults(
     start?: number;
     fontUrls?: Partial<TLEditorAssetUrls["fonts"]>;
     fontUrl?: string; // Short hand for fontUrls.draw
+    excalidrawLikeFont?: boolean;
   }>(),
   {
     editable: true,
     start: 0,
     fontUrls: () => ({}),
     fontUrl: undefined,
+    excalidrawLikeFont: false,
   },
 );
 
@@ -179,6 +182,13 @@ const isMountedOnce = ref(false);
 onSlideEnter(() => {
   isMountedOnce.value = true;
 });
+
+const drawStyleFontFamily = computed(() => {
+  if (props.excalidrawLikeFont) {
+    return `Excalifont-Regular, "${xiaolaiFont.css.family}", ${xiaolaiFont.fontFamilyFallback}, 'tldraw_draw'`;
+  }
+  return `'tldraw_draw'`;
+});
 </script>
 
 <template>
@@ -234,5 +244,18 @@ onSlideEnter(() => {
 
 .container:not(.editing) :deep(.tl-container__focused) {
   outline: none;
+}
+
+:deep(.tl-container) {
+  --tl-font-draw: v-bind(drawStyleFontFamily);
+}
+</style>
+
+<style>
+@font-face {
+  font-family: "Excalifont-Regular";
+  src: url("/Excalifont-Regular.woff2");
+  font-weight: normal;
+  font-style: normal;
 }
 </style>

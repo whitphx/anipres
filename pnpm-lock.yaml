@@ -142,6 +142,9 @@ importers:
       vite:
         specifier: '>=5.0'
         version: 6.0.11(@types/node@22.13.1)(jiti@2.4.2)(sass-embedded@1.83.4)(tsx@4.19.2)(yaml@2.7.0)
+      vite-plugin-font:
+        specifier: ^5.1.0
+        version: 5.1.0
     devDependencies:
       '@slidev/cli':
         specifier: 51.1.0
