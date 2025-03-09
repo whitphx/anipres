@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     {
-      name: "set-font-subset",
+      name: "set-font-subsets",
       resolveId(id) {
         if (id === "/@xiaolai-font") {
           // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
