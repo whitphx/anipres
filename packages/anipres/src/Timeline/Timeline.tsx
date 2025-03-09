@@ -356,7 +356,11 @@ export function Timeline({
         )}
       </DragStateStyleDiv>
       {createPortal(
-        <DragOverlay>
+        <DragOverlay
+          style={{
+            pointerEvents: "none", // Prevent click events from being propagated to document.body, which unexpectedly triggers exiting the edit mode in the Slidev addon.
+          }}
+        >
           {draggedFrame != null && (
             <FrameEditor
               frame={draggedFrame}
