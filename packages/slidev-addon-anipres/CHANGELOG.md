@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.1.3
+
+### Patch Changes
+
+- [#135](https://github.com/whitphx/anipres/pull/135) [`31cbb12`](https://github.com/whitphx/anipres/commit/31cbb120afd9925c3ee5406476cdcbf27f20f4c9) Thanks [@whitphx](https://github.com/whitphx)! - Auto-resizing text shapes correctly
+
 ## 0.1.2
 
 ### Patch Changes
