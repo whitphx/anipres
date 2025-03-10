@@ -23,13 +23,14 @@ import type {
   TldrawProps,
   TLStoreSnapshot,
   TLEditorSnapshot,
+  TLInstancePageState,
+  TLInstancePageStateId,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
 import { SlideShapeType, SlideShapeUtil } from "./SlideShapeUtil";
 import { SlideShapeTool } from "./SlideShapeTool";
 import { ControlPanel } from "./ControlPanel";
-import { ReadonlyOverlay } from "./ReadonlyOverlay";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
   getOrderedSteps,
@@ -328,17 +329,66 @@ const Inner = track((props: InnerProps) => {
     );
 
     stopHandlers.push(
-      react("presentation mode", () => {
-        if (perInstanceAtoms.$presentationMode.get()) {
-          editor.selectNone();
-
-          // XXX: We can't run the step here like below because it will trigger this react() again and cause infinite running.
-          // const currentStepIndex = perInstanceAtoms.$currentStepIndex.get();
-          // const orderedSteps = getOrderedSteps(editor);
-          // runStep(editor, orderedSteps, currentStepIndex);
-        }
-      }),
+      editor.sideEffects.registerBeforeChangeHandler(
+        "instance_page_state",
+        (_, next) => {
+          if (perInstanceAtoms.$presentationMode.get()) {
+            // The readonly flag on `editor` still allows selecting shapes,
+            // so we disable it here.
+            return {
+              ...next,
+              hoveredShapeId: null,
+              selectedShapeIds: [],
+              // editingShapeId: null,  // Setting `editingShapeId` here causes an error, so we control it in the `change` event listener below.
+              focusedGroupId: null,
+              croppingShapeId: null,
+              erasingShapeIds: [],
+              hintingShapeIds: [],
+            };
+          }
+          return next;
+        },
+      ),
     );
+    editor.addListener("change", (ev) => {
+      // See above. We control `editingShapeId` here because setting it in the `beforeChange` handler above causes an error.
+      const presentationMode = perInstanceAtoms.$presentationMode.get();
+      if (!presentationMode) {
+        return;
+      }
+
+      const key = "instance_page_state:page:page" as TLInstancePageStateId;
+      if (!(key in ev.changes.updated)) {
+        return;
+      }
+
+      const [, to] = ev.changes.updated[key];
+      const editingShapeId = (to as TLInstancePageState).editingShapeId;
+      if (editingShapeId == null) {
+        return;
+      }
+      const editingShape = editor.getShape(editingShapeId);
+      if (editingShape == null) {
+        return;
+      }
+
+      if (editingShape.type === "embed") {
+        // Editing an embed shape is allowed so that the user can manipulate the content inside the embed.
+        return;
+      }
+
+      editor.setEditingShape(null);
+    });
+    editor.addListener("event", (ev) => {
+      const presentationMode = perInstanceAtoms.$presentationMode.get();
+      if (!presentationMode) {
+        return;
+      }
+      // Cancel double click in presentation mode so that the user can't create a new text.
+      if (ev.type === "pointer" && ev.target === "canvas") {
+        editor.cancelDoubleClick();
+      }
+    });
 
     onMount?.(editor);
 
@@ -445,11 +495,7 @@ const Inner = track((props: InnerProps) => {
       }}
       snapshot={snapshot}
       assetUrls={assetUrls}
-    >
-      <ReadonlyOverlay // Prevent interactions with shapes in presentation mode. Tldraw's `readOnly` option is not used because it allows some ops like selecting shapes or editing text.
-        $presentationMode={perInstanceAtoms.$presentationMode}
-      />
-    </Tldraw>
+    />
   );
 });
 
