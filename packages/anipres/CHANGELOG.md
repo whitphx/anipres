@@ -1,5 +1,11 @@
 # anipres
 
+## 0.3.0
+
+### Minor Changes
+
+- [#148](https://github.com/whitphx/anipres/pull/148) [`149eeec`](https://github.com/whitphx/anipres/commit/149eeece8873bf1b228c9260b92b1bcb87f076fa) Thanks [@whitphx](https://github.com/whitphx)! - Improve the presentation mode impl to allow interacting with embed widgets
+
 ## 0.2.0
 
 ### Minor Changes
