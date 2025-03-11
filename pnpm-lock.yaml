@@ -75,8 +75,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0(@dnd-kit/core@6.3.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       re-resizable:
-        specifier: ^6.10.3
-        version: 6.10.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^6.11.2
+        version: 6.11.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@types/react':
         specifier: ^18.3.18
@@ -4580,8 +4580,8 @@ packages:
   rc9@2.1.2:
     resolution: {integrity: sha512-btXCnMmRIBINM2LDZoEmOogIZU7Qe7zn4BpomSKZ/ykbLObuBdvG+mFq11DL6fjH1DRwHhrlgtYWG96bJiC7Cg==}
 
-  re-resizable@6.10.3:
-    resolution: {integrity: sha512-zvWb7X3RJMA4cuSrqoxgs3KR+D+pEXnGrD2FAD6BMYAULnZsSF4b7AOVyG6pC3VVNVOtlagGDCDmZSwWLjjBBw==}
+  re-resizable@6.11.2:
+    resolution: {integrity: sha512-2xI2P3OHs5qw7K0Ud1aLILK6MQxW50TcO+DetD9eIV58j84TqYeHoZcL9H4GXFXXIh7afhH8mv5iUCXII7OW7A==}
     peerDependencies:
       react: ^16.13.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.13.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -11345,7 +11345,7 @@ snapshots:
       destr: 2.0.3
     optional: true
 
-  re-resizable@6.10.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  re-resizable@6.11.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
