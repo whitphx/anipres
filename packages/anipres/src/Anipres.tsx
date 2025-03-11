@@ -333,10 +333,20 @@ const Inner = track((props: InnerProps) => {
         "instance_page_state",
         (_, next) => {
           if (perInstanceAtoms.$presentationMode.get()) {
-            // The readonly flag on `editor` still allows selecting shapes,
-            // so we disable it here.
+            next.selectedShapeIds.forEach((id) => {
+              const shape = editor.getShape(id);
+              if (shape?.type === "embed") {
+                // In presentation mode, editing state is enabled by a single click on an embed shape.
+                // Editing state is needed because it's where the user can interact with the embed shape, e.g. controlling a YouTube video.
+                if (next.editingShapeId !== id) {
+                  editor.setEditingShape(shape);
+                }
+              }
+            });
             return {
               ...next,
+              // The readonly flag on `editor` still allows selecting shapes,
+              // so we disable it here.
               hoveredShapeId: null,
               selectedShapeIds: [],
               // editingShapeId: null,  // Setting `editingShapeId` here causes an error, so we control it in the `change` event listener below.
