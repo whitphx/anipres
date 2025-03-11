@@ -239,6 +239,8 @@ export function getFramesFromFrameBatches(frameBatches: FrameBatch[]): Frame[] {
   return frameBatches.flatMap((batch) => batch.data);
 }
 
+export type Step = FrameBatch[];
+
 export function getOrderedSteps(editor: Editor): Step[] {
   const frames = getAllFrames(editor);
   const frameBatches = getFrameBatches(frames);
@@ -313,6 +315,7 @@ async function runFrames(
   editor: Editor,
   frames: Frame[],
   predecessorShape: TLShape | null,
+  historyStoppingPoint: string,
 ): Promise<void> {
   for (const frame of frames) {
     const shape = getShapeByFrameId(editor, frame.id);
@@ -357,22 +360,30 @@ async function runFrames(
             type: shape.type,
             meta: undefined,
           });
-          editor.animateShape(
-            {
-              ...shape,
-              id: animeShapeId,
-              meta: undefined,
-            },
-            {
-              immediate,
-              animation: {
-                duration,
-                easing: EASINGS[easing],
-              },
-            },
-          );
         },
         { history: "ignore", ignoreShapeLock: true },
+      );
+
+      // HACK: Changes made by editor.animateShape() can't be ignored by `editor.run(..., { history: "ignore" })`
+      // because it's done in the `tick` event listener that is executed after the `editor.run()` returns.
+      // So we need to cancel the history records in another `tick` event listener manually.
+      const onTick = () => {
+        editor.bailToMark(historyStoppingPoint);
+      };
+      editor.on("tick", onTick);
+      editor.animateShape(
+        {
+          ...shape,
+          id: animeShapeId,
+          meta: undefined,
+        },
+        {
+          immediate,
+          animation: {
+            duration,
+            easing: EASINGS[easing],
+          },
+        },
       );
 
       setTimeout(() => {
@@ -382,6 +393,7 @@ async function runFrames(
           },
           { history: "ignore", ignoreShapeLock: true },
         );
+        editor.off("tick", onTick);
       }, duration);
     }
 
@@ -391,12 +403,13 @@ async function runFrames(
   }
 }
 
-export type Step = FrameBatch[];
 export function runStep(editor: Editor, steps: Step[], index: number): boolean {
   const step = steps[index];
   if (step == null) {
     return false;
   }
+
+  const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
   step.forEach((frameBatch) => {
     const predecessorFrameBatch = steps
@@ -431,7 +444,12 @@ export function runStep(editor: Editor, steps: Step[], index: number): boolean {
       { history: "ignore", ignoreShapeLock: true },
     );
 
-    runFrames(editor, frames, predecessorShape ?? null).finally(() => {
+    runFrames(
+      editor,
+      frames,
+      predecessorShape ?? null,
+      markBeforeAnimation,
+    ).finally(() => {
       editor.run(
         () => {
           for (const shape of frameShapes) {
@@ -447,6 +465,7 @@ export function runStep(editor: Editor, steps: Step[], index: number): boolean {
         },
         { history: "ignore", ignoreShapeLock: true },
       );
+      editor.bailToMark(markBeforeAnimation);
     });
   });
 
