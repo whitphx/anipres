@@ -1,5 +1,11 @@
 # anipres
 
+## 0.4.0
+
+### Minor Changes
+
+- [#151](https://github.com/whitphx/anipres/pull/151) [`9e652d3`](https://github.com/whitphx/anipres/commit/9e652d3978f2d0f6c4da11ceca53a67f48e772a9) Thanks [@whitphx](https://github.com/whitphx)! - Allow entering edit state on embed shapes in presentation mode
+
 ## 0.3.0
 
 ### Minor Changes
