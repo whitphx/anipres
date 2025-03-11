@@ -1,5 +1,11 @@
 # anipres
 
+## 0.5.0
+
+### Minor Changes
+
+- [#157](https://github.com/whitphx/anipres/pull/157) [`9292c1b`](https://github.com/whitphx/anipres/commit/9292c1bc4a9de8cb0acaae1bb44b59a7805758fe) Thanks [@whitphx](https://github.com/whitphx)! - Prevent the undo/redo stack from adding new records during animation
+
 ## 0.4.0
 
 ### Minor Changes
