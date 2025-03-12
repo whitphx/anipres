@@ -34,7 +34,7 @@
     "vite-plugin-font": "^5.1.0"
   },
   "devDependencies": {
-    "@slidev/cli": "51.1.0",
+    "@slidev/cli": "51.4.0",
     "@slidev/client": "51.3.0",
     "@slidev/theme-default": "^0.25.0",
     "@vue/tsconfig": "^0.7.0",
