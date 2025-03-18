@@ -119,8 +119,8 @@ importers:
         specifier: ^7.2.2
         version: 7.2.2
       vite-plugin-font:
-        specifier: ^5.1.0
-        version: 5.1.0
+        specifier: ^5.1.1
+        version: 5.1.1
 
   packages/slidev-addon-anipres:
     dependencies:
@@ -143,8 +143,8 @@ importers:
         specifier: '>=5.0'
         version: 6.2.1(@types/node@22.13.10)(jiti@2.4.2)(sass-embedded@1.85.1)(tsx@4.19.2)(yaml@2.7.0)
       vite-plugin-font:
-        specifier: ^5.1.0
-        version: 5.1.0
+        specifier: ^5.1.1
+        version: 5.1.1
     devDependencies:
       '@slidev/cli':
         specifier: 51.4.0
@@ -2588,11 +2588,6 @@ packages:
     peerDependencies:
       acorn: ^6.0.0 || ^7.0.0 || ^8.0.0
 
-  acorn@8.14.0:
-    resolution: {integrity: sha512-cl669nCJTZBsL97OF4kUQm5g5hC2uihk0NxY3WENAC0TYdILVkAyHymAntgxGkl7K+t0cXIrH5siy5S4XkFycA==}
-    engines: {node: '>=0.4.0'}
-    hasBin: true
-
   acorn@8.14.1:
     resolution: {integrity: sha512-OvQ/2pUDKmgfCg++xsTX1wGxfTaszcHVcTctW4UJB4hibJx2HXxxO5UmVgyjMa+ZDsiaf5wWLXYpRWMmBI0QHg==}
     engines: {node: '>=0.4.0'}
@@ -2791,6 +2786,9 @@ packages:
     resolution: {integrity: sha512-zgVZuo2WcZgfUEmsn6eO3kINexW8RAE4maiQ8QNs8CtpPCSyMiYsULR3HQYkm3w8FIA3SberyMJMSldGsW+U3w==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
 
+  change-case@5.4.4:
+    resolution: {integrity: sha512-HRQyTk2/YPEkt9TnUPbOpr64Uw3KOicFWPVBb+xiHvd6eBx/qPr9xqfBFDT8P2vWsvvz4jbEkfDe71W3VyNu2w==}
+
   character-entities-html4@2.1.0:
     resolution: {integrity: sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA==}
 
@@ -2862,6 +2860,10 @@ packages:
 
   cn-font-split@7.2.2:
     resolution: {integrity: sha512-o2uPPNjVB8XkWV3SBxg5zdLVtPwtAIATyNMbMAjx3mao6cB2/5NQhngd+lxwrPO0mPFSCBUfmchgLhQzy5MJkQ==}
+    hasBin: true
+
+  cn-font-split@7.2.7:
+    resolution: {integrity: sha512-5zGav7aJMWWlywidZPACJP5uqmMF7ygcmZIshTmikIEduo3J3hGFuWLQNDyqTd0NfADx9BL0pz8eGED7W3RnTQ==}
     hasBin: true
 
   codemirror-theme-vars@0.1.2:
@@ -3540,8 +3542,8 @@ packages:
   fontkit@2.0.4:
     resolution: {integrity: sha512-syetQadaUEDNdxdugga9CpEYVaQIxOwk7GlwZWWZ19//qW4zE5bknOKeMBDYAASwnpaSHKJITRLMF9m1fp3s6g==}
 
-  foreground-child@3.3.0:
-    resolution: {integrity: sha512-Ld2g8rrAyMYFXBhEqMz8ZAHBi4J4uS1i/CxGMDnjyFWddMXLVcDp051DZfu+t7+ab7Wv6SMqpWmyFIj5UbfFvg==}
+  foreground-child@3.3.1:
+    resolution: {integrity: sha512-gIXjKqtFuWEgzFRJA9WCQeSJLZDjgJUOMCMzxtvFq/37KojM1BFGufqsCy0r4qSQmYLsZYMeyRqzIWOMup03sw==}
     engines: {node: '>=14'}
 
   form-data-encoder@2.1.4:
@@ -3934,8 +3936,8 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
-  jackspeak@4.0.3:
-    resolution: {integrity: sha512-oSwM7q8PTHQWuZAlp995iPpPJ4Vkl7qT0ZRD+9duL9j2oBy6KcTfyxc8mEuHJYC+z/kbps80aJLkaNzTOrf/kw==}
+  jackspeak@4.1.0:
+    resolution: {integrity: sha512-9DDdhb5j6cpeitCbvLO7n7J4IxnbM6hoF6O1g4HQ5TfhvvKN8ywDM7668ZhMHRqVmxqhps/F6syWK2KcPxYlkw==}
     engines: {node: 20 || >=22}
 
   jiti@2.4.2:
@@ -4746,6 +4748,10 @@ packages:
     resolution: {integrity: sha512-ivcbpgCa2yTJYTTdQTXkz6XqeHhsdzXKxI4jRnjOWyQkWwjilI3tQ0hzLCHSGPjO4LwYK5x1P8a+wINF9AzvFQ==}
     hasBin: true
 
+  proto-to-cli@1.2.1:
+    resolution: {integrity: sha512-Wga68qpLWHad9ZmC+gORp+ZxyzFb6I+nfwFoZyJw8rSGlEHr9XhH4mzDQ0fWqCbECKZBBVneaLR8ZUI5TLBPSA==}
+    hasBin: true
+
   protobufjs@7.4.0:
     resolution: {integrity: sha512-mRUWCc3KUU4w1jU8sGxICXH/gNS94DvI1gxqDvBzhj1JpcsimQkYiOJfwsPUykUI5ZaspFbSgmBLER8IrQ3tqw==}
     engines: {node: '>=12.0.0'}
@@ -5551,10 +5557,6 @@ packages:
     resolution: {integrity: sha512-4/u/j4FrCKdi17jaxuJA0jClGxB1AvU2hw/IuayPc4ay1XGaJs/rbb4v5WKwAjNifjmXK9PIFyuPiaK8azyR9w==}
     engines: {node: '>=14.0.0'}
 
-  unplugin@2.1.2:
-    resolution: {integrity: sha512-Q3LU0e4zxKfRko1wMV2HmP8lB9KWislY7hxXpxd+lGx0PRInE4vhMBVEZwpdVYHvtqzhSrzuIfErsob6bQfCzw==}
-    engines: {node: '>=18.12.0'}
-
   unplugin@2.2.0:
     resolution: {integrity: sha512-m1ekpSwuOT5hxkJeZGRxO7gXbXT3gF26NjQ7GdVHoLoF8/nopLcd/QfPigpCy7i51oFHiRJg/CyHhj4vs2+KGw==}
     engines: {node: '>=18.12.0'}
@@ -5660,8 +5662,8 @@ packages:
       vite:
         optional: true
 
-  vite-plugin-font@5.1.0:
-    resolution: {integrity: sha512-afbEUBQO5uTOj9iFipjTcg2CMvurWGw4WDZk+hhGtp97s6HRllnF4gto28DG9Qndx2UcMaz5asuVoWjo12NNyw==}
+  vite-plugin-font@5.1.1:
+    resolution: {integrity: sha512-yZOKgHMKsB4Q8XmTtDcRXx03sYpeoLNGRWiUiwrOPKIfv+zEXNVTuyyVRPbktbPUsuOIsPFgubCdGgZBW/v02A==}
 
   vite-plugin-inspect@11.0.0:
     resolution: {integrity: sha512-Q0RDNcMs1mbI2yGRwOzSapnnA6NFO0j88+Vb8pJX0iYMw34WczwKJi3JgheItDhbWRq/CLUR0cs+ajZpcUaIFQ==}
@@ -9055,8 +9057,6 @@ snapshots:
     dependencies:
       acorn: 8.14.1
 
-  acorn@8.14.0: {}
-
   acorn@8.14.1: {}
 
   agent-base@7.1.3:
@@ -9252,6 +9252,8 @@ snapshots:
 
   chalk@5.4.1: {}
 
+  change-case@5.4.4: {}
+
   character-entities-html4@2.1.0: {}
 
   character-entities-legacy@3.0.0: {}
@@ -9339,6 +9341,15 @@ snapshots:
       google-protobuf: 3.21.4
       koffi: 2.10.1
       proto-to-cli: 1.1.5
+
+  cn-font-split@7.2.7:
+    dependencies:
+      buffer: 6.0.3
+      commander: 12.1.0
+      fs-extra: 11.3.0
+      google-protobuf: 3.21.4
+      koffi: 2.10.1
+      proto-to-cli: 1.2.1
 
   codemirror-theme-vars@0.1.2: {}
 
@@ -10120,7 +10131,7 @@ snapshots:
       unicode-properties: 1.4.1
       unicode-trie: 2.0.0
 
-  foreground-child@3.3.0:
+  foreground-child@3.3.1:
     dependencies:
       cross-spawn: 7.0.6
       signal-exit: 4.1.0
@@ -10229,8 +10240,8 @@ snapshots:
 
   glob@11.0.1:
     dependencies:
-      foreground-child: 3.3.0
-      jackspeak: 4.0.3
+      foreground-child: 3.3.1
+      jackspeak: 4.1.0
       minimatch: 10.0.1
       minipass: 7.1.2
       package-json-from-dist: 1.0.1
@@ -10503,7 +10514,7 @@ snapshots:
 
   isexe@2.0.0: {}
 
-  jackspeak@4.0.3:
+  jackspeak@4.1.0:
     dependencies:
       '@isaacs/cliui': 8.0.2
 
@@ -11507,6 +11518,13 @@ snapshots:
       fs-extra: 11.3.0
       protobufjs: 7.4.0
 
+  proto-to-cli@1.2.1:
+    dependencies:
+      change-case: 5.4.4
+      commander: 13.1.0
+      fs-extra: 11.3.0
+      protobufjs: 7.4.0
+
   protobufjs@7.4.0:
     dependencies:
       '@protobufjs/aspromise': 1.1.2
@@ -12377,12 +12395,7 @@ snapshots:
 
   unplugin@1.16.1:
     dependencies:
-      acorn: 8.14.0
-      webpack-virtual-modules: 0.6.2
-
-  unplugin@2.1.2:
-    dependencies:
-      acorn: 8.14.0
+      acorn: 8.14.1
       webpack-virtual-modules: 0.6.2
 
   unplugin@2.2.0:
@@ -12515,15 +12528,15 @@ snapshots:
       - rollup
       - supports-color
 
-  vite-plugin-font@5.1.0:
+  vite-plugin-font@5.1.1:
     dependencies:
       cn-font-metrics: 2.1.6
-      cn-font-split: 7.2.2
+      cn-font-split: 7.2.7
       fontaine: 0.5.0
       fs-extra: 11.3.0
       glob: 11.0.1
       minimatch: 10.0.1
-      unplugin: 2.1.2
+      unplugin: 2.2.0
     transitivePeerDependencies:
       - encoding
 
