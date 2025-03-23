@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { useContainer } from "tldraw";
 
-const DELEGATE_CSS_VARS = [
+// See FrameEditor.module.scss for the CSS variables that need to be delegated.
+const DELEGATED_CSS_VARS = [
   "--color-background",
   "--color-text",
   "--color-selection-stroke",
@@ -17,17 +18,17 @@ const DELEGATE_CSS_VARS = [
  * variables are not automatically propagated to the Portal,
  * while the FrameEditor element refers to these CSS variables for its styling.
  */
-export const DelegateTldrawCssVar = memo((props: React.PropsWithChildren) => {
+export const DelegateTldrawCssVars = memo((props: React.PropsWithChildren) => {
   const container = useContainer();
 
   const getCssVars = useCallback(() => {
     const computedStyle = window.getComputedStyle(container);
-    return DELEGATE_CSS_VARS.reduce(
+    return DELEGATED_CSS_VARS.reduce(
       (acc, cssVar) => {
         acc[cssVar] = computedStyle.getPropertyValue(cssVar);
         return acc;
       },
-      {} as Record<(typeof DELEGATE_CSS_VARS)[number], string>,
+      {} as Record<(typeof DELEGATED_CSS_VARS)[number], string>,
     );
   }, [container]);
 
