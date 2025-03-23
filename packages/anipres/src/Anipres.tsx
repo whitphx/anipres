@@ -14,6 +14,8 @@ import {
   track,
   useAtom,
   useValue,
+  EmbedDefinition,
+  DEFAULT_EMBED_DEFINITIONS,
 } from "tldraw";
 import type {
   TLUiOverrides,
@@ -51,11 +53,32 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { YouTubeIframeRegistry } from "./youtube";
 
 import "./tldraw-overrides.css";
 
 const customShapeUtils = [SlideShapeUtil];
 const customTools = [SlideShapeTool];
+const customEmbeds = DEFAULT_EMBED_DEFINITIONS.map((embed) => {
+  if (embed.type === "youtube") {
+    return {
+      ...embed,
+      toEmbedUrl: (url: string) => {
+        const embedUrlString = embed.toEmbedUrl(url);
+        if (embedUrlString == null) {
+          return null;
+        }
+        const embedUrl = new URL(embedUrlString);
+        embedUrl.searchParams.set("enablejsapi", "1");
+        embedUrl.searchParams.set("mute", "1"); // Avoid autoplay blocking policy; https://developer.chrome.com/blog/autoplay/
+        embedUrl.searchParams.set("origin", window.location.origin);
+        return embedUrl.toString();
+      },
+    };
+  }
+
+  return embed;
+}) as EmbedDefinition[];
 
 // We use atoms as it's Tldraw's design,
 // but we also need to manage these states per instance of Anipres component
@@ -402,8 +425,41 @@ const Inner = track((props: InnerProps) => {
 
     onMount?.(editor);
 
+    const ytRegistry = new YouTubeIframeRegistry();
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const htmlElement = node as HTMLElement;
+            if (
+              htmlElement.classList.contains("tl-shape") &&
+              htmlElement.dataset.shapeType === "embed"
+            ) {
+              const iframe = htmlElement.querySelector("iframe");
+              if (iframe == null) {
+                return;
+              }
+              const shapeId = iframe.parentElement?.id;
+              if (shapeId == null) {
+                return;
+              }
+              ytRegistry.add(shapeId, iframe);
+
+              // ytRegistry.play(shapeId);  // TODO: Call this when necessary.
+            }
+          }
+        });
+      });
+    });
+    observer.observe(document, {
+      childList: true,
+      subtree: true,
+    });
+
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
+      observer.disconnect();
     };
   };
 
@@ -499,6 +555,7 @@ const Inner = track((props: InnerProps) => {
       overrides={makeUiOverrides(perInstanceAtoms)}
       shapeUtils={customShapeUtils}
       tools={customTools}
+      embeds={customEmbeds}
       isShapeHidden={determineShapeHidden}
       options={{
         maxPages: 1,
