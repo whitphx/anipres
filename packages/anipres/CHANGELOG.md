@@ -1,5 +1,11 @@
 # anipres
 
+## 0.5.1
+
+### Patch Changes
+
+- [#173](https://github.com/whitphx/anipres/pull/173) [`57cf65a`](https://github.com/whitphx/anipres/commit/57cf65a6a063e5d682f27b17a873046d07cbfdb3) Thanks [@whitphx](https://github.com/whitphx)! - Fix styling of a dragged frame editor element
+
 ## 0.5.0
 
 ### Minor Changes
