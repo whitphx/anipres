@@ -17,7 +17,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
-
+import { DelegateTldrawCssVar } from "./DelegateTldrawCssVar";
 interface DragStateStyleDivProps {
   children: React.ReactNode;
   className: string;
@@ -356,21 +356,23 @@ export function Timeline({
         )}
       </DragStateStyleDiv>
       {createPortal(
-        <DragOverlay
-          style={{
-            pointerEvents: "none", // Prevent click events from being propagated to document.body, which unexpectedly triggers exiting the edit mode in the Slidev addon.
-          }}
-        >
-          {draggedFrame != null && (
-            <FrameEditor
-              frame={draggedFrame}
-              isPlaceholder={false}
-              onUpdate={() => {}}
-              isSelected={false}
-              onClick={() => {}}
-            />
-          )}
-        </DragOverlay>,
+        <DelegateTldrawCssVar>
+          <DragOverlay
+            style={{
+              pointerEvents: "none", // Prevent click events from being propagated to document.body, which unexpectedly triggers exiting the edit mode in the Slidev addon.
+            }}
+          >
+            {draggedFrame != null && (
+              <FrameEditor
+                frame={draggedFrame}
+                isPlaceholder={false}
+                onUpdate={() => {}}
+                isSelected={selectedFrameIds.includes(draggedFrame.id)}
+                onClick={() => {}}
+              />
+            )}
+          </DragOverlay>
+        </DelegateTldrawCssVar>,
         document.body,
       )}
     </FrameMoveTogetherDndContext>

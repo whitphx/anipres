@@ -15,6 +15,8 @@ $editor-height: 20px;
   padding: 0;
   box-sizing: border-box;
 
+  color: var(--color-text);
+  font-size: 12px;
   background: var(--color-background);
   border: $container-border-width solid var(--color-divider);
 
