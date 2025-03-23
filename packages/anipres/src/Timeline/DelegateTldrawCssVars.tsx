@@ -39,7 +39,7 @@ export const DelegateTldrawCssVars = memo((props: React.PropsWithChildren) => {
       setCssVars(getCssVars());
     });
     observer.observe(container, {
-      attributes: true,
+      attributeFilter: ["class"], // Tldraw switches light and dark themes by attaching a class to the container.
     });
     return () => observer.disconnect();
   }, [container, getCssVars]);
