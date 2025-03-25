@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.2.5
+
+### Patch Changes
+
+- [#181](https://github.com/whitphx/anipres/pull/181) [`7aa942b`](https://github.com/whitphx/anipres/commit/7aa942b59f77fca01e1c3dba9c60848509fa6bf3) Thanks [@whitphx](https://github.com/whitphx)! - Add @types/react-dom internally
+
 ## 0.2.4
 
 ### Patch Changes
