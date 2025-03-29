@@ -101,9 +101,18 @@ const {
   height: containerHeight,
   top: containerTop,
   left: containerLeft,
+  update: updateContainerBounding,
 } = useElementBounding(container);
 
 const isEditing = ref(false);
+
+watch(isEditing, (isEditing) => {
+  if (isEditing) {
+    // `top` and `left` can be wrong for example when `top` and `left` are captured while the slide is moving during page transition.
+    // So we update the bounding rect of the container when it's actually needed.
+    updateContainerBounding();
+  }
+});
 
 function onDblclick() {
   if (props.editable && import.meta.hot && !isEditing.value) {
