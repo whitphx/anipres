@@ -159,6 +159,14 @@ const handleMount = (editor: Editor) => {
   // by updating the shapes.
   const container = editor.getContainer();
   function resetTextAutoSize() {
+    const containerRect = container.getBoundingClientRect();
+    if (containerRect.width === 0 || containerRect.height === 0) {
+      // This callback is called when the slide goes out of view and the `container`'s size becomes zero.
+      // In such case, the text shape size calculation fails
+      // and it leads to wrong text shapes when the slide becomes visible again.
+      // So we skip the text shape size calculation in such case.
+      return;
+    }
     const shapes = editor.getCurrentPageShapes();
     const textShapes = shapes.filter(
       (shape) => shape.type === "text" && (shape as TLTextShape).props.autoSize,
