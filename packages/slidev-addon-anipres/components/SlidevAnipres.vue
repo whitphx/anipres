@@ -220,11 +220,21 @@ const drawStyleFontFamily = computed(() => {
   return `'tldraw_draw'`;
 });
 
+// Prevent these keydown events from being propagated
+// for keyboard shortcuts to move the shapes in edit mode.
+// In contrast, other keydown events such as `Backspace` or `Ctrl-z`
+// should be propagated so that the keyboard shortcuts work.
+const KEYS_NOT_TO_BE_PROPAGATED = [
+  "ArrowRight",
+  "ArrowLeft",
+  "ArrowUp",
+  "ArrowDown",
+];
 function onKeyDown(e: KeyboardEvent) {
   if (isEditing.value) {
-    // Prevent the keydown event from being propagated
-    // for keyboard shortcuts to work in edit mode.
-    e.stopPropagation();
+    if (KEYS_NOT_TO_BE_PROPAGATED.includes(e.key)) {
+      e.stopPropagation();
+    }
   }
 }
 </script>
