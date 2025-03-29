@@ -106,7 +106,9 @@ const {
 const isEditing = ref(false);
 
 function onDblclick() {
-  if (props.editable && import.meta.hot) isEditing.value = !isEditing.value;
+  if (props.editable && import.meta.hot && !isEditing.value) {
+    isEditing.value = true;
+  }
 }
 
 const portalContainer = useTemplateRef<HTMLElement>("portalContainer");
