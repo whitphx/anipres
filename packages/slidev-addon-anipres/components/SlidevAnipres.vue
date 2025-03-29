@@ -159,16 +159,23 @@ const handleMount = (editor: Editor) => {
   // by updating the shapes.
   const container = editor.getContainer();
   function resetTextAutoSize() {
-    const shapes = editor.getCurrentPageShapes();
-    const textShapes = shapes.filter(
-      (shape) => shape.type === "text" && (shape as TLTextShape).props.autoSize,
-    ) as TLTextShape[];
-    const dummyUpdatedShapes = textShapes.map((shape) => ({
-      ...shape,
-      props: { ...shape.props, scale: shape.props.scale - 0.0001 },
-    }));
-    editor.updateShapes(dummyUpdatedShapes);
-    editor.updateShapes(textShapes); // We don't want to actually update the shapes, so revert the dummy update immediately.
+    setTimeout(() => {
+      // This setTimeout is necessary to make the text shape size calculation correct.
+      // For example, when the slide goes out of view and then becomes visible again,
+      // the container's size changes from zero to non-zero.
+      // This setTimeout prevents the text shape size calculation from being done based on the zero size.
+      const shapes = editor.getCurrentPageShapes();
+      const textShapes = shapes.filter(
+        (shape) =>
+          shape.type === "text" && (shape as TLTextShape).props.autoSize,
+      ) as TLTextShape[];
+      const dummyUpdatedShapes = textShapes.map((shape) => ({
+        ...shape,
+        props: { ...shape.props, scale: shape.props.scale - 0.0001 },
+      }));
+      editor.updateShapes(dummyUpdatedShapes);
+      editor.updateShapes(textShapes); // We don't want to actually update the shapes, so revert the dummy update immediately.
+    });
   }
 
   const observer = new ResizeObserver(resetTextAutoSize);
