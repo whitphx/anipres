@@ -287,6 +287,13 @@ function onKeyDown(e: KeyboardEvent) {
   transform-origin: top left;
 }
 
+.container :deep(p) {
+  /* Disable Slidev's styles in Anipres */
+  margin-top: inherit;
+  margin-bottom: inherit;
+  line-height: inherit;
+}
+
 .container :deep(.tl-theme__light, .tl-theme__dark) {
   --color-background: rgba(0, 0, 0, 0);
 }
