@@ -243,8 +243,18 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="inverse-transform" ref="container">
-    <Teleport to="body">
+  <div class="container inverse-transform" ref="container">
+    <!--
+      <Anipres> should be
+      - mounted in the body when editing for the edit tools
+        such as Tldraw's context menu and keyboard shortcuts
+        to work without being obstructed by the Slidev's contents.
+      - mounted in the container in the presentation mode
+        so that it's actually embedded in the slide to
+        move together with the slide during page navigation
+        and to be placed in the slide's DOM respecting things like z-index.
+    -->
+    <Teleport to="body" :disabled="!isEditing">
       <div
         :class="['portal-container', { editing: isEditing }]"
         ref="portalContainer"
@@ -254,8 +264,8 @@ function onKeyDown(e: KeyboardEvent) {
           position: 'absolute',
           width: containerWidth + 'px',
           height: containerHeight + 'px',
-          top: containerTop + 'px',
-          left: containerLeft + 'px',
+          top: (isEditing ? containerTop : 0) + 'px',
+          left: (isEditing ? containerLeft : 0) + 'px',
         }"
       >
         <Anipres
@@ -294,6 +304,11 @@ function onKeyDown(e: KeyboardEvent) {
   Slides are CSS transformed at parent level, and Tldraw breaks on such transformations.
   Inverse the transformation to make Tldraw work correctly. (note that `all: unset` only partially works)
 */
+.container :deep(p) {
+  /* Disable Slidev's styles in Anipres */
+  line-height: inherit;
+}
+
 .inverse-transform {
   width: calc(var(--slide-scale) * 100%);
   height: calc(var(--slide-scale) * 100%);
