@@ -78,6 +78,8 @@ const fontUrls = computed(() => ({
   draw: props.fontUrls.draw ?? props.fontUrl,
 }));
 
+const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
+
 const { isDark } = useDarkMode();
 watch(
   isDark,
@@ -102,8 +104,6 @@ const {
 } = useElementBounding(container);
 
 const isEditing = ref(false);
-
-const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
 
 function onDblclick() {
   if (props.editable && import.meta.hot) isEditing.value = !isEditing.value;
