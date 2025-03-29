@@ -1,5 +1,13 @@
 # slidev-addon-anipres
 
+## 0.2.7
+
+### Patch Changes
+
+- [#189](https://github.com/whitphx/anipres/pull/189) [`eefc12e`](https://github.com/whitphx/anipres/commit/eefc12e7242c03d313fab998110dc0c213578ccd) Thanks [@whitphx](https://github.com/whitphx)! - Fix text shape size recalculation
+
+- [#191](https://github.com/whitphx/anipres/pull/191) [`108f021`](https://github.com/whitphx/anipres/commit/108f0214b7e0ce9d7d264a42fe1a84337578987f) Thanks [@whitphx](https://github.com/whitphx)! - Ignore double click during editing not to exit the edit mode
+
 ## 0.2.6
 
 ### Patch Changes
