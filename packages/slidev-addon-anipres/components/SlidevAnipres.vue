@@ -33,8 +33,13 @@ import {
   type TLEditorAssetUrls,
   type TLTextShape,
 } from "tldraw";
-import { ref, useTemplateRef, watch, computed, onWatcherCleanup } from "vue";
-import { useCssVar, useStyleTag, onClickOutside } from "@vueuse/core";
+import { ref, useTemplateRef, watch, computed } from "vue";
+import {
+  useCssVar,
+  useStyleTag,
+  useElementBounding,
+  onClickOutside,
+} from "@vueuse/core";
 import {
   onSlideEnter,
   onSlideLeave,
@@ -89,27 +94,12 @@ const { $scale, $clicks } = useSlideContext();
 
 const container = useTemplateRef<HTMLElement>("container");
 
-const containerRect = ref<DOMRect>();
-watch(
-  container,
-  (newContainer) => {
-    if (newContainer) {
-      function onContainerResize() {
-        const rect = newContainer?.getBoundingClientRect();
-        containerRect.value = rect;
-      }
-      const observer = new ResizeObserver(onContainerResize);
-      observer.observe(newContainer);
-
-      onContainerResize();
-
-      onWatcherCleanup(() => {
-        observer.disconnect();
-      });
-    }
-  },
-  { immediate: true },
-);
+const {
+  width: containerWidth,
+  height: containerHeight,
+  top: containerTop,
+  left: containerLeft,
+} = useElementBounding(container);
 
 const isEditing = ref(false);
 
@@ -258,15 +248,14 @@ function onKeyDown(e: KeyboardEvent) {
       <div
         :class="['portal-container', { editing: isEditing }]"
         ref="portalContainer"
-        v-if="containerRect"
         @keydown="onKeyDown"
         @dblclick="onDblclick"
         :style="{
           position: 'absolute',
-          width: containerRect.width + 'px',
-          height: containerRect.height + 'px',
-          top: containerRect.top + 'px',
-          left: containerRect.left + 'px',
+          width: containerWidth + 'px',
+          height: containerHeight + 'px',
+          top: containerTop + 'px',
+          left: containerLeft + 'px',
         }"
       >
         <Anipres
