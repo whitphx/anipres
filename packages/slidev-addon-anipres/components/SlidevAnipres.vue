@@ -94,7 +94,9 @@ const isEditing = ref(false);
 const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
 
 function onDblclick() {
-  if (props.editable && import.meta.hot) isEditing.value = !isEditing.value;
+  if (props.editable && import.meta.hot && !isEditing.value) {
+    isEditing.value = true;
+  }
 }
 
 onClickOutside(container, () => {
