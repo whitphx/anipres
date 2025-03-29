@@ -1,5 +1,13 @@
 # slidev-addon-anipres
 
+## 0.2.6
+
+### Patch Changes
+
+- [#186](https://github.com/whitphx/anipres/pull/186) [`4053ce9`](https://github.com/whitphx/anipres/commit/4053ce9205ddfe0f641e82736b1f3e35982bfa77) Thanks [@whitphx](https://github.com/whitphx)! - Fix some keyboard shortcuts to work properly, such as backspace to delete shapes
+
+- [#188](https://github.com/whitphx/anipres/pull/188) [`ad98594`](https://github.com/whitphx/anipres/commit/ad98594d2eac09ae88eada95883e15c7b587d3d0) Thanks [@whitphx](https://github.com/whitphx)! - Fix line height
+
 ## 0.2.5
 
 ### Patch Changes
