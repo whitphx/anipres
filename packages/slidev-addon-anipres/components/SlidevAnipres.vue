@@ -33,7 +33,7 @@ import {
   type TLEditorAssetUrls,
   type TLTextShape,
 } from "tldraw";
-import { ref, useTemplateRef, watch, computed } from "vue";
+import { ref, useTemplateRef, watch, computed, onWatcherCleanup } from "vue";
 import { useCssVar, useStyleTag, onClickOutside } from "@vueuse/core";
 import {
   onSlideEnter,
@@ -87,7 +87,29 @@ watch(
 
 const { $scale, $clicks } = useSlideContext();
 
-const container = ref<HTMLElement>();
+const container = useTemplateRef<HTMLElement>("container");
+
+const containerRect = ref<DOMRect>();
+watch(
+  container,
+  (newContainer) => {
+    if (newContainer) {
+      function onContainerResize() {
+        const rect = newContainer?.getBoundingClientRect();
+        containerRect.value = rect;
+      }
+      const observer = new ResizeObserver(onContainerResize);
+      observer.observe(newContainer);
+
+      onContainerResize();
+
+      onWatcherCleanup(() => {
+        observer.disconnect();
+      });
+    }
+  },
+  { immediate: true },
+);
 
 const isEditing = ref(false);
 
@@ -97,7 +119,8 @@ function onDblclick() {
   if (props.editable && import.meta.hot) isEditing.value = !isEditing.value;
 }
 
-onClickOutside(container, () => {
+const portalContainer = useTemplateRef<HTMLElement>("portalContainer");
+onClickOutside(portalContainer, () => {
   isEditing.value = false;
 });
 
@@ -157,7 +180,7 @@ const handleMount = (editor: Editor) => {
   // but its result may be incorrect before the container size becomes stable and the font is loaded.
   // So we trigger the text shape size calculation (https://github.com/tldraw/tldraw/blob/7190fa82f20c24bd239f456c6c941ff638f57e9f/packages/tldraw/src/lib/shapes/text/TextShapeUtil.tsx#L196)
   // by updating the shapes.
-  const container = editor.getContainer();
+  const tldrawContainer = editor.getContainer();
   function resetTextAutoSize() {
     const shapes = editor.getCurrentPageShapes();
     const textShapes = shapes.filter(
@@ -172,7 +195,7 @@ const handleMount = (editor: Editor) => {
   }
 
   const observer = new ResizeObserver(resetTextAutoSize);
-  observer.observe(container);
+  observer.observe(tldrawContainer);
 
   document.fonts.addEventListener("loadingdone", resetTextAutoSize);
 
@@ -230,23 +253,35 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div
-    :class="['container', 'inverse-transform', { editing: isEditing }]"
-    ref="container"
-    @dblclick="onDblclick"
-    @keydown="onKeyDown"
-  >
-    <Anipres
-      v-if="isMountedOnce"
-      ref="anipres"
-      @mount="handleMount"
-      :step="$clicks"
-      @stepChange="$clicks = $event"
-      :presentationMode="!isEditing"
-      :snapshot="savedSnapshot"
-      :startStep="props.start"
-      :assetUrls="{ fonts: fontUrls }"
-    />
+  <div class="inverse-transform" ref="container">
+    <Teleport to="body">
+      <div
+        :class="['portal-container', { editing: isEditing }]"
+        ref="portalContainer"
+        v-if="containerRect"
+        @keydown="onKeyDown"
+        @dblclick="onDblclick"
+        :style="{
+          position: 'absolute',
+          width: containerRect.width + 'px',
+          height: containerRect.height + 'px',
+          top: containerRect.top + 'px',
+          left: containerRect.left + 'px',
+        }"
+      >
+        <Anipres
+          v-if="isMountedOnce"
+          ref="anipres"
+          @mount="handleMount"
+          :step="$clicks"
+          @stepChange="$clicks = $event"
+          :presentationMode="!isEditing"
+          :snapshot="savedSnapshot"
+          :startStep="props.start"
+          :assetUrls="{ fonts: fontUrls }"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -277,11 +312,11 @@ function onKeyDown(e: KeyboardEvent) {
   transform-origin: top left;
 }
 
-.container :deep(.tl-theme__light, .tl-theme__dark) {
+.portal-container :deep(.tl-theme__light, .tl-theme__dark) {
   --color-background: rgba(0, 0, 0, 0);
 }
 
-.container:not(.editing) :deep(.tl-container__focused) {
+.portal-container:not(.editing) :deep(.tl-container__focused) {
   outline: none;
 }
 
