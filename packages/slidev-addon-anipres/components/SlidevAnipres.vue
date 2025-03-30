@@ -288,13 +288,20 @@ function onKeyDown(e: KeyboardEvent) {
         ref="portalContainer"
         @keydown="onKeyDown"
         @dblclick="onDblclick"
-        :style="{
-          position: 'absolute',
-          width: containerWidth + 'px',
-          height: containerHeight + 'px',
-          top: (isEditing ? containerTop : 0) + 'px',
-          left: (isEditing ? containerLeft : 0) + 'px',
-        }"
+        :style="
+          isEditing
+            ? {
+                position: 'absolute',
+                width: containerWidth + 'px',
+                height: containerHeight + 'px',
+                top: containerTop + 'px',
+                left: containerLeft + 'px',
+              }
+            : {
+                width: '100%',
+                height: '100%',
+              }
+        "
       >
         <Anipres
           v-if="isMountedOnce"
