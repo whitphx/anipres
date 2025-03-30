@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.2.8
+
+### Patch Changes
+
+- [#185](https://github.com/whitphx/anipres/pull/185) [`c46fe1f`](https://github.com/whitphx/anipres/commit/c46fe1f42089cfed74639e5f599ae2cb3dc95915) Thanks [@whitphx](https://github.com/whitphx)! - Mount the Anipres component to the body outside the Slidev's DOM tree so that the edit tools such as context menu and keyboard shortcuts are not obstructed by Slidev's contents.
+
 ## 0.2.7
 
 ### Patch Changes
