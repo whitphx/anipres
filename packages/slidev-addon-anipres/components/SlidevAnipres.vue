@@ -34,7 +34,12 @@ import {
   type TLTextShape,
 } from "tldraw";
 import { ref, useTemplateRef, watch, computed } from "vue";
-import { useCssVar, useStyleTag, onClickOutside } from "@vueuse/core";
+import {
+  useCssVar,
+  useStyleTag,
+  useElementBounding,
+  onClickOutside,
+} from "@vueuse/core";
 import {
   onSlideEnter,
   onSlideLeave,
@@ -73,6 +78,8 @@ const fontUrls = computed(() => ({
   draw: props.fontUrls.draw ?? props.fontUrl,
 }));
 
+const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
+
 const { isDark } = useDarkMode();
 watch(
   isDark,
@@ -87,11 +94,25 @@ watch(
 
 const { $scale, $clicks } = useSlideContext();
 
-const container = ref<HTMLElement>();
+const container = useTemplateRef<HTMLElement>("container");
+
+const {
+  width: containerWidth,
+  height: containerHeight,
+  top: containerTop,
+  left: containerLeft,
+  update: updateContainerBounding,
+} = useElementBounding(container);
 
 const isEditing = ref(false);
 
-const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
+watch(isEditing, (isEditing) => {
+  if (isEditing) {
+    // `top` and `left` can be wrong for example when `top` and `left` are captured while the slide is moving during page transition.
+    // So we update the bounding rect of the container when it's actually needed.
+    updateContainerBounding();
+  }
+});
 
 function onDblclick() {
   if (props.editable && import.meta.hot && !isEditing.value) {
@@ -99,7 +120,8 @@ function onDblclick() {
   }
 }
 
-onClickOutside(container, () => {
+const portalContainer = useTemplateRef<HTMLElement>("portalContainer");
+onClickOutside(portalContainer, () => {
   isEditing.value = false;
 });
 
@@ -159,7 +181,7 @@ const handleMount = (editor: Editor) => {
   // but its result may be incorrect before the container size becomes stable and the font is loaded.
   // So we trigger the text shape size calculation (https://github.com/tldraw/tldraw/blob/7190fa82f20c24bd239f456c6c941ff638f57e9f/packages/tldraw/src/lib/shapes/text/TextShapeUtil.tsx#L196)
   // by updating the shapes.
-  const container = editor.getContainer();
+  const tldrawContainer = editor.getContainer();
   function resetTextAutoSize() {
     setTimeout(() => {
       // This setTimeout is necessary to make the text shape size calculation correct.
@@ -181,7 +203,7 @@ const handleMount = (editor: Editor) => {
   }
 
   const observer = new ResizeObserver(resetTextAutoSize);
-  observer.observe(container);
+  observer.observe(tldrawContainer);
 
   document.fonts.addEventListener("loadingdone", resetTextAutoSize);
 
@@ -249,23 +271,51 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div
-    :class="['container', 'inverse-transform', { editing: isEditing }]"
-    ref="container"
-    @dblclick="onDblclick"
-    @keydown="onKeyDown"
-  >
-    <Anipres
-      v-if="isMountedOnce"
-      ref="anipres"
-      @mount="handleMount"
-      :step="$clicks"
-      @stepChange="$clicks = $event"
-      :presentationMode="!isEditing"
-      :snapshot="savedSnapshot"
-      :startStep="props.start"
-      :assetUrls="{ fonts: fontUrls }"
-    />
+  <div class="container inverse-transform" ref="container">
+    <!--
+      <Anipres> should be
+      - mounted in the body when editing for the edit tools
+        such as Tldraw's context menu and keyboard shortcuts
+        to work without being obstructed by the Slidev's contents.
+      - mounted in the container in the presentation mode
+        so that it's actually embedded in the slide to
+        move together with the slide during page navigation
+        and to be placed in the slide's DOM respecting things like z-index.
+    -->
+    <Teleport to="body" :disabled="!isEditing">
+      <div
+        :class="['portal-container', { editing: isEditing }]"
+        ref="portalContainer"
+        @keydown="onKeyDown"
+        @dblclick="onDblclick"
+        :style="
+          isEditing
+            ? {
+                position: 'absolute',
+                width: containerWidth + 'px',
+                height: containerHeight + 'px',
+                top: containerTop + 'px',
+                left: containerLeft + 'px',
+              }
+            : {
+                width: '100%',
+                height: '100%',
+              }
+        "
+      >
+        <Anipres
+          v-if="isMountedOnce"
+          ref="anipres"
+          @mount="handleMount"
+          :step="$clicks"
+          @stepChange="$clicks = $event"
+          :presentationMode="!isEditing"
+          :snapshot="savedSnapshot"
+          :startStep="props.start"
+          :assetUrls="{ fonts: fontUrls }"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -289,13 +339,6 @@ function onKeyDown(e: KeyboardEvent) {
   Slides are CSS transformed at parent level, and Tldraw breaks on such transformations.
   Inverse the transformation to make Tldraw work correctly. (note that `all: unset` only partially works)
 */
-.inverse-transform {
-  width: calc(var(--slide-scale) * 100%);
-  height: calc(var(--slide-scale) * 100%);
-  transform: scale(calc(1 / var(--slide-scale)));
-  transform-origin: top left;
-}
-
 .container :deep(p) {
   /* Disable Slidev's styles in Anipres */
   margin-top: inherit;
@@ -303,11 +346,18 @@ function onKeyDown(e: KeyboardEvent) {
   line-height: inherit;
 }
 
-.container :deep(.tl-theme__light, .tl-theme__dark) {
+.inverse-transform {
+  width: calc(var(--slide-scale) * 100%);
+  height: calc(var(--slide-scale) * 100%);
+  transform: scale(calc(1 / var(--slide-scale)));
+  transform-origin: top left;
+}
+
+.portal-container :deep(.tl-theme__light, .tl-theme__dark) {
   --color-background: rgba(0, 0, 0, 0);
 }
 
-.container:not(.editing) :deep(.tl-container__focused) {
+.portal-container:not(.editing) :deep(.tl-container__focused) {
   outline: none;
 }
 
