@@ -17,7 +17,7 @@ const fontDirPathFromNodeModules = fontDirPath.replace(
   /^.*(?=\/node_modules\/)/,
   "",
 );
-const fontDirPathRx = new RegExp(
+const fontDirRegex = new RegExp(
   regexpEscape(fontDirPathFromNodeModules) + ".*\\.ttf(\\?.*)?$",
 );
 
@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => ({
       // So we unset the `exclude` option to override the default behavior.
       exclude: [],
       // Also we set a stricter include path explicitly to avoid unexpected side effects from setting `exclude` to `[]`.
-      include: [fontDirPathRx],
+      include: [fontDirRegex],
     }) as Plugin,
     {
       // Load and save Tldraw snapshots from/to the file system via Vite plugin.
