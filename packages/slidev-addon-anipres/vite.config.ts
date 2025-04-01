@@ -1,16 +1,23 @@
 import fs from "node:fs";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import process from "node:process";
 import { defineConfig, type Plugin } from "vite";
 import Font from "vite-plugin-font";
 import regexpEscape from "regexp.escape";
 
-const xiaolaiFontPath = join(__dirname, "./assets/fonts/XiaolaiSC-Regular.ttf");
+const fontDirPath = join(__dirname, "./assets/fonts/");
+
+const xiaolaiFontPath = join(fontDirPath, "XiaolaiSC-Regular.ttf");
 const xiaolaiFontPathRx = new RegExp("^" + regexpEscape(xiaolaiFontPath) + "$");
 
 let root = process.cwd();
 function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
+}
+
+function isPathIn(target: string, parent: string) {
+  const relative = path.relative(parent, target);
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 export default defineConfig(({ mode }) => ({
@@ -129,4 +136,21 @@ export default defineConfig(({ mode }) => ({
       },
     },
   ],
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Vite reports a missing export just as a warning,
+        // but we want to treat it as an error so that the build fails
+        // in the case where the missing export is a font file.
+        // because it leads to an error and broken styles at runtime.
+        if (warning.code === "MISSING_EXPORT") {
+          if (warning.exporter && isPathIn(warning.exporter, fontDirPath)) {
+            throw new Error(`Build failed due to: ${warning.message}`);
+          }
+        }
+
+        warn(warning);
+      },
+    },
+  },
 }));
