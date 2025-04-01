@@ -90,7 +90,7 @@ jobs:
       #   run: pnpm test
 
   e2e-slidev-addon-anipres:
-    needs: [test-slidev-addon-anipres]
+    needs: [test-slidev-addon-anipres, build-anipres]
     defaults:
       run:
         working-directory: packages/slidev-addon-anipres
@@ -123,6 +123,11 @@ jobs:
 
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: anipres-dist
+          path: packages/anipres/dist
 
       - name: Check if build succeeds
         run: pnpm slidev build
