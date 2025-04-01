@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.2.9
+
+### Patch Changes
+
+- [#200](https://github.com/whitphx/anipres/pull/200) [`b116bda`](https://github.com/whitphx/anipres/commit/b116bda11e08c624aa8c51b494d6656c324edaad) Thanks [@whitphx](https://github.com/whitphx)! - Load the Xiaolai font properly when the package is installed in node_modules
+
 ## 0.2.8
 
 ### Patch Changes
