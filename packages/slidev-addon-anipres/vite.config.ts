@@ -1,11 +1,12 @@
-// Load and save Tldraw snapshots from/to the file system via Vite plugin.
-// This implmentation is based on the slidev-addon-graph plugin:
-// https://github.com/antfu/slidev-addon-graph/blob/5c7dbfbf198c401477f9b50ce4de4e9e50243d16/vite.config.ts
 import fs from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { defineConfig, type Plugin } from "vite";
 import Font from "vite-plugin-font";
+import regexpEscape from "regexp.escape";
+
+const xiaolaiFontPath = join(__dirname, "./assets/fonts/XiaolaiSC-Regular.ttf");
+const xiaolaiFontPathRx = new RegExp("^" + regexpEscape(xiaolaiFontPath) + "$");
 
 let root = process.cwd();
 function resolveSnapshotPath() {
@@ -35,14 +36,12 @@ export default defineConfig(({ mode }) => ({
       name: "set-font-subsets",
       resolveId(id) {
         if (id === "/@xiaolai-font.ttf") {
+          console.debug(`Resolve ${id} as ${xiaolaiFontPath}`);
+
           // Enable extremely lightweight optimization (https://www.npmjs.com/package/vite-plugin-font#extremely-lightweight-optimization)
           // by adding `?subsets` to the font URL only in production mode.
           // This setting is effective in combination with the `scanFiles` option of the `Font.vite` plugin below.
           // We use this plugin-based approach to modify the module name dynamically at build time.
-          const xiaolaiFontPath = join(
-            __dirname,
-            "./assets/fonts/XiaolaiSC-Regular.ttf",
-          );
           return xiaolaiFontPath + (mode === "production" ? "?subsets" : "");
         }
       },
@@ -53,8 +52,16 @@ export default defineConfig(({ mode }) => ({
         mode === "production"
           ? ["**/.slidev/anipres/snapshots/*.json"]
           : undefined,
+      // `node_modules` is excluded by default, which is not good in our case where the font file will be in `node_modules` when this package is installed to user's environment by a package manager.
+      // So we unset the `exclude` option to override the default behavior.
+      exclude: [],
+      // Also we set a stricter include path explicitly to avoid unexpected side effects from setting `exclude` to `[]`.
+      include: [xiaolaiFontPathRx],
     }) as Plugin,
     {
+      // Load and save Tldraw snapshots from/to the file system via Vite plugin.
+      // This implementation is based on slidev-addon-graph:
+      // https://github.com/antfu/slidev-addon-graph/blob/5c7dbfbf198c401477f9b50ce4de4e9e50243d16/vite.config.ts
       name: "anipres-server",
       configureServer(server) {
         root = server.config.root;
