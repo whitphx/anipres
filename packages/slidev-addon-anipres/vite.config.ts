@@ -5,8 +5,19 @@ import { defineConfig, type Plugin } from "vite";
 import Font from "vite-plugin-font";
 import regexpEscape from "regexp.escape";
 
-const xiaolaiFontPath = join(__dirname, "./assets/fonts/XiaolaiSC-Regular.ttf");
-const xiaolaiFontPathRx = new RegExp("^" + regexpEscape(xiaolaiFontPath) + "$");
+const fontDirPath = join(__dirname, "./assets/fonts/");
+
+const xiaolaiFontPath = join(fontDirPath, "XiaolaiSC-Regular.ttf");
+
+// In the production build, the font path passed to the font plugin is a relative path like "../../node_modules/...", not a full path like "/Users/.../node_modules/...".
+// So we need to omit the path segment before `node_modules` from the query regex to match the relative path.
+const fontDirPathFromNodeModules = fontDirPath.replace(
+  /^.*(?=\/node_modules\/)/,
+  "",
+);
+const fontDirPathRx = new RegExp(
+  regexpEscape(fontDirPathFromNodeModules) + ".*\\.ttf(\\?.*)?$",
+);
 
 let root = process.cwd();
 function resolveSnapshotPath() {
@@ -56,7 +67,7 @@ export default defineConfig(({ mode }) => ({
       // So we unset the `exclude` option to override the default behavior.
       exclude: [],
       // Also we set a stricter include path explicitly to avoid unexpected side effects from setting `exclude` to `[]`.
-      include: [xiaolaiFontPathRx],
+      include: [fontDirPathRx],
     }) as Plugin,
     {
       // Load and save Tldraw snapshots from/to the file system via Vite plugin.
