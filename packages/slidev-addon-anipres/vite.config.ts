@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, normalizePath, type Plugin } from "vite";
 import Font from "vite-plugin-font";
 import regexpEscape from "regexp.escape";
 
-const fontDirPath = path.join(__dirname, "./assets/fonts/");
+const fontDirPath = normalizePath(path.join(__dirname, "./assets/fonts/"));
 
-const xiaolaiFontPath = path.join(fontDirPath, "XiaolaiSC-Regular.ttf");
+const xiaolaiFontPath = normalizePath(
+  path.join(fontDirPath, "XiaolaiSC-Regular.ttf"),
+);
 
 // In the production build, the font path passed to the font plugin is a relative path like "../../node_modules/...", not a full path like "/Users/.../node_modules/...".
 // So we need to omit the path segment before `node_modules` from the query regex to match the relative path.
@@ -125,7 +127,7 @@ export default defineConfig(({ mode }) => ({
           return [
             "",
             ...files.map((file, idx) => {
-              return `import v${idx} from ${JSON.stringify(path.join(snapshotPath, file))}`;
+              return `import v${idx} from ${JSON.stringify(normalizePath(path.join(snapshotPath, file)))}`;
             }),
             "const snapshots = {",
             files
@@ -155,7 +157,10 @@ export default defineConfig(({ mode }) => ({
         // in the case where the missing export is a font file.
         // because it leads to an error and broken styles at runtime.
         if (warning.code === "MISSING_EXPORT") {
-          if (warning.exporter && isPathIn(warning.exporter, fontDirPath)) {
+          if (
+            warning.exporter &&
+            isPathIn(normalizePath(warning.exporter), fontDirPath)
+          ) {
             throw new Error(`Build failed due to: ${warning.message}`);
           }
         }
