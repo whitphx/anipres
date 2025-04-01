@@ -121,6 +121,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # https://github.com/KonghaYao/cn-font-split/issues/149
+      - run: pnpm cn-font-split i default
+
       - name: Check if build succeeds
         run: pnpm slidev build
 
