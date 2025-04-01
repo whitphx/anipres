@@ -1,13 +1,13 @@
 import fs from "node:fs";
-import path, { join } from "node:path";
+import path from "node:path";
 import process from "node:process";
 import { defineConfig, type Plugin } from "vite";
 import Font from "vite-plugin-font";
 import regexpEscape from "regexp.escape";
 
-const fontDirPath = join(__dirname, "./assets/fonts/");
+const fontDirPath = path.join(__dirname, "./assets/fonts/");
 
-const xiaolaiFontPath = join(fontDirPath, "XiaolaiSC-Regular.ttf");
+const xiaolaiFontPath = path.join(fontDirPath, "XiaolaiSC-Regular.ttf");
 
 // In the production build, the font path passed to the font plugin is a relative path like "../../node_modules/...", not a full path like "/Users/.../node_modules/...".
 // So we need to omit the path segment before `node_modules` from the query regex to match the relative path.
@@ -21,7 +21,7 @@ const fontDirPathRx = new RegExp(
 
 let root = process.cwd();
 function resolveSnapshotPath() {
-  return join(root, ".slidev/anipres/snapshots");
+  return path.join(root, ".slidev/anipres/snapshots");
 }
 
 function isPathIn(target: string, maybeParent: string) {
@@ -96,7 +96,7 @@ export default defineConfig(({ mode }) => ({
               );
               fs.mkdirSync(snapshotDir, { recursive: true });
               fs.writeFileSync(
-                join(snapshotDir, `${payload.data.id}.json`),
+                path.join(snapshotDir, `${payload.data.id}.json`),
                 snapshotData,
               );
               // Invalidate the module so that the saved snapshot is loaded on the next request.
@@ -118,12 +118,14 @@ export default defineConfig(({ mode }) => ({
       },
       load(id) {
         if (id === "/@slidev-anipres-snapshot") {
-          const path = resolveSnapshotPath();
-          const files = fs.existsSync(path) ? fs.readdirSync(path) : [];
+          const snapshotPath = resolveSnapshotPath();
+          const files = fs.existsSync(snapshotPath)
+            ? fs.readdirSync(snapshotPath)
+            : [];
           return [
             "",
             ...files.map((file, idx) => {
-              return `import v${idx} from ${JSON.stringify(join(path, file))}`;
+              return `import v${idx} from ${JSON.stringify(path.join(snapshotPath, file))}`;
             }),
             "const snapshots = {",
             files
