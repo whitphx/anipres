@@ -1,16 +1,34 @@
 import fs from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 import process from "node:process";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, normalizePath, type Plugin } from "vite";
 import Font from "vite-plugin-font";
 import regexpEscape from "regexp.escape";
 
-const xiaolaiFontPath = join(__dirname, "./assets/fonts/XiaolaiSC-Regular.ttf");
-const xiaolaiFontPathRx = new RegExp("^" + regexpEscape(xiaolaiFontPath) + "$");
+const fontDirPath = normalizePath(path.join(__dirname, "./assets/fonts/"));
+
+const xiaolaiFontPath = normalizePath(
+  path.join(fontDirPath, "XiaolaiSC-Regular.ttf"),
+);
+
+// In the production build, the font path passed to the font plugin is a relative path like "../../node_modules/...", not a full path like "/Users/.../node_modules/...".
+// So we need to omit the path segment before `node_modules` from the query regex to match the relative path.
+const fontDirPathFromNodeModules = fontDirPath.replace(
+  /^.*(?=\/node_modules\/)/,
+  "",
+);
+const fontDirRegex = new RegExp(
+  regexpEscape(fontDirPathFromNodeModules) + ".*\\.ttf(\\?.*)?$",
+);
 
 let root = process.cwd();
 function resolveSnapshotPath() {
-  return join(root, ".slidev/anipres/snapshots");
+  return path.join(root, ".slidev/anipres/snapshots");
+}
+
+function isPathIn(target: string, maybeParent: string) {
+  const relative = path.relative(maybeParent, target);
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 export default defineConfig(({ mode }) => ({
@@ -56,7 +74,7 @@ export default defineConfig(({ mode }) => ({
       // So we unset the `exclude` option to override the default behavior.
       exclude: [],
       // Also we set a stricter include path explicitly to avoid unexpected side effects from setting `exclude` to `[]`.
-      include: [xiaolaiFontPathRx],
+      include: [fontDirRegex],
     }) as Plugin,
     {
       // Load and save Tldraw snapshots from/to the file system via Vite plugin.
@@ -80,7 +98,7 @@ export default defineConfig(({ mode }) => ({
               );
               fs.mkdirSync(snapshotDir, { recursive: true });
               fs.writeFileSync(
-                join(snapshotDir, `${payload.data.id}.json`),
+                path.join(snapshotDir, `${payload.data.id}.json`),
                 snapshotData,
               );
               // Invalidate the module so that the saved snapshot is loaded on the next request.
@@ -102,12 +120,14 @@ export default defineConfig(({ mode }) => ({
       },
       load(id) {
         if (id === "/@slidev-anipres-snapshot") {
-          const path = resolveSnapshotPath();
-          const files = fs.existsSync(path) ? fs.readdirSync(path) : [];
+          const snapshotPath = resolveSnapshotPath();
+          const files = fs.existsSync(snapshotPath)
+            ? fs.readdirSync(snapshotPath)
+            : [];
           return [
             "",
             ...files.map((file, idx) => {
-              return `import v${idx} from ${JSON.stringify(join(path, file))}`;
+              return `import v${idx} from ${JSON.stringify(normalizePath(path.join(snapshotPath, file)))}`;
             }),
             "const snapshots = {",
             files
@@ -129,4 +149,24 @@ export default defineConfig(({ mode }) => ({
       },
     },
   ],
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Vite reports a missing export just as a warning,
+        // but we want to treat it as an error so that the build fails
+        // in the case where the missing export is a font file.
+        // because it leads to an error and broken styles at runtime.
+        if (warning.code === "MISSING_EXPORT") {
+          if (
+            warning.exporter &&
+            isPathIn(normalizePath(warning.exporter), fontDirPath)
+          ) {
+            throw new Error(`Build failed due to: ${warning.message}`);
+          }
+        }
+
+        warn(warning);
+      },
+    },
+  },
 }));
