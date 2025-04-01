@@ -1,5 +1,13 @@
 # slidev-addon-anipres
 
+## 0.2.10
+
+### Patch Changes
+
+- [#203](https://github.com/whitphx/anipres/pull/203) [`819a565`](https://github.com/whitphx/anipres/commit/819a565f06e069241b81832b19f0286a689acab4) Thanks [@whitphx](https://github.com/whitphx)! - Fix the font import to work on Windows
+
+- [#203](https://github.com/whitphx/anipres/pull/203) [`819a565`](https://github.com/whitphx/anipres/commit/819a565f06e069241b81832b19f0286a689acab4) Thanks [@whitphx](https://github.com/whitphx)! - Resolve the font path properly in the production build mode
+
 ## 0.2.9
 
 ### Patch Changes
