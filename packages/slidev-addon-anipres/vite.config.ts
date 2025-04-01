@@ -104,7 +104,7 @@ export default defineConfig(({ mode }) => ({
         if (id === "/@slidev-anipres-snapshot") {
           const path = resolveSnapshotPath();
           const files = fs.existsSync(path) ? fs.readdirSync(path) : [];
-          return [
+          const result = [
             "",
             ...files.map((file, idx) => {
               return `import v${idx} from ${JSON.stringify(join(path, file))}`;
@@ -125,6 +125,8 @@ export default defineConfig(({ mode }) => ({
             "  })",
             "}",
           ].join("\n");
+          console.log("Injected imports:", result);
+          return result;
         }
       },
     },
