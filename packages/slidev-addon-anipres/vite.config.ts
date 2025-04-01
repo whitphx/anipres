@@ -15,8 +15,8 @@ function resolveSnapshotPath() {
   return join(root, ".slidev/anipres/snapshots");
 }
 
-function isPathIn(target: string, parent: string) {
-  const relative = path.relative(parent, target);
+function isPathIn(target: string, maybeParent: string) {
+  const relative = path.relative(maybeParent, target);
   return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
