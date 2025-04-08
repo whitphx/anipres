@@ -26,7 +26,7 @@
     "vue": "^3.0.0"
   },
   "dependencies": {
-    "@vueuse/core": "^12.5.0",
+    "@vueuse/core": "^13.1.0",
     "anipres": "workspace:*",
     "react-dom": "^18.3.1",
     "regexp.escape": "^2.0.1",
