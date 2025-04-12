@@ -1,4 +1,4 @@
-import { EASINGS, createShapeId, uniqueId } from "tldraw";
+import { EASINGS, GroupShapeUtil, createShapeId, uniqueId } from "tldraw";
 import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
 import {
   getGlobalOrder,
@@ -157,25 +157,39 @@ export function attachCueFrame(
   shapeId: TLShapeId,
   frameAction: FrameAction,
 ) {
-  const cueFrame: CueFrame = {
-    id: shapeId,
-    type: "cue",
-    globalIndex: getNextGlobalIndex(editor),
-    trackId: newTrackId(),
-    action: frameAction,
-  };
+  const nextGlobalIndex = getNextGlobalIndex(editor);
 
-  const shape = editor.getShape(shapeId);
-  if (shape == null) {
-    return;
+  function attachCueFrameToShape(shapeId: TLShapeId) {
+    const shape = editor.getShape(shapeId);
+    if (shape == null) {
+      return;
+    }
+
+    if (shape.type === GroupShapeUtil.type) {
+      const childIds = editor.getSortedChildIdsForParent(shape);
+      for (const childId of childIds) {
+        attachCueFrameToShape(childId);
+      }
+      return;
+    }
+
+    const cueFrame: CueFrame = {
+      id: shapeId,
+      type: "cue",
+      globalIndex: nextGlobalIndex,
+      trackId: newTrackId(),
+      action: frameAction,
+    };
+    editor.updateShape({
+      id: shapeId,
+      type: shape.type,
+      meta: {
+        frame: cueFrameToJsonObject(cueFrame),
+      },
+    });
   }
-  editor.updateShape({
-    id: shapeId,
-    type: shape.type,
-    meta: {
-      frame: cueFrameToJsonObject(cueFrame),
-    },
-  });
+
+  attachCueFrameToShape(shapeId);
 }
 
 export function getFrame(shape: TLShape): Frame | undefined {
