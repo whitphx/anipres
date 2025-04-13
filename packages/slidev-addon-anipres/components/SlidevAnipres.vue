@@ -4,6 +4,7 @@ import { setVeauryOptions, applyPureReactInVue } from "veaury";
 import {
   Anipres as AnipresReact,
   type AnipresRef as AnipresReactRef,
+  type EditorSignals,
 } from "anipres";
 
 setVeauryOptions({
@@ -32,6 +33,7 @@ import {
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
   type TLTextShape,
+  react,
 } from "tldraw";
 import { ref, useTemplateRef, watch, computed } from "vue";
 import {
@@ -58,6 +60,7 @@ interface SavedSnapshot {
 const props = withDefaults(
   defineProps<{
     id: string;
+    at?: string | number;
     editable?: boolean;
     start?: number;
     fontUrls?: Partial<TLEditorAssetUrls["fonts"]>;
@@ -65,6 +68,7 @@ const props = withDefaults(
     excalidrawLikeFont?: boolean;
   }>(),
   {
+    at: "+1",
     editable: true,
     start: 0,
     fontUrls: () => ({}),
@@ -92,7 +96,7 @@ watch(
   { immediate: true },
 );
 
-const { $scale, $clicks } = useSlideContext();
+const { $scale, $clicks, $clicksContext } = useSlideContext();
 
 const container = useTemplateRef<HTMLElement>("container");
 
@@ -146,7 +150,9 @@ onSlideEnter(() => {
   }, 300);
 });
 
-const handleMount = (editor: Editor) => {
+const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
+  const stopHandlers: (() => void)[] = [];
+
   function save() {
     if (isEditing.value) {
       const { document } = getSnapshot(editor.store);
@@ -157,7 +163,9 @@ const handleMount = (editor: Editor) => {
     }
   }
   const debouncedSave = debounce(save, 500);
-  editor.store.listen(debouncedSave, { source: "user", scope: "document" });
+  stopHandlers.push(
+    editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
+  );
 
   watch(
     $scale,
@@ -176,12 +184,23 @@ const handleMount = (editor: Editor) => {
     { immediate: true },
   );
 
+  const tldrawContainer = editor.getContainer();
+
+  stopHandlers.push(
+    react("total steps", () => {
+      const totalSteps = $editorSignals.getTotalSteps();
+      $clicksContext.unregister(tldrawContainer);
+
+      const clickInfo = $clicksContext.calculateSince(props.at, totalSteps - 1);
+      $clicksContext.register(tldrawContainer, clickInfo);
+    }),
+  );
+
   // HACK: This is a workaround to correctly set the sizes of text shapes with `autoSize: true`.
   // Tldraw automatically calculates the shape size for text shapes with `autoSize: true`
   // but its result may be incorrect before the container size becomes stable and the font is loaded.
   // So we trigger the text shape size calculation (https://github.com/tldraw/tldraw/blob/7190fa82f20c24bd239f456c6c941ff638f57e9f/packages/tldraw/src/lib/shapes/text/TextShapeUtil.tsx#L196)
   // by updating the shapes.
-  const tldrawContainer = editor.getContainer();
   function resetTextAutoSize() {
     setTimeout(() => {
       // This setTimeout is necessary to make the text shape size calculation correct.
@@ -208,6 +227,8 @@ const handleMount = (editor: Editor) => {
   document.fonts.addEventListener("loadingdone", resetTextAutoSize);
 
   return () => {
+    stopHandlers.forEach((stopHandler) => stopHandler());
+
     observer.disconnect();
     document.fonts.removeEventListener("loadingdone", resetTextAutoSize);
   };
