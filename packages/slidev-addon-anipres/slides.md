@@ -17,7 +17,9 @@
 
 </v-clicks>
 
-<SlidevAnipres id="deck1" excalidrawLikeFont />
+<div h-80>
+    <SlidevAnipres id="deck1" excalidrawLikeFont />
+</div>
 
 <v-clicks>
 
