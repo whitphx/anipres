@@ -34,8 +34,16 @@ import {
   type TLEditorAssetUrls,
   type TLTextShape,
   react,
+  uniqueId,
 } from "tldraw";
-import { ref, useTemplateRef, watch, computed } from "vue";
+import {
+  ref,
+  useTemplateRef,
+  watch,
+  computed,
+  watchEffect,
+  onUnmounted,
+} from "vue";
 import {
   useCssVar,
   useStyleTag,
@@ -150,6 +158,8 @@ onSlideEnter(() => {
   }, 300);
 });
 
+const totalSteps = ref(0);
+
 const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
   const stopHandlers: (() => void)[] = [];
 
@@ -188,14 +198,7 @@ const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
 
   stopHandlers.push(
     react("total steps", () => {
-      const totalSteps = $editorSignals.getTotalSteps();
-      $clicksContext.unregister(tldrawContainer);
-
-      const clickInfo = $clicksContext.calculateSince(props.at, totalSteps - 1);
-      // XXX: Calling `register` here causes a warning that is displayed in the dev mode,
-      // saying that it's unexpected to call `register` after the component is mounted.
-      // TODO: Find the better way to do this.
-      $clicksContext.register(tldrawContainer, clickInfo);
+      totalSteps.value = $editorSignals.getTotalSteps();
     }),
   );
 
@@ -235,6 +238,29 @@ const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
     observer.disconnect();
     document.fonts.removeEventListener("loadingdone", resetTextAutoSize);
   };
+};
+
+// Register the clicks of this component to Slidev.
+const clickInfo = computed(() =>
+  $clicksContext.calculateSince(props.at, totalSteps.value),
+);
+const clicksId = uniqueId();
+watchEffect(() => {
+  // XXX: Calling `register` here causes a warning that is displayed in the dev mode,
+  // saying that it's unexpected to call `register` after the component is mounted.
+  // It means that the result of `$clicksContext.calculateSince` depends on the order of the component mountings in the slides,
+  // so its result will be unexpected if another clickable component is mounted after this component.
+  // TODO: Find the better way to do this, e.g. calculate the totalSteps from `savedSnapshot` and call `register` only in `onMounted`.
+  $clicksContext.register(clicksId, clickInfo.value);
+});
+onUnmounted(() => {
+  $clicksContext.unregister(clicksId);
+});
+
+// Calculate the step in the Anipres presentation from the Slidev's clicks, and vice versa.
+const step = computed(() => $clicks.value - (clickInfo.value?.start ?? 0));
+const handleStepChange = (step: number) => {
+  $clicks.value = step + (clickInfo.value?.start ?? 0);
 };
 
 // Disable the browser's two-finger swipe for page navigation.
@@ -331,8 +357,8 @@ function onKeyDown(e: KeyboardEvent) {
           v-if="isMountedOnce"
           ref="anipres"
           @mount="handleMount"
-          :step="$clicks"
-          @stepChange="$clicks = $event"
+          :step="step"
+          @stepChange="handleStepChange"
           :presentationMode="!isEditing"
           :snapshot="savedSnapshot"
           :startStep="props.start"
