@@ -189,7 +189,9 @@ export function attachCueFrame(
     });
   }
 
-  attachCueFrameToShape(shapeId);
+  editor.run(() => {
+    attachCueFrameToShape(shapeId);
+  });
 }
 
 export function getFrame(shape: TLShape): Frame | undefined {
