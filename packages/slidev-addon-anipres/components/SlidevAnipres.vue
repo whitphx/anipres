@@ -192,6 +192,9 @@ const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
       $clicksContext.unregister(tldrawContainer);
 
       const clickInfo = $clicksContext.calculateSince(props.at, totalSteps - 1);
+      // XXX: Calling `register` here causes a warning that is displayed in the dev mode,
+      // saying that it's unexpected to call `register` after the component is mounted.
+      // TODO: Find the better way to do this.
       $clicksContext.register(tldrawContainer, clickInfo);
     }),
   );
