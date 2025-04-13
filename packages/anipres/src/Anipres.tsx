@@ -83,7 +83,7 @@ function usePerInstanceAtoms() {
     $currentStepIndex,
   ]);
 }
-type PerInstanceAtoms = ReturnType<typeof usePerInstanceAtoms>;
+export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
 const makeUiOverrides = (
   $editorSignalsRef: React.RefObject<EditorSignals | null>,
@@ -92,7 +92,7 @@ const makeUiOverrides = (
     $presentationModeHotkeyEnabled,
     $currentStepIndex,
     $presentationMode,
-  }: PerInstanceAtoms,
+  }: AnipresAtoms,
 ): TLUiOverrides => {
   return {
     actions(editor, actions) {
@@ -105,20 +105,7 @@ const makeUiOverrides = (
             return;
           }
 
-          const $editorSignals = $editorSignalsRef.current;
-          if ($editorSignals == null) {
-            return;
-          }
-
-          const steps = $editorSignals.getOrderedSteps();
-          const currentStepIndex = $currentStepIndex.get();
-
-          const nextStepIndex = currentStepIndex + 1;
-          const res = runStep(editor, steps, nextStepIndex);
-          if (!res) {
-            return;
-          }
-          $currentStepIndex.set(nextStepIndex);
+          $currentStepIndex.update((v) => v + 1);
         },
       };
 
@@ -131,20 +118,7 @@ const makeUiOverrides = (
             return;
           }
 
-          const $editorSignals = $editorSignalsRef.current;
-          if ($editorSignals == null) {
-            return;
-          }
-
-          const steps = $editorSignals.getOrderedSteps();
-          const currentStepIndex = $currentStepIndex.get();
-
-          const prevStepIndex = currentStepIndex - 1;
-          const res = runStep(editor, steps, prevStepIndex);
-          if (!res) {
-            return;
-          }
-          $currentStepIndex.set(prevStepIndex);
+          $currentStepIndex.update((v) => v - 1);
         },
       };
 
@@ -204,7 +178,7 @@ const makeUiOverrides = (
 
 const createComponents = (
   $editorSignalsRef: React.RefObject<EditorSignals | null>,
-  { $currentStepIndex, $presentationMode }: PerInstanceAtoms,
+  { $currentStepIndex, $presentationMode }: AnipresAtoms,
 ): TLComponents => {
   return {
     TopPanel: () => {
@@ -269,7 +243,7 @@ interface InnerProps {
     $editorSignals: EditorSignals,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
-  perInstanceAtoms: PerInstanceAtoms;
+  perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
 }
 const Inner = track((props: InnerProps) => {
@@ -428,6 +402,24 @@ const Inner = track((props: InnerProps) => {
       }
     });
 
+    react(
+      "current step index",
+      () => perInstanceAtoms.$currentStepIndex.get(),
+      {
+        scheduleEffect: (execute) => {
+          // XXX: It's a workaround to put `runStep` here to avoid an infinite loop.
+          // When `runStep` is called, it triggers `react` again, and it causes an infinite loop
+          // maybe because `runStep` internally refers to another reactive value that is changed by `runStep` itself.
+          // TODO: Fix this, by removing the self-referencing `react` call.
+          const index = perInstanceAtoms.$currentStepIndex.get();
+          const orderedSteps = $editorSignals.getOrderedSteps();
+          runStep(editor, orderedSteps, index);
+
+          execute();
+        },
+      },
+    );
+
     onMount?.(editor, $editorSignals);
 
     return () => {
@@ -546,13 +538,15 @@ const Inner = track((props: InnerProps) => {
 const MemoizedInner = React.memo(Inner);
 
 export interface AnipresProps {
-  step?: number;
-  onStepChange?: (newStep: number) => void;
   presentationMode?: boolean;
-  onMount?: InnerProps["onMount"];
+  onMount?: (
+    editor: Editor,
+    $editorSignals: EditorSignals,
+    anipresAtoms: AnipresAtoms,
+  ) => void;
   snapshot?: InnerProps["snapshot"];
   assetUrls?: InnerProps["assetUrls"];
-  startStep?: number;
+  stepHotkeyEnabled?: boolean;
 }
 export interface AnipresRef {
   rerunStep: () => void;
@@ -560,13 +554,11 @@ export interface AnipresRef {
 export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
   (props, ref) => {
     const {
-      step,
-      onStepChange,
       presentationMode,
       onMount,
       snapshot,
       assetUrls,
-      startStep = 0,
+      stepHotkeyEnabled,
     } = props;
 
     const anipresAtoms = usePerInstanceAtoms();
@@ -578,8 +570,9 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     } = anipresAtoms;
 
     useEffect(() => {
-      $stepHotkeyEnabled.set(step == null);
-    }, [$stepHotkeyEnabled, step]);
+      $stepHotkeyEnabled.set(stepHotkeyEnabled ?? true);
+    }, [$stepHotkeyEnabled, stepHotkeyEnabled]);
+
     useEffect(() => {
       $presentationModeHotkeyEnabled.set(presentationMode == null);
     }, [$presentationModeHotkeyEnabled, presentationMode]);
@@ -590,22 +583,13 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     } | null>(null);
     const handleMount = useCallback(
       (editor: Editor, $editorSignals: EditorSignals) => {
-        const targetStep = (step ?? 0) + startStep;
-        if ($presentationMode.get()) {
-          const orderedSteps = $editorSignals.getOrderedSteps();
-          const res = runStep(editor, orderedSteps, targetStep);
-          if (res) {
-            $currentStepIndex.set(targetStep);
-          }
-        }
-
         editorAndSignalsRef.current = {
           editor,
           $editorSignals: $editorSignals,
         };
-        onMount?.(editor, $editorSignals);
+        onMount?.(editor, $editorSignals, anipresAtoms);
       },
-      [step, startStep, onMount, $presentationMode, $currentStepIndex],
+      [onMount, anipresAtoms],
     );
 
     useEffect(() => {
@@ -613,41 +597,6 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         $presentationMode.set(presentationMode);
       }
     }, [$presentationMode, presentationMode]);
-
-    useEffect(() => {
-      if (step == null) {
-        return;
-      }
-      if ($currentStepIndex.get() === step) {
-        return;
-      }
-
-      const editorAndSignals = editorAndSignalsRef.current;
-      if (editorAndSignals == null) {
-        return;
-      }
-
-      const { editor, $editorSignals } = editorAndSignals;
-
-      const targetStep = step + startStep;
-      const orderedSteps = $editorSignals.getOrderedSteps();
-      const res = runStep(editor, orderedSteps, targetStep);
-      if (res) {
-        $currentStepIndex.set(targetStep);
-      }
-    }, [$currentStepIndex, step, startStep]);
-    useEffect(() => {
-      if (onStepChange == null) {
-        return;
-      }
-
-      return react(
-        "current frame index to call onCurrentStepIndexChange",
-        () => {
-          onStepChange($currentStepIndex.get());
-        },
-      );
-    }, [$currentStepIndex, onStepChange]);
 
     useImperativeHandle(ref, () => ({
       rerunStep: () => {

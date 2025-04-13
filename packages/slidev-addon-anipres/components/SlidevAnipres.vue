@@ -43,6 +43,7 @@ import {
   computed,
   watchEffect,
   onUnmounted,
+  onMounted,
 } from "vue";
 import {
   useCssVar,
@@ -56,6 +57,7 @@ import {
   useDarkMode,
   useSlideContext,
 } from "@slidev/client";
+import { type AnipresAtoms } from "anipres";
 import "anipres/anipres.css";
 import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
@@ -70,7 +72,6 @@ const props = withDefaults(
     id: string;
     at?: string | number;
     editable?: boolean;
-    start?: number;
     fontUrls?: Partial<TLEditorAssetUrls["fonts"]>;
     fontUrl?: string; // Short hand for fontUrls.draw
     excalidrawLikeFont?: boolean;
@@ -78,7 +79,6 @@ const props = withDefaults(
   {
     at: "+1",
     editable: true,
-    start: 0,
     fontUrls: () => ({}),
     fontUrl: undefined,
     excalidrawLikeFont: false,
@@ -158,9 +158,13 @@ onSlideEnter(() => {
   }, 300);
 });
 
-const totalSteps = ref(0);
+const totalSteps = ref<number | null>(null);
 
-const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
+const handleMount = (
+  editor: Editor,
+  $editorSignals: EditorSignals,
+  anipresAtoms: AnipresAtoms,
+) => {
   const stopHandlers: (() => void)[] = [];
 
   function save() {
@@ -176,6 +180,12 @@ const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
   stopHandlers.push(
     editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
   );
+
+  // Synchronize the current $click to Anipres's current step index.
+  watchEffect(() => {
+    const _step = $clicks.value - (clickInfo.value?.start ?? 0);
+    anipresAtoms.$currentStepIndex.set(Math.max(_step, 0));
+  });
 
   watch(
     $scale,
@@ -242,26 +252,23 @@ const handleMount = (editor: Editor, $editorSignals: EditorSignals) => {
 
 // Register the clicks of this component to Slidev.
 const clickInfo = computed(() =>
-  $clicksContext.calculateSince(props.at, totalSteps.value),
+  $clicksContext.calculateSince(props.at, totalSteps.value ?? 0),
 );
 const clicksId = uniqueId();
+onMounted(() => {
+  $clicksContext.register(clicksId, clickInfo.value);
+});
 watchEffect(() => {
   // XXX: Calling `register` here causes a warning that is displayed in the dev mode,
   // saying that it's unexpected to call `register` after the component is mounted.
   // It means that the result of `$clicksContext.calculateSince` depends on the order of the component mountings in the slides,
   // so its result will be unexpected if another clickable component is mounted after this component.
-  // TODO: Find the better way to do this, e.g. calculate the totalSteps from `savedSnapshot` and call `register` only in `onMounted`.
+  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `register` only in `onMounted`.
   $clicksContext.register(clicksId, clickInfo.value);
 });
 onUnmounted(() => {
   $clicksContext.unregister(clicksId);
 });
-
-// Calculate the step in the Anipres presentation from the Slidev's clicks, and vice versa.
-const step = computed(() => $clicks.value - (clickInfo.value?.start ?? 0));
-const handleStepChange = (step: number) => {
-  $clicks.value = step + (clickInfo.value?.start ?? 0);
-};
 
 // Disable the browser's two-finger swipe for page navigation.
 // Ref: https://stackoverflow.com/a/56071966
@@ -357,11 +364,8 @@ function onKeyDown(e: KeyboardEvent) {
           v-if="isMountedOnce"
           ref="anipres"
           @mount="handleMount"
-          :step="step"
-          @stepChange="handleStepChange"
           :presentationMode="!isEditing"
           :snapshot="savedSnapshot"
-          :startStep="props.start"
           :assetUrls="{ fonts: fontUrls }"
         />
       </div>
