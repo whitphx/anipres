@@ -44,6 +44,7 @@ import {
   getSubFrame,
   subFrameToJsonObject,
 } from "./models";
+import { EditorSignals } from "./editor-signals";
 import React, {
   useCallback,
   useEffect,
@@ -244,22 +245,29 @@ const createComponents = ({
 };
 
 interface InnerProps {
-  onMount: TldrawProps["onMount"];
+  onMount: (
+    editor: Editor,
+    $editorSignals: EditorSignals,
+  ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: PerInstanceAtoms;
   assetUrls?: TldrawProps["assetUrls"];
 }
 const Inner = track((props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
+  const $editorSignalsRef = useRef<EditorSignals | null>(null);
 
   const handleMount = (editor: Editor) => {
+    const $editorSignals = new EditorSignals(editor);
+    $editorSignalsRef.current = $editorSignals;
+
     const stopHandlers: (() => void)[] = [];
 
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
           // Auto attach camera cueFrame to the newly created slide shape
-          const orderedSteps = getOrderedSteps(editor);
+          const orderedSteps = $editorSignals.getOrderedSteps();
           const lastCameraCueFrame = orderedSteps
             .reverse()
             .flat()
@@ -400,14 +408,14 @@ const Inner = track((props: InnerProps) => {
       }
     });
 
-    onMount?.(editor);
+    onMount?.(editor, $editorSignals);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
     };
   };
 
-  const determineShapeHidden = (shape: TLShape, editor: Editor): boolean => {
+  const determineShapeHidden = (shape: TLShape): boolean => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     const editMode = !presentationMode;
     const HIDDEN = true;
@@ -430,7 +438,12 @@ const Inner = track((props: InnerProps) => {
       return SHOW;
     }
 
-    const orderedSteps = getOrderedSteps(editor); // TODO: Cache
+    if ($editorSignalsRef.current == null) {
+      console.warn("editorSignalsRef.current is null");
+      return HIDDEN;
+    }
+
+    const orderedSteps = $editorSignalsRef.current.getOrderedSteps();
     const currentStepIndex = perInstanceAtoms.$currentStepIndex.get();
 
     // The last frame of a finished animation should always be visible
@@ -552,12 +565,12 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     }, [$presentationModeHotkeyEnabled, presentationMode]);
 
     const editorRef = useRef<Editor | null>(null);
-
+    const $editorSignalsRef = useRef<EditorSignals | null>(null);
     const handleMount = useCallback(
-      (editor: Editor) => {
+      (editor: Editor, $editorSignals: EditorSignals) => {
         const targetStep = (step ?? 0) + startStep;
         if ($presentationMode.get()) {
-          const orderedSteps = getOrderedSteps(editor);
+          const orderedSteps = $editorSignals.getOrderedSteps();
           const res = runStep(editor, orderedSteps, targetStep);
           if (res) {
             $currentStepIndex.set(targetStep);
@@ -565,7 +578,8 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         }
 
         editorRef.current = editor;
-        onMount?.(editor);
+        $editorSignalsRef.current = $editorSignals;
+        onMount?.(editor, $editorSignals);
       },
       [step, startStep, onMount, $presentationMode, $currentStepIndex],
     );
@@ -589,8 +603,13 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         return;
       }
 
+      const $editorSignals = $editorSignalsRef.current;
+      if ($editorSignals == null) {
+        return;
+      }
+
       const targetStep = step + startStep;
-      const orderedSteps = getOrderedSteps(editor);
+      const orderedSteps = $editorSignals.getOrderedSteps();
       const res = runStep(editor, orderedSteps, targetStep);
       if (res) {
         $currentStepIndex.set(targetStep);
