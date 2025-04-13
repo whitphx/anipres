@@ -4,6 +4,7 @@ import {
   createShapeId,
   uniqueId,
   type Editor,
+  GroupShapeUtil,
 } from "tldraw";
 import {
   getOrderedSteps,
@@ -46,12 +47,49 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();
-  const selectedFrameShapes = selectedShapes.filter(
-    (shape) => getFrame(shape) != null,
-  );
-  const selectedNotFrameShapes = selectedShapes.filter(
-    (shape) => getFrame(shape) == null && shape.type !== SlideShapeType,
-  );
+
+  const selectedFrameIds = selectedShapes
+    .map((shape) => {
+      if (shape.type === GroupShapeUtil.type) {
+        return editor
+          .getSortedChildIdsForParent(shape.id)
+          .map((childShapeId) => {
+            const childShape = editor.getShape(childShapeId);
+            if (childShape == null) {
+              return null;
+            }
+
+            return getFrame(childShape)?.id;
+          })
+          .filter((id) => id != null);
+      }
+
+      return getFrame(shape)?.id;
+    })
+    .filter((frameId) => frameId != null)
+    .flat();
+
+  const selectedAnimeFrameAttachableShapes = selectedShapes
+    .map((shape) => {
+      if (shape.type === SlideShapeType) {
+        return null;
+      }
+
+      if (shape.type === GroupShapeUtil.type) {
+        const childShapeIds = editor.getSortedChildIdsForParent(shape.id);
+        const childShapes = childShapeIds
+          .map((id) => editor.getShape(id))
+          .filter((shape) => shape != null);
+        const everyChildShapeHasNoFrame = childShapes.every(
+          (childShape) => getFrame(childShape) == null,
+        );
+        return everyChildShapeHasNoFrame ? shape : null;
+      }
+
+      const frame = getFrame(shape);
+      return frame == null ? shape : null;
+    })
+    .filter((shape) => shape != null);
 
   const handleFrameChange = (newFrame: Frame) => {
     const shape = editor
@@ -139,13 +177,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               onCurrentStepIndexChange(i);
             }
           }}
-          selectedFrameIds={selectedFrameShapes.map(
-            (shape) => getFrame(shape)!.id,
-          )}
+          selectedFrameIds={selectedFrameIds}
           onFrameSelect={handleFrameSelect}
-          showAttachCueFrameButton={selectedNotFrameShapes.length > 0}
+          showAttachCueFrameButton={
+            selectedAnimeFrameAttachableShapes.length > 0
+          }
           requestAttachCueFrame={() => {
-            selectedNotFrameShapes.forEach((shape) => {
+            selectedAnimeFrameAttachableShapes.forEach((shape) => {
               if (shape.type !== SlideShapeType) {
                 attachCueFrame(editor, shape.id, { type: "shapeAnimation" });
               }
