@@ -219,6 +219,33 @@ function setupDevMock(editor: Editor) {
       } satisfies CueFrame,
     },
   });
+
+  const childBoxId1 = createShapeId("childBox1");
+  editor.createShape({
+    id: childBoxId1,
+    type: "geo",
+    x: 500,
+    y: 500,
+    props: {
+      w: 80,
+      h: 50,
+    },
+  });
+
+  const childBoxId2 = createShapeId("childBox2");
+  editor.createShape({
+    id: childBoxId2,
+    type: "geo",
+    x: 540,
+    y: 520,
+    props: {
+      w: 50,
+      h: 80,
+      color: "red",
+    },
+  });
+
+  editor.groupShapes([childBoxId1, childBoxId2]);
 }
 
 function App() {
