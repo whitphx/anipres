@@ -58,13 +58,13 @@ $editor-height: 20px;
       90deg,
       var(--color-background) 0%,
       var(--color-background) 90%,
-      var(--color-primary) 100%
+      var(--color-muted-1) 100%
     );
   }
 }
 
 .frameBlock {
-  background: var(--color-primary);
+  background: var(--color-muted-1);
 }
 
 .durationHandle {
