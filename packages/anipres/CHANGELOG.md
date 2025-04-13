@@ -1,5 +1,11 @@
 # anipres
 
+## 0.5.2
+
+### Patch Changes
+
+- [#217](https://github.com/whitphx/anipres/pull/217) [`2578c87`](https://github.com/whitphx/anipres/commit/2578c87517f7d275a65a4b9bd01376afde79edb4) Thanks [@whitphx](https://github.com/whitphx)! - Set a less vivid color to the frame icons for higher contrast with the selection borders"
+
 ## 0.5.1
 
 ### Patch Changes
