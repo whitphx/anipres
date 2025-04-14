@@ -85,15 +85,12 @@ function usePerInstanceAtoms() {
 }
 export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
-const makeUiOverrides = (
-  $editorSignalsRef: React.RefObject<EditorSignals | null>,
-  {
-    $stepHotkeyEnabled,
-    $presentationModeHotkeyEnabled,
-    $currentStepIndex,
-    $presentationMode,
-  }: AnipresAtoms,
-): TLUiOverrides => {
+const makeUiOverrides = ({
+  $stepHotkeyEnabled,
+  $presentationModeHotkeyEnabled,
+  $currentStepIndex,
+  $presentationMode,
+}: AnipresAtoms): TLUiOverrides => {
   return {
     actions(editor, actions) {
       actions["next-step"] = {
@@ -131,17 +128,7 @@ const makeUiOverrides = (
             return;
           }
 
-          const $editorSignals = $editorSignalsRef.current;
-          if ($editorSignals == null) {
-            return;
-          }
-
           $presentationMode.set(!$presentationMode.get());
-          if ($presentationMode.get()) {
-            const orderedSteps = $editorSignals.getOrderedSteps();
-            const currentStepIndex = $currentStepIndex.get();
-            runStep(editor, orderedSteps, currentStepIndex);
-          }
         },
       };
 
@@ -202,9 +189,6 @@ const createComponents = (
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
-            const orderedSteps = $editorSignals.getOrderedSteps();
-            const currentStepIndex = $currentStepIndex.get();
-            runStep(editor, orderedSteps, currentStepIndex);
           }}
         />
       );
@@ -514,7 +498,7 @@ const Inner = track((props: InnerProps) => {
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
         ...createComponents($editorSignalsRef, perInstanceAtoms),
       }}
-      overrides={makeUiOverrides($editorSignalsRef, perInstanceAtoms)}
+      overrides={makeUiOverrides(perInstanceAtoms)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       isShapeHidden={determineShapeHidden}
