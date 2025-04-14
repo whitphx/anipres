@@ -1,5 +1,11 @@
 # anipres
 
+## 0.6.1
+
+### Patch Changes
+
+- [#223](https://github.com/whitphx/anipres/pull/223) [`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring
+
 ## 0.6.0
 
 ### Minor Changes

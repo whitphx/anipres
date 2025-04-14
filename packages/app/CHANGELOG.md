@@ -1,5 +1,14 @@
 # app
 
+## 0.0.22
+
+### Patch Changes
+
+- [#224](https://github.com/whitphx/anipres/pull/224) [`0fdda50`](https://github.com/whitphx/anipres/commit/0fdda503b00867b97110f32331523501f519a675) Thanks [@whitphx](https://github.com/whitphx)! - Set font
+
+- Updated dependencies [[`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0)]:
+  - anipres@0.6.1
+
 ## 0.0.21
 
 ### Patch Changes
