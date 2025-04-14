@@ -428,8 +428,7 @@ const Inner = track((props: InnerProps) => {
     }
 
     if ($editorSignalsRef.current == null) {
-      console.warn("editorSignalsRef.current is null");
-      return HIDDEN;
+      // Fallback: If editorSignalsRef.current is null, assume the shape should be hidden
     }
 
     const orderedSteps = $editorSignalsRef.current.getOrderedSteps();
