@@ -77,7 +77,7 @@ const props = withDefaults(
     excalidrawLikeFont?: boolean;
   }>(),
   {
-    at: "+1",
+    at: undefined,
     editable: true,
     fontUrls: () => ({}),
     fontUrl: undefined,
@@ -181,11 +181,15 @@ const handleMount = (
     editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
   );
 
-  // Synchronize the current $click to Anipres's current step index.
   watchEffect(() => {
-    const _step = $clicks.value - (clickInfo.value?.start ?? 0);
-    anipresAtoms.$currentStepIndex.set(Math.max(_step, 0));
+    anipresAtoms.$currentStepIndex.set(step.value);
   });
+
+  stopHandlers.push(
+    react("total steps", () => {
+      totalSteps.value = $editorSignals.getTotalSteps();
+    }),
+  );
 
   watch(
     $scale,
@@ -205,12 +209,6 @@ const handleMount = (
   );
 
   const tldrawContainer = editor.getContainer();
-
-  stopHandlers.push(
-    react("total steps", () => {
-      totalSteps.value = $editorSignals.getTotalSteps();
-    }),
-  );
 
   // HACK: This is a workaround to correctly set the sizes of text shapes with `autoSize: true`.
   // Tldraw automatically calculates the shape size for text shapes with `autoSize: true`
@@ -251,20 +249,29 @@ const handleMount = (
 };
 
 // Register the clicks of this component to Slidev.
-const clickInfo = computed(() =>
-  $clicksContext.calculateSince(props.at, totalSteps.value ?? 0),
-);
+const step = ref(0);
 const clicksId = uniqueId();
+function registerClicks() {
+  $clicksContext.unregister(clicksId);
+
+  // XXX: It's important to unregister the click context before calculating the new click info.
+  // Otherwise, the new click info will be incorrect as it will be calculated based on the old click context that includes the old click info of this component itself.
+  const defaultAt = $clicksContext.currentOffset > 0 ? "+1" : 0; // Set "+1" if another clickable element exists in the slide to display this component after it. Otherwise, set 0 to display this component immediately.
+  const at = props.at ?? defaultAt;
+  const clickInfo = $clicksContext.calculateSince(at, totalSteps.value ?? 0);
+
+  $clicksContext.register(clicksId, clickInfo);
+
+  step.value = $clicks.value - (clickInfo?.start ?? 0);
+}
 onMounted(() => {
-  $clicksContext.register(clicksId, clickInfo.value);
+  registerClicks();
 });
 watchEffect(() => {
-  // XXX: Calling `register` here causes a warning that is displayed in the dev mode,
-  // saying that it's unexpected to call `register` after the component is mounted.
-  // It means that the result of `$clicksContext.calculateSince` depends on the order of the component mountings in the slides,
-  // so its result will be unexpected if another clickable component is mounted after this component.
-  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `register` only in `onMounted`.
-  $clicksContext.register(clicksId, clickInfo.value);
+  // XXX: Calling `$clicksContext.register` here causes a warning that is displayed in the dev mode,
+  // saying it's unexpected to call `register` after the component is mounted.
+  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `$clicksContext.register` only in `onMounted`.
+  registerClicks();
 });
 onUnmounted(() => {
   $clicksContext.unregister(clicksId);
@@ -345,7 +352,7 @@ function onKeyDown(e: KeyboardEvent) {
         ref="portalContainer"
         @keydown="onKeyDown"
         @dblclick="onDblclick"
-        :style="
+        :style="[
           isEditing
             ? {
                 position: 'absolute',
@@ -357,8 +364,11 @@ function onKeyDown(e: KeyboardEvent) {
             : {
                 width: '100%',
                 height: '100%',
-              }
-        "
+              },
+          {
+            opacity: step >= 0 || isEditing ? 1 : 0,
+          },
+        ]"
       >
         <Anipres
           v-if="isMountedOnce"
