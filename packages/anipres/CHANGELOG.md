@@ -1,5 +1,23 @@
 # anipres
 
+## 0.6.0
+
+### Minor Changes
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Stop running the step when entering the presentatio mode
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Delete the start prop, and trigger runStep() reacting to the $currentStepIndex signal
+
+### Patch Changes
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Internal refactoring of the way to manage the signals depending on the editor object
+
+## 0.5.2
+
+### Patch Changes
+
+- [#217](https://github.com/whitphx/anipres/pull/217) [`2578c87`](https://github.com/whitphx/anipres/commit/2578c87517f7d275a65a4b9bd01376afde79edb4) Thanks [@whitphx](https://github.com/whitphx)! - Set a less vivid color to the frame icons for higher contrast with the selection borders"
+
 ## 0.5.1
 
 ### Patch Changes

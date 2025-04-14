@@ -1,5 +1,23 @@
 # slidev-addon-anipres
 
+## 0.3.0
+
+### Minor Changes
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - The clicks count is set automatically by the custom component
+
+### Patch Changes
+
+- Updated dependencies [[`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807), [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807), [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807)]:
+  - anipres@0.6.0
+
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [[`2578c87`](https://github.com/whitphx/anipres/commit/2578c87517f7d275a65a4b9bd01376afde79edb4)]:
+  - anipres@0.5.2
+
 ## 0.2.10
 
 ### Patch Changes

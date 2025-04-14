@@ -4,6 +4,7 @@ import { setVeauryOptions, applyPureReactInVue } from "veaury";
 import {
   Anipres as AnipresReact,
   type AnipresRef as AnipresReactRef,
+  type EditorSignals,
 } from "anipres";
 
 setVeauryOptions({
@@ -32,8 +33,18 @@ import {
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
   type TLTextShape,
+  react,
+  uniqueId,
 } from "tldraw";
-import { ref, useTemplateRef, watch, computed } from "vue";
+import {
+  ref,
+  useTemplateRef,
+  watch,
+  computed,
+  watchEffect,
+  onUnmounted,
+  onMounted,
+} from "vue";
 import {
   useCssVar,
   useStyleTag,
@@ -46,6 +57,7 @@ import {
   useDarkMode,
   useSlideContext,
 } from "@slidev/client";
+import { type AnipresAtoms } from "anipres";
 import "anipres/anipres.css";
 import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
@@ -58,15 +70,15 @@ interface SavedSnapshot {
 const props = withDefaults(
   defineProps<{
     id: string;
+    at?: string | number;
     editable?: boolean;
-    start?: number;
     fontUrls?: Partial<TLEditorAssetUrls["fonts"]>;
     fontUrl?: string; // Short hand for fontUrls.draw
     excalidrawLikeFont?: boolean;
   }>(),
   {
+    at: undefined,
     editable: true,
-    start: 0,
     fontUrls: () => ({}),
     fontUrl: undefined,
     excalidrawLikeFont: false,
@@ -92,7 +104,7 @@ watch(
   { immediate: true },
 );
 
-const { $scale, $clicks } = useSlideContext();
+const { $scale, $clicks, $clicksContext } = useSlideContext();
 
 const container = useTemplateRef<HTMLElement>("container");
 
@@ -146,7 +158,16 @@ onSlideEnter(() => {
   }, 300);
 });
 
-const handleMount = (editor: Editor) => {
+const totalSteps = ref<number | null>(null);
+
+const handleMount = (
+  editor: Editor,
+  $editorSignals: EditorSignals,
+  anipresAtoms: AnipresAtoms,
+) => {
+  const stopHandlers: (() => void)[] = [];
+
+  // Save the snapshot when editing
   function save() {
     if (isEditing.value) {
       const { document } = getSnapshot(editor.store);
@@ -157,7 +178,21 @@ const handleMount = (editor: Editor) => {
     }
   }
   const debouncedSave = debounce(save, 500);
-  editor.store.listen(debouncedSave, { source: "user", scope: "document" });
+  stopHandlers.push(
+    editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
+  );
+
+  // Sync Slidev's click position -> Anipres' step index
+  watchEffect(() => {
+    anipresAtoms.$currentStepIndex.set(step.value);
+  });
+
+  // Get Anipres' total steps
+  stopHandlers.push(
+    react("total steps", () => {
+      totalSteps.value = $editorSignals.getTotalSteps();
+    }),
+  );
 
   watch(
     $scale,
@@ -208,10 +243,41 @@ const handleMount = (editor: Editor) => {
   document.fonts.addEventListener("loadingdone", resetTextAutoSize);
 
   return () => {
+    stopHandlers.forEach((stopHandler) => stopHandler());
+
     observer.disconnect();
     document.fonts.removeEventListener("loadingdone", resetTextAutoSize);
   };
 };
+
+// Register the clicks of this component to Slidev.
+const step = ref(0);
+const clicksId = uniqueId();
+function registerClicks() {
+  $clicksContext.unregister(clicksId);
+
+  // XXX: It's important to unregister the click context before calculating the new click info.
+  // Otherwise, the new click info will be incorrect as it will be calculated based on the old click context that includes the old click info of this component itself.
+  const defaultAt = $clicksContext.currentOffset > 0 ? "+1" : 0; // Set "+1" if another clickable element exists in the slide to display this component after it. Otherwise, set 0 to display this component immediately.
+  const at = props.at ?? defaultAt;
+  const clickInfo = $clicksContext.calculateSince(at, totalSteps.value ?? 0);
+
+  $clicksContext.register(clicksId, clickInfo);
+
+  step.value = $clicks.value - (clickInfo?.start ?? 0);
+}
+onMounted(() => {
+  registerClicks();
+});
+watchEffect(() => {
+  // XXX: Calling `$clicksContext.register` here causes a warning that is displayed in the dev mode,
+  // saying it's unexpected to call `register` after the component is mounted.
+  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `$clicksContext.register` only in `onMounted`.
+  registerClicks();
+});
+onUnmounted(() => {
+  $clicksContext.unregister(clicksId);
+});
 
 // Disable the browser's two-finger swipe for page navigation.
 // Ref: https://stackoverflow.com/a/56071966
@@ -244,6 +310,7 @@ onSlideEnter(() => {
   isMountedOnce.value = true;
 });
 
+// Configure the hand-drawn style font.
 const drawStyleFontFamily = computed(() => {
   if (props.excalidrawLikeFont) {
     return `Excalifont-Regular, "${xiaolaiFont.css.family}", ${xiaolaiFont.fontFamilyFallback}, 'tldraw_draw'`;
@@ -288,7 +355,7 @@ function onKeyDown(e: KeyboardEvent) {
         ref="portalContainer"
         @keydown="onKeyDown"
         @dblclick="onDblclick"
-        :style="
+        :style="[
           isEditing
             ? {
                 position: 'absolute',
@@ -300,18 +367,18 @@ function onKeyDown(e: KeyboardEvent) {
             : {
                 width: '100%',
                 height: '100%',
-              }
-        "
+              },
+          {
+            opacity: step >= 0 || isEditing ? 1 : 0,
+          },
+        ]"
       >
         <Anipres
           v-if="isMountedOnce"
           ref="anipres"
           @mount="handleMount"
-          :step="$clicks"
-          @stepChange="$clicks = $event"
           :presentationMode="!isEditing"
           :snapshot="savedSnapshot"
-          :startStep="props.start"
           :assetUrls="{ fonts: fontUrls }"
         />
       </div>

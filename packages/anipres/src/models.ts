@@ -1,10 +1,10 @@
 import { EASINGS, GroupShapeUtil, createShapeId, uniqueId } from "tldraw";
 import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
 import {
-  getGlobalOrder,
   OrderedTrackItem,
   reassignGlobalIndexInplace,
 } from "./ordered-track-item";
+import { EditorSignals } from "./editor-signals";
 
 export interface FrameActionBase extends JsonObject {
   type: string;
@@ -210,11 +210,6 @@ export function getSubFrame(shape: TLShape): SubFrame | undefined {
     : undefined;
 }
 
-export function getAllFrames(editor: Editor): Frame[] {
-  const shapes = editor.getCurrentPageShapes();
-  return shapes.map(getFrame).filter((frame) => frame != null);
-}
-
 export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   const cueFrames: CueFrame[] = [];
   const subFrameConnections: Record<string, SubFrame> = {};
@@ -257,12 +252,6 @@ export function getFramesFromFrameBatches(frameBatches: FrameBatch[]): Frame[] {
 
 export type Step = FrameBatch[];
 
-export function getOrderedSteps(editor: Editor): Step[] {
-  const frames = getAllFrames(editor);
-  const frameBatches = getFrameBatches(frames);
-  return getGlobalOrder(frameBatches);
-}
-
 export function getShapeByFrameId(
   editor: Editor,
   frameId: Frame["id"],
@@ -271,7 +260,11 @@ export function getShapeByFrameId(
   return shapes.find((shape) => getFrame(shape)?.id === frameId);
 }
 
-export function reconcileShapeDeletion(editor: Editor, deletedShape: TLShape) {
+export function reconcileShapeDeletion(
+  editor: Editor,
+  $editorSignals: EditorSignals,
+  deletedShape: TLShape,
+) {
   const deletedFrame = getFrame(deletedShape);
   if (deletedFrame == null) {
     return;
@@ -279,7 +272,7 @@ export function reconcileShapeDeletion(editor: Editor, deletedShape: TLShape) {
 
   if (deletedFrame.type === "cue") {
     // Reassign globalIndex
-    const steps = getOrderedSteps(editor);
+    const steps = $editorSignals.getOrderedSteps();
     reassignGlobalIndexInplace(steps);
     steps.forEach((stepFrameBatches) => {
       stepFrameBatches.forEach((frameBatch) => {
