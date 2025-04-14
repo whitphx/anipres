@@ -6,7 +6,6 @@ import {
   type Editor,
 } from "tldraw";
 import {
-  getOrderedSteps,
   runStep,
   attachCueFrame,
   cueFrameToJsonObject,
@@ -16,7 +15,6 @@ import {
   getFrame,
   frameToJsonObject,
   getFrameBatches,
-  getAllFrames,
   Frame,
   SubFrame,
   getShapeByFrameId,
@@ -25,9 +23,11 @@ import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
+import { EditorSignals } from "../editor-signals";
 
 export interface ControlPanelProps {
   editor: Editor;
+  $editorSignals: EditorSignals;
   currentStepIndex: number;
   onCurrentStepIndexChange: (newIndex: number) => void;
   onPresentationModeEnter: () => void;
@@ -35,14 +35,15 @@ export interface ControlPanelProps {
 export const ControlPanel = track((props: ControlPanelProps) => {
   const {
     editor,
+    $editorSignals,
     currentStepIndex,
     onCurrentStepIndexChange,
     onPresentationModeEnter,
   } = props;
 
-  const steps = getOrderedSteps(editor);
+  const steps = $editorSignals.getOrderedSteps();
 
-  const frames = getAllFrames(editor);
+  const frames = $editorSignals.getAllFrames();
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();
