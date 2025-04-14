@@ -167,6 +167,7 @@ const handleMount = (
 ) => {
   const stopHandlers: (() => void)[] = [];
 
+  // Save the snapshot when editing
   function save() {
     if (isEditing.value) {
       const { document } = getSnapshot(editor.store);
@@ -181,10 +182,12 @@ const handleMount = (
     editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
   );
 
+  // Sync Slidev's click position -> Anipres' step index
   watchEffect(() => {
     anipresAtoms.$currentStepIndex.set(step.value);
   });
 
+  // Get Anipres' total steps
   stopHandlers.push(
     react("total steps", () => {
       totalSteps.value = $editorSignals.getTotalSteps();
@@ -307,6 +310,7 @@ onSlideEnter(() => {
   isMountedOnce.value = true;
 });
 
+// Configure the hand-drawn style font.
 const drawStyleFontFamily = computed(() => {
   if (props.excalidrawLikeFont) {
     return `Excalifont-Regular, "${xiaolaiFont.css.family}", ${xiaolaiFont.fontFamilyFallback}, 'tldraw_draw'`;

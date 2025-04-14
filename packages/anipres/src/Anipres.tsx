@@ -10,7 +10,6 @@ import {
   DefaultKeyboardShortcutsDialogContent,
   uniqueId,
   react,
-  track,
   useAtom,
   useValue,
 } from "tldraw";
@@ -230,7 +229,7 @@ interface InnerProps {
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
 }
-const Inner = track((props: InnerProps) => {
+const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
   const $editorSignalsRef = useRef<EditorSignals | null>(null);
@@ -509,7 +508,7 @@ const Inner = track((props: InnerProps) => {
       assetUrls={assetUrls}
     />
   );
-});
+};
 
 // IMPORTANT: Memoization is necessary to prevent re-rendering of the entire Tldraw component tree and recreating the editor instance when the most outer `Anipres` component's props change, which typically happens when the current frame index changes in the parent component.
 const MemoizedInner = React.memo(Inner);
