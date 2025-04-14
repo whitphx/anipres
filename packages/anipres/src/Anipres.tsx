@@ -402,23 +402,16 @@ const Inner = track((props: InnerProps) => {
       }
     });
 
-    react(
-      "current step index",
-      () => perInstanceAtoms.$currentStepIndex.get(),
-      {
-        scheduleEffect: (execute) => {
-          // XXX: It's a workaround to put `runStep` here to avoid an infinite loop.
-          // When `runStep` is called, it triggers `react` again, and it causes an infinite loop
-          // maybe because `runStep` internally refers to another reactive value that is changed by `runStep` itself.
-          // TODO: Fix this, by removing the self-referencing `react` call.
-          const index = perInstanceAtoms.$currentStepIndex.get();
-          const orderedSteps = $editorSignals.getOrderedSteps();
-          runStep(editor, orderedSteps, index);
+    react("current step index", () => {
+      const index = perInstanceAtoms.$currentStepIndex.get();
 
-          execute();
-        },
-      },
-    );
+      setTimeout(() => {
+        // `runStep` internally refers to another reactive value that depends on the `editor` object.
+        // So we need to put `runStep()` here to avoid an infinite loop.
+        const orderedSteps = $editorSignals.getOrderedSteps();
+        runStep(editor, orderedSteps, index);
+      });
+    });
 
     onMount?.(editor, $editorSignals);
 
