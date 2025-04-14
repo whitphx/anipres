@@ -1,5 +1,17 @@
 # anipres
 
+## 0.6.0
+
+### Minor Changes
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Stop running the step when entering the presentatio mode
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Delete the start prop, and trigger runStep() reacting to the $currentStepIndex signal
+
+### Patch Changes
+
+- [#219](https://github.com/whitphx/anipres/pull/219) [`6ea0a66`](https://github.com/whitphx/anipres/commit/6ea0a66d308f79d0756976ff61ddafdecad9d807) Thanks [@whitphx](https://github.com/whitphx)! - Internal refactoring of the way to manage the signals depending on the editor object
+
 ## 0.5.2
 
 ### Patch Changes
