@@ -92,7 +92,7 @@ const makeUiOverrides = ({
   $presentationMode,
 }: AnipresAtoms): TLUiOverrides => {
   return {
-    actions(editor, actions) {
+    actions(_, actions) {
       actions["next-step"] = {
         id: "next-step",
         label: "Next Step",
