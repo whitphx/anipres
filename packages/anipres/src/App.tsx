@@ -219,6 +219,18 @@ function setupDevMock(editor: Editor) {
       } satisfies CueFrame,
     },
   });
+
+  editor.createShape({
+    id: createShapeId("embed0"),
+    type: "embed",
+    x: 0,
+    y: 0,
+    props: {
+      url: "https://www.youtube.com/watch?v=M-Eyhjkepy0",
+      w: 355.5555555555556,
+      h: 200,
+    },
+  });
 }
 
 function App() {
