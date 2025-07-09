@@ -1,5 +1,11 @@
 # anipres
 
+## 0.6.4
+
+### Patch Changes
+
+- [#245](https://github.com/whitphx/anipres/pull/245) [`785e711`](https://github.com/whitphx/anipres/commit/785e711b26553eb9f1aa3cb99c37d36e3b244606) Thanks [@whitphx](https://github.com/whitphx)! - Add repository field to package.json"
+
 ## 0.6.3
 
 ### Patch Changes
