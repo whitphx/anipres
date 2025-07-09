@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.5.0
+
+### Minor Changes
+
+- [#238](https://github.com/whitphx/anipres/pull/238) [`4c8f2c0`](https://github.com/whitphx/anipres/commit/4c8f2c0c332e4b118812802906921e776ccecc5d) Thanks [@whitphx](https://github.com/whitphx)! - Remove the install hook from the slidev addon because it usually fails
+
 ## 0.4.0
 
 ### Minor Changes
