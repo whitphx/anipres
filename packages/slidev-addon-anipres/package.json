@@ -20,6 +20,9 @@
     "format": "prettier . --write",
     "lint": "eslint ."
   },
+  "publishConfig": {
+    "provenance": true
+  },
   "peerDependencies": {
     "@slidev/client": ">=0.49.0",
     "vite": ">=5.0",
