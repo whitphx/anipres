@@ -29,7 +29,15 @@
 </v-clicks>
 
 ---
+clicks: 2
+---
 
 ## Anipres 2
 
 <SlidevAnipres id="deck2" fontUrl="/YuseiMagic-Regular.ttf" />
+
+---
+
+## Anipres 2 with offset
+
+<SlidevAnipres id="deck2" fontUrl="/YuseiMagic-Regular.ttf" :offset="2" />
