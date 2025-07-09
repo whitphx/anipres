@@ -1,5 +1,20 @@
 # slidev-addon-anipres
 
+## 0.4.0
+
+### Minor Changes
+
+- [#235](https://github.com/whitphx/anipres/pull/235) [`08110d9`](https://github.com/whitphx/anipres/commit/08110d95791566ee0b2424d27cb0c0e9b9dc026d) Thanks [@whitphx](https://github.com/whitphx)! - Run `cn-font-split i default` during the installation automatically
+
+- [#234](https://github.com/whitphx/anipres/pull/234) [`622bc1f`](https://github.com/whitphx/anipres/commit/622bc1f56656ae9d1afce47a198d1511c5258340) Thanks [@whitphx](https://github.com/whitphx)! - Add offset prop to start the Anipres presentation at a certain step
+
+### Patch Changes
+
+- [#237](https://github.com/whitphx/anipres/pull/237) [`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9) Thanks [@whitphx](https://github.com/whitphx)! - Add provenance
+
+- Updated dependencies [[`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9)]:
+  - anipres@0.6.2
+
 ## 0.3.1
 
 ### Patch Changes
