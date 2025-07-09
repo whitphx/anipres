@@ -18,6 +18,14 @@
     "./anipres.css": "./dist/anipres.css"
   },
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whitphx/anipres.git",
+    "directory": "packages/anipres"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -25,9 +33,6 @@
     "format": "prettier . --write",
     "preview": "vite preview",
     "test": "vitest"
-  },
-  "publishConfig": {
-    "provenance": true
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
