@@ -18,7 +18,8 @@
   "scripts": {
     "dev": "slidev",
     "format": "prettier . --write",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "install": "cn-font-split i default"
   },
   "peerDependencies": {
     "@slidev/client": ">=0.49.0",
