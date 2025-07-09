@@ -1,5 +1,11 @@
 # anipres
 
+## 0.6.2
+
+### Patch Changes
+
+- [#237](https://github.com/whitphx/anipres/pull/237) [`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9) Thanks [@whitphx](https://github.com/whitphx)! - Add provenance
+
 ## 0.6.1
 
 ### Patch Changes
