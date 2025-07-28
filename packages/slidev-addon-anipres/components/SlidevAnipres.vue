@@ -343,15 +343,9 @@ const drawStyleFontFamily = computed(() => {
         :class="['portal-container', { editing: isEditing }]"
         ref="portalContainer"
         @dblclick="onDblclick"
-        @keydown="
-          isEditing ? $event.stopPropagation() : null // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing
-        "
-        @keypress="
-          isEditing ? $event.stopPropagation() : null // Same as above
-        "
-        @keyup="
-          isEditing ? $event.stopPropagation() : null // Same as above
-        "
+        @keydown="handleKeyEvent"
+        @keypress="handleKeyEvent"
+        @keyup="handleKeyEvent"
         :style="[
           isEditing
             ? {
