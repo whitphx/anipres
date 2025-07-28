@@ -324,24 +324,6 @@ const drawStyleFontFamily = computed(() => {
   }
   return `'tldraw_draw'`;
 });
-
-// Prevent these keydown events from being propagated
-// for keyboard shortcuts to move the shapes in edit mode.
-// In contrast, other keydown events such as `Backspace` or `Ctrl-z`
-// should be propagated so that the keyboard shortcuts work.
-const KEYS_NOT_TO_BE_PROPAGATED = [
-  "ArrowRight",
-  "ArrowLeft",
-  "ArrowUp",
-  "ArrowDown",
-];
-function onKeyDown(e: KeyboardEvent) {
-  if (isEditing.value) {
-    if (KEYS_NOT_TO_BE_PROPAGATED.includes(e.key)) {
-      e.stopPropagation();
-    }
-  }
-}
 </script>
 
 <template>
@@ -360,8 +342,16 @@ function onKeyDown(e: KeyboardEvent) {
       <div
         :class="['portal-container', { editing: isEditing }]"
         ref="portalContainer"
-        @keydown="onKeyDown"
         @dblclick="onDblclick"
+        @keydown="
+          isEditing ? $event.stopPropagation() : null // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing
+        "
+        @keypress="
+          isEditing ? $event.stopPropagation() : null // Same as above
+        "
+        @keyup="
+          isEditing ? $event.stopPropagation() : null // Same as above
+        "
         :style="[
           isEditing
             ? {
