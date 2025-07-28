@@ -71,6 +71,7 @@ const props = withDefaults(
   defineProps<{
     id: string;
     at?: string | number;
+    offset?: number;
     editable?: boolean;
     fontUrls?: Partial<TLEditorAssetUrls["fonts"]>;
     fontUrl?: string; // Short hand for fontUrls.draw
@@ -78,6 +79,7 @@ const props = withDefaults(
   }>(),
   {
     at: undefined,
+    offset: 0,
     editable: true,
     fontUrls: () => ({}),
     fontUrl: undefined,
@@ -254,17 +256,22 @@ const handleMount = (
 const step = ref(0);
 const clicksId = uniqueId();
 function registerClicks() {
+  if (totalSteps.value == null) {
+    return;
+  }
+
   $clicksContext.unregister(clicksId);
 
   // XXX: It's important to unregister the click context before calculating the new click info.
   // Otherwise, the new click info will be incorrect as it will be calculated based on the old click context that includes the old click info of this component itself.
   const defaultAt = $clicksContext.currentOffset > 0 ? "+1" : 0; // Set "+1" if another clickable element exists in the slide to display this component after it. Otherwise, set 0 to display this component immediately.
   const at = props.at ?? defaultAt;
-  const clickInfo = $clicksContext.calculateSince(at, totalSteps.value ?? 0);
+  const totalClicks = totalSteps.value - props.offset;
+  const clickInfo = $clicksContext.calculateSince(at, totalClicks);
 
   $clicksContext.register(clicksId, clickInfo);
 
-  step.value = $clicks.value - (clickInfo?.start ?? 0);
+  step.value = $clicks.value - (clickInfo?.start ?? 0) + props.offset;
 }
 onMounted(() => {
   registerClicks();
@@ -318,21 +325,10 @@ const drawStyleFontFamily = computed(() => {
   return `'tldraw_draw'`;
 });
 
-// Prevent these keydown events from being propagated
-// for keyboard shortcuts to move the shapes in edit mode.
-// In contrast, other keydown events such as `Backspace` or `Ctrl-z`
-// should be propagated so that the keyboard shortcuts work.
-const KEYS_NOT_TO_BE_PROPAGATED = [
-  "ArrowRight",
-  "ArrowLeft",
-  "ArrowUp",
-  "ArrowDown",
-];
-function onKeyDown(e: KeyboardEvent) {
+function handleKeyEvent(event: KeyboardEvent) {
   if (isEditing.value) {
-    if (KEYS_NOT_TO_BE_PROPAGATED.includes(e.key)) {
-      e.stopPropagation();
-    }
+    // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing.
+    event.stopPropagation();
   }
 }
 </script>
@@ -353,8 +349,10 @@ function onKeyDown(e: KeyboardEvent) {
       <div
         :class="['portal-container', { editing: isEditing }]"
         ref="portalContainer"
-        @keydown="onKeyDown"
         @dblclick="onDblclick"
+        @keydown="handleKeyEvent"
+        @keypress="handleKeyEvent"
+        @keyup="handleKeyEvent"
         :style="[
           isEditing
             ? {

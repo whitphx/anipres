@@ -1,5 +1,29 @@
 # anipres
 
+## 0.6.4
+
+### Patch Changes
+
+- [#245](https://github.com/whitphx/anipres/pull/245) [`785e711`](https://github.com/whitphx/anipres/commit/785e711b26553eb9f1aa3cb99c37d36e3b244606) Thanks [@whitphx](https://github.com/whitphx)! - Add repository field to package.json"
+
+## 0.6.3
+
+### Patch Changes
+
+- [#242](https://github.com/whitphx/anipres/pull/242) [`666aa55`](https://github.com/whitphx/anipres/commit/666aa55422c1ea4d1e9da8d800c84bf42db8781e) Thanks [@whitphx](https://github.com/whitphx)! - Trigger release as the previous version failed
+
+## 0.6.2
+
+### Patch Changes
+
+- [#237](https://github.com/whitphx/anipres/pull/237) [`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9) Thanks [@whitphx](https://github.com/whitphx)! - Add provenance
+
+## 0.6.1
+
+### Patch Changes
+
+- [#223](https://github.com/whitphx/anipres/pull/223) [`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring
+
 ## 0.6.0
 
 ### Minor Changes

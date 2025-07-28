@@ -1,5 +1,59 @@
 # slidev-addon-anipres
 
+## 0.6.0
+
+### Minor Changes
+
+- [#252](https://github.com/whitphx/anipres/pull/252) [`c40191c`](https://github.com/whitphx/anipres/commit/c40191c7c62beff3fc86f5810cc4f22cbf65206f) Thanks [@whitphx](https://github.com/whitphx)! - Prevent all key events from being propagated so that Slidev's shortcuts do not work during editing Anipres
+
+## 0.5.2
+
+### Patch Changes
+
+- [#245](https://github.com/whitphx/anipres/pull/245) [`785e711`](https://github.com/whitphx/anipres/commit/785e711b26553eb9f1aa3cb99c37d36e3b244606) Thanks [@whitphx](https://github.com/whitphx)! - Add repository field to package.json"
+
+- Updated dependencies [[`785e711`](https://github.com/whitphx/anipres/commit/785e711b26553eb9f1aa3cb99c37d36e3b244606)]:
+  - anipres@0.6.4
+
+## 0.5.1
+
+### Patch Changes
+
+- [#242](https://github.com/whitphx/anipres/pull/242) [`666aa55`](https://github.com/whitphx/anipres/commit/666aa55422c1ea4d1e9da8d800c84bf42db8781e) Thanks [@whitphx](https://github.com/whitphx)! - Trigger release as the previous version failed
+
+- Updated dependencies [[`666aa55`](https://github.com/whitphx/anipres/commit/666aa55422c1ea4d1e9da8d800c84bf42db8781e)]:
+  - anipres@0.6.3
+
+## 0.5.0
+
+### Minor Changes
+
+- [#238](https://github.com/whitphx/anipres/pull/238) [`4c8f2c0`](https://github.com/whitphx/anipres/commit/4c8f2c0c332e4b118812802906921e776ccecc5d) Thanks [@whitphx](https://github.com/whitphx)! - Remove the install hook from the slidev addon because it usually fails
+
+## 0.4.0
+
+### Minor Changes
+
+- [#235](https://github.com/whitphx/anipres/pull/235) [`08110d9`](https://github.com/whitphx/anipres/commit/08110d95791566ee0b2424d27cb0c0e9b9dc026d) Thanks [@whitphx](https://github.com/whitphx)! - Run `cn-font-split i default` during the installation automatically
+
+- [#234](https://github.com/whitphx/anipres/pull/234) [`622bc1f`](https://github.com/whitphx/anipres/commit/622bc1f56656ae9d1afce47a198d1511c5258340) Thanks [@whitphx](https://github.com/whitphx)! - Add offset prop to start the Anipres presentation at a certain step
+
+### Patch Changes
+
+- [#237](https://github.com/whitphx/anipres/pull/237) [`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9) Thanks [@whitphx](https://github.com/whitphx)! - Add provenance
+
+- Updated dependencies [[`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9)]:
+  - anipres@0.6.2
+
+## 0.3.1
+
+### Patch Changes
+
+- [#223](https://github.com/whitphx/anipres/pull/223) [`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring
+
+- Updated dependencies [[`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0)]:
+  - anipres@0.6.1
+
 ## 0.3.0
 
 ### Minor Changes

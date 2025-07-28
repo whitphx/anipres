@@ -1,5 +1,37 @@
 # app
 
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies [[`785e711`](https://github.com/whitphx/anipres/commit/785e711b26553eb9f1aa3cb99c37d36e3b244606)]:
+  - anipres@0.6.4
+
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [[`666aa55`](https://github.com/whitphx/anipres/commit/666aa55422c1ea4d1e9da8d800c84bf42db8781e)]:
+  - anipres@0.6.3
+
+## 0.0.23
+
+### Patch Changes
+
+- [#237](https://github.com/whitphx/anipres/pull/237) [`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9) Thanks [@whitphx](https://github.com/whitphx)! - Add provenance
+
+- Updated dependencies [[`71a736d`](https://github.com/whitphx/anipres/commit/71a736da43a33bfd7901a4051d3f6be681f82db9)]:
+  - anipres@0.6.2
+
+## 0.0.22
+
+### Patch Changes
+
+- [#224](https://github.com/whitphx/anipres/pull/224) [`0fdda50`](https://github.com/whitphx/anipres/commit/0fdda503b00867b97110f32331523501f519a675) Thanks [@whitphx](https://github.com/whitphx)! - Set font
+
+- Updated dependencies [[`c48e741`](https://github.com/whitphx/anipres/commit/c48e7418cde949451da2b09db3f61af2286fefd0)]:
+  - anipres@0.6.1
+
 ## 0.0.21
 
 ### Patch Changes

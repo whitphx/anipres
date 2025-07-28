@@ -1,6 +1,6 @@
 {
   "name": "anipres",
-  "version": "0.6.0",
+  "version": "0.6.4",
   "type": "module",
   "main": "./dist/anipres.umd.cjs",
   "module": "./dist/anipres.js",
@@ -18,6 +18,14 @@
     "./anipres.css": "./dist/anipres.css"
   },
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whitphx/anipres.git",
+    "directory": "packages/anipres"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
