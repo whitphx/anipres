@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.6.0
+
+### Minor Changes
+
+- [#252](https://github.com/whitphx/anipres/pull/252) [`c40191c`](https://github.com/whitphx/anipres/commit/c40191c7c62beff3fc86f5810cc4f22cbf65206f) Thanks [@whitphx](https://github.com/whitphx)! - Prevent all key events from being propagated so that Slidev's shortcuts do not work during editing Anipres
+
 ## 0.5.2
 
 ### Patch Changes
