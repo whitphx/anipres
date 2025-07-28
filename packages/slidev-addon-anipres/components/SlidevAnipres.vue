@@ -324,6 +324,13 @@ const drawStyleFontFamily = computed(() => {
   }
   return `'tldraw_draw'`;
 });
+
+function handleKeyEvent(event: KeyboardEvent) {
+  if (isEditing.value) {
+    // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing.
+    event.stopPropagation();
+  }
+}
 </script>
 
 <template>
