@@ -124,7 +124,7 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: anipres-dist
           path: packages/anipres/dist
@@ -191,7 +191,7 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: anipres-dist
           path: packages/anipres/dist
@@ -213,7 +213,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: app-dist
           path: packages/app/dist
@@ -256,7 +256,7 @@ jobs:
         run: pnpm install
 
       # Download build artifacts to publish
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: packages/anipres/dist
           name: anipres-dist
