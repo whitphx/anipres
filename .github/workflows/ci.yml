@@ -21,7 +21,7 @@ jobs:
         working-directory: packages/anipres
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -63,7 +63,7 @@ jobs:
         working-directory: packages/slidev-addon-anipres
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -104,7 +104,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -124,7 +124,7 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
           name: anipres-dist
           path: packages/anipres/dist
@@ -139,7 +139,7 @@ jobs:
         working-directory: packages/app
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -171,7 +171,7 @@ jobs:
         working-directory: packages/app
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -191,7 +191,7 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
           name: anipres-dist
           path: packages/anipres/dist
@@ -213,7 +213,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
           name: app-dist
           path: packages/app/dist
@@ -234,11 +234,11 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write # Necessary for provenance: https://docs.npmjs.com/generating-provenance-statements#publishing-packages-with-provenance-via-github-actions
+      id-token: write  # Required for OIDC, https://docs.npmjs.com/trusted-publishers#github-actions-configuration
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -251,12 +251,17 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Ensure npm 11.5.1 or later is installed for trusted publishing
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: pnpm install
 
       # Download build artifacts to publish
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
           path: packages/anipres/dist
           name: anipres-dist
@@ -270,4 +275,3 @@ jobs:
           publish: pnpm ci:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
