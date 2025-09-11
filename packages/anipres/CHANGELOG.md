@@ -1,5 +1,11 @@
 # anipres
 
+## 0.6.5
+
+### Patch Changes
+
+- [#268](https://github.com/whitphx/anipres/pull/268) [`18e6820`](https://github.com/whitphx/anipres/commit/18e6820d5a5e9047291c0b750e7e4bbd769e94ec) Thanks [@whitphx](https://github.com/whitphx)! - NPM trusted publishing
+
 ## 0.6.4
 
 ### Patch Changes
