@@ -30,7 +30,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -72,7 +72,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -113,7 +113,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -148,7 +148,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -180,7 +180,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -247,7 +247,7 @@ jobs:
           version: latest
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
