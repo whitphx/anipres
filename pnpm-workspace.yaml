@@ -1,2 +1,13 @@
 packages:
-- 'packages/*'
+  - packages/*
+
+ignoredBuiltDependencies:
+  - core-js
+  - koffi
+  - playwright-chromium
+  - protobufjs
+  - vue-demi
+
+onlyBuiltDependencies:
+  - cn-font-split
+  - esbuild
