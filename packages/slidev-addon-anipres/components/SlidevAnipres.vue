@@ -328,6 +328,21 @@ const drawStyleFontFamily = computed(() => {
 function handleKeyEvent(event: KeyboardEvent) {
   if (isEditing.value) {
     // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing.
+    // However, some shortcuts on Tldraw are captured on `body` so stopping propagation also prevents such shortcuts from working.
+    // Technically, it's not possible to turn off only Slidev's shortcuts while keeping Tldraw's shortcuts
+    // because Slidev's are captured on `window` and Tldraw's are captured on `body` as below.
+    // So, as a second-best option, we only allow modifier key combinations to propagate that are often used in Tldraw's shortcuts.
+    // Refs:
+    // Slidev sets the key event handlers for shortcuts on `window` as below via useMagicKeys and onKeyStroke from `@vueuse/core`,
+    // https://github.com/slidevjs/slidev/blob/bc94b3031546482149b254dc9dcfc38ce5616f1e/packages/client/state/storage.ts#L46
+    // https://github.com/slidevjs/slidev/blob/bc94b3031546482149b254dc9dcfc38ce5616f1e/packages/client/logic/shortcuts.ts#L51
+    // Tldraw sets the key event handlers for shortcuts on `container.ownerDocument.body` as below,
+    // https://github.com/tldraw/tldraw/blob/7329b1541236dfdb913223c11d643b7eb134dbb3/packages/tldraw/src/lib/ui/hooks/useKeyboardShortcuts.ts#L39
+    // https://github.com/tldraw/tldraw/blob/7329b1541236dfdb913223c11d643b7eb134dbb3/packages/tldraw/src/lib/ui/hooks/useKeyboardShortcuts.ts#L48
+    // TODO: Turn off Slidev's shortcuts by using its API when it becomes available as https://github.com/slidevjs/slidev/issues/2316
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
     event.stopPropagation();
   }
 }
