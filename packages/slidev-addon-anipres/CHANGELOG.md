@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.6.3
+
+### Patch Changes
+
+- [#286](https://github.com/whitphx/anipres/pull/286) [`d6ef268`](https://github.com/whitphx/anipres/commit/d6ef268df408ef00ae31c318eb1de44286b010ee) Thanks [@whitphx](https://github.com/whitphx)! - Propagate the backspace key event
+
 ## 0.6.2
 
 ### Patch Changes
