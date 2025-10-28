@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.6.2
+
+### Patch Changes
+
+- [#284](https://github.com/whitphx/anipres/pull/284) [`1f84484`](https://github.com/whitphx/anipres/commit/1f84484fbfeb0ba5e6988c5853c1d8e22fec3a2a) Thanks [@whitphx](https://github.com/whitphx)! - Propagate key strokes with modifier keys so that Tldraw shortcuts work
+
 ## 0.6.1
 
 ### Patch Changes
