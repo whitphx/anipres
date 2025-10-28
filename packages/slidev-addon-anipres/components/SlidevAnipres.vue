@@ -331,7 +331,7 @@ function handleKeyEvent(event: KeyboardEvent) {
     // However, some shortcuts on Tldraw are captured on `body` so stopping propagation also prevents such shortcuts from working.
     // Technically, it's not possible to turn off only Slidev's shortcuts while keeping Tldraw's shortcuts
     // because Slidev's are captured on `window` and Tldraw's are captured on `body` as below.
-    // So, as a second-best option, we only allow modifier key combinations and some special keys to propagate that are often used in Tldraw's shortcuts,
+    // So, as a second-best option, we only allow modifier key combinations and some special keys to propagate that are often used in Tldraw's shortcuts.
     // Refs:
     // Slidev sets the key event handlers for shortcuts on `window` as below via useMagicKeys and onKeyStroke from `@vueuse/core`,
     // https://github.com/slidevjs/slidev/blob/bc94b3031546482149b254dc9dcfc38ce5616f1e/packages/client/state/storage.ts#L46
