@@ -1,6 +1,6 @@
 {
   "name": "anipres",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "type": "module",
   "main": "./dist/anipres.umd.cjs",
   "module": "./dist/anipres.js",

@@ -1,5 +1,14 @@
 # app
 
+## 0.0.27
+
+### Patch Changes
+
+- [#288](https://github.com/whitphx/anipres/pull/288) [`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63) Thanks [@whitphx](https://github.com/whitphx)! - Update dependencies
+
+- Updated dependencies [[`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63)]:
+  - anipres@0.6.6
+
 ## 0.0.26
 
 ### Patch Changes
