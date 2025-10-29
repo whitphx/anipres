@@ -15,13 +15,13 @@ $editor-height: 20px;
   padding: 0;
   box-sizing: border-box;
 
-  color: var(--color-text);
+  color: var(--tl-color-text);
   font-size: 12px;
-  background: var(--color-background);
-  border: $container-border-width solid var(--color-divider);
+  background: var(--tl-color-background);
+  border: $container-border-width solid var(--tl-color-divider);
 
   &[data-selected="true"] {
-    border-color: var(--color-selection-stroke);
+    border-color: var(--tl-color-selection-stroke);
     border-width: $container-border-width;
   }
 
@@ -33,9 +33,9 @@ $editor-height: 20px;
       left: 0;
       width: 100%;
       height: 100%;
-      background: var(--color-background);
+      background: var(--tl-color-background);
       border-radius: $container-border-radius;
-      border: $container-border-width dashed var(--color-low-border);
+      border: $container-border-width dashed var(--tl-color-low-border);
       box-sizing: border-box;
     }
   }
@@ -56,15 +56,15 @@ $editor-height: 20px;
   &.shrink {
     background: linear-gradient(
       90deg,
-      var(--color-background) 0%,
-      var(--color-background) 90%,
-      var(--color-muted-1) 100%
+      var(--tl-color-background) 0%,
+      var(--tl-color-background) 90%,
+      var(--tl-color-muted-1) 100%
     );
   }
 }
 
 .frameBlock {
-  background: var(--color-muted-1);
+  background: var(--tl-color-muted-1);
 }
 
 .durationHandle {
