@@ -1,5 +1,15 @@
 # anipres
 
+## 0.7.0
+
+### Minor Changes
+
+- [#305](https://github.com/whitphx/anipres/pull/305) [`3d538c7`](https://github.com/whitphx/anipres/commit/3d538c753773b93df2523663d565c57bcd431d71) Thanks [@whitphx](https://github.com/whitphx)! - Set inline code style
+
+### Patch Changes
+
+- [#303](https://github.com/whitphx/anipres/pull/303) [`56cc658`](https://github.com/whitphx/anipres/commit/56cc658ff5bd24ec27bfcb4683df3323765a46e2) Thanks [@whitphx](https://github.com/whitphx)! - Update Tldraw to 3.15.5
+
 ## 0.6.6
 
 ### Patch Changes
