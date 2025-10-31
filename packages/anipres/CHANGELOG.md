@@ -1,5 +1,11 @@
 # anipres
 
+## 0.7.1
+
+### Patch Changes
+
+- [#307](https://github.com/whitphx/anipres/pull/307) [`8f9ac54`](https://github.com/whitphx/anipres/commit/8f9ac541e61b8fc363cb4a6d66b0ed373aef2942) Thanks [@whitphx](https://github.com/whitphx)! - Stop using deprecated isShapeHidden and replace it with getShapeVisibility
+
 ## 0.7.0
 
 ### Minor Changes
