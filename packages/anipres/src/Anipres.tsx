@@ -12,6 +12,7 @@ import {
   react,
   useAtom,
   useValue,
+  GroupShapeUtil,
 } from "tldraw";
 import type {
   TLUiOverrides,
@@ -404,6 +405,7 @@ const Inner = (props: InnerProps) => {
 
   const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
     shape,
+    editor,
   ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     const editMode = !presentationMode;
@@ -411,6 +413,11 @@ const Inner = (props: InnerProps) => {
     const SHOW = "visible";
     if (editMode) {
       return SHOW;
+    }
+
+    const parent = editor.getShape(shape.parentId);
+    if (parent?.type === GroupShapeUtil.type) {
+      return "inherit";
     }
 
     if (shape.type === SlideShapeType) {
