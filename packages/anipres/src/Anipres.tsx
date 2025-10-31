@@ -17,7 +17,6 @@ import type {
   TLUiOverrides,
   TLComponents,
   Editor,
-  TLShape,
   TldrawProps,
   TLStoreSnapshot,
   TLEditorSnapshot,
@@ -403,11 +402,13 @@ const Inner = (props: InnerProps) => {
     };
   };
 
-  const determineShapeHidden = (shape: TLShape): boolean => {
+  const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
+    shape,
+  ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     const editMode = !presentationMode;
-    const HIDDEN = true;
-    const SHOW = false;
+    const HIDDEN = "hidden";
+    const SHOW = "visible";
     if (editMode) {
       return SHOW;
     }
@@ -500,7 +501,7 @@ const Inner = (props: InnerProps) => {
       overrides={makeUiOverrides(perInstanceAtoms)}
       shapeUtils={customShapeUtils}
       tools={customTools}
-      isShapeHidden={determineShapeHidden}
+      getShapeVisibility={determineShapeVisibility}
       options={{
         maxPages: 1,
       }}
