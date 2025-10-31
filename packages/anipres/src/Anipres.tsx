@@ -411,13 +411,15 @@ const Inner = (props: InnerProps) => {
     const editMode = !presentationMode;
     const HIDDEN = "hidden";
     const SHOW = "visible";
+    const INHERIT = "inherit";
+
     if (editMode) {
       return SHOW;
     }
 
     const parent = editor.getShape(shape.parentId);
     if (parent?.type === GroupShapeUtil.type) {
-      return "inherit";
+      return INHERIT;
     }
 
     if (shape.type === SlideShapeType) {
