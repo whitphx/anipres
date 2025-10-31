@@ -254,7 +254,7 @@ const step = ref(0);
 onMounted(() => {
   const CLICKS_MAX = 99999;
   const at = props.at;
-  const size = totalStepsCount - 1;
+  const size = Math.max(totalStepsCount - 1, 0);
   const clicksInfo = $clicksContext.calculateSince(at, size);
   if (!clicksInfo) {
     step.value = CLICKS_MAX;
