@@ -1,5 +1,11 @@
 # anipres
 
+## 0.7.2
+
+### Patch Changes
+
+- [#317](https://github.com/whitphx/anipres/pull/317) [`afaf5b8`](https://github.com/whitphx/anipres/commit/afaf5b86ec41746294d6a34b8bd86a9bf4b28c2a) Thanks [@whitphx](https://github.com/whitphx)! - Set visibility of shapes that are children of a group shape so that they are properly animated
+
 ## 0.7.1
 
 ### Patch Changes
