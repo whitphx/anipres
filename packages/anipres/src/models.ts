@@ -182,6 +182,10 @@ export function getFrame(shape: TLShape): Frame | undefined {
   return getCueFrame(shape) ?? getSubFrame(shape);
 }
 
+export function getFrames(shapes: TLShape[]): Frame[] {
+  return shapes.map(getFrame).filter((frame) => frame != null);
+}
+
 export function getCueFrame(shape: TLShape): CueFrame | undefined {
   return isJsonObject(shape.meta.frame) && shape.meta.frame.type === "cue"
     ? jsonObjectToCueFrame(shape.meta.frame)

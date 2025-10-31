@@ -26,7 +26,7 @@ import type {
 } from "tldraw";
 import "tldraw/tldraw.css";
 
-import { SlideShapeType, SlideShapeUtil } from "./SlideShapeUtil";
+import { SlideShapeType } from "./SlideShapeUtil";
 import { SlideShapeTool } from "./SlideShapeTool";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
@@ -52,7 +52,7 @@ import React, {
 
 import "./tldraw-overrides.css";
 
-const customShapeUtils = [SlideShapeUtil];
+import { customShapeUtils } from "./shape-utils";
 const customTools = [SlideShapeTool];
 
 // We use atoms as it's Tldraw's design,

@@ -1,5 +1,5 @@
 import { Editor, computed } from "tldraw";
-import { Frame, Step, getFrame, getFrameBatches } from "./models";
+import { Frame, Step, getFrames, getFrameBatches } from "./models";
 import { getGlobalOrder } from "./ordered-track-item";
 
 export class EditorSignals {
@@ -7,7 +7,7 @@ export class EditorSignals {
 
   @computed getAllFrames(): Frame[] {
     const shapes = this.editor.getCurrentPageShapes();
-    return shapes.map(getFrame).filter((frame) => frame != null);
+    return getFrames(shapes);
   }
 
   @computed getOrderedSteps(): Step[] {
