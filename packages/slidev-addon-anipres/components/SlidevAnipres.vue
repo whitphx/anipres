@@ -396,6 +396,7 @@ function handleKeyEvent(event: KeyboardEvent) {
           ref="anipres"
           @mount="handleMount"
           :presentationMode="!isEditing"
+          :stepHotkeyEnabled="false"
           :snapshot="savedSnapshot"
           :assetUrls="{ fonts: fontUrls }"
         />
