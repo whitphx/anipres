@@ -4,7 +4,6 @@ import { setVeauryOptions, applyPureReactInVue } from "veaury";
 import {
   Anipres as AnipresReact,
   type AnipresRef as AnipresReactRef,
-  type EditorSignals,
 } from "anipres";
 
 setVeauryOptions({
@@ -33,7 +32,6 @@ import {
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
   type TLTextShape,
-  react,
   uniqueId,
 } from "tldraw";
 import {
@@ -57,7 +55,11 @@ import {
   useDarkMode,
   useSlideContext,
 } from "@slidev/client";
-import { type AnipresAtoms } from "anipres";
+import {
+  calculateTotalSteps,
+  type EditorSignals,
+  type AnipresAtoms,
+} from "anipres";
 import "anipres/anipres.css";
 import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
@@ -78,7 +80,7 @@ const props = withDefaults(
     excalidrawLikeFont?: boolean;
   }>(),
   {
-    at: undefined,
+    at: "+1",
     offset: 0,
     editable: true,
     fontUrls: () => ({}),
@@ -106,7 +108,7 @@ watch(
   { immediate: true },
 );
 
-const { $scale, $clicks, $clicksContext } = useSlideContext();
+const { $scale, $clicksContext } = useSlideContext();
 
 const container = useTemplateRef<HTMLElement>("container");
 
@@ -160,7 +162,7 @@ onSlideEnter(() => {
   }, 300);
 });
 
-const totalSteps = ref<number | null>(null);
+const totalStepsCount = savedSnapshot ? calculateTotalSteps(savedSnapshot) : 0;
 
 const handleMount = (
   editor: Editor,
@@ -186,15 +188,9 @@ const handleMount = (
 
   // Sync Slidev's click position -> Anipres' step index
   watchEffect(() => {
-    anipresAtoms.$currentStepIndex.set(step.value);
+    const newStepIndex = Math.min(Math.max(0, step.value), totalStepsCount - 1);
+    anipresAtoms.$currentStepIndex.set(newStepIndex);
   });
-
-  // Get Anipres' total steps
-  stopHandlers.push(
-    react("total steps", () => {
-      totalSteps.value = $editorSignals.getTotalSteps();
-    }),
-  );
 
   watch(
     $scale,
@@ -252,38 +248,25 @@ const handleMount = (
   };
 };
 
-// Register the clicks of this component to Slidev.
+// Register the click info of this component to Slidev.
+const clickInfoId = uniqueId();
 const step = ref(0);
-const clicksId = uniqueId();
-function registerClicks() {
-  if (totalSteps.value == null) {
+onMounted(() => {
+  const CLICKS_MAX = 99999;
+  const at = props.at;
+  const size = totalStepsCount - 1;
+  const clicksInfo = $clicksContext.calculateSince(at, size);
+  if (!clicksInfo) {
+    step.value = CLICKS_MAX;
     return;
   }
-
-  $clicksContext.unregister(clicksId);
-
-  // XXX: It's important to unregister the click context before calculating the new click info.
-  // Otherwise, the new click info will be incorrect as it will be calculated based on the old click context that includes the old click info of this component itself.
-  const defaultAt = $clicksContext.currentOffset > 0 ? "+1" : 0; // Set "+1" if another clickable element exists in the slide to display this component after it. Otherwise, set 0 to display this component immediately.
-  const at = props.at ?? defaultAt;
-  const totalClicks = totalSteps.value - props.offset;
-  const clickInfo = $clicksContext.calculateSince(at, totalClicks);
-
-  $clicksContext.register(clicksId, clickInfo);
-
-  step.value = $clicks.value - (clickInfo?.start ?? 0) + props.offset;
-}
-onMounted(() => {
-  registerClicks();
-});
-watchEffect(() => {
-  // XXX: Calling `$clicksContext.register` here causes a warning that is displayed in the dev mode,
-  // saying it's unexpected to call `register` after the component is mounted.
-  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `$clicksContext.register` only in `onMounted`.
-  registerClicks();
+  $clicksContext.register(clickInfoId, clicksInfo);
+  watchEffect(() => {
+    step.value = clicksInfo.currentOffset.value + 1;
+  });
 });
 onUnmounted(() => {
-  $clicksContext.unregister(clicksId);
+  $clicksContext.unregister(clickInfoId);
 });
 
 // Disable the browser's two-finger swipe for page navigation.
@@ -373,7 +356,7 @@ function handleKeyEvent(event: KeyboardEvent) {
         @keydown="handleKeyEvent"
         @keypress="handleKeyEvent"
         @keyup="handleKeyEvent"
-        :style="[
+        :style="
           isEditing
             ? {
                 position: 'absolute',
@@ -385,11 +368,8 @@ function handleKeyEvent(event: KeyboardEvent) {
             : {
                 width: '100%',
                 height: '100%',
-              },
-          {
-            opacity: step >= 0 || isEditing ? 1 : 0,
-          },
-        ]"
+              }
+        "
       >
         <Anipres
           v-if="isMountedOnce"
@@ -398,6 +378,7 @@ function handleKeyEvent(event: KeyboardEvent) {
           :presentationMode="!isEditing"
           :snapshot="savedSnapshot"
           :assetUrls="{ fonts: fontUrls }"
+          :stepHotkeyEnabled="false"
         />
       </div>
     </Teleport>
