@@ -1,5 +1,11 @@
 # slidev-addon-anipres
 
+## 0.6.7
+
+### Patch Changes
+
+- [#314](https://github.com/whitphx/anipres/pull/314) [`885390a`](https://github.com/whitphx/anipres/commit/885390a45aed6b74924af2d57d5ff7679ceb0285) Thanks [@whitphx](https://github.com/whitphx)! - Update tldraw to 3.15.5 that slidev-addon-anipres depends on
+
 ## 0.6.6
 
 ### Patch Changes
