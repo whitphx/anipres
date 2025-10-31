@@ -1,5 +1,14 @@
 # slidev-addon-anipres
 
+## 0.6.6
+
+### Patch Changes
+
+- [#309](https://github.com/whitphx/anipres/pull/309) [`08e7ab8`](https://github.com/whitphx/anipres/commit/08e7ab873aecd9d4bf0c732e561c11d3b405f49c) Thanks [@whitphx](https://github.com/whitphx)! - Disable Anipres' native navigation inside the Slidev addon because the navigation is managed by Slidev and its information is propagated to Anipres via API
+
+- Updated dependencies [[`8f9ac54`](https://github.com/whitphx/anipres/commit/8f9ac541e61b8fc363cb4a6d66b0ed373aef2942)]:
+  - anipres@0.7.1
+
 ## 0.6.5
 
 ### Patch Changes
