@@ -55,8 +55,8 @@ import "./tldraw-overrides.css";
 const customShapeUtils = [SlideShapeUtil];
 const customTools = [SlideShapeTool];
 
-// We use atoms as it's Tldraw's design,
-// but we also need to manage these states per instance of Anipres component
+// We use atoms since it's Tldraw's design,
+// but we also need to manage these states per Anipres component instance
 // and isolate different instances from each other.
 // This hook is used to create such per-instance atoms.
 function usePerInstanceAtoms() {
@@ -68,19 +68,12 @@ function usePerInstanceAtoms() {
   const $presentationMode = useAtom<boolean>("presentation mode", false);
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
-  return useMemo(() => {
-    return {
-      $stepHotkeyEnabled,
-      $presentationModeHotkeyEnabled,
-      $presentationMode,
-      $currentStepIndex,
-    };
-  }, [
+  return {
     $stepHotkeyEnabled,
     $presentationModeHotkeyEnabled,
     $presentationMode,
     $currentStepIndex,
-  ]);
+  };
 }
 export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
