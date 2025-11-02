@@ -21,6 +21,7 @@ type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
+// Functions that depends on `editor` and should be cached by `computed` go here.
 export class PresentationManager {
   private constructor(
     private editor: Editor,
