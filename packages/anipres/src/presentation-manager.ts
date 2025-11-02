@@ -61,7 +61,22 @@ export class PresentationManager {
     return this.$getOrderedSteps().length;
   }
 
-  public moveTo(stepIndex: number) {
+  public moveTo(stepIndex: number): void;
+  public moveTo(stepIndexUpdater: (prev: number) => number): void;
+  public moveTo(stepIndexOrUpdater: number | ((prev: number) => number)): void {
+    if (typeof stepIndexOrUpdater === "function") {
+      const updater = stepIndexOrUpdater;
+      const prevIndex = this.$currentStepIndex.get();
+      const newIndex = updater(prevIndex);
+      this._moveTo(newIndex);
+      return;
+    } else {
+      const stepIndex = stepIndexOrUpdater;
+      this._moveTo(stepIndex);
+    }
+  }
+
+  private _moveTo(stepIndex: number) {
     if (stepIndex < 0) {
       stepIndex = 0;
     }
