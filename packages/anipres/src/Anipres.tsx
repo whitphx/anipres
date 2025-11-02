@@ -50,6 +50,7 @@ import React, {
 } from "react";
 
 import "./tldraw-overrides.css";
+import { AnimationController } from "./animation";
 
 const customShapeUtils = [SlideShapeUtil];
 const customTools = [SlideShapeTool];
@@ -232,10 +233,18 @@ const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
   const $editorSignalsRef = useRef<EditorSignals | null>(null);
+  const $animationControllerRef = useRef<AnimationController | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = new EditorSignals(editor, perInstanceAtoms);
+    const $editorSignals = new EditorSignals(editor);
     $editorSignalsRef.current = $editorSignals;
+
+    const animationController = new AnimationController(
+      editor,
+      $editorSignals,
+      perInstanceAtoms,
+    );
+    $animationControllerRef.current = animationController;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -410,14 +419,16 @@ const Inner = (props: InnerProps) => {
       return "visible";
     }
 
-    const $editorSignals = $editorSignalsRef.current;
-    if ($editorSignals == null) {
-      // Fallback: If editorSignalsRef.current is null, assume the shape should be hidden
-      return "hidden";
+    const $animationController = $animationControllerRef.current;
+    if ($animationController == null) {
+      // This case should not happen normally.
+      // Fallback: If animationController is null, which means the editor is not mounted/initialized,
+      // make all shapes visible to avoid hiding shapes unexpectedly.
+      return "visible";
     }
 
     const shapeVisibilities =
-      $editorSignals.getShapeVisibilitiesInPresentationMode();
+      $animationController.getShapeVisibilitiesInPresentationMode();
     return shapeVisibilities[shape.id] ?? "hidden";
   };
 
