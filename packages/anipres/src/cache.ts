@@ -3,7 +3,7 @@ import { EditorSignals } from "./editor-signals";
 
 const INSTANCE_KEY = Symbol("instance");
 
-export function singletonFactory<
+export function singletonInitializerOf<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   T extends new (...args: any) => InstanceType<T>,
 >(Class: T): (...args: ConstructorParameters<T>) => InstanceType<T> {
@@ -36,6 +36,7 @@ export function singletonFactory<
   };
 }
 
-export const getAnimationController = singletonFactory(AnimationController);
+export const getAnimationController =
+  singletonInitializerOf(AnimationController);
 
-export const getEditorSignals = singletonFactory(EditorSignals);
+export const getEditorSignals = singletonInitializerOf(EditorSignals);
