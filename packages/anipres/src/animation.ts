@@ -1,13 +1,13 @@
 import {
+  type Atom,
   Editor,
   GroupShapeUtil,
   TLShapeId,
   TldrawBaseProps,
   computed,
 } from "tldraw";
-import { getFrame } from "./models";
+import { getFrame, runStep } from "./models";
 import { SlideShapeType } from "./SlideShapeUtil";
-import type { AnipresAtoms } from "./Anipres";
 import { EditorSignals } from "./editor-signals";
 
 type ShapeVisibility = NonNullable<
@@ -18,17 +18,43 @@ export class AnimationController {
   constructor(
     private editor: Editor,
     private $editorSignals: EditorSignals,
-    private perInstanceAtoms: AnipresAtoms,
+    private $currentStepIndex: Atom<number>,
   ) {}
 
-  @computed getShapeVisibilitiesInPresentationMode(): Record<
+  public moveTo(stepIndex: number) {
+    if (stepIndex < 0) {
+      stepIndex = 0;
+    }
+    const orderedSteps = this.$editorSignals.getOrderedSteps();
+    if (stepIndex >= orderedSteps.length) {
+      stepIndex = orderedSteps.length - 1;
+    }
+
+    if (stepIndex === this.$currentStepIndex.get()) {
+      return;
+    }
+
+    this.$currentStepIndex.set(stepIndex);
+    runStep(this.editor, orderedSteps, stepIndex);
+  }
+
+  public rerunStep(): void {
+    const stepIndex = this.$currentStepIndex.get();
+    const orderedSteps = this.$editorSignals.getOrderedSteps();
+    if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
+      return;
+    }
+    runStep(this.editor, orderedSteps, stepIndex);
+  }
+
+  @computed $getShapeVisibilitiesInPresentationMode(): Record<
     TLShapeId,
     ShapeVisibility
   > {
     const editor = this.editor;
 
     const orderedSteps = this.$editorSignals.getOrderedSteps();
-    const currentStepIndex = this.perInstanceAtoms.$currentStepIndex.get();
+    const currentStepIndex = this.$currentStepIndex.get();
 
     const shapes = editor.getCurrentPageShapes();
     const shapesVisibilities = shapes.map<[TLShapeId, ShapeVisibility]>(

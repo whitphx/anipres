@@ -9,7 +9,6 @@ import {
   DefaultKeyboardShortcutsDialog,
   DefaultKeyboardShortcutsDialogContent,
   uniqueId,
-  react,
   useAtom,
   useValue,
 } from "tldraw";
@@ -30,7 +29,6 @@ import { SlideShapeTool } from "./SlideShapeTool";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
-  runStep,
   cueFrameToJsonObject,
   getFrame,
   type CameraZoomFrameAction,
@@ -84,12 +82,15 @@ function usePerInstanceAtoms() {
 }
 export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
-const makeUiOverrides = ({
-  $stepHotkeyEnabled,
-  $presentationModeHotkeyEnabled,
-  $currentStepIndex,
-  $presentationMode,
-}: AnipresAtoms): TLUiOverrides => {
+const makeUiOverrides = (
+  {
+    $stepHotkeyEnabled,
+    $presentationModeHotkeyEnabled,
+    $currentStepIndex,
+    $presentationMode,
+  }: AnipresAtoms,
+  animationControllerRef: React.RefObject<AnimationController>,
+): TLUiOverrides => {
   return {
     actions(_, actions) {
       actions["next-step"] = {
@@ -101,7 +102,12 @@ const makeUiOverrides = ({
             return;
           }
 
-          $currentStepIndex.update((v) => v + 1);
+          const animationController = animationControllerRef.current;
+          if (animationController == null) {
+            return;
+          }
+
+          animationController.moveTo($currentStepIndex.get() + 1);
         },
       };
 
@@ -114,7 +120,12 @@ const makeUiOverrides = ({
             return;
           }
 
-          $currentStepIndex.update((v) => v - 1);
+          // No animation when going backward for simplicity
+          const newStepIndex = $currentStepIndex.get() - 1;
+          if (newStepIndex < 0) {
+            return;
+          }
+          $currentStepIndex.set(newStepIndex);
         },
       };
 
@@ -224,6 +235,7 @@ interface InnerProps {
   onMount: (
     editor: Editor,
     $editorSignals: EditorSignals,
+    animationController: AnimationController,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: AnipresAtoms;
@@ -233,7 +245,7 @@ const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
   const $editorSignalsRef = useRef<EditorSignals | null>(null);
-  const $animationControllerRef = useRef<AnimationController | null>(null);
+  const animationControllerRef = useRef<AnimationController | null>(null);
 
   const handleMount = (editor: Editor) => {
     const $editorSignals = new EditorSignals(editor);
@@ -242,9 +254,9 @@ const Inner = (props: InnerProps) => {
     const animationController = new AnimationController(
       editor,
       $editorSignals,
-      perInstanceAtoms,
+      perInstanceAtoms.$currentStepIndex,
     );
-    $animationControllerRef.current = animationController;
+    animationControllerRef.current = animationController;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -393,18 +405,7 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    react("current step index", () => {
-      const index = perInstanceAtoms.$currentStepIndex.get();
-
-      setTimeout(() => {
-        // `runStep` internally refers to another reactive value that depends on the `editor` object.
-        // So we need to put `runStep()` here to avoid an infinite loop.
-        const orderedSteps = $editorSignals.getOrderedSteps();
-        runStep(editor, orderedSteps, index);
-      });
-    });
-
-    onMount?.(editor, $editorSignals);
+    onMount?.(editor, $editorSignals, animationController);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
@@ -419,8 +420,8 @@ const Inner = (props: InnerProps) => {
       return "visible";
     }
 
-    const $animationController = $animationControllerRef.current;
-    if ($animationController == null) {
+    const animationController = animationControllerRef.current;
+    if (animationController == null) {
       // This case should not happen normally.
       // Fallback: If animationController is null, which means the editor is not mounted/initialized,
       // make all shapes visible to avoid hiding shapes unexpectedly.
@@ -428,7 +429,7 @@ const Inner = (props: InnerProps) => {
     }
 
     const shapeVisibilities =
-      $animationController.getShapeVisibilitiesInPresentationMode();
+      animationController.$getShapeVisibilitiesInPresentationMode();
     return shapeVisibilities[shape.id] ?? "hidden";
   };
 
@@ -439,7 +440,7 @@ const Inner = (props: InnerProps) => {
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
         ...createComponents($editorSignalsRef, perInstanceAtoms),
       }}
-      overrides={makeUiOverrides(perInstanceAtoms)}
+      overrides={makeUiOverrides(perInstanceAtoms, animationControllerRef)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
@@ -481,7 +482,6 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
 
     const anipresAtoms = usePerInstanceAtoms();
     const {
-      $currentStepIndex,
       $presentationMode,
       $stepHotkeyEnabled,
       $presentationModeHotkeyEnabled,
@@ -498,12 +498,18 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     const editorAndSignalsRef = useRef<{
       editor: Editor;
       $editorSignals: EditorSignals;
+      animationController: AnimationController;
     } | null>(null);
     const handleMount = useCallback(
-      (editor: Editor, $editorSignals: EditorSignals) => {
+      (
+        editor: Editor,
+        $editorSignals: EditorSignals,
+        animationController: AnimationController,
+      ) => {
         editorAndSignalsRef.current = {
           editor,
-          $editorSignals: $editorSignals,
+          $editorSignals,
+          animationController,
         };
         onMount?.(editor, $editorSignals, anipresAtoms);
       },
@@ -521,12 +527,8 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         if (editorAndSignalsRef.current == null) {
           return;
         }
-        const { editor, $editorSignals } = editorAndSignalsRef.current;
-        runStep(
-          editor,
-          $editorSignals.getOrderedSteps(),
-          $currentStepIndex.get(),
-        );
+        const { animationController } = editorAndSignalsRef.current;
+        animationController.rerunStep();
       },
     }));
 
