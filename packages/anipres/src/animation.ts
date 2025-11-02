@@ -1,9 +1,9 @@
 import {
   type Atom,
-  Editor,
+  type Editor,
   GroupShapeUtil,
-  TLShapeId,
-  TldrawBaseProps,
+  type TLShapeId,
+  type TldrawBaseProps,
   computed,
   EASINGS,
   createShapeId,
