@@ -44,27 +44,27 @@ export class EditorSignals {
     return inst;
   }
 
-  @computed getAllFrames(): Frame[] {
+  @computed $getAllFrames(): Frame[] {
     const shapes = this.editor.getCurrentPageShapes();
     return getFrames(shapes);
   }
 
-  @computed getOrderedSteps(): Step[] {
-    const frames = this.getAllFrames();
+  @computed $getOrderedSteps(): Step[] {
+    const frames = this.$getAllFrames();
     const frameBatches = getFrameBatches(frames);
     const orderedSteps = getGlobalOrder(frameBatches);
     return orderedSteps;
   }
 
-  @computed getTotalSteps(): number {
-    return this.getOrderedSteps().length;
+  @computed $getTotalSteps(): number {
+    return this.$getOrderedSteps().length;
   }
 
   public moveTo(stepIndex: number) {
     if (stepIndex < 0) {
       stepIndex = 0;
     }
-    const orderedSteps = this.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     if (orderedSteps.length === 0) {
       // No steps to animate
       return;
@@ -83,7 +83,7 @@ export class EditorSignals {
 
   public rerunStep(): void {
     const stepIndex = this.$currentStepIndex.get();
-    const orderedSteps = this.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
@@ -96,7 +96,7 @@ export class EditorSignals {
   > {
     const editor = this.editor;
 
-    const orderedSteps = this.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     const currentStepIndex = this.$currentStepIndex.get();
 
     const shapes = editor.getCurrentPageShapes();

@@ -26,7 +26,7 @@ import type { EditorSignals } from "../editor-signals";
 
 export interface ControlPanelProps {
   editor: Editor;
-  $editorSignals: EditorSignals;
+  editorSignals: EditorSignals;
   currentStepIndex: number;
   onCurrentStepIndexChange: (newIndex: number) => void;
   onPresentationModeEnter: () => void;
@@ -34,15 +34,15 @@ export interface ControlPanelProps {
 export const ControlPanel = track((props: ControlPanelProps) => {
   const {
     editor,
-    $editorSignals,
+    editorSignals,
     currentStepIndex,
     onCurrentStepIndexChange,
     onPresentationModeEnter,
   } = props;
 
-  const steps = $editorSignals.getOrderedSteps();
+  const steps = editorSignals.$getOrderedSteps();
 
-  const frames = $editorSignals.getAllFrames();
+  const frames = editorSignals.$getAllFrames();
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();

@@ -250,7 +250,7 @@ export function getShapeByFrameId(
 
 export function reconcileShapeDeletion(
   editor: Editor,
-  $editorSignals: EditorSignals,
+  editorSignals: EditorSignals,
   deletedShape: TLShape,
 ) {
   const deletedFrame = getFrame(deletedShape);
@@ -260,7 +260,7 @@ export function reconcileShapeDeletion(
 
   if (deletedFrame.type === "cue") {
     // Reassign globalIndex
-    const steps = $editorSignals.getOrderedSteps();
+    const steps = editorSignals.$getOrderedSteps();
     reassignGlobalIndexInplace(steps);
     steps.forEach((stepFrameBatches) => {
       stepFrameBatches.forEach((frameBatch) => {

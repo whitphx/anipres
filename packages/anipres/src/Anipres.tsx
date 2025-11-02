@@ -173,16 +173,16 @@ const makeUiOverrides = (
 };
 
 const createComponents = (
-  $editorSignalsRef: React.RefObject<EditorSignals | null>,
+  editorSignalsRef: React.RefObject<EditorSignals | null>,
   { $currentStepIndex, $presentationMode }: AnipresAtoms,
 ): TLComponents => {
   return {
     TopPanel: () => {
       const editor = useEditor();
-      const $editorSignals = $editorSignalsRef.current;
+      const editorSignals = editorSignalsRef.current;
       const presentationMode = useValue($presentationMode);
       const currentStepIndex = useValue($currentStepIndex);
-      if ($editorSignals == null) {
+      if (editorSignals == null) {
         return null;
       }
       if (presentationMode) {
@@ -191,10 +191,10 @@ const createComponents = (
       return (
         <ControlPanel
           editor={editor}
-          $editorSignals={$editorSignals}
+          editorSignals={editorSignals}
           currentStepIndex={currentStepIndex}
           onCurrentStepIndexChange={(newIndex) => {
-            $editorSignals.moveTo(newIndex);
+            editorSignals.moveTo(newIndex);
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
@@ -242,14 +242,14 @@ interface InnerProps {
 const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
-  const $editorSignalsRef = useRef<EditorSignals | null>(null);
+  const editorSignalsRef = useRef<EditorSignals | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = EditorSignals.create(
+    const editorSignals = EditorSignals.create(
       editor,
       perInstanceAtoms.$currentStepIndex,
     );
-    $editorSignalsRef.current = $editorSignals;
+    editorSignalsRef.current = editorSignals;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -257,7 +257,7 @@ const Inner = (props: InnerProps) => {
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
           // Auto attach camera cueFrame to the newly created slide shape
-          const orderedSteps = $editorSignals.getOrderedSteps();
+          const orderedSteps = editorSignals.$getOrderedSteps();
           const lastCameraCueFrame = orderedSteps
             .reverse()
             .flat()
@@ -322,7 +322,7 @@ const Inner = (props: InnerProps) => {
     );
     stopHandlers.push(
       editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        reconcileShapeDeletion(editor, $editorSignals, shape);
+        reconcileShapeDeletion(editor, editorSignals, shape);
       }),
     );
 
@@ -398,7 +398,7 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    onMount?.(editor, $editorSignals);
+    onMount?.(editor, editorSignals);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
@@ -433,9 +433,9 @@ const Inner = (props: InnerProps) => {
       onMount={handleMount}
       components={{
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents($editorSignalsRef, perInstanceAtoms),
+        ...createComponents(editorSignalsRef, perInstanceAtoms),
       }}
-      overrides={makeUiOverrides(perInstanceAtoms, $editorSignalsRef)}
+      overrides={makeUiOverrides(perInstanceAtoms, editorSignalsRef)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
