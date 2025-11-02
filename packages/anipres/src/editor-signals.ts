@@ -1,8 +1,9 @@
 import { Editor, computed } from "tldraw";
 import { Frame, Step, getFrames, getFrameBatches } from "./models";
 import { getGlobalOrder } from "./ordered-track-item";
+import { singletonInitializerOf } from "./cache";
 
-export class EditorSignals {
+class _EditorSignals {
   constructor(private editor: Editor) {}
 
   @computed getAllFrames(): Frame[] {
@@ -21,3 +22,6 @@ export class EditorSignals {
     return this.getOrderedSteps().length;
   }
 }
+
+export const getEditorSignals = singletonInitializerOf(_EditorSignals);
+export type EditorSignals = _EditorSignals;

@@ -1,6 +1,3 @@
-import { AnimationController } from "./animation";
-import { EditorSignals } from "./editor-signals";
-
 const INSTANCE_KEY = Symbol("instance");
 
 export function singletonInitializerOf<
@@ -35,8 +32,3 @@ export function singletonInitializerOf<
     return instance;
   };
 }
-
-export const getAnimationController =
-  singletonInitializerOf(AnimationController);
-
-export const getEditorSignals = singletonInitializerOf(EditorSignals);

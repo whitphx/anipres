@@ -38,9 +38,8 @@ import {
   getSubFrame,
   subFrameToJsonObject,
 } from "./models";
-import type { EditorSignals } from "./editor-signals";
-import type { AnimationController } from "./animation";
-import { getAnimationController, getEditorSignals } from "./cache";
+import { getEditorSignals, type EditorSignals } from "./editor-signals";
+import { getAnimationController, type AnimationController } from "./animation";
 import React, {
   useCallback,
   useEffect,
@@ -254,7 +253,6 @@ const Inner = (props: InnerProps) => {
 
     const animationController = getAnimationController(
       editor,
-      $editorSignals,
       perInstanceAtoms.$currentStepIndex,
     );
     animationControllerRef.current = animationController;
@@ -423,11 +421,9 @@ const Inner = (props: InnerProps) => {
     }
 
     // This function can be called before `onMount` is called and the refs are set.
-    // So we need to get these objects here from the cached factories instead of relying on the refs that are set in `onMount`.
-    const $editorSignals = getEditorSignals(editor);
+    // So we need to get animationController here from the cached factory instead of relying on the refs that are set in `onMount`.
     const animationController = getAnimationController(
       editor,
-      $editorSignals,
       perInstanceAtoms.$currentStepIndex,
     );
     if (animationController == null) {

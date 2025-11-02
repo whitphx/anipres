@@ -11,18 +11,21 @@ import {
 } from "tldraw";
 import { getFrame, getShapeByFrameId, type Frame, type Step } from "./models";
 import { SlideShapeType } from "./SlideShapeUtil";
-import type { EditorSignals } from "./editor-signals";
+import { getEditorSignals, type EditorSignals } from "./editor-signals";
+import { singletonInitializerOf } from "./cache";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
-export class AnimationController {
+class _AnimationController {
+  private $editorSignals: EditorSignals;
   constructor(
     private editor: Editor,
-    private $editorSignals: EditorSignals,
     private $currentStepIndex: Atom<number>,
-  ) {}
+  ) {
+    this.$editorSignals = getEditorSignals(editor);
+  }
 
   public moveTo(stepIndex: number) {
     if (stepIndex < 0) {
@@ -150,6 +153,10 @@ export class AnimationController {
     return Object.fromEntries(shapesVisibilities);
   }
 }
+
+export const getAnimationController =
+  singletonInitializerOf(_AnimationController);
+export type AnimationController = _AnimationController;
 
 async function runFrames(
   editor: Editor,
