@@ -178,8 +178,11 @@ const handleMount = (editor: Editor, moveTo: (stepIndex: number) => void) => {
     editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
   );
 
-  // Sync Slidev's click position -> Anipres' step index
+  // Trigger Anipres' animation based on Slidev's click position change
   watchEffect(() => {
+    if (totalStepsCount === 0) {
+      return;
+    }
     const newStepIndex = Math.min(Math.max(0, step.value), totalStepsCount - 1);
     moveTo(newStepIndex);
   });
