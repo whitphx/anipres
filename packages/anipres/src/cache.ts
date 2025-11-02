@@ -5,7 +5,7 @@ const INSTANCE_KEY = Symbol("instance");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function singletonize<T extends new (...args: any) => InstanceType<T>>(
-  klass: T,
+  Class: T,
 ): (...args: ConstructorParameters<T>) => InstanceType<T> {
   type CacheMap = WeakMap<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +30,7 @@ export function singletonize<T extends new (...args: any) => InstanceType<T>>(
       return maybeInstance as InstanceType<T>;
     }
 
-    const instance = new klass(...args);
+    const instance = new Class(...args);
     map.set(INSTANCE_KEY, instance);
     return instance;
   };
