@@ -38,7 +38,9 @@ import {
   getSubFrame,
   subFrameToJsonObject,
 } from "./models";
-import { EditorSignals } from "./editor-signals";
+import type { EditorSignals } from "./editor-signals";
+import type { AnimationController } from "./animation";
+import { getAnimationController, getEditorSignals } from "./cache";
 import React, {
   useCallback,
   useEffect,
@@ -48,10 +50,8 @@ import React, {
 } from "react";
 
 import "./tldraw-overrides.css";
-import { AnimationController } from "./animation";
 
 import { customShapeUtils } from "./shape-utils";
-import { getAnimationController, getEditorSignals } from "./cache";
 const customTools = [SlideShapeTool];
 
 // We use atoms as it's Tldraw's design,
