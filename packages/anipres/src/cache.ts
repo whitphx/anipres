@@ -7,9 +7,9 @@ const INSTANCE_KEY = Symbol("instance");
 export function singletonize<T extends new (...args: any) => InstanceType<T>>(
   klass: T,
 ): (...args: ConstructorParameters<T>) => InstanceType<T> {
-   
   type CacheMap = WeakMap<
-    ConstructorParameters<T>[number] | symbol,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
     CacheMap | InstanceType<T>
   >;
   const cache: CacheMap = new WeakMap();
