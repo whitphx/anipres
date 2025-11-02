@@ -48,7 +48,6 @@ import React, {
 } from "react";
 
 import "./tldraw-overrides.css";
-import { AnimationController } from "./animation";
 
 import { customShapeUtils } from "./shape-utils";
 const customTools = [SlideShapeTool];
@@ -89,7 +88,7 @@ const makeUiOverrides = (
     $currentStepIndex,
     $presentationMode,
   }: AnipresAtoms,
-  animationControllerRef: React.RefObject<AnimationController>,
+  editorSignalsRef: React.RefObject<EditorSignals>,
 ): TLUiOverrides => {
   return {
     actions(_, actions) {
@@ -102,12 +101,12 @@ const makeUiOverrides = (
             return;
           }
 
-          const animationController = animationControllerRef.current;
-          if (animationController == null) {
+          const editorSignals = editorSignalsRef.current;
+          if (editorSignals == null) {
             return;
           }
 
-          animationController.moveTo($currentStepIndex.get() + 1);
+          editorSignals.animation.moveTo($currentStepIndex.get() + 1);
         },
       };
 
@@ -120,12 +119,12 @@ const makeUiOverrides = (
             return;
           }
 
-          const animationController = animationControllerRef.current;
-          if (animationController == null) {
+          const editorSignals = editorSignalsRef.current;
+          if (editorSignals == null) {
             return;
           }
 
-          animationController.moveTo($currentStepIndex.get() - 1);
+          editorSignals.animation.moveTo($currentStepIndex.get() - 1);
         },
       };
 
@@ -176,7 +175,6 @@ const makeUiOverrides = (
 const createComponents = (
   $editorSignalsRef: React.RefObject<EditorSignals | null>,
   { $currentStepIndex, $presentationMode }: AnipresAtoms,
-  animationControllerRef: React.RefObject<AnimationController>,
 ): TLComponents => {
   return {
     TopPanel: () => {
@@ -196,7 +194,7 @@ const createComponents = (
           $editorSignals={$editorSignals}
           currentStepIndex={currentStepIndex}
           onCurrentStepIndexChange={(newIndex) => {
-            animationControllerRef.current?.moveTo(newIndex);
+            $editorSignals.animation.moveTo(newIndex);
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
@@ -235,28 +233,23 @@ const createComponents = (
 interface InnerProps {
   onMount: (
     editor: Editor,
-    animationController: AnimationController,
+    editorSignals: EditorSignals,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
-  perInstanceAtoms: AnipresAtoms;
+  perInstanceAtoms: AnipresAtoms; // TODO: Move the def to this component.
   assetUrls?: TldrawProps["assetUrls"];
 }
 const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
   const $editorSignalsRef = useRef<EditorSignals | null>(null);
-  const animationControllerRef = useRef<AnimationController | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = EditorSignals.create(editor);
-    $editorSignalsRef.current = $editorSignals;
-
-    const animationController = new AnimationController(
+    const $editorSignals = EditorSignals.create(
       editor,
-      $editorSignals,
       perInstanceAtoms.$currentStepIndex,
     );
-    animationControllerRef.current = animationController;
+    $editorSignalsRef.current = $editorSignals;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -405,7 +398,7 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    onMount?.(editor, animationController);
+    onMount?.(editor, $editorSignals);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
@@ -414,22 +407,24 @@ const Inner = (props: InnerProps) => {
 
   const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
     shape,
+    editor,
   ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     if (!presentationMode) {
       return "visible";
     }
 
-    const animationController = animationControllerRef.current;
-    if (animationController == null) {
-      // This case should not happen normally.
-      // Fallback: If animationController is null, which means the editor is not mounted/initialized,
-      // make all shapes visible to avoid hiding shapes unexpectedly.
-      return "visible";
-    }
+    // This callback can be called before `onMount` is called and the refs are set.
+    // So we need to get editorSignals here using the editor object passed to this callback
+    // instead of relying on the refs that are set in `onMount`.
+    // `EditorSignals.create` ensures that the same instance is returned for the same editor.
+    const editorSignals = EditorSignals.create(
+      editor,
+      perInstanceAtoms.$currentStepIndex,
+    );
 
     const shapeVisibilities =
-      animationController.$getShapeVisibilitiesInPresentationMode();
+      editorSignals.animation.$getShapeVisibilitiesInPresentationMode();
     return shapeVisibilities[shape.id] ?? "hidden";
   };
 
@@ -438,13 +433,9 @@ const Inner = (props: InnerProps) => {
       onMount={handleMount}
       components={{
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents(
-          $editorSignalsRef,
-          perInstanceAtoms,
-          animationControllerRef,
-        ),
+        ...createComponents($editorSignalsRef, perInstanceAtoms),
       }}
-      overrides={makeUiOverrides(perInstanceAtoms, animationControllerRef)}
+      overrides={makeUiOverrides(perInstanceAtoms, $editorSignalsRef)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
@@ -497,16 +488,16 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
 
     const editorAndSignalsRef = useRef<{
       editor: Editor;
-      animationController: AnimationController;
+      editorSignals: EditorSignals;
     } | null>(null);
     const handleMount = useCallback(
-      (editor: Editor, animationController: AnimationController) => {
+      (editor: Editor, editorSignals: EditorSignals) => {
         editorAndSignalsRef.current = {
           editor,
-          animationController,
+          editorSignals,
         };
         onMount?.(editor, (stepIndex: number) => {
-          animationController.moveTo(stepIndex);
+          editorSignals.animation.moveTo(stepIndex);
         });
       },
       [onMount],
@@ -523,8 +514,8 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         if (editorAndSignalsRef.current == null) {
           return;
         }
-        const { animationController } = editorAndSignalsRef.current;
-        animationController.rerunStep();
+        const { editorSignals } = editorAndSignalsRef.current;
+        editorSignals.animation.rerunStep();
       },
     }));
 
