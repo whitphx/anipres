@@ -502,7 +502,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       (editor: Editor, presentationManager: PresentationManager) => {
         editorAndSignalsRef.current = {
           editor,
-          presentationManager: presentationManager,
+          presentationManager,
         };
         onMount?.(editor, (stepIndex: number) => {
           presentationManager.moveTo(stepIndex);
