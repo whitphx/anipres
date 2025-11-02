@@ -26,6 +26,10 @@ export class AnimationController {
       stepIndex = 0;
     }
     const orderedSteps = this.$editorSignals.getOrderedSteps();
+    if (orderedSteps.length === 0) {
+      // No steps to animate
+      return;
+    }
     if (stepIndex >= orderedSteps.length) {
       stepIndex = orderedSteps.length - 1;
     }
