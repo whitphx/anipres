@@ -272,16 +272,16 @@ function runStep(editor: Editor, steps: Step[], index: number): Promise<void> {
 
     editor.run(
       () => {
-        for (const shape of frameShapes) {
-          editor.updateShape({
+        editor.updateShapes(
+          frameShapes.map((shape) => ({
             id: shape.id,
             type: shape.type,
             meta: {
               ...shape.meta,
               hiddenDuringAnimation: true,
             },
-          });
-        }
+          })),
+        );
       },
       { history: "ignore", ignoreShapeLock: true },
     );
@@ -294,16 +294,16 @@ function runStep(editor: Editor, steps: Step[], index: number): Promise<void> {
     ).finally(() => {
       editor.run(
         () => {
-          for (const shape of frameShapes) {
-            editor.updateShape({
+          editor.updateShapes(
+            frameShapes.map((shape) => ({
               id: shape.id,
               type: shape.type,
               meta: {
                 ...shape.meta,
                 hiddenDuringAnimation: null,
               },
-            });
-          }
+            })),
+          );
         },
         { history: "ignore", ignoreShapeLock: true },
       );
