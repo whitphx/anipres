@@ -176,6 +176,7 @@ const makeUiOverrides = (
 const createComponents = (
   $editorSignalsRef: React.RefObject<EditorSignals | null>,
   { $currentStepIndex, $presentationMode }: AnipresAtoms,
+  animationControllerRef: React.RefObject<AnimationController>,
 ): TLComponents => {
   return {
     TopPanel: () => {
@@ -195,7 +196,7 @@ const createComponents = (
           $editorSignals={$editorSignals}
           currentStepIndex={currentStepIndex}
           onCurrentStepIndexChange={(newIndex) => {
-            $currentStepIndex.set(newIndex);
+            animationControllerRef.current?.moveTo(newIndex);
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
@@ -438,7 +439,11 @@ const Inner = (props: InnerProps) => {
       onMount={handleMount}
       components={{
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents($editorSignalsRef, perInstanceAtoms),
+        ...createComponents(
+          $editorSignalsRef,
+          perInstanceAtoms,
+          animationControllerRef,
+        ),
       }}
       overrides={makeUiOverrides(perInstanceAtoms, animationControllerRef)}
       shapeUtils={customShapeUtils}

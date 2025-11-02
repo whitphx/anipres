@@ -6,7 +6,6 @@ import {
   type Editor,
 } from "tldraw";
 import {
-  runStep,
   attachCueFrame,
   cueFrameToJsonObject,
   type CueFrame,
@@ -134,12 +133,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           onFrameBatchesChange={handleFrameBatchesChange}
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
-          onStepSelect={(i) => {
-            const res = runStep(editor, steps, i);
-            if (res) {
-              onCurrentStepIndexChange(i);
-            }
-          }}
+          onStepSelect={onCurrentStepIndexChange}
           selectedFrameIds={selectedFrameShapes.map(
             (shape) => getFrame(shape)!.id,
           )}
