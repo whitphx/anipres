@@ -106,7 +106,7 @@ const makeUiOverrides = (
             return;
           }
 
-          editorSignals.animation.moveTo($currentStepIndex.get() + 1);
+          editorSignals.moveTo($currentStepIndex.get() + 1);
         },
       };
 
@@ -124,7 +124,7 @@ const makeUiOverrides = (
             return;
           }
 
-          editorSignals.animation.moveTo($currentStepIndex.get() - 1);
+          editorSignals.moveTo($currentStepIndex.get() - 1);
         },
       };
 
@@ -194,7 +194,7 @@ const createComponents = (
           $editorSignals={$editorSignals}
           currentStepIndex={currentStepIndex}
           onCurrentStepIndexChange={(newIndex) => {
-            $editorSignals.animation.moveTo(newIndex);
+            $editorSignals.moveTo(newIndex);
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
@@ -424,7 +424,7 @@ const Inner = (props: InnerProps) => {
     );
 
     const shapeVisibilities =
-      editorSignals.animation.$getShapeVisibilitiesInPresentationMode();
+      editorSignals.$getShapeVisibilitiesInPresentationMode();
     return shapeVisibilities[shape.id] ?? "hidden";
   };
 
@@ -497,7 +497,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
           editorSignals,
         };
         onMount?.(editor, (stepIndex: number) => {
-          editorSignals.animation.moveTo(stepIndex);
+          editorSignals.moveTo(stepIndex);
         });
       },
       [onMount],
@@ -515,7 +515,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
           return;
         }
         const { editorSignals } = editorAndSignalsRef.current;
-        editorSignals.animation.rerunStep();
+        editorSignals.rerunStep();
       },
     }));
 
