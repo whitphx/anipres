@@ -423,7 +423,7 @@ const Inner = (props: InnerProps) => {
     }
 
     // This function can be called before `onMount` is called and the refs are set.
-    // So we need get these objects here from the cached factories instead of relying on the refs that are set in `onMount`.
+    // So we need to get these objects here from the cached factories instead of relying on the refs that are set in `onMount`.
     const $editorSignals = getEditorSignals(editor);
     const animationController = getAnimationController(
       editor,
