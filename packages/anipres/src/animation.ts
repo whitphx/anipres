@@ -243,14 +243,16 @@ async function runFrames(
   }
 }
 
-function runStep(editor: Editor, steps: Step[], index: number): boolean {
+function runStep(editor: Editor, steps: Step[], index: number): Promise<void> {
   const step = steps[index];
   if (step == null) {
-    return false;
+    console.warn(`No step found at index ${index}`);
+    return Promise.resolve();
   }
 
   const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
+  const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
     const predecessorFrameBatch = steps
       .slice(0, index)
@@ -284,7 +286,7 @@ function runStep(editor: Editor, steps: Step[], index: number): boolean {
       { history: "ignore", ignoreShapeLock: true },
     );
 
-    runFrames(
+    const promise = runFrames(
       editor,
       frames,
       predecessorShape ?? null,
@@ -298,7 +300,7 @@ function runStep(editor: Editor, steps: Step[], index: number): boolean {
               type: shape.type,
               meta: {
                 ...shape.meta,
-                hiddenDuringAnimation: false,
+                hiddenDuringAnimation: null,
               },
             });
           }
@@ -307,7 +309,8 @@ function runStep(editor: Editor, steps: Step[], index: number): boolean {
       );
       editor.bailToMark(markBeforeAnimation);
     });
+    promises.push(promise);
   });
 
-  return true;
+  return Promise.all(promises).then();
 }
