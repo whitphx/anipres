@@ -511,7 +511,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
           animationController.moveTo(stepIndex);
         });
       },
-      [onMount, anipresAtoms],
+      [onMount],
     );
 
     useEffect(() => {
