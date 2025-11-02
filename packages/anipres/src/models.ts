@@ -56,6 +56,8 @@ export type FrameBatch<T extends FrameAction = FrameAction> = OrderedTrackItem<
   BatchedFrames<T>
 >;
 
+export type Step = FrameBatch[];
+
 export function cueFrameToJsonObject(cf: CueFrame): JsonObject {
   const { id, type, globalIndex, trackId, action } = cf;
   const obj = { id, type, globalIndex, trackId, action } satisfies JsonObject;
@@ -237,8 +239,6 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
 export function getFramesFromFrameBatches(frameBatches: FrameBatch[]): Frame[] {
   return frameBatches.flatMap((batch) => batch.data);
 }
-
-export type Step = FrameBatch[];
 
 export function getShapeByFrameId(
   editor: Editor,
