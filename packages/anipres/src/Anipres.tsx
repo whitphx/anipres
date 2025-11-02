@@ -120,12 +120,12 @@ const makeUiOverrides = (
             return;
           }
 
-          // No animation when going backward for simplicity
-          const newStepIndex = $currentStepIndex.get() - 1;
-          if (newStepIndex < 0) {
+          const animationController = animationControllerRef.current;
+          if (animationController == null) {
             return;
           }
-          $currentStepIndex.set(newStepIndex);
+
+          animationController.moveTo($currentStepIndex.get() - 1);
         },
       };
 
