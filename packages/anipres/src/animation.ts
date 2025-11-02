@@ -273,7 +273,7 @@ function runStep(editor: Editor, steps: Step[], index: number): boolean {
         for (const shape of frameShapes) {
           editor.updateShape({
             id: shape.id,
-            type: shape.id,
+            type: shape.type,
             meta: {
               ...shape.meta,
               hiddenDuringAnimation: true,
@@ -295,7 +295,7 @@ function runStep(editor: Editor, steps: Step[], index: number): boolean {
           for (const shape of frameShapes) {
             editor.updateShape({
               id: shape.id,
-              type: shape.id,
+              type: shape.type,
               meta: {
                 ...shape.meta,
                 hiddenDuringAnimation: false,
