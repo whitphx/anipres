@@ -102,6 +102,7 @@ export class AnimationController {
             .find((ab) => ab.trackId === cueFrame.trackId);
           const isLatestPrevInTrack =
             lastBatchIncludingThisTrack &&
+            lastBatchIncludingThisTrack.data.length > 0 &&
             lastBatchIncludingThisTrack.data.findIndex(
               (frame) => frame.id === cueFrame.id,
             ) ===
@@ -131,6 +132,7 @@ export class AnimationController {
             .find((ab) => ab.trackId === thisBatch.trackId);
           const isLatestPrevInTrack =
             lastBatchIncludingThisTrack &&
+            lastBatchIncludingThisTrack.data.length > 0 &&
             lastBatchIncludingThisTrack.data.findIndex(
               (frame) => frame.id === subFrame.id,
             ) ===
