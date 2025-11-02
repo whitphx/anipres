@@ -51,6 +51,7 @@ import "./tldraw-overrides.css";
 import { AnimationController } from "./animation";
 
 import { customShapeUtils } from "./shape-utils";
+import { getAnimationController, getEditorSignals } from "./cache";
 const customTools = [SlideShapeTool];
 
 // We use atoms as it's Tldraw's design,
@@ -248,10 +249,10 @@ const Inner = (props: InnerProps) => {
   const animationControllerRef = useRef<AnimationController | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = new EditorSignals(editor);
+    const $editorSignals = getEditorSignals(editor);
     $editorSignalsRef.current = $editorSignals;
 
-    const animationController = new AnimationController(
+    const animationController = getAnimationController(
       editor,
       $editorSignals,
       perInstanceAtoms.$currentStepIndex,
@@ -414,13 +415,21 @@ const Inner = (props: InnerProps) => {
 
   const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
     shape,
+    editor,
   ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     if (!presentationMode) {
       return "visible";
     }
 
-    const animationController = animationControllerRef.current;
+    // This function can be called before `onMount` is called and the refs are set.
+    // So we need get these objects here from the cached factories instead of relying on the refs that are set in `onMount`.
+    const $editorSignals = getEditorSignals(editor);
+    const animationController = getAnimationController(
+      editor,
+      $editorSignals,
+      perInstanceAtoms.$currentStepIndex,
+    );
     if (animationController == null) {
       // This case should not happen normally.
       // Fallback: If animationController is null, which means the editor is not mounted/initialized,
