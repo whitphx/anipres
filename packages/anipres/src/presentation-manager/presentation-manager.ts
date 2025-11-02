@@ -16,9 +16,9 @@ import {
   getFrames,
   getFrameBatches,
   getShapeByFrameId,
-} from "./models";
-import { getGlobalOrder } from "./ordered-track-item";
-import { SlideShapeType } from "./SlideShapeUtil";
+} from "../models";
+import { getGlobalOrder } from "../ordered-track-item";
+import { SlideShapeType } from "../SlideShapeUtil";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
