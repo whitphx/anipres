@@ -248,7 +248,7 @@ const Inner = (props: InnerProps) => {
   const animationControllerRef = useRef<AnimationController | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = new EditorSignals(editor);
+    const $editorSignals = EditorSignals.create(editor);
     $editorSignalsRef.current = $editorSignals;
 
     const animationController = new AnimationController(
