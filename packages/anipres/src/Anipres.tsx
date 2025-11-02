@@ -233,7 +233,7 @@ interface InnerProps {
     presentationManager: PresentationManager,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
-  perInstanceAtoms: AnipresAtoms; // TODO: Move the def to this component.
+  perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
 }
 const Inner = (props: InnerProps) => {
@@ -488,6 +488,12 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       $presentationModeHotkeyEnabled.set(presentationMode == null);
     }, [$presentationModeHotkeyEnabled, presentationMode]);
 
+    useEffect(() => {
+      if (presentationMode != null) {
+        $presentationMode.set(presentationMode);
+      }
+    }, [$presentationMode, presentationMode]);
+
     const editorAndSignalsRef = useRef<{
       editor: Editor;
       presentationManager: PresentationManager;
@@ -504,12 +510,6 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       },
       [onMount],
     );
-
-    useEffect(() => {
-      if (presentationMode != null) {
-        $presentationMode.set(presentationMode);
-      }
-    }, [$presentationMode, presentationMode]);
 
     useImperativeHandle(ref, () => ({
       rerunStep: () => {
