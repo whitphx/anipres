@@ -5,10 +5,13 @@ import {
   TLShapeId,
   TldrawBaseProps,
   computed,
+  EASINGS,
+  createShapeId,
+  type TLShape,
 } from "tldraw";
-import { getFrame, runStep } from "./models";
+import { getFrame, getShapeByFrameId, type Frame, type Step } from "./models";
 import { SlideShapeType } from "./SlideShapeUtil";
-import { EditorSignals } from "./editor-signals";
+import type { EditorSignals } from "./editor-signals";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
@@ -144,4 +147,165 @@ export class AnimationController {
 
     return Object.fromEntries(shapesVisibilities);
   }
+}
+
+async function runFrames(
+  editor: Editor,
+  frames: Frame[],
+  predecessorShape: TLShape | null,
+  historyStoppingPoint: string,
+): Promise<void> {
+  for (const frame of frames) {
+    const shape = getShapeByFrameId(editor, frame.id);
+    if (shape == null) {
+      throw new Error(`Shape not found for frame ${frame.id}`);
+    }
+
+    const action = frame.action;
+
+    const { duration = 0, easing = "easeInCubic" } = action;
+    const immediate = duration === 0;
+
+    if (action.type === "cameraZoom") {
+      const { inset = 0 } = action;
+
+      editor.stopCameraAnimation();
+      const bounds = editor.getShapePageBounds(shape);
+      if (!bounds) {
+        throw new Error(`Bounds not found for shape ${shape.id}`);
+      }
+      editor.selectNone();
+      editor.zoomToBounds(bounds, {
+        inset,
+        immediate,
+        animation: { duration, easing: EASINGS[easing] },
+      });
+    } else if (action.type === "shapeAnimation") {
+      editor.selectNone();
+
+      if (predecessorShape == null) {
+        predecessorShape = shape;
+        continue;
+      }
+
+      // Create and manipulate a temporary shape for animation
+      const animeShapeId = createShapeId();
+      editor.run(
+        () => {
+          editor.createShape({
+            ...predecessorShape,
+            id: animeShapeId,
+            type: shape.type,
+            meta: undefined,
+          });
+        },
+        { history: "ignore", ignoreShapeLock: true },
+      );
+
+      // HACK: Changes made by editor.animateShape() can't be ignored by `editor.run(..., { history: "ignore" })`
+      // because it's done in the `tick` event listener that is executed after the `editor.run()` returns.
+      // So we need to cancel the history records in another `tick` event listener manually.
+      const onTick = () => {
+        editor.bailToMark(historyStoppingPoint);
+      };
+      editor.on("tick", onTick);
+      editor.animateShape(
+        {
+          ...shape,
+          id: animeShapeId,
+          meta: undefined,
+        },
+        {
+          immediate,
+          animation: {
+            duration,
+            easing: EASINGS[easing],
+          },
+        },
+      );
+
+      setTimeout(() => {
+        editor.run(
+          () => {
+            editor.deleteShape(animeShapeId);
+          },
+          { history: "ignore", ignoreShapeLock: true },
+        );
+        editor.off("tick", onTick);
+      }, duration);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, duration));
+
+    predecessorShape = shape;
+  }
+}
+
+function runStep(editor: Editor, steps: Step[], index: number): boolean {
+  const step = steps[index];
+  if (step == null) {
+    return false;
+  }
+
+  const markBeforeAnimation = editor.markHistoryStoppingPoint();
+
+  step.forEach((frameBatch) => {
+    const predecessorFrameBatch = steps
+      .slice(0, index)
+      .reverse()
+      .flat()
+      .find((fb) => fb.trackId === frameBatch.trackId);
+    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
+    const predecessorShape =
+      predecessorLastFrame != null
+        ? getShapeByFrameId(editor, predecessorLastFrame.id)
+        : null;
+
+    const frames = frameBatch.data;
+    const frameShapes = frames
+      .map((frame) => getShapeByFrameId(editor, frame.id))
+      .filter((shape) => shape != null);
+
+    editor.run(
+      () => {
+        for (const shape of frameShapes) {
+          editor.updateShape({
+            id: shape.id,
+            type: shape.id,
+            meta: {
+              ...shape.meta,
+              hiddenDuringAnimation: true,
+            },
+          });
+        }
+      },
+      { history: "ignore", ignoreShapeLock: true },
+    );
+
+    runFrames(
+      editor,
+      frames,
+      predecessorShape ?? null,
+      markBeforeAnimation,
+    ).finally(() => {
+      editor.run(
+        () => {
+          for (const shape of frameShapes) {
+            editor.updateShape({
+              id: shape.id,
+              type: shape.id,
+              meta: {
+                ...shape.meta,
+                hiddenDuringAnimation: false,
+              },
+            });
+          }
+        },
+        { history: "ignore", ignoreShapeLock: true },
+      );
+      editor.bailToMark(markBeforeAnimation);
+    });
+  });
+
+  return true;
 }

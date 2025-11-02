@@ -9,20 +9,20 @@ import {
   attachCueFrame,
   cueFrameToJsonObject,
   type CueFrame,
-  FrameBatch,
+  type FrameBatch,
   getFramesFromFrameBatches,
   getFrame,
   frameToJsonObject,
   getFrameBatches,
-  Frame,
-  SubFrame,
+  type Frame,
+  type SubFrame,
   getShapeByFrameId,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
-import { EditorSignals } from "../editor-signals";
+import type { EditorSignals } from "../editor-signals";
 
 export interface ControlPanelProps {
   editor: Editor;
