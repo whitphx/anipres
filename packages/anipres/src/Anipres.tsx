@@ -235,7 +235,6 @@ const createComponents = (
 interface InnerProps {
   onMount: (
     editor: Editor,
-    $editorSignals: EditorSignals,
     animationController: AnimationController,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
@@ -406,7 +405,7 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    onMount?.(editor, $editorSignals, animationController);
+    onMount?.(editor, animationController);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
@@ -498,18 +497,12 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
 
     const editorAndSignalsRef = useRef<{
       editor: Editor;
-      $editorSignals: EditorSignals;
       animationController: AnimationController;
     } | null>(null);
     const handleMount = useCallback(
-      (
-        editor: Editor,
-        $editorSignals: EditorSignals,
-        animationController: AnimationController,
-      ) => {
+      (editor: Editor, animationController: AnimationController) => {
         editorAndSignalsRef.current = {
           editor,
-          $editorSignals,
           animationController,
         };
         onMount?.(editor, (stepIndex: number) => {
