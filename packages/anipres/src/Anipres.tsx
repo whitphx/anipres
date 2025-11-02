@@ -12,7 +12,6 @@ import {
   react,
   useAtom,
   useValue,
-  GroupShapeUtil,
 } from "tldraw";
 import type {
   TLUiOverrides,
@@ -235,7 +234,7 @@ const Inner = (props: InnerProps) => {
   const $editorSignalsRef = useRef<EditorSignals | null>(null);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = new EditorSignals(editor);
+    const $editorSignals = new EditorSignals(editor, perInstanceAtoms);
     $editorSignalsRef.current = $editorSignals;
 
     const stopHandlers: (() => void)[] = [];
@@ -405,99 +404,21 @@ const Inner = (props: InnerProps) => {
 
   const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
     shape,
-    editor,
   ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
-    const editMode = !presentationMode;
-    const HIDDEN = "hidden";
-    const SHOW = "visible";
-    const INHERIT = "inherit";
-
-    if (editMode) {
-      return SHOW;
+    if (!presentationMode) {
+      return "visible";
     }
 
-    const parent = editor.getShape(shape.parentId);
-    if (parent?.type === GroupShapeUtil.type) {
-      return INHERIT;
-    }
-
-    if (shape.type === SlideShapeType) {
-      return HIDDEN;
-    }
-
-    if (shape.meta?.hiddenDuringAnimation) {
-      return HIDDEN;
-    }
-
-    const frame = getFrame(shape);
-    if (frame == null) {
-      // No animation frame is attached to this shape, so it should always be visible
-      return SHOW;
-    }
-
-    if ($editorSignalsRef.current == null) {
+    const $editorSignals = $editorSignalsRef.current;
+    if ($editorSignals == null) {
       // Fallback: If editorSignalsRef.current is null, assume the shape should be hidden
-      return HIDDEN;
+      return "hidden";
     }
 
-    const orderedSteps = $editorSignalsRef.current.getOrderedSteps();
-    const currentStepIndex = perInstanceAtoms.$currentStepIndex.get();
-
-    // The last frame of a finished animation should always be visible
-    if (frame.type === "cue") {
-      const cueFrame = frame;
-      const isFuture = cueFrame.globalIndex > currentStepIndex;
-      if (isFuture) {
-        return HIDDEN;
-      }
-
-      const lastBatchIncludingThisTrack = orderedSteps
-        .slice(0, currentStepIndex + 1)
-        .reverse()
-        .flat()
-        .find((ab) => ab.trackId === cueFrame.trackId);
-      const isLatestPrevInTrack =
-        lastBatchIncludingThisTrack &&
-        lastBatchIncludingThisTrack.data.findIndex(
-          (frame) => frame.id === cueFrame.id,
-        ) ===
-          lastBatchIncludingThisTrack.data.length - 1;
-      if (isLatestPrevInTrack) {
-        return SHOW;
-      }
-    } else if (frame.type === "sub") {
-      const subFrame = frame;
-      const thisBatch = orderedSteps
-        .flat()
-        .find((ab) => ab.data.some((frame) => frame.id === subFrame.id));
-      if (thisBatch == null) {
-        // This should never happen, but just in case
-        return HIDDEN;
-      }
-
-      const isFuture = thisBatch.globalIndex > currentStepIndex;
-      if (isFuture) {
-        return HIDDEN;
-      }
-
-      const lastBatchIncludingThisTrack = orderedSteps
-        .slice(0, currentStepIndex + 1)
-        .reverse()
-        .flat()
-        .find((ab) => ab.trackId === thisBatch.trackId);
-      const isLatestPrevInTrack =
-        lastBatchIncludingThisTrack &&
-        lastBatchIncludingThisTrack.data.findIndex(
-          (frame) => frame.id === subFrame.id,
-        ) ===
-          lastBatchIncludingThisTrack.data.length - 1;
-      if (isLatestPrevInTrack) {
-        return SHOW;
-      }
-    }
-
-    return HIDDEN;
+    const shapeVisibilities =
+      $editorSignals.getShapeVisibilitiesInPresentationMode();
+    return shapeVisibilities[shape.id] ?? "hidden";
   };
 
   return (
