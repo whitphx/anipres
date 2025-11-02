@@ -13,6 +13,7 @@ import {
   useValue,
 } from "tldraw";
 import type {
+  Atom,
   TLUiOverrides,
   TLComponents,
   Editor,
@@ -38,7 +39,7 @@ import {
   getSubFrame,
   subFrameToJsonObject,
 } from "./models";
-import { EditorSignals } from "./editor-signals";
+import { PresentationManager } from "./presentation-manager";
 import React, {
   useCallback,
   useEffect,
@@ -48,7 +49,6 @@ import React, {
 } from "react";
 
 import "./tldraw-overrides.css";
-import { AnimationController } from "./animation";
 
 import { customShapeUtils } from "./shape-utils";
 const customTools = [SlideShapeTool];
@@ -64,21 +64,14 @@ function usePerInstanceAtoms() {
     true,
   );
   const $presentationMode = useAtom<boolean>("presentation mode", false);
-  const $currentStepIndex = useAtom<number>("current step index", 0);
 
   return useMemo(() => {
     return {
       $stepHotkeyEnabled,
       $presentationModeHotkeyEnabled,
       $presentationMode,
-      $currentStepIndex,
     };
-  }, [
-    $stepHotkeyEnabled,
-    $presentationModeHotkeyEnabled,
-    $presentationMode,
-    $currentStepIndex,
-  ]);
+  }, [$stepHotkeyEnabled, $presentationModeHotkeyEnabled, $presentationMode]);
 }
 export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
@@ -86,10 +79,9 @@ const makeUiOverrides = (
   {
     $stepHotkeyEnabled,
     $presentationModeHotkeyEnabled,
-    $currentStepIndex,
     $presentationMode,
   }: AnipresAtoms,
-  animationControllerRef: React.RefObject<AnimationController>,
+  presentationManagerRef: React.RefObject<PresentationManager>,
 ): TLUiOverrides => {
   return {
     actions(_, actions) {
@@ -102,12 +94,12 @@ const makeUiOverrides = (
             return;
           }
 
-          const animationController = animationControllerRef.current;
-          if (animationController == null) {
+          const presentationManager = presentationManagerRef.current;
+          if (presentationManager == null) {
             return;
           }
 
-          animationController.moveTo($currentStepIndex.get() + 1);
+          presentationManager.moveTo((v) => v + 1);
         },
       };
 
@@ -120,12 +112,12 @@ const makeUiOverrides = (
             return;
           }
 
-          const animationController = animationControllerRef.current;
-          if (animationController == null) {
+          const presentationManager = presentationManagerRef.current;
+          if (presentationManager == null) {
             return;
           }
 
-          animationController.moveTo($currentStepIndex.get() - 1);
+          presentationManager.moveTo((v) => v - 1);
         },
       };
 
@@ -174,17 +166,20 @@ const makeUiOverrides = (
 };
 
 const createComponents = (
-  $editorSignalsRef: React.RefObject<EditorSignals | null>,
-  { $currentStepIndex, $presentationMode }: AnipresAtoms,
-  animationControllerRef: React.RefObject<AnimationController>,
+  presentationManagerRef: React.RefObject<PresentationManager | null>,
+  signals: {
+    $currentStepIndex: Atom<number>;
+    $presentationMode: Atom<boolean>;
+  },
 ): TLComponents => {
+  const { $currentStepIndex, $presentationMode } = signals;
   return {
     TopPanel: () => {
       const editor = useEditor();
-      const $editorSignals = $editorSignalsRef.current;
+      const presentationManager = presentationManagerRef.current;
       const presentationMode = useValue($presentationMode);
       const currentStepIndex = useValue($currentStepIndex);
-      if ($editorSignals == null) {
+      if (presentationManager == null) {
         return null;
       }
       if (presentationMode) {
@@ -193,10 +188,10 @@ const createComponents = (
       return (
         <ControlPanel
           editor={editor}
-          $editorSignals={$editorSignals}
+          presentationManager={presentationManager}
           currentStepIndex={currentStepIndex}
           onCurrentStepIndexChange={(newIndex) => {
-            animationControllerRef.current?.moveTo(newIndex);
+            presentationManager.moveTo(newIndex);
           }}
           onPresentationModeEnter={() => {
             $presentationMode.set(true);
@@ -235,7 +230,7 @@ const createComponents = (
 interface InnerProps {
   onMount: (
     editor: Editor,
-    animationController: AnimationController,
+    presentationManager: PresentationManager,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: AnipresAtoms;
@@ -244,19 +239,16 @@ interface InnerProps {
 const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
-  const $editorSignalsRef = useRef<EditorSignals | null>(null);
-  const animationControllerRef = useRef<AnimationController | null>(null);
+  const presentationManagerRef = useRef<PresentationManager | null>(null);
+
+  const $currentStepIndex = useAtom<number>("current step index", 0);
 
   const handleMount = (editor: Editor) => {
-    const $editorSignals = new EditorSignals(editor);
-    $editorSignalsRef.current = $editorSignals;
-
-    const animationController = new AnimationController(
+    const presentationManager = PresentationManager.create(
       editor,
-      $editorSignals,
-      perInstanceAtoms.$currentStepIndex,
+      $currentStepIndex,
     );
-    animationControllerRef.current = animationController;
+    presentationManagerRef.current = presentationManager;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -264,7 +256,7 @@ const Inner = (props: InnerProps) => {
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
           // Auto attach camera cueFrame to the newly created slide shape
-          const orderedSteps = $editorSignals.getOrderedSteps();
+          const orderedSteps = presentationManager.$getOrderedSteps();
           const lastCameraCueFrame = orderedSteps
             .reverse()
             .flat()
@@ -329,7 +321,7 @@ const Inner = (props: InnerProps) => {
     );
     stopHandlers.push(
       editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        reconcileShapeDeletion(editor, $editorSignals, shape);
+        reconcileShapeDeletion(editor, presentationManager, shape);
       }),
     );
 
@@ -405,7 +397,7 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    onMount?.(editor, animationController);
+    onMount?.(editor, presentationManager);
 
     return () => {
       stopHandlers.forEach((stopHandler) => stopHandler());
@@ -414,22 +406,24 @@ const Inner = (props: InnerProps) => {
 
   const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
     shape,
+    editor,
   ) => {
     const presentationMode = perInstanceAtoms.$presentationMode.get();
     if (!presentationMode) {
       return "visible";
     }
 
-    const animationController = animationControllerRef.current;
-    if (animationController == null) {
-      // This case should not happen normally.
-      // Fallback: If animationController is null, which means the editor is not mounted/initialized,
-      // make all shapes visible to avoid hiding shapes unexpectedly.
-      return "visible";
-    }
+    // This callback can be called before `onMount` is called and the refs are set.
+    // So we need to get presentationManager here using the editor object passed to this callback
+    // instead of relying on the refs that are set in `onMount`.
+    // `presentationManager.create` ensures that the same instance is returned for the same editor.
+    const presentationManager = PresentationManager.create(
+      editor,
+      $currentStepIndex,
+    );
 
     const shapeVisibilities =
-      animationController.$getShapeVisibilitiesInPresentationMode();
+      presentationManager.$getShapeVisibilitiesInPresentationMode();
     return shapeVisibilities[shape.id] ?? "hidden";
   };
 
@@ -438,13 +432,12 @@ const Inner = (props: InnerProps) => {
       onMount={handleMount}
       components={{
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents(
-          $editorSignalsRef,
-          perInstanceAtoms,
-          animationControllerRef,
-        ),
+        ...createComponents(presentationManagerRef, {
+          $currentStepIndex,
+          $presentationMode: perInstanceAtoms.$presentationMode,
+        }),
       }}
-      overrides={makeUiOverrides(perInstanceAtoms, animationControllerRef)}
+      overrides={makeUiOverrides(perInstanceAtoms, presentationManagerRef)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
@@ -495,36 +488,36 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       $presentationModeHotkeyEnabled.set(presentationMode == null);
     }, [$presentationModeHotkeyEnabled, presentationMode]);
 
-    const editorAndSignalsRef = useRef<{
-      editor: Editor;
-      animationController: AnimationController;
-    } | null>(null);
-    const handleMount = useCallback(
-      (editor: Editor, animationController: AnimationController) => {
-        editorAndSignalsRef.current = {
-          editor,
-          animationController,
-        };
-        onMount?.(editor, (stepIndex: number) => {
-          animationController.moveTo(stepIndex);
-        });
-      },
-      [onMount],
-    );
-
     useEffect(() => {
       if (presentationMode != null) {
         $presentationMode.set(presentationMode);
       }
     }, [$presentationMode, presentationMode]);
 
+    const editorAndSignalsRef = useRef<{
+      editor: Editor;
+      presentationManager: PresentationManager;
+    } | null>(null);
+    const handleMount = useCallback(
+      (editor: Editor, presentationManager: PresentationManager) => {
+        editorAndSignalsRef.current = {
+          editor,
+          presentationManager,
+        };
+        onMount?.(editor, (stepIndex: number) => {
+          presentationManager.moveTo(stepIndex);
+        });
+      },
+      [onMount],
+    );
+
     useImperativeHandle(ref, () => ({
       rerunStep: () => {
         if (editorAndSignalsRef.current == null) {
           return;
         }
-        const { animationController } = editorAndSignalsRef.current;
-        animationController.rerunStep();
+        const { presentationManager } = editorAndSignalsRef.current;
+        presentationManager.rerunStep();
       },
     }));
 

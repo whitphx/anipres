@@ -1,34 +1,86 @@
 import {
-  type Atom,
+  computed,
   type Editor,
-  GroupShapeUtil,
+  type Atom,
   type TLShapeId,
   type TldrawBaseProps,
-  computed,
+  type TLShape,
+  GroupShapeUtil,
   EASINGS,
   createShapeId,
-  type TLShape,
 } from "tldraw";
-import { getFrame, getShapeByFrameId, type Frame, type Step } from "./models";
+import {
+  type Frame,
+  type Step,
+  getFrame,
+  getFrames,
+  getFrameBatches,
+  getShapeByFrameId,
+} from "./models";
+import { getGlobalOrder } from "./ordered-track-item";
 import { SlideShapeType } from "./SlideShapeUtil";
-import type { EditorSignals } from "./editor-signals";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
-export class AnimationController {
-  constructor(
+export class PresentationManager {
+  private constructor(
     private editor: Editor,
-    private $editorSignals: EditorSignals,
     private $currentStepIndex: Atom<number>,
   ) {}
 
-  public moveTo(stepIndex: number) {
+  private static instances: WeakMap<Editor, PresentationManager> =
+    new WeakMap();
+
+  static create(
+    editor: Editor,
+    $currentStepIndex: Atom<number>,
+  ): PresentationManager {
+    let inst = this.instances.get(editor);
+    if (!inst) {
+      inst = new PresentationManager(editor, $currentStepIndex);
+      this.instances.set(editor, inst);
+    }
+    return inst;
+  }
+
+  @computed $getAllFrames(): Frame[] {
+    const shapes = this.editor.getCurrentPageShapes();
+    return getFrames(shapes);
+  }
+
+  @computed $getOrderedSteps(): Step[] {
+    const frames = this.$getAllFrames();
+    const frameBatches = getFrameBatches(frames);
+    const orderedSteps = getGlobalOrder(frameBatches);
+    return orderedSteps;
+  }
+
+  @computed $getTotalSteps(): number {
+    return this.$getOrderedSteps().length;
+  }
+
+  public moveTo(stepIndex: number): void;
+  public moveTo(stepIndexUpdater: (prev: number) => number): void;
+  public moveTo(stepIndexOrUpdater: number | ((prev: number) => number)): void {
+    if (typeof stepIndexOrUpdater === "function") {
+      const updater = stepIndexOrUpdater;
+      const prevIndex = this.$currentStepIndex.get();
+      const newIndex = updater(prevIndex);
+      this._moveTo(newIndex);
+      return;
+    } else {
+      const stepIndex = stepIndexOrUpdater;
+      this._moveTo(stepIndex);
+    }
+  }
+
+  private _moveTo(stepIndex: number) {
     if (stepIndex < 0) {
       stepIndex = 0;
     }
-    const orderedSteps = this.$editorSignals.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     if (orderedSteps.length === 0) {
       // No steps to animate
       return;
@@ -47,7 +99,7 @@ export class AnimationController {
 
   public rerunStep(): void {
     const stepIndex = this.$currentStepIndex.get();
-    const orderedSteps = this.$editorSignals.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
@@ -60,7 +112,7 @@ export class AnimationController {
   > {
     const editor = this.editor;
 
-    const orderedSteps = this.$editorSignals.getOrderedSteps();
+    const orderedSteps = this.$getOrderedSteps();
     const currentStepIndex = this.$currentStepIndex.get();
 
     const shapes = editor.getCurrentPageShapes();

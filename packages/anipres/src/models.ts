@@ -4,7 +4,7 @@ import {
   OrderedTrackItem,
   reassignGlobalIndexInplace,
 } from "./ordered-track-item";
-import { EditorSignals } from "./editor-signals";
+import { PresentationManager } from "./presentation-manager";
 
 export interface FrameActionBase extends JsonObject {
   type: string;
@@ -250,7 +250,7 @@ export function getShapeByFrameId(
 
 export function reconcileShapeDeletion(
   editor: Editor,
-  $editorSignals: EditorSignals,
+  presentationManager: PresentationManager,
   deletedShape: TLShape,
 ) {
   const deletedFrame = getFrame(deletedShape);
@@ -260,7 +260,7 @@ export function reconcileShapeDeletion(
 
   if (deletedFrame.type === "cue") {
     // Reassign globalIndex
-    const steps = $editorSignals.getOrderedSteps();
+    const steps = presentationManager.$getOrderedSteps();
     reassignGlobalIndexInplace(steps);
     steps.forEach((stepFrameBatches) => {
       stepFrameBatches.forEach((frameBatch) => {

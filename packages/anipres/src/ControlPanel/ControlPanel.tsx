@@ -22,11 +22,11 @@ import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
-import type { EditorSignals } from "../editor-signals";
+import type { PresentationManager } from "../presentation-manager";
 
 export interface ControlPanelProps {
   editor: Editor;
-  $editorSignals: EditorSignals;
+  presentationManager: PresentationManager;
   currentStepIndex: number;
   onCurrentStepIndexChange: (newIndex: number) => void;
   onPresentationModeEnter: () => void;
@@ -34,15 +34,15 @@ export interface ControlPanelProps {
 export const ControlPanel = track((props: ControlPanelProps) => {
   const {
     editor,
-    $editorSignals,
+    presentationManager,
     currentStepIndex,
     onCurrentStepIndexChange,
     onPresentationModeEnter,
   } = props;
 
-  const steps = $editorSignals.getOrderedSteps();
+  const steps = presentationManager.$getOrderedSteps();
 
-  const frames = $editorSignals.getAllFrames();
+  const frames = presentationManager.$getAllFrames();
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();
