@@ -55,11 +55,7 @@ import {
   useDarkMode,
   useSlideContext,
 } from "@slidev/client";
-import {
-  calculateTotalSteps,
-  type EditorSignals,
-  type AnipresAtoms,
-} from "anipres";
+import { calculateTotalSteps } from "anipres";
 import "anipres/anipres.css";
 import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
@@ -164,11 +160,7 @@ onSlideEnter(() => {
 
 const totalStepsCount = savedSnapshot ? calculateTotalSteps(savedSnapshot) : 0;
 
-const handleMount = (
-  editor: Editor,
-  $editorSignals: EditorSignals,
-  anipresAtoms: AnipresAtoms,
-) => {
+const handleMount = (editor: Editor, moveTo: (stepIndex: number) => void) => {
   const stopHandlers: (() => void)[] = [];
 
   // Save the snapshot when editing
@@ -189,7 +181,7 @@ const handleMount = (
   // Sync Slidev's click position -> Anipres' step index
   watchEffect(() => {
     const newStepIndex = Math.min(Math.max(0, step.value), totalStepsCount - 1);
-    anipresAtoms.$currentStepIndex.set(newStepIndex);
+    moveTo(newStepIndex);
   });
 
   watch(

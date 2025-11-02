@@ -458,11 +458,7 @@ const MemoizedInner = React.memo(Inner);
 
 export interface AnipresProps {
   presentationMode?: boolean;
-  onMount?: (
-    editor: Editor,
-    $editorSignals: EditorSignals,
-    anipresAtoms: AnipresAtoms,
-  ) => void;
+  onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
   snapshot?: InnerProps["snapshot"];
   assetUrls?: InnerProps["assetUrls"];
   stepHotkeyEnabled?: boolean;
@@ -511,7 +507,9 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
           $editorSignals,
           animationController,
         };
-        onMount?.(editor, $editorSignals, anipresAtoms);
+        onMount?.(editor, (stepIndex: number) => {
+          animationController.moveTo(stepIndex);
+        });
       },
       [onMount, anipresAtoms],
     );
