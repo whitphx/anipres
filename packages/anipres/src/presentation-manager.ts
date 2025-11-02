@@ -24,21 +24,22 @@ type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
-export class EditorSignals {
+export class PresentationManager {
   private constructor(
     private editor: Editor,
     private $currentStepIndex: Atom<number>,
   ) {}
 
-  private static instances: WeakMap<Editor, EditorSignals> = new WeakMap();
+  private static instances: WeakMap<Editor, PresentationManager> =
+    new WeakMap();
 
   static create(
     editor: Editor,
     $currentStepIndex: Atom<number>,
-  ): EditorSignals {
+  ): PresentationManager {
     let inst = this.instances.get(editor);
     if (!inst) {
-      inst = new EditorSignals(editor, $currentStepIndex);
+      inst = new PresentationManager(editor, $currentStepIndex);
       this.instances.set(editor, inst);
     }
     return inst;
