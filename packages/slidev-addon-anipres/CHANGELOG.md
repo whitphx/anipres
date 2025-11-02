@@ -1,5 +1,16 @@
 # slidev-addon-anipres
 
+## 0.7.0
+
+### Minor Changes
+
+- [#306](https://github.com/whitphx/anipres/pull/306) [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8) Thanks [@whitphx](https://github.com/whitphx)! - Fix animation behavior: display the first frame even before the click count reaches the component's animation order, and the component's click sync behaves like Slidev's builtin components
+
+### Patch Changes
+
+- Updated dependencies [[`62d997b`](https://github.com/whitphx/anipres/commit/62d997b7c7073f45267e1bec47261f35de05b650), [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5)]:
+  - anipres@0.8.0
+
 ## 0.6.8
 
 ### Patch Changes

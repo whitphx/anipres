@@ -1,5 +1,19 @@
 # anipres
 
+## 0.8.0
+
+### Minor Changes
+
+- [#306](https://github.com/whitphx/anipres/pull/306) [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8) Thanks [@whitphx](https://github.com/whitphx)! - Expose calculateTotalSteps() API
+
+- [#321](https://github.com/whitphx/anipres/pull/321) [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5) Thanks [@whitphx](https://github.com/whitphx)! - Expose moveTo() instead of signals via onMount()
+
+### Patch Changes
+
+- [#327](https://github.com/whitphx/anipres/pull/327) [`62d997b`](https://github.com/whitphx/anipres/commit/62d997b7c7073f45267e1bec47261f35de05b650) Thanks [@whitphx](https://github.com/whitphx)! - Fix internal logic object initialization and handling so that getShapeVisibility works as expected
+
+- [#321](https://github.com/whitphx/anipres/pull/321) [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5) Thanks [@whitphx](https://github.com/whitphx)! - Fix animation frame timing to avoid flickering
+
 ## 0.7.2
 
 ### Patch Changes
