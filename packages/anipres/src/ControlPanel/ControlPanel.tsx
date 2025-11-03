@@ -52,9 +52,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   );
 
   const handleFrameChange = (newFrame: Frame) => {
-    const shape = editor
-      .getCurrentPageShapes()
-      .find((shape) => getFrame(shape)?.id === newFrame.id);
+    const shape = presentationManager.getShapeByFrameId(newFrame.id);
     if (shape == null) {
       return;
     }
@@ -98,11 +96,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   };
 
   const handleFrameSelect = (frameId: string) => {
-    const allShapes = editor.getCurrentPageShapes();
-    const targetShapes = allShapes.filter(
-      (shape) => getFrame(shape)?.id === frameId,
-    );
-    editor.select(...targetShapes);
+    const targetShape = presentationManager.getShapeByFrameId(frameId);
+    if (targetShape) {
+      editor.select(targetShape);
+    }
   };
 
   return (
