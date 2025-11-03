@@ -2,31 +2,37 @@ import {
   computed,
   type Editor,
   type Atom,
+  type TLShape,
   type TLShapeId,
   type TldrawBaseProps,
-  type TLShape,
   GroupShapeUtil,
-  EASINGS,
-  createShapeId,
 } from "tldraw";
 import {
   type Frame,
+  type SubFrame,
   type Step,
   getFrame,
+  getSubFrame,
   getFrames,
   getFrameBatches,
-  getShapeByFrameId,
-} from "./models";
-import { getGlobalOrder } from "./ordered-track-item";
-import { SlideShapeType } from "./SlideShapeUtil";
+  cueFrameToJsonObject,
+  subFrameToJsonObject,
+} from "../models";
+import {
+  getGlobalOrder,
+  reassignGlobalIndexInplace,
+} from "../ordered-track-item";
+import { SlideShapeType } from "../SlideShapeUtil";
+import { runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
+// Functions that depends on `editor` and should be cached by `computed` go here.
 export class PresentationManager {
   private constructor(
-    private editor: Editor,
+    public readonly editor: Editor,
     private $currentStepIndex: Atom<number>,
   ) {}
 
@@ -59,6 +65,71 @@ export class PresentationManager {
 
   @computed $getTotalSteps(): number {
     return this.$getOrderedSteps().length;
+  }
+
+  getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
+    const shapes = this.editor.getCurrentPageShapes();
+    return shapes.find((shape) => getFrame(shape)?.id === frameId);
+  }
+
+  reconcileShapeDeletion(deletedShape: TLShape) {
+    const deletedFrame = getFrame(deletedShape);
+    if (deletedFrame == null) {
+      return;
+    }
+
+    const editor = this.editor;
+
+    if (deletedFrame.type === "cue") {
+      // Reassign globalIndex
+      const steps = this.$getOrderedSteps();
+      reassignGlobalIndexInplace(steps);
+      steps.forEach((stepFrameBatches) => {
+        stepFrameBatches.forEach((frameBatch) => {
+          const newGlobalIndex = frameBatch.globalIndex;
+          const cueFrame = frameBatch.data[0];
+          const shape = this.getShapeByFrameId(cueFrame.id);
+          if (shape == null) {
+            return;
+          }
+          editor.updateShape({
+            id: shape.id,
+            type: shape.type,
+            meta: {
+              ...shape.meta,
+              frame: cueFrameToJsonObject({
+                ...cueFrame,
+                globalIndex: newGlobalIndex,
+              }),
+            },
+          });
+        });
+      });
+    } else if (deletedFrame.type === "sub") {
+      // Reassign prevFrameId
+      const shapes = editor.getCurrentPageShapes();
+      const allSubFrames = shapes
+        .map((shape) => ({ shape, subFrame: getSubFrame(shape) }))
+        .filter(({ subFrame }) => subFrame != null) as {
+        shape: TLShape;
+        subFrame: SubFrame;
+      }[];
+      allSubFrames.forEach(({ shape, subFrame }) => {
+        if (subFrame.prevFrameId === deletedFrame.id) {
+          editor.updateShape({
+            id: shape.id,
+            type: shape.type,
+            meta: {
+              ...shape.meta,
+              frame: subFrameToJsonObject({
+                ...subFrame,
+                prevFrameId: deletedFrame.prevFrameId,
+              }),
+            },
+          });
+        }
+      });
+    }
   }
 
   public moveTo(stepIndex: number): void;
@@ -94,7 +165,7 @@ export class PresentationManager {
     }
 
     this.$currentStepIndex.set(stepIndex);
-    runStep(this.editor, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex);
   }
 
   public rerunStep(): void {
@@ -103,7 +174,7 @@ export class PresentationManager {
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
-    runStep(this.editor, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex);
   }
 
   @computed $getShapeVisibilitiesInPresentationMode(): Record<
@@ -201,168 +272,4 @@ export class PresentationManager {
 
     return Object.fromEntries(shapesVisibilities);
   }
-}
-
-async function runFrames(
-  editor: Editor,
-  frames: Frame[],
-  predecessorShape: TLShape | null,
-  historyStoppingPoint: string,
-): Promise<void> {
-  for (const frame of frames) {
-    const shape = getShapeByFrameId(editor, frame.id);
-    if (shape == null) {
-      throw new Error(`Shape not found for frame ${frame.id}`);
-    }
-
-    const action = frame.action;
-
-    const { duration = 0, easing = "easeInCubic" } = action;
-    const immediate = duration === 0;
-
-    if (action.type === "cameraZoom") {
-      const { inset = 0 } = action;
-
-      editor.stopCameraAnimation();
-      const bounds = editor.getShapePageBounds(shape);
-      if (!bounds) {
-        throw new Error(`Bounds not found for shape ${shape.id}`);
-      }
-      editor.selectNone();
-      editor.zoomToBounds(bounds, {
-        inset,
-        immediate,
-        animation: { duration, easing: EASINGS[easing] },
-      });
-    } else if (action.type === "shapeAnimation") {
-      editor.selectNone();
-
-      if (predecessorShape == null) {
-        predecessorShape = shape;
-        continue;
-      }
-
-      // Create and manipulate a temporary shape for animation
-      const animeShapeId = createShapeId();
-      editor.run(
-        () => {
-          editor.createShape({
-            ...predecessorShape,
-            id: animeShapeId,
-            type: shape.type,
-            meta: undefined,
-          });
-        },
-        { history: "ignore", ignoreShapeLock: true },
-      );
-
-      // HACK: Changes made by editor.animateShape() can't be ignored by `editor.run(..., { history: "ignore" })`
-      // because it's done in the `tick` event listener that is executed after the `editor.run()` returns.
-      // So we need to cancel the history records in another `tick` event listener manually.
-      const onTick = () => {
-        editor.bailToMark(historyStoppingPoint);
-      };
-      editor.on("tick", onTick);
-      editor.animateShape(
-        {
-          ...shape,
-          id: animeShapeId,
-          meta: undefined,
-        },
-        {
-          immediate,
-          animation: {
-            duration,
-            easing: EASINGS[easing],
-          },
-        },
-      );
-
-      setTimeout(() => {
-        editor.run(
-          () => {
-            editor.deleteShape(animeShapeId);
-          },
-          { history: "ignore", ignoreShapeLock: true },
-        );
-        editor.off("tick", onTick);
-      }, duration);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, duration));
-
-    predecessorShape = shape;
-  }
-}
-
-function runStep(editor: Editor, steps: Step[], index: number): Promise<void> {
-  const step = steps[index];
-  if (step == null) {
-    console.warn(`No step found at index ${index}`);
-    return Promise.resolve();
-  }
-
-  const markBeforeAnimation = editor.markHistoryStoppingPoint();
-
-  const promises: Promise<void>[] = [];
-  step.forEach((frameBatch) => {
-    const predecessorFrameBatch = steps
-      .slice(0, index)
-      .reverse()
-      .flat()
-      .find((fb) => fb.trackId === frameBatch.trackId);
-    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
-    const predecessorShape =
-      predecessorLastFrame != null
-        ? getShapeByFrameId(editor, predecessorLastFrame.id)
-        : null;
-
-    const frames = frameBatch.data;
-    const frameShapes = frames
-      .map((frame) => getShapeByFrameId(editor, frame.id))
-      .filter((shape) => shape != null);
-
-    editor.run(
-      () => {
-        editor.updateShapes(
-          frameShapes.map((shape) => ({
-            id: shape.id,
-            type: shape.type,
-            meta: {
-              ...shape.meta,
-              hiddenDuringAnimation: true,
-            },
-          })),
-        );
-      },
-      { history: "ignore", ignoreShapeLock: true },
-    );
-
-    const promise = runFrames(
-      editor,
-      frames,
-      predecessorShape ?? null,
-      markBeforeAnimation,
-    ).finally(() => {
-      editor.run(
-        () => {
-          editor.updateShapes(
-            frameShapes.map((shape) => ({
-              id: shape.id,
-              type: shape.type,
-              meta: {
-                ...shape.meta,
-                hiddenDuringAnimation: null,
-              },
-            })),
-          );
-        },
-        { history: "ignore", ignoreShapeLock: true },
-      );
-      editor.bailToMark(markBeforeAnimation);
-    });
-    promises.push(promise);
-  });
-
-  return Promise.all(promises).then();
 }

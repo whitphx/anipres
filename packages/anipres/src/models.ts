@@ -1,10 +1,6 @@
 import { EASINGS, uniqueId } from "tldraw";
 import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
-import {
-  OrderedTrackItem,
-  reassignGlobalIndexInplace,
-} from "./ordered-track-item";
-import { PresentationManager } from "./presentation-manager";
+import { OrderedTrackItem } from "./ordered-track-item";
 
 export interface FrameActionBase extends JsonObject {
   type: string;
@@ -141,7 +137,7 @@ export function getNextGlobalIndexFromCueFrames(cueFrames: CueFrame[]): number {
   return globalIndexes.length > 0 ? Math.max(...globalIndexes) + 1 : 0;
 }
 
-export function getNextGlobalIndex(editor: Editor): number {
+function getNextGlobalIndex(editor: Editor): number {
   const shapes = editor.getCurrentPageShapes();
   const allCueFrames = shapes
     .map(getCueFrame)
@@ -234,76 +230,4 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   }
 
   return frameBatches;
-}
-
-export function getFramesFromFrameBatches(frameBatches: FrameBatch[]): Frame[] {
-  return frameBatches.flatMap((batch) => batch.data);
-}
-
-export function getShapeByFrameId(
-  editor: Editor,
-  frameId: Frame["id"],
-): TLShape | undefined {
-  const shapes = editor.getCurrentPageShapes();
-  return shapes.find((shape) => getFrame(shape)?.id === frameId);
-}
-
-export function reconcileShapeDeletion(
-  editor: Editor,
-  presentationManager: PresentationManager,
-  deletedShape: TLShape,
-) {
-  const deletedFrame = getFrame(deletedShape);
-  if (deletedFrame == null) {
-    return;
-  }
-
-  if (deletedFrame.type === "cue") {
-    // Reassign globalIndex
-    const steps = presentationManager.$getOrderedSteps();
-    reassignGlobalIndexInplace(steps);
-    steps.forEach((stepFrameBatches) => {
-      stepFrameBatches.forEach((frameBatch) => {
-        const newGlobalIndex = frameBatch.globalIndex;
-        const cueFrame = frameBatch.data[0];
-        const shape = getShapeByFrameId(editor, cueFrame.id);
-        if (shape == null) {
-          return;
-        }
-        editor.updateShape({
-          id: shape.id,
-          type: shape.type,
-          meta: {
-            frame: cueFrameToJsonObject({
-              ...cueFrame,
-              globalIndex: newGlobalIndex,
-            }),
-          },
-        });
-      });
-    });
-  } else if (deletedFrame.type === "sub") {
-    // Reassign prevFrameId
-    const shapes = editor.getCurrentPageShapes();
-    const allSubFrames = shapes
-      .map((shape) => ({ shape, subFrame: getSubFrame(shape) }))
-      .filter(({ subFrame }) => subFrame != null) as {
-      shape: TLShape;
-      subFrame: SubFrame;
-    }[];
-    allSubFrames.forEach(({ shape, subFrame }) => {
-      if (subFrame.prevFrameId === deletedFrame.id) {
-        editor.updateShape({
-          id: shape.id,
-          type: shape.type,
-          meta: {
-            frame: subFrameToJsonObject({
-              ...subFrame,
-              prevFrameId: deletedFrame.prevFrameId,
-            }),
-          },
-        });
-      }
-    });
-  }
 }
