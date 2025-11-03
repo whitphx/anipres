@@ -157,7 +157,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/slidev-addon-anipres-dist/dist --project-name=slidev-addon-anipres-preview --branch=${{ github.head_ref || github.ref_name }} --commit-hash=${{ github.sha }}
+          command: pages deploy packages/slidev-addon-anipres/dist --project-name=slidev-addon-anipres-preview --branch=${{ github.head_ref || github.ref_name }} --commit-hash=${{ github.sha }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
   lint-app:
