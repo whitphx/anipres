@@ -397,12 +397,14 @@ const Inner = (props: InnerProps) => {
       }
     });
 
-    react("turn off edit tools in presentation mode", () => {
-      const presentationMode = perInstanceAtoms.$presentationMode.get();
-      if (presentationMode) {
-        editor.setCurrentTool("select");
-      }
-    });
+    stopHandlers.push(
+      react("turn off edit tools in presentation mode", () => {
+        const presentationMode = perInstanceAtoms.$presentationMode.get();
+        if (presentationMode) {
+          editor.setCurrentTool("select");
+        }
+      }),
+    );
 
     onMount?.(editor, presentationManager);
 
