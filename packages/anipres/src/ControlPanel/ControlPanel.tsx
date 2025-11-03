@@ -6,16 +6,15 @@ import {
   type Editor,
 } from "tldraw";
 import {
-  attachCueFrame,
-  cueFrameToJsonObject,
-  type CueFrame,
-  type FrameBatch,
-  getFramesFromFrameBatches,
-  getFrame,
-  frameToJsonObject,
-  getFrameBatches,
   type Frame,
+  type CueFrame,
   type SubFrame,
+  type FrameBatch,
+  attachCueFrame,
+  frameToJsonObject,
+  cueFrameToJsonObject,
+  getFrame,
+  getFrameBatches,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
@@ -69,7 +68,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   };
 
   const handleFrameBatchesChange = (newFrameBatches: FrameBatch[]) => {
-    const newFrames = getFramesFromFrameBatches(newFrameBatches);
+    const newFrames = newFrameBatches.flatMap((batch) => batch.data);
 
     const allShapes = editor.getCurrentPageShapes();
 

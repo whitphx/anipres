@@ -137,7 +137,7 @@ export function getNextGlobalIndexFromCueFrames(cueFrames: CueFrame[]): number {
   return globalIndexes.length > 0 ? Math.max(...globalIndexes) + 1 : 0;
 }
 
-export function getNextGlobalIndex(editor: Editor): number {
+function getNextGlobalIndex(editor: Editor): number {
   const shapes = editor.getCurrentPageShapes();
   const allCueFrames = shapes
     .map(getCueFrame)
@@ -230,8 +230,4 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   }
 
   return frameBatches;
-}
-
-export function getFramesFromFrameBatches(frameBatches: FrameBatch[]): Frame[] {
-  return frameBatches.flatMap((batch) => batch.data);
 }
