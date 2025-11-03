@@ -1,5 +1,13 @@
 # anipres
 
+## 0.8.1
+
+### Patch Changes
+
+- [#330](https://github.com/whitphx/anipres/pull/330) [`15551e2`](https://github.com/whitphx/anipres/commit/15551e27727ac322eda2acaab4a18e64c0604f88) Thanks [@whitphx](https://github.com/whitphx)! - Deselect edit tools when enabling presentation mode
+
+- [#329](https://github.com/whitphx/anipres/pull/329) [`799af5a`](https://github.com/whitphx/anipres/commit/799af5a9d0502d2a3dbf80bb13c1e4800caca036) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring PresentationManager structure
+
 ## 0.8.0
 
 ### Minor Changes
