@@ -1,2 +1,2 @@
 export * from "./Anipres.tsx";
-export type { EditorSignals } from "./editor-signals";
+export { calculateTotalSteps } from "./headless-editor-utils.ts";

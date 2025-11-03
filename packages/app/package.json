@@ -1,7 +1,7 @@
 {
   "name": "app",
   "private": true,
-  "version": "0.0.25",
+  "version": "0.0.32",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,7 @@
   "devDependencies": {
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "cn-font-split": "^7.2.2",
-    "vite-plugin-font": "^5.1.0"
+    "cn-font-split": "^7.2.9",
+    "vite-plugin-font": "^5.1.2"
   }
 }

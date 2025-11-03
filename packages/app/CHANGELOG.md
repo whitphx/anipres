@@ -1,5 +1,56 @@
 # app
 
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies [[`15551e2`](https://github.com/whitphx/anipres/commit/15551e27727ac322eda2acaab4a18e64c0604f88), [`799af5a`](https://github.com/whitphx/anipres/commit/799af5a9d0502d2a3dbf80bb13c1e4800caca036)]:
+  - anipres@0.8.1
+
+## 0.0.31
+
+### Patch Changes
+
+- Updated dependencies [[`62d997b`](https://github.com/whitphx/anipres/commit/62d997b7c7073f45267e1bec47261f35de05b650), [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5)]:
+  - anipres@0.8.0
+
+## 0.0.30
+
+### Patch Changes
+
+- Updated dependencies [[`afaf5b8`](https://github.com/whitphx/anipres/commit/afaf5b86ec41746294d6a34b8bd86a9bf4b28c2a)]:
+  - anipres@0.7.2
+
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [[`8f9ac54`](https://github.com/whitphx/anipres/commit/8f9ac541e61b8fc363cb4a6d66b0ed373aef2942)]:
+  - anipres@0.7.1
+
+## 0.0.28
+
+### Patch Changes
+
+- Updated dependencies [[`3d538c7`](https://github.com/whitphx/anipres/commit/3d538c753773b93df2523663d565c57bcd431d71), [`56cc658`](https://github.com/whitphx/anipres/commit/56cc658ff5bd24ec27bfcb4683df3323765a46e2)]:
+  - anipres@0.7.0
+
+## 0.0.27
+
+### Patch Changes
+
+- [#288](https://github.com/whitphx/anipres/pull/288) [`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63) Thanks [@whitphx](https://github.com/whitphx)! - Update dependencies
+
+- Updated dependencies [[`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63)]:
+  - anipres@0.6.6
+
+## 0.0.26
+
+### Patch Changes
+
+- Updated dependencies [[`18e6820`](https://github.com/whitphx/anipres/commit/18e6820d5a5e9047291c0b750e7e4bbd769e94ec)]:
+  - anipres@0.6.5
+
 ## 0.0.25
 
 ### Patch Changes

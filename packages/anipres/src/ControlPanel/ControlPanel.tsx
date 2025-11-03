@@ -7,28 +7,25 @@ import {
   GroupShapeUtil,
 } from "tldraw";
 import {
-  runStep,
-  attachCueFrame,
-  cueFrameToJsonObject,
+  type Frame,
   type CueFrame,
-  FrameBatch,
-  getFramesFromFrameBatches,
-  getFrame,
+  type SubFrame,
+  type FrameBatch,
+  attachCueFrame,
   frameToJsonObject,
+  cueFrameToJsonObject,
+  getFrame,
   getFrameBatches,
-  Frame,
-  SubFrame,
-  getShapeByFrameId,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
-import { EditorSignals } from "../editor-signals";
+import type { PresentationManager } from "../presentation-manager";
 
 export interface ControlPanelProps {
   editor: Editor;
-  $editorSignals: EditorSignals;
+  presentationManager: PresentationManager;
   currentStepIndex: number;
   onCurrentStepIndexChange: (newIndex: number) => void;
   onPresentationModeEnter: () => void;
@@ -36,15 +33,15 @@ export interface ControlPanelProps {
 export const ControlPanel = track((props: ControlPanelProps) => {
   const {
     editor,
-    $editorSignals,
+    presentationManager,
     currentStepIndex,
     onCurrentStepIndexChange,
     onPresentationModeEnter,
   } = props;
 
-  const steps = $editorSignals.getOrderedSteps();
+  const steps = presentationManager.$getOrderedSteps();
 
-  const frames = $editorSignals.getAllFrames();
+  const frames = presentationManager.$getAllFrames();
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();
@@ -93,9 +90,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     .filter((shape) => shape != null);
 
   const handleFrameChange = (newFrame: Frame) => {
-    const shape = editor
-      .getCurrentPageShapes()
-      .find((shape) => getFrame(shape)?.id === newFrame.id);
+    const shape = presentationManager.getShapeByFrameId(newFrame.id);
     if (shape == null) {
       return;
     }
@@ -109,7 +104,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   };
 
   const handleFrameBatchesChange = (newFrameBatches: FrameBatch[]) => {
-    const newFrames = getFramesFromFrameBatches(newFrameBatches);
+    const newFrames = newFrameBatches.flatMap((batch) => batch.data);
 
     const allShapes = editor.getCurrentPageShapes();
 
@@ -139,11 +134,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   };
 
   const handleFrameSelect = (frameId: string) => {
-    const allShapes = editor.getCurrentPageShapes();
-    const targetShapes = allShapes.filter(
-      (shape) => getFrame(shape)?.id === frameId,
-    );
-    editor.select(...targetShapes);
+    const targetShape = presentationManager.getShapeByFrameId(frameId);
+    if (targetShape) {
+      editor.select(targetShape);
+    }
   };
 
   return (
@@ -172,12 +166,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           onFrameBatchesChange={handleFrameBatchesChange}
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
-          onStepSelect={(i) => {
-            const res = runStep(editor, steps, i);
-            if (res) {
-              onCurrentStepIndexChange(i);
-            }
-          }}
+          onStepSelect={onCurrentStepIndexChange}
           selectedFrameIds={selectedFrameIds}
           onFrameSelect={handleFrameSelect}
           showAttachCueFrameButton={
@@ -191,7 +180,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             });
           }}
           requestCueFrameAddAfter={(prevCueFrame) => {
-            const prevShape = getShapeByFrameId(editor, prevCueFrame.id);
+            const prevShape = presentationManager.getShapeByFrameId(
+              prevCueFrame.id,
+            );
             if (prevShape == null) {
               return;
             }
@@ -241,7 +232,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             );
           }}
           requestSubFrameAddAfter={(prevFrame) => {
-            const prevShape = getShapeByFrameId(editor, prevFrame.id);
+            const prevShape = presentationManager.getShapeByFrameId(
+              prevFrame.id,
+            );
             if (prevShape == null) {
               return;
             }

@@ -4,7 +4,6 @@ import { setVeauryOptions, applyPureReactInVue } from "veaury";
 import {
   Anipres as AnipresReact,
   type AnipresRef as AnipresReactRef,
-  type EditorSignals,
 } from "anipres";
 
 setVeauryOptions({
@@ -33,7 +32,6 @@ import {
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
   type TLTextShape,
-  react,
   uniqueId,
 } from "tldraw";
 import {
@@ -57,7 +55,7 @@ import {
   useDarkMode,
   useSlideContext,
 } from "@slidev/client";
-import { type AnipresAtoms } from "anipres";
+import { calculateTotalSteps } from "anipres";
 import "anipres/anipres.css";
 import * as xiaolaiFont from "/@xiaolai-font.ttf";
 // @ts-expect-error virtual import
@@ -78,7 +76,7 @@ const props = withDefaults(
     excalidrawLikeFont?: boolean;
   }>(),
   {
-    at: undefined,
+    at: "+1",
     offset: 0,
     editable: true,
     fontUrls: () => ({}),
@@ -106,7 +104,7 @@ watch(
   { immediate: true },
 );
 
-const { $scale, $clicks, $clicksContext } = useSlideContext();
+const { $scale, $clicksContext } = useSlideContext();
 
 const container = useTemplateRef<HTMLElement>("container");
 
@@ -160,13 +158,9 @@ onSlideEnter(() => {
   }, 300);
 });
 
-const totalSteps = ref<number | null>(null);
+const totalStepsCount = savedSnapshot ? calculateTotalSteps(savedSnapshot) : 0;
 
-const handleMount = (
-  editor: Editor,
-  $editorSignals: EditorSignals,
-  anipresAtoms: AnipresAtoms,
-) => {
+const handleMount = (editor: Editor, moveTo: (stepIndex: number) => void) => {
   const stopHandlers: (() => void)[] = [];
 
   // Save the snapshot when editing
@@ -184,17 +178,14 @@ const handleMount = (
     editor.store.listen(debouncedSave, { source: "user", scope: "document" }),
   );
 
-  // Sync Slidev's click position -> Anipres' step index
+  // Trigger Anipres' animation based on Slidev's click position change
   watchEffect(() => {
-    anipresAtoms.$currentStepIndex.set(step.value);
+    if (totalStepsCount === 0) {
+      return;
+    }
+    const newStepIndex = Math.min(Math.max(0, step.value), totalStepsCount - 1);
+    moveTo(newStepIndex);
   });
-
-  // Get Anipres' total steps
-  stopHandlers.push(
-    react("total steps", () => {
-      totalSteps.value = $editorSignals.getTotalSteps();
-    }),
-  );
 
   watch(
     $scale,
@@ -252,38 +243,25 @@ const handleMount = (
   };
 };
 
-// Register the clicks of this component to Slidev.
+// Register the click info of this component to Slidev.
+const clickInfoId = uniqueId();
 const step = ref(0);
-const clicksId = uniqueId();
-function registerClicks() {
-  if (totalSteps.value == null) {
+onMounted(() => {
+  const CLICKS_MAX = 99999;
+  const at = props.at;
+  const size = Math.max(totalStepsCount - 1, 0);
+  const clicksInfo = $clicksContext.calculateSince(at, size);
+  if (!clicksInfo) {
+    step.value = CLICKS_MAX;
     return;
   }
-
-  $clicksContext.unregister(clicksId);
-
-  // XXX: It's important to unregister the click context before calculating the new click info.
-  // Otherwise, the new click info will be incorrect as it will be calculated based on the old click context that includes the old click info of this component itself.
-  const defaultAt = $clicksContext.currentOffset > 0 ? "+1" : 0; // Set "+1" if another clickable element exists in the slide to display this component after it. Otherwise, set 0 to display this component immediately.
-  const at = props.at ?? defaultAt;
-  const totalClicks = totalSteps.value - props.offset;
-  const clickInfo = $clicksContext.calculateSince(at, totalClicks);
-
-  $clicksContext.register(clicksId, clickInfo);
-
-  step.value = $clicks.value - (clickInfo?.start ?? 0) + props.offset;
-}
-onMounted(() => {
-  registerClicks();
-});
-watchEffect(() => {
-  // XXX: Calling `$clicksContext.register` here causes a warning that is displayed in the dev mode,
-  // saying it's unexpected to call `register` after the component is mounted.
-  // TODO: Find the better way to do this, e.g. save and load `totalSteps` to call `$clicksContext.register` only in `onMounted`.
-  registerClicks();
+  $clicksContext.register(clickInfoId, clicksInfo);
+  watchEffect(() => {
+    step.value = clicksInfo.currentOffset.value + 1;
+  });
 });
 onUnmounted(() => {
-  $clicksContext.unregister(clicksId);
+  $clicksContext.unregister(clickInfoId);
 });
 
 // Disable the browser's two-finger swipe for page navigation.
@@ -328,6 +306,26 @@ const drawStyleFontFamily = computed(() => {
 function handleKeyEvent(event: KeyboardEvent) {
   if (isEditing.value) {
     // Prevent key events from being propagated so that Slidev's keyboard shortcuts do not work during editing.
+    // However, some shortcuts on Tldraw are captured on `body` so stopping propagation also prevents such shortcuts from working.
+    // Technically, it's not possible to turn off only Slidev's shortcuts while keeping Tldraw's shortcuts
+    // because Slidev's are captured on `window` and Tldraw's are captured on `body` as below.
+    // So, as a second-best option, we only allow modifier key combinations and some special keys to propagate that are often used in Tldraw's shortcuts.
+    // Refs:
+    // Slidev sets the key event handlers for shortcuts on `window` as below via useMagicKeys and onKeyStroke from `@vueuse/core`,
+    // https://github.com/slidevjs/slidev/blob/bc94b3031546482149b254dc9dcfc38ce5616f1e/packages/client/state/storage.ts#L46
+    // https://github.com/slidevjs/slidev/blob/bc94b3031546482149b254dc9dcfc38ce5616f1e/packages/client/logic/shortcuts.ts#L51
+    // Tldraw sets the key event handlers for shortcuts on `container.ownerDocument.body` as below,
+    // https://github.com/tldraw/tldraw/blob/7329b1541236dfdb913223c11d643b7eb134dbb3/packages/tldraw/src/lib/ui/hooks/useKeyboardShortcuts.ts#L39
+    // https://github.com/tldraw/tldraw/blob/7329b1541236dfdb913223c11d643b7eb134dbb3/packages/tldraw/src/lib/ui/hooks/useKeyboardShortcuts.ts#L48
+    // TODO: Turn off Slidev's shortcuts by using its API when it becomes available as https://github.com/slidevjs/slidev/issues/2316
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.key === "Backspace"
+    ) {
+      return;
+    }
     event.stopPropagation();
   }
 }
@@ -353,7 +351,7 @@ function handleKeyEvent(event: KeyboardEvent) {
         @keydown="handleKeyEvent"
         @keypress="handleKeyEvent"
         @keyup="handleKeyEvent"
-        :style="[
+        :style="
           isEditing
             ? {
                 position: 'absolute',
@@ -365,17 +363,15 @@ function handleKeyEvent(event: KeyboardEvent) {
             : {
                 width: '100%',
                 height: '100%',
-              },
-          {
-            opacity: step >= 0 || isEditing ? 1 : 0,
-          },
-        ]"
+              }
+        "
       >
         <Anipres
           v-if="isMountedOnce"
           ref="anipres"
           @mount="handleMount"
           :presentationMode="!isEditing"
+          :stepHotkeyEnabled="false"
           :snapshot="savedSnapshot"
           :assetUrls="{ fonts: fontUrls }"
         />

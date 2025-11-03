@@ -1,5 +1,61 @@
 # anipres
 
+## 0.8.1
+
+### Patch Changes
+
+- [#330](https://github.com/whitphx/anipres/pull/330) [`15551e2`](https://github.com/whitphx/anipres/commit/15551e27727ac322eda2acaab4a18e64c0604f88) Thanks [@whitphx](https://github.com/whitphx)! - Deselect edit tools when enabling presentation mode
+
+- [#329](https://github.com/whitphx/anipres/pull/329) [`799af5a`](https://github.com/whitphx/anipres/commit/799af5a9d0502d2a3dbf80bb13c1e4800caca036) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring PresentationManager structure
+
+## 0.8.0
+
+### Minor Changes
+
+- [#306](https://github.com/whitphx/anipres/pull/306) [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8) Thanks [@whitphx](https://github.com/whitphx)! - Expose calculateTotalSteps() API
+
+- [#321](https://github.com/whitphx/anipres/pull/321) [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5) Thanks [@whitphx](https://github.com/whitphx)! - Expose moveTo() instead of signals via onMount()
+
+### Patch Changes
+
+- [#327](https://github.com/whitphx/anipres/pull/327) [`62d997b`](https://github.com/whitphx/anipres/commit/62d997b7c7073f45267e1bec47261f35de05b650) Thanks [@whitphx](https://github.com/whitphx)! - Fix internal logic object initialization and handling so that getShapeVisibility works as expected
+
+- [#321](https://github.com/whitphx/anipres/pull/321) [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5) Thanks [@whitphx](https://github.com/whitphx)! - Fix animation frame timing to avoid flickering
+
+## 0.7.2
+
+### Patch Changes
+
+- [#317](https://github.com/whitphx/anipres/pull/317) [`afaf5b8`](https://github.com/whitphx/anipres/commit/afaf5b86ec41746294d6a34b8bd86a9bf4b28c2a) Thanks [@whitphx](https://github.com/whitphx)! - Set visibility of shapes that are children of a group shape so that they are properly animated
+
+## 0.7.1
+
+### Patch Changes
+
+- [#307](https://github.com/whitphx/anipres/pull/307) [`8f9ac54`](https://github.com/whitphx/anipres/commit/8f9ac541e61b8fc363cb4a6d66b0ed373aef2942) Thanks [@whitphx](https://github.com/whitphx)! - Stop using deprecated isShapeHidden and replace it with getShapeVisibility
+
+## 0.7.0
+
+### Minor Changes
+
+- [#305](https://github.com/whitphx/anipres/pull/305) [`3d538c7`](https://github.com/whitphx/anipres/commit/3d538c753773b93df2523663d565c57bcd431d71) Thanks [@whitphx](https://github.com/whitphx)! - Set inline code style
+
+### Patch Changes
+
+- [#303](https://github.com/whitphx/anipres/pull/303) [`56cc658`](https://github.com/whitphx/anipres/commit/56cc658ff5bd24ec27bfcb4683df3323765a46e2) Thanks [@whitphx](https://github.com/whitphx)! - Update Tldraw to 3.15.5
+
+## 0.6.6
+
+### Patch Changes
+
+- [#288](https://github.com/whitphx/anipres/pull/288) [`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63) Thanks [@whitphx](https://github.com/whitphx)! - Update dependencies
+
+## 0.6.5
+
+### Patch Changes
+
+- [#268](https://github.com/whitphx/anipres/pull/268) [`18e6820`](https://github.com/whitphx/anipres/commit/18e6820d5a5e9047291c0b750e7e4bbd769e94ec) Thanks [@whitphx](https://github.com/whitphx)! - NPM trusted publishing
+
 ## 0.6.4
 
 ### Patch Changes

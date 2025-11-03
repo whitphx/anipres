@@ -1,5 +1,82 @@
 # slidev-addon-anipres
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [[`15551e2`](https://github.com/whitphx/anipres/commit/15551e27727ac322eda2acaab4a18e64c0604f88), [`799af5a`](https://github.com/whitphx/anipres/commit/799af5a9d0502d2a3dbf80bb13c1e4800caca036)]:
+  - anipres@0.8.1
+
+## 0.7.0
+
+### Minor Changes
+
+- [#306](https://github.com/whitphx/anipres/pull/306) [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8) Thanks [@whitphx](https://github.com/whitphx)! - Fix animation behavior: display the first frame even before the click count reaches the component's animation order, and the component's click sync behaves like Slidev's builtin components
+
+### Patch Changes
+
+- Updated dependencies [[`62d997b`](https://github.com/whitphx/anipres/commit/62d997b7c7073f45267e1bec47261f35de05b650), [`e97a6ea`](https://github.com/whitphx/anipres/commit/e97a6ea62eb0594060666f3e4ed66568ca55bfa8), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5), [`e3e5bf6`](https://github.com/whitphx/anipres/commit/e3e5bf6e21848d2dcd6500773bce1c3827848fc5)]:
+  - anipres@0.8.0
+
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [[`afaf5b8`](https://github.com/whitphx/anipres/commit/afaf5b86ec41746294d6a34b8bd86a9bf4b28c2a)]:
+  - anipres@0.7.2
+
+## 0.6.7
+
+### Patch Changes
+
+- [#314](https://github.com/whitphx/anipres/pull/314) [`885390a`](https://github.com/whitphx/anipres/commit/885390a45aed6b74924af2d57d5ff7679ceb0285) Thanks [@whitphx](https://github.com/whitphx)! - Update tldraw to 3.15.5 that slidev-addon-anipres depends on
+
+## 0.6.6
+
+### Patch Changes
+
+- [#309](https://github.com/whitphx/anipres/pull/309) [`08e7ab8`](https://github.com/whitphx/anipres/commit/08e7ab873aecd9d4bf0c732e561c11d3b405f49c) Thanks [@whitphx](https://github.com/whitphx)! - Disable Anipres' native navigation inside the Slidev addon because the navigation is managed by Slidev and its information is propagated to Anipres via API
+
+- Updated dependencies [[`8f9ac54`](https://github.com/whitphx/anipres/commit/8f9ac541e61b8fc363cb4a6d66b0ed373aef2942)]:
+  - anipres@0.7.1
+
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [[`3d538c7`](https://github.com/whitphx/anipres/commit/3d538c753773b93df2523663d565c57bcd431d71), [`56cc658`](https://github.com/whitphx/anipres/commit/56cc658ff5bd24ec27bfcb4683df3323765a46e2)]:
+  - anipres@0.7.0
+
+## 0.6.4
+
+### Patch Changes
+
+- [#288](https://github.com/whitphx/anipres/pull/288) [`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63) Thanks [@whitphx](https://github.com/whitphx)! - Update dependencies
+
+- Updated dependencies [[`686660a`](https://github.com/whitphx/anipres/commit/686660a266c4da3836fff4cd8ee6648ba635fe63)]:
+  - anipres@0.6.6
+
+## 0.6.3
+
+### Patch Changes
+
+- [#286](https://github.com/whitphx/anipres/pull/286) [`d6ef268`](https://github.com/whitphx/anipres/commit/d6ef268df408ef00ae31c318eb1de44286b010ee) Thanks [@whitphx](https://github.com/whitphx)! - Propagate the backspace key event
+
+## 0.6.2
+
+### Patch Changes
+
+- [#284](https://github.com/whitphx/anipres/pull/284) [`1f84484`](https://github.com/whitphx/anipres/commit/1f84484fbfeb0ba5e6988c5853c1d8e22fec3a2a) Thanks [@whitphx](https://github.com/whitphx)! - Propagate key strokes with modifier keys so that Tldraw shortcuts work
+
+## 0.6.1
+
+### Patch Changes
+
+- [#268](https://github.com/whitphx/anipres/pull/268) [`18e6820`](https://github.com/whitphx/anipres/commit/18e6820d5a5e9047291c0b750e7e4bbd769e94ec) Thanks [@whitphx](https://github.com/whitphx)! - NPM trusted publishing
+
+- Updated dependencies [[`18e6820`](https://github.com/whitphx/anipres/commit/18e6820d5a5e9047291c0b750e7e4bbd769e94ec)]:
+  - anipres@0.6.5
+
 ## 0.6.0
 
 ### Minor Changes
