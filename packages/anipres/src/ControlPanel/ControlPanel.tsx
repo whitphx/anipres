@@ -16,6 +16,7 @@ import {
   cueFrameToJsonObject,
   getFrame,
   getFrameBatches,
+  getLeafShapes,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
@@ -47,25 +48,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const selectedShapes = editor.getSelectedShapes();
 
   const selectedFrameIds = selectedShapes
-    .map((shape) => {
-      if (shape.type === GroupShapeUtil.type) {
-        return editor
-          .getSortedChildIdsForParent(shape.id)
-          .map((childShapeId) => {
-            const childShape = editor.getShape(childShapeId);
-            if (childShape == null) {
-              return null;
-            }
-
-            return getFrame(childShape)?.id;
-          })
-          .filter((id) => id != null);
-      }
-
-      return getFrame(shape)?.id;
-    })
-    .filter((frameId) => frameId != null)
-    .flat();
+    .flatMap((shape) => getLeafShapes(editor, shape))
+    .map((shape) => getFrame(shape)?.id)
+    .filter((frameId) => frameId != null);
 
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {

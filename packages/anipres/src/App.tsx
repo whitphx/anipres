@@ -220,9 +220,9 @@ function setupDevMock(editor: Editor) {
     },
   });
 
-  const childBoxId1 = createShapeId("childBox1");
+  const childBoxId11 = createShapeId("childBox11");
   editor.createShape({
-    id: childBoxId1,
+    id: childBoxId11,
     type: "geo",
     x: 500,
     y: 500,
@@ -232,9 +232,9 @@ function setupDevMock(editor: Editor) {
     },
   });
 
-  const childBoxId2 = createShapeId("childBox2");
+  const childBoxId12 = createShapeId("childBox12");
   editor.createShape({
-    id: childBoxId2,
+    id: childBoxId12,
     type: "geo",
     x: 540,
     y: 520,
@@ -245,7 +245,45 @@ function setupDevMock(editor: Editor) {
     },
   });
 
-  editor.groupShapes([childBoxId1, childBoxId2]);
+  const groupId1 = createShapeId("groupShape1");
+  editor.groupShapes([childBoxId11, childBoxId12], {
+    groupId: groupId1,
+  });
+
+  const childBoxId21 = createShapeId("childBox21");
+  editor.createShape({
+    id: childBoxId21,
+    type: "geo",
+    x: 600,
+    y: 500,
+    props: {
+      w: 80,
+      h: 50,
+    },
+  });
+
+  const childBoxId22 = createShapeId("childBox22");
+  editor.createShape({
+    id: childBoxId22,
+    type: "geo",
+    x: 640,
+    y: 520,
+    props: {
+      w: 50,
+      h: 80,
+      color: "red",
+    },
+  });
+
+  const groupId2 = createShapeId("groupShape2");
+  editor.groupShapes([childBoxId21, childBoxId22], {
+    groupId: groupId2,
+  });
+
+  const parentGroupId = createShapeId("parentGroup");
+  editor.groupShapes([groupId1, groupId2], {
+    groupId: parentGroupId,
+  });
 }
 
 function App() {
