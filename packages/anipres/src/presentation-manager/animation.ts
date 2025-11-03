@@ -1,14 +1,16 @@
-import { type Editor, type TLShape, EASINGS, createShapeId } from "tldraw";
-import { type Frame, type Step, getShapeByFrameId } from "../models";
+import { type TLShape, EASINGS, createShapeId } from "tldraw";
+import { type Frame, type Step } from "../models";
+import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
-  editor: Editor,
+  presentationManager: PresentationManager,
   frames: Frame[],
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
 ): Promise<void> {
+  const editor = presentationManager.editor;
   for (const frame of frames) {
-    const shape = getShapeByFrameId(editor, frame.id);
+    const shape = presentationManager.getShapeByFrameId(frame.id);
     if (shape == null) {
       throw new Error(`Shape not found for frame ${frame.id}`);
     }
@@ -94,7 +96,7 @@ async function runFrames(
 }
 
 export function runStep(
-  editor: Editor,
+  presentationManager: PresentationManager,
   steps: Step[],
   index: number,
 ): Promise<void> {
@@ -103,6 +105,8 @@ export function runStep(
     console.warn(`No step found at index ${index}`);
     return Promise.resolve();
   }
+
+  const editor = presentationManager.editor;
 
   const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
@@ -116,12 +120,12 @@ export function runStep(
     const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
     const predecessorShape =
       predecessorLastFrame != null
-        ? getShapeByFrameId(editor, predecessorLastFrame.id)
+        ? presentationManager.getShapeByFrameId(predecessorLastFrame.id)
         : null;
 
     const frames = frameBatch.data;
     const frameShapes = frames
-      .map((frame) => getShapeByFrameId(editor, frame.id))
+      .map((frame) => presentationManager.getShapeByFrameId(frame.id))
       .filter((shape) => shape != null);
 
     editor.run(
@@ -141,7 +145,7 @@ export function runStep(
     );
 
     const promise = runFrames(
-      editor,
+      presentationManager,
       frames,
       predecessorShape ?? null,
       markBeforeAnimation,

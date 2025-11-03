@@ -35,7 +35,6 @@ import {
   type CameraZoomFrameAction,
   type CueFrame,
   type SubFrame,
-  reconcileShapeDeletion,
   getSubFrame,
   subFrameToJsonObject,
 } from "./models";
@@ -321,7 +320,7 @@ const Inner = (props: InnerProps) => {
     );
     stopHandlers.push(
       editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        reconcileShapeDeletion(editor, presentationManager, shape);
+        presentationManager.reconcileShapeDeletion(shape);
       }),
     );
 

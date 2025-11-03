@@ -16,7 +16,6 @@ import {
   getFrameBatches,
   type Frame,
   type SubFrame,
-  getShapeByFrameId,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
@@ -147,7 +146,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             });
           }}
           requestCueFrameAddAfter={(prevCueFrame) => {
-            const prevShape = getShapeByFrameId(editor, prevCueFrame.id);
+            const prevShape = presentationManager.getShapeByFrameId(
+              prevCueFrame.id,
+            );
             if (prevShape == null) {
               return;
             }
@@ -197,7 +198,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             );
           }}
           requestSubFrameAddAfter={(prevFrame) => {
-            const prevShape = getShapeByFrameId(editor, prevFrame.id);
+            const prevShape = presentationManager.getShapeByFrameId(
+              prevFrame.id,
+            );
             if (prevShape == null) {
               return;
             }

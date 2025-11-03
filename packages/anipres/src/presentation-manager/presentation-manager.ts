@@ -2,18 +2,26 @@ import {
   computed,
   type Editor,
   type Atom,
+  type TLShape,
   type TLShapeId,
   type TldrawBaseProps,
   GroupShapeUtil,
 } from "tldraw";
 import {
   type Frame,
+  type SubFrame,
   type Step,
   getFrame,
+  getSubFrame,
   getFrames,
   getFrameBatches,
+  cueFrameToJsonObject,
+  subFrameToJsonObject,
 } from "../models";
-import { getGlobalOrder } from "../ordered-track-item";
+import {
+  getGlobalOrder,
+  reassignGlobalIndexInplace,
+} from "../ordered-track-item";
 import { SlideShapeType } from "../SlideShapeUtil";
 import { runStep } from "./animation";
 
@@ -24,7 +32,7 @@ type ShapeVisibility = NonNullable<
 // Functions that depends on `editor` and should be cached by `computed` go here.
 export class PresentationManager {
   private constructor(
-    private editor: Editor,
+    public readonly editor: Editor,
     private $currentStepIndex: Atom<number>,
   ) {}
 
@@ -57,6 +65,69 @@ export class PresentationManager {
 
   @computed $getTotalSteps(): number {
     return this.$getOrderedSteps().length;
+  }
+
+  getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
+    const shapes = this.editor.getCurrentPageShapes();
+    return shapes.find((shape) => getFrame(shape)?.id === frameId);
+  }
+
+  reconcileShapeDeletion(deletedShape: TLShape) {
+    const deletedFrame = getFrame(deletedShape);
+    if (deletedFrame == null) {
+      return;
+    }
+
+    const editor = this.editor;
+
+    if (deletedFrame.type === "cue") {
+      // Reassign globalIndex
+      const steps = this.$getOrderedSteps();
+      reassignGlobalIndexInplace(steps);
+      steps.forEach((stepFrameBatches) => {
+        stepFrameBatches.forEach((frameBatch) => {
+          const newGlobalIndex = frameBatch.globalIndex;
+          const cueFrame = frameBatch.data[0];
+          const shape = this.getShapeByFrameId(cueFrame.id);
+          if (shape == null) {
+            return;
+          }
+          editor.updateShape({
+            id: shape.id,
+            type: shape.type,
+            meta: {
+              frame: cueFrameToJsonObject({
+                ...cueFrame,
+                globalIndex: newGlobalIndex,
+              }),
+            },
+          });
+        });
+      });
+    } else if (deletedFrame.type === "sub") {
+      // Reassign prevFrameId
+      const shapes = editor.getCurrentPageShapes();
+      const allSubFrames = shapes
+        .map((shape) => ({ shape, subFrame: getSubFrame(shape) }))
+        .filter(({ subFrame }) => subFrame != null) as {
+        shape: TLShape;
+        subFrame: SubFrame;
+      }[];
+      allSubFrames.forEach(({ shape, subFrame }) => {
+        if (subFrame.prevFrameId === deletedFrame.id) {
+          editor.updateShape({
+            id: shape.id,
+            type: shape.type,
+            meta: {
+              frame: subFrameToJsonObject({
+                ...subFrame,
+                prevFrameId: deletedFrame.prevFrameId,
+              }),
+            },
+          });
+        }
+      });
+    }
   }
 
   public moveTo(stepIndex: number): void;
@@ -92,7 +163,7 @@ export class PresentationManager {
     }
 
     this.$currentStepIndex.set(stepIndex);
-    runStep(this.editor, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex);
   }
 
   public rerunStep(): void {
@@ -101,7 +172,7 @@ export class PresentationManager {
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
-    runStep(this.editor, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex);
   }
 
   @computed $getShapeVisibilitiesInPresentationMode(): Record<
