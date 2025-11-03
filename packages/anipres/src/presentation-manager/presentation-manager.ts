@@ -96,6 +96,7 @@ export class PresentationManager {
             id: shape.id,
             type: shape.type,
             meta: {
+              ...shape.meta,
               frame: cueFrameToJsonObject({
                 ...cueFrame,
                 globalIndex: newGlobalIndex,
@@ -119,6 +120,7 @@ export class PresentationManager {
             id: shape.id,
             type: shape.type,
             meta: {
+              ...shape.meta,
               frame: subFrameToJsonObject({
                 ...subFrame,
                 prevFrameId: deletedFrame.prevFrameId,
