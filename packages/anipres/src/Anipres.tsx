@@ -11,6 +11,7 @@ import {
   uniqueId,
   useAtom,
   useValue,
+  react,
 } from "tldraw";
 import type {
   Atom,
@@ -393,6 +394,13 @@ const Inner = (props: InnerProps) => {
       // Cancel double click in presentation mode so that the user can't create a new text.
       if (ev.type === "pointer" && ev.target === "canvas") {
         editor.cancelDoubleClick();
+      }
+    });
+
+    react("turn off edit tools in presentation mode", () => {
+      const presentationMode = perInstanceAtoms.$presentationMode.get();
+      if (presentationMode) {
+        editor.setCurrentTool("select");
       }
     });
 
