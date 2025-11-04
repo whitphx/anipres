@@ -99,7 +99,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - windows-latest  # Test Windows for the different path separator
+          - windows-latest  # Run on Windows for testing the different path separator
 
     runs-on: ${{ matrix.os }}
 
@@ -129,7 +129,7 @@ jobs:
           name: anipres-dist
           path: packages/anipres/dist
 
-      - name: Check if build succeeds
+      - name: Build the sample slides for preview
         run: pnpm slidev build
 
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
