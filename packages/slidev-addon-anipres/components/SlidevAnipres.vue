@@ -42,6 +42,7 @@ import {
   watchEffect,
   onUnmounted,
   onMounted,
+  onWatcherCleanup,
 } from "vue";
 import {
   useCssVar,
@@ -304,11 +305,11 @@ const drawStyleFontFamily = computed(() => {
   return `'tldraw_draw'`;
 });
 
-watchEffect((onCleanup) => {
+watchEffect(() => {
   if (isEditing.value) {
     const release = lockShortcuts();
 
-    onCleanup(() => {
+    onWatcherCleanup(() => {
       release();
     });
   }
