@@ -95,16 +95,12 @@ const fontUrls = computed(() => ({
 const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
 
 const { isDark } = useDarkMode();
-watch(
-  isDark,
-  (isDark) => {
-    setUserPreferences({
-      ...getUserPreferences(),
-      colorScheme: isDark ? "dark" : "light",
-    });
-  },
-  { immediate: true },
-);
+watchEffect(() => {
+  setUserPreferences({
+    ...getUserPreferences(),
+    colorScheme: isDark.value ? "dark" : "light",
+  });
+});
 
 const { $scale, $clicksContext } = useSlideContext();
 
@@ -120,8 +116,8 @@ const {
 
 const isEditing = ref(false);
 
-watch(isEditing, (isEditing) => {
-  if (isEditing) {
+watchEffect(() => {
+  if (isEditing.value) {
     // `top` and `left` can be wrong for example when `top` and `left` are captured while the slide is moving during page transition.
     // So we update the bounding rect of the container when it's actually needed.
     updateContainerBounding();
