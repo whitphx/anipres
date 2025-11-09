@@ -18,6 +18,8 @@ import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
+import { GroupSelection } from "./GroupSelection";
+import type { ShapeSelection } from "./selection";
 
 interface DragStateStyleDivProps {
   children: React.ReactNode;
@@ -92,7 +94,7 @@ interface TimelineProps {
   onFrameBatchesChange: (newFrameBatches: FrameBatch[]) => void;
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
-  selectedFrameIds: Frame["id"][];
+  shapeSelections: ShapeSelection[];
   onFrameSelect: (cueFrameId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
   requestSubFrameAddAfter: (prevFrame: Frame) => void;
@@ -105,7 +107,7 @@ export function Timeline({
   onFrameBatchesChange,
   currentStepIndex,
   onStepSelect,
-  selectedFrameIds,
+  shapeSelections,
   onFrameSelect,
   requestCueFrameAddAfter,
   requestSubFrameAddAfter,
@@ -116,6 +118,24 @@ export function Timeline({
     () => calcFrameBatchUIData(frameBatches),
     [frameBatches],
   );
+
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const frameEditorRefs = React.useRef<Record<string, HTMLElement>>({});
+  const frameEditorRefCallback =
+    (frameId: string): React.RefCallback<HTMLElement> =>
+    (elem) => {
+      if (elem != null) {
+        frameEditorRefs.current[frameId] = elem;
+      } else {
+        delete frameEditorRefs.current[frameId];
+      }
+    };
+  const selectedFrameIds = useMemo(() => {
+    return shapeSelections.flatMap((sel) => sel.frameIds);
+  }, [shapeSelections]);
+  const groupSelections = useMemo(() => {
+    return shapeSelections.filter((sel) => sel.frameIds.length > 1);
+  }, [shapeSelections]);
 
   const [draggedFrame, setDraggedFrame] = useState<Frame | null>(null);
 
@@ -201,6 +221,7 @@ export function Timeline({
       }}
     >
       <DragStateStyleDiv
+        ref={containerRef}
         className={styles.timelineContainer}
         classNameWhenDragging={`${styles.timelineContainer} ${styles.dragging}`}
       >
@@ -268,6 +289,7 @@ export function Timeline({
                                   onClick={() => {
                                     onFrameSelect(cueFrame.id);
                                   }}
+                                  ref={frameEditorRefCallback(cueFrame.id)}
                                 />
                               </DraggableFrameUI>
 
@@ -295,6 +317,7 @@ export function Timeline({
                                       onClick={() => {
                                         onFrameSelect(subFrame.id);
                                       }}
+                                      ref={frameEditorRefCallback(subFrame.id)}
                                     />
                                   </DraggableFrameUI>
                                 );
@@ -355,6 +378,14 @@ export function Timeline({
             </div>
           </div>
         )}
+        {groupSelections.map((groupSel) => (
+          <GroupSelection
+            key={groupSel.shapeId}
+            groupSelection={groupSel}
+            containerRef={containerRef}
+            frameEditorRefs={frameEditorRefs}
+          />
+        ))}
       </DragStateStyleDiv>
       {createPortal(
         <DelegateTldrawCssVars>

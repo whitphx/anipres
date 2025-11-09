@@ -19,7 +19,7 @@ import {
   getLeafShapes,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
-import { Timeline } from "../Timeline";
+import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
 import type { PresentationManager } from "../presentation-manager";
@@ -47,10 +47,16 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
   const selectedShapes = editor.getSelectedShapes();
 
-  const selectedFrameIds = selectedShapes
-    .flatMap((shape) => getLeafShapes(editor, shape))
-    .map((shape) => getFrame(shape)?.id)
-    .filter((frameId) => frameId != null);
+  const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => {
+    const leafShapes = getLeafShapes(editor, shape);
+    const leafFrames = leafShapes
+      .map(getFrame)
+      .filter((frame) => frame != null);
+    return {
+      shapeId: shape.id,
+      frameIds: leafFrames.map((frame) => frame!.id),
+    };
+  });
 
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {
@@ -152,7 +158,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
           onStepSelect={onCurrentStepIndexChange}
-          selectedFrameIds={selectedFrameIds}
+          shapeSelections={shapeSelections}
           onFrameSelect={handleFrameSelect}
           showAttachCueFrameButton={
             selectedAnimeFrameAttachableShapes.length > 0
