@@ -40,14 +40,14 @@
     "re-resizable": "^6.11.2"
   },
   "devDependencies": {
-    "@types/react": "^18.3.18",
+    "@types/react": "^19.2.2",
     "@types/react-dom": "^18.3.5",
-    "react": "^18.3.1",
+    "react": "^19.2.0",
     "react-dom": "^18.3.1",
     "tldraw": "^3.15.5"
   },
   "peerDependencies": {
-    "react": "^18.3.1",
+    "react": "^19.2.0",
     "react-dom": "^18.3.1",
     "tldraw": "^3.15.5"
   }
