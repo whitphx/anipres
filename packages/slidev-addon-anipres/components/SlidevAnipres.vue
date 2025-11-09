@@ -121,6 +121,12 @@ watchEffect(() => {
     // `top` and `left` can be wrong for example when `top` and `left` are captured while the slide is moving during page transition.
     // So we update the bounding rect of the container when it's actually needed.
     updateContainerBounding();
+
+    // Disable Slidev's shortcuts when editing to prevent conflicts.
+    const release = lockShortcuts();
+    onWatcherCleanup(() => {
+      release();
+    });
   }
 });
 
@@ -299,16 +305,6 @@ const drawStyleFontFamily = computed(() => {
     return `Excalifont-Regular, "${xiaolaiFont.css.family}", ${xiaolaiFont.fontFamilyFallback}, 'tldraw_draw'`;
   }
   return `'tldraw_draw'`;
-});
-
-watchEffect(() => {
-  if (isEditing.value) {
-    const release = lockShortcuts();
-
-    onWatcherCleanup(() => {
-      release();
-    });
-  }
 });
 </script>
 
