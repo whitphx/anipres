@@ -1,5 +1,15 @@
 # slidev-addon-anipres
 
+## 0.8.0
+
+### Minor Changes
+
+- [#341](https://github.com/whitphx/anipres/pull/341) [`c678159`](https://github.com/whitphx/anipres/commit/c678159f35a46bff434c587fe3b7ab24b9a8a660) Thanks [@whitphx](https://github.com/whitphx)! - Disable Slidev's shortcuts during Anipres editing
+
+### Patch Changes
+
+- [#343](https://github.com/whitphx/anipres/pull/343) [`bced41b`](https://github.com/whitphx/anipres/commit/bced41b7fb37168356b8495d69006060d352a6a3) Thanks [@whitphx](https://github.com/whitphx)! - chore: use `watchEffect()` instead of `watch()` where it has benefits
+
 ## 0.7.1
 
 ### Patch Changes
