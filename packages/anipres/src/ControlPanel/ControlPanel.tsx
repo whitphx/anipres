@@ -4,6 +4,7 @@ import {
   createShapeId,
   uniqueId,
   type Editor,
+  GroupShapeUtil,
 } from "tldraw";
 import {
   type Frame,
@@ -15,6 +16,7 @@ import {
   cueFrameToJsonObject,
   getFrame,
   getFrameBatches,
+  getLeafShapes,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline } from "../Timeline";
@@ -44,12 +46,33 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const frameBatches = getFrameBatches(frames);
 
   const selectedShapes = editor.getSelectedShapes();
-  const selectedFrameShapes = selectedShapes.filter(
-    (shape) => getFrame(shape) != null,
-  );
-  const selectedNotFrameShapes = selectedShapes.filter(
-    (shape) => getFrame(shape) == null && shape.type !== SlideShapeType,
-  );
+
+  const selectedFrameIds = selectedShapes
+    .flatMap((shape) => getLeafShapes(editor, shape))
+    .map((shape) => getFrame(shape)?.id)
+    .filter((frameId) => frameId != null);
+
+  const selectedAnimeFrameAttachableShapes = selectedShapes
+    .map((shape) => {
+      if (shape.type === SlideShapeType) {
+        return null;
+      }
+
+      if (shape.type === GroupShapeUtil.type) {
+        const childShapeIds = editor.getSortedChildIdsForParent(shape.id);
+        const childShapes = childShapeIds
+          .map((id) => editor.getShape(id))
+          .filter((shape) => shape != null);
+        const everyChildShapeHasNoFrame = childShapes.every(
+          (childShape) => getFrame(childShape) == null,
+        );
+        return everyChildShapeHasNoFrame ? shape : null;
+      }
+
+      const frame = getFrame(shape);
+      return frame == null ? shape : null;
+    })
+    .filter((shape) => shape != null);
 
   const handleFrameChange = (newFrame: Frame) => {
     const shape = presentationManager.getShapeByFrameId(newFrame.id);
@@ -129,13 +152,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
           onStepSelect={onCurrentStepIndexChange}
-          selectedFrameIds={selectedFrameShapes.map(
-            (shape) => getFrame(shape)!.id,
-          )}
+          selectedFrameIds={selectedFrameIds}
           onFrameSelect={handleFrameSelect}
-          showAttachCueFrameButton={selectedNotFrameShapes.length > 0}
+          showAttachCueFrameButton={
+            selectedAnimeFrameAttachableShapes.length > 0
+          }
           requestAttachCueFrame={() => {
-            selectedNotFrameShapes.forEach((shape) => {
+            selectedAnimeFrameAttachableShapes.forEach((shape) => {
               if (shape.type !== SlideShapeType) {
                 attachCueFrame(editor, shape.id, { type: "shapeAnimation" });
               }

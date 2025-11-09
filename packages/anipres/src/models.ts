@@ -1,4 +1,4 @@
-import { EASINGS, uniqueId } from "tldraw";
+import { EASINGS, GroupShapeUtil, uniqueId } from "tldraw";
 import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
 import { OrderedTrackItem } from "./ordered-track-item";
 
@@ -155,24 +155,40 @@ export function attachCueFrame(
   shapeId: TLShapeId,
   frameAction: FrameAction,
 ) {
-  const cueFrame: CueFrame = {
-    id: shapeId,
-    type: "cue",
-    globalIndex: getNextGlobalIndex(editor),
-    trackId: newTrackId(),
-    action: frameAction,
-  };
+  const nextGlobalIndex = getNextGlobalIndex(editor);
 
-  const shape = editor.getShape(shapeId);
-  if (shape == null) {
-    return;
+  function attachCueFrameToShape(shapeId: TLShapeId) {
+    const shape = editor.getShape(shapeId);
+    if (shape == null) {
+      return;
+    }
+
+    if (shape.type === GroupShapeUtil.type) {
+      const childIds = editor.getSortedChildIdsForParent(shape);
+      for (const childId of childIds) {
+        attachCueFrameToShape(childId);
+      }
+      return;
+    }
+
+    const cueFrame: CueFrame = {
+      id: shapeId,
+      type: "cue",
+      globalIndex: nextGlobalIndex,
+      trackId: newTrackId(),
+      action: frameAction,
+    };
+    editor.updateShape({
+      id: shapeId,
+      type: shape.type,
+      meta: {
+        frame: cueFrameToJsonObject(cueFrame),
+      },
+    });
   }
-  editor.updateShape({
-    id: shapeId,
-    type: shape.type,
-    meta: {
-      frame: cueFrameToJsonObject(cueFrame),
-    },
+
+  editor.run(() => {
+    attachCueFrameToShape(shapeId);
   });
 }
 
@@ -230,4 +246,19 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   }
 
   return frameBatches;
+}
+
+export function getLeafShapes(
+  editor: Editor,
+  ancestorShape: TLShape,
+): TLShape[] {
+  if (ancestorShape.type !== GroupShapeUtil.type) {
+    return [ancestorShape];
+  }
+
+  const childShapeIds = editor.getSortedChildIdsForParent(ancestorShape.id);
+  const childShapes = childShapeIds
+    .map((id) => editor.getShape(id))
+    .filter((shape) => shape != null);
+  return childShapes.flatMap((childShape) => getLeafShapes(editor, childShape));
 }
