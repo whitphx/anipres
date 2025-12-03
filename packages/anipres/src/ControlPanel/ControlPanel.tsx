@@ -68,14 +68,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       }
 
       if (shape.type === GroupShapeUtil.type) {
-        const childShapeIds = editor.getSortedChildIdsForParent(shape.id);
-        const childShapes = childShapeIds
-          .map((id) => editor.getShape(id))
-          .filter((shape) => shape != null);
-        const everyChildShapeHasNoFrame = childShapes.every(
-          (childShape) => getFrame(childShape) == null,
+        const leafShapes = getLeafShapes(editor, shape);
+        const everyLeafShapeHasNoFrame = leafShapes.every(
+          (leafShape) => getFrame(leafShape) == null,
         );
-        return everyChildShapeHasNoFrame ? shape : null;
+        return everyLeafShapeHasNoFrame ? shape : null;
       }
 
       const frame = getFrame(shape);
