@@ -1,5 +1,5 @@
 import { EASINGS, GroupShapeUtil, uniqueId } from "tldraw";
-import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
+import type { Editor, JsonObject, TLShape } from "tldraw";
 import { OrderedTrackItem } from "./ordered-track-item";
 
 export interface FrameActionBase extends JsonObject {
@@ -132,65 +132,17 @@ function jsonObjectToSubFrame(obj: unknown): SubFrame {
   );
 }
 
+/**
+ * @internal
+ */
 export function getNextGlobalIndexFromCueFrames(cueFrames: CueFrame[]): number {
   const globalIndexes = cueFrames.map((cf) => cf.globalIndex);
   return globalIndexes.length > 0 ? Math.max(...globalIndexes) + 1 : 0;
 }
 
-export function getNextGlobalIndex(editor: Editor): number {
-  // TODO: move to presentation-manager
-  const shapes = editor.getCurrentPageShapes();
-  const allCueFrames = shapes
-    .map(getCueFrame)
-    .filter((cueFrame) => cueFrame != null);
-  return getNextGlobalIndexFromCueFrames(allCueFrames);
-}
-
 export function newTrackId(): string {
   // Use a timestamp to make the tracks sorted in the timeline.
   return `track-${Date.now()}-${uniqueId()}`;
-}
-
-export function attachCueFrame(
-  editor: Editor,
-  shapeId: TLShapeId,
-  frameAction: FrameAction,
-) {
-  const nextGlobalIndex = getNextGlobalIndex(editor);
-
-  function attachCueFrameToShape(shapeId: TLShapeId) {
-    const shape = editor.getShape(shapeId);
-    if (shape == null) {
-      return;
-    }
-
-    if (shape.type === GroupShapeUtil.type) {
-      const childIds = editor.getSortedChildIdsForParent(shape);
-      for (const childId of childIds) {
-        attachCueFrameToShape(childId);
-      }
-      return;
-    }
-
-    const cueFrame: CueFrame = {
-      id: shapeId,
-      type: "cue",
-      globalIndex: nextGlobalIndex,
-      trackId: newTrackId(),
-      action: frameAction,
-    };
-    editor.updateShape({
-      id: shapeId,
-      type: shape.type,
-      meta: {
-        frame: cueFrameToJsonObject(cueFrame),
-      },
-    });
-  }
-
-  editor.run(() => {
-    attachCueFrameToShape(shapeId);
-  });
 }
 
 export function getFrame(shape: TLShape): Frame | undefined {

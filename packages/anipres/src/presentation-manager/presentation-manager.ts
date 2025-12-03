@@ -18,6 +18,10 @@ import {
   cueFrameToJsonObject,
   subFrameToJsonObject,
   CueFrame,
+  getCueFrame,
+  getNextGlobalIndexFromCueFrames,
+  FrameAction,
+  newTrackId,
 } from "../models";
 import {
   getGlobalOrder,
@@ -68,6 +72,14 @@ export class PresentationManager {
     return this.$getOrderedSteps().length;
   }
 
+  @computed $getNextGlobalIndex(): number {
+    const shapes = this.editor.getCurrentPageShapes();
+    const allCueFrames = shapes
+      .map(getCueFrame)
+      .filter((cueFrame) => cueFrame != null);
+    return getNextGlobalIndexFromCueFrames(allCueFrames);
+  }
+
   @computed $getAssociatedCueFrames(): Record<Frame["id"], CueFrame> {
     const steps = this.$getOrderedSteps();
     const associatedCueFrameIds: Record<Frame["id"], CueFrame> = {};
@@ -79,6 +91,44 @@ export class PresentationManager {
       }
     }
     return associatedCueFrameIds;
+  }
+
+  attachCueFrame(shapeId: TLShapeId, frameAction: FrameAction) {
+    const nextGlobalIndex = this.$getNextGlobalIndex();
+
+    const attachCueFrameToShape = (shapeId: TLShapeId) => {
+      const shape = this.editor.getShape(shapeId);
+      if (shape == null) {
+        return;
+      }
+
+      if (shape.type === GroupShapeUtil.type) {
+        const childIds = this.editor.getSortedChildIdsForParent(shape);
+        for (const childId of childIds) {
+          attachCueFrameToShape(childId);
+        }
+        return;
+      }
+
+      const cueFrame: CueFrame = {
+        id: shapeId,
+        type: "cue",
+        globalIndex: nextGlobalIndex,
+        trackId: newTrackId(),
+        action: frameAction,
+      };
+      this.editor.updateShape({
+        id: shapeId,
+        type: shape.type,
+        meta: {
+          frame: cueFrameToJsonObject(cueFrame),
+        },
+      });
+    };
+
+    this.editor.run(() => {
+      attachCueFrameToShape(shapeId);
+    });
   }
 
   getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {

@@ -12,14 +12,12 @@ import {
   type CueFrame,
   type SubFrame,
   type FrameBatch,
-  attachCueFrame,
   frameToJsonObject,
   cueFrameToJsonObject,
   getFrame,
   getFrameBatches,
   getLeafShapes,
   newTrackId,
-  getNextGlobalIndex,
   FrameAction,
   BatchedFrames,
 } from "../models";
@@ -171,7 +169,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           requestAttachCueFrame={() => {
             selectedAnimeFrameAttachableShapes.forEach((shape) => {
               if (shape.type !== SlideShapeType) {
-                attachCueFrame(editor, shape.id, { type: "shapeAnimation" });
+                presentationManager.attachCueFrame(shape.id, {
+                  type: "shapeAnimation",
+                });
               }
             });
           }}
@@ -275,7 +275,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   newFrameBatch,
                   prevCueFrame
                     ? prevCueFrame.globalIndex + 1
-                    : getNextGlobalIndex(editor),
+                    : presentationManager.$getNextGlobalIndex(),
                 );
                 for (const batch of newFrameBatches) {
                   batch.data[0].globalIndex = batch.globalIndex;
