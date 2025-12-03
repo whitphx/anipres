@@ -22,8 +22,6 @@ import {
   getNextGlobalIndexFromCueFrames,
   FrameAction,
   newTrackId,
-  getLeafShapes,
-  getDescendantShapes,
 } from "../models";
 import {
   getGlobalOrder,
@@ -134,18 +132,32 @@ export class PresentationManager {
   }
 
   @computed $getCurrentPageDescendantShapes(): TLShape[] {
-    const shapes = this.editor.getCurrentPageShapes();
-    return shapes.flatMap((shape) => getDescendantShapes(this.editor, shape));
-  }
+    const getDescendantShapes = (ancestorShape: TLShape): TLShape[] => {
+      if (ancestorShape.type !== GroupShapeUtil.type) {
+        return [ancestorShape];
+      }
 
-  @computed $getCurrentPageLeafShapes(): TLShape[] {
-    const shapes = this.editor.getCurrentPageShapes();
-    return shapes.flatMap((shape) => getLeafShapes(this.editor, shape));
+      const childShapeIds = this.editor.getSortedChildIdsForParent(
+        ancestorShape.id,
+      );
+      const childShapes = childShapeIds
+        .map((id) => this.editor.getShape(id))
+        .filter((shape) => shape != null);
+      return [
+        ancestorShape,
+        ...childShapes.flatMap((childShape) => getDescendantShapes(childShape)),
+      ];
+    };
+
+    const pageShapes = this.editor.getCurrentPageShapes();
+    return pageShapes.flatMap((shape) => getDescendantShapes(shape));
   }
 
   getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
-    const leafShapes = this.$getCurrentPageLeafShapes();
-    return leafShapes.find((shape) => getFrame(shape)?.id === frameId);
+    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
+    return pageDescendantShapes.find(
+      (shape) => getFrame(shape)?.id === frameId,
+    );
   }
 
   reconcileShapeDeletion(deletedShape: TLShape) {
@@ -262,8 +274,8 @@ export class PresentationManager {
     const orderedSteps = this.$getOrderedSteps();
     const currentStepIndex = this.$currentStepIndex.get();
 
-    const descendantShapes = this.$getCurrentPageDescendantShapes();
-    const shapesVisibilities = descendantShapes.map<
+    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
+    const shapesVisibilities = pageDescendantShapes.map<
       [TLShapeId, ShapeVisibility]
     >((shape) => {
       const shapeId = shape.id;

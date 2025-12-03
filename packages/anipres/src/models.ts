@@ -201,7 +201,7 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   return frameBatches;
 }
 
-export function getDescendantShapes(
+export function getLeafShapes(
   editor: Editor,
   ancestorShape: TLShape,
 ): TLShape[] {
@@ -213,18 +213,5 @@ export function getDescendantShapes(
   const childShapes = childShapeIds
     .map((id) => editor.getShape(id))
     .filter((shape) => shape != null);
-  return [
-    ancestorShape,
-    ...childShapes.flatMap((childShape) =>
-      getDescendantShapes(editor, childShape),
-    ),
-  ];
-}
-
-export function getLeafShapes(
-  editor: Editor,
-  ancestorShape: TLShape,
-): TLShape[] {
-  const descendantShapes = getDescendantShapes(editor, ancestorShape);
-  return descendantShapes.filter((shape) => shape.type !== GroupShapeUtil.type);
+  return childShapes.flatMap((childShape) => getLeafShapes(editor, childShape));
 }
