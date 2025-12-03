@@ -130,8 +130,6 @@ export function runStep(
     console.warn(`No step found at index ${index}`);
     return Promise.resolve();
   }
-  console.log(`Running step ${index}`);
-  console.log(step);
 
   const editor = presentationManager.editor;
 
@@ -139,7 +137,6 @@ export function runStep(
 
   const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
-    console.log(` Running frameBatch`, frameBatch);
     const predecessorFrameBatch = steps
       .slice(0, index)
       .reverse()
@@ -155,11 +152,6 @@ export function runStep(
     const frameShapes = frames
       .map((frame) => presentationManager.getShapeByFrameId(frame.id))
       .filter((shape) => shape != null);
-
-    console.log({
-      predecessorShape,
-      frameShapes,
-    });
 
     editor.run(
       () => {
