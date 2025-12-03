@@ -96,7 +96,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const handleFrameBatchesChange = (newFrameBatches: FrameBatch[]) => {
     const newFrames = newFrameBatches.flatMap((batch) => batch.data);
 
-    const allShapes = editor.getCurrentPageShapes();
+    const allShapes = presentationManager.$getCurrentPageDescendantShapes();
 
     const updateShapePartials = allShapes.map((shape) => {
       const newFrame = newFrames.find(
