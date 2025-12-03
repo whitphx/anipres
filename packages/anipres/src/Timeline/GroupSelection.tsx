@@ -29,6 +29,7 @@ interface GroupSelectionProps {
   groupSelection: ShapeSelection;
   containerRef: React.RefObject<HTMLElement>;
   frameEditorRefs: React.RefObject<Record<string, HTMLElement>>;
+  requestCueFrameAddAfter: (shapeSelection: ShapeSelection) => void;
 }
 export function GroupSelection(props: GroupSelectionProps) {
   const [groupRect, setGroupRect] = useState<DOMRect | null>(null);
@@ -77,6 +78,15 @@ export function GroupSelection(props: GroupSelectionProps) {
         border: "2px dashed blue",
         pointerEvents: "none",
       }}
-    ></div>
+    >
+      <button
+        onClick={() => props.requestCueFrameAddAfter(props.groupSelection)}
+        style={{
+          pointerEvents: "auto",
+        }}
+      >
+        Add Cue Frame
+      </button>
+    </div>
   );
 }

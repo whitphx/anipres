@@ -43,7 +43,7 @@ export type Frame<T extends FrameAction = FrameAction> =
   | CueFrame<T>
   | SubFrame<T>;
 
-type BatchedFrames<T extends FrameAction = FrameAction> = [
+export type BatchedFrames<T extends FrameAction = FrameAction> = [
   CueFrame<T>,
   ...SubFrame<T>[],
 ];
@@ -137,7 +137,8 @@ export function getNextGlobalIndexFromCueFrames(cueFrames: CueFrame[]): number {
   return globalIndexes.length > 0 ? Math.max(...globalIndexes) + 1 : 0;
 }
 
-function getNextGlobalIndex(editor: Editor): number {
+export function getNextGlobalIndex(editor: Editor): number {
+  // TODO: move to presentation-manager
   const shapes = editor.getCurrentPageShapes();
   const allCueFrames = shapes
     .map(getCueFrame)
@@ -145,7 +146,7 @@ function getNextGlobalIndex(editor: Editor): number {
   return getNextGlobalIndexFromCueFrames(allCueFrames);
 }
 
-function newTrackId(): string {
+export function newTrackId(): string {
   // Use a timestamp to make the tracks sorted in the timeline.
   return `track-${Date.now()}-${uniqueId()}`;
 }

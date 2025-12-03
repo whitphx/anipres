@@ -98,6 +98,7 @@ interface TimelineProps {
   onFrameSelect: (cueFrameId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
   requestSubFrameAddAfter: (prevFrame: Frame) => void;
+  requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
 }
@@ -111,6 +112,7 @@ export function Timeline({
   onFrameSelect,
   requestCueFrameAddAfter,
   requestSubFrameAddAfter,
+  requestCueFrameAddAfterGroup,
   showAttachCueFrameButton,
   requestAttachCueFrame,
 }: TimelineProps) {
@@ -384,6 +386,7 @@ export function Timeline({
             groupSelection={groupSel}
             containerRef={containerRef}
             frameEditorRefs={frameEditorRefs}
+            requestCueFrameAddAfter={requestCueFrameAddAfterGroup}
           />
         ))}
       </DragStateStyleDiv>

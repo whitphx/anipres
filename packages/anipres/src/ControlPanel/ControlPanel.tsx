@@ -5,6 +5,7 @@ import {
   uniqueId,
   type Editor,
   GroupShapeUtil,
+  TLShapeId,
 } from "tldraw";
 import {
   type Frame,
@@ -17,6 +18,10 @@ import {
   getFrame,
   getFrameBatches,
   getLeafShapes,
+  newTrackId,
+  getNextGlobalIndex,
+  FrameAction,
+  BatchedFrames,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline, type ShapeSelection } from "../Timeline";
@@ -222,6 +227,114 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               { history: "ignore" },
             );
           }}
+          requestCueFrameAddAfterGroup={(shapeSelection) => {
+            const selectedShapeId = shapeSelection.shapeId;
+
+            let newFrameBatches:
+              | ReturnType<
+                  typeof insertOrderedTrackItem<BatchedFrames<FrameAction>>
+                >
+              | undefined = undefined;
+
+            const copyShape = (
+              origShapeId: TLShapeId,
+              newParentShapeId: TLShapeId | undefined = undefined,
+            ): TLShapeId | undefined => {
+              const origShape = editor.getShape(origShapeId);
+              if (origShape == null) {
+                return;
+              }
+
+              const shouldAttachFrame = origShape.type !== GroupShapeUtil.type;
+
+              let newCueFrame: CueFrame | undefined = undefined;
+              if (shouldAttachFrame) {
+                const origFrame = getFrame(origShape);
+                const prevCueFrame = origFrame
+                  ? presentationManager.$getAssociatedCueFrames()[origFrame.id]
+                  : undefined;
+
+                newCueFrame = {
+                  id: uniqueId(),
+                  type: "cue",
+                  globalIndex: steps.length + 999999, // NOTE: This will be recalculated later.
+                  trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
+                  action: {
+                    type: origFrame ? origFrame.action.type : "shapeAnimation",
+                    duration: 1000,
+                  },
+                };
+                const newFrameBatch: FrameBatch = {
+                  id: `batch-${newCueFrame.id}`,
+                  globalIndex: newCueFrame.globalIndex,
+                  trackId: newCueFrame.trackId,
+                  data: [newCueFrame],
+                };
+                newFrameBatches = insertOrderedTrackItem(
+                  frameBatches,
+                  newFrameBatch,
+                  prevCueFrame
+                    ? prevCueFrame.globalIndex + 1
+                    : getNextGlobalIndex(editor),
+                );
+                for (const batch of newFrameBatches) {
+                  batch.data[0].globalIndex = batch.globalIndex;
+                }
+              }
+
+              const newShapeId = createShapeId();
+              const newMeta = newCueFrame
+                ? {
+                    frame: frameToJsonObject(newCueFrame),
+                  }
+                : {};
+              const isRoot = newParentShapeId === undefined;
+              if (isRoot) {
+                const pageBounds = editor.getShapePageBounds(origShape);
+                const pageX = pageBounds ? pageBounds.x : 0;
+                const pageY = pageBounds ? pageBounds.y : 0;
+                editor.createShape({
+                  ...origShape,
+                  id: newShapeId,
+                  x: pageX + 100,
+                  y: pageY + 100,
+                  parentId: editor.getCurrentPageId(),
+                  meta: newMeta,
+                });
+              } else {
+                editor.createShape({
+                  ...origShape,
+                  id: newShapeId,
+                  x: origShape.x,
+                  y: origShape.y,
+                  parentId: newParentShapeId,
+                  meta: newMeta,
+                });
+              }
+
+              editor
+                .getSortedChildIdsForParent(origShapeId)
+                .forEach((childId) => {
+                  copyShape(childId, newShapeId);
+                });
+
+              return newShapeId;
+            };
+
+            editor.run(
+              () => {
+                const copiedShapeId = copyShape(selectedShapeId);
+
+                if (copiedShapeId) {
+                  editor.select(copiedShapeId);
+                }
+                if (newFrameBatches) {
+                  handleFrameBatchesChange(newFrameBatches);
+                }
+              },
+              { history: "ignore" },
+            );
+          }}
           requestSubFrameAddAfter={(prevFrame) => {
             const prevShape = presentationManager.getShapeByFrameId(
               prevFrame.id,
@@ -235,7 +348,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               type: "sub",
               prevFrameId: prevFrame.id,
               action: {
-                type: "shapeAnimation",
+                type: prevFrame.action.type,
                 duration: 1000,
               },
             };

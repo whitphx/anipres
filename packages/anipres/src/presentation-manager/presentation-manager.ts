@@ -17,6 +17,7 @@ import {
   getFrameBatches,
   cueFrameToJsonObject,
   subFrameToJsonObject,
+  CueFrame,
 } from "../models";
 import {
   getGlobalOrder,
@@ -65,6 +66,19 @@ export class PresentationManager {
 
   @computed $getTotalSteps(): number {
     return this.$getOrderedSteps().length;
+  }
+
+  @computed $getAssociatedCueFrames(): Record<Frame["id"], CueFrame> {
+    const steps = this.$getOrderedSteps();
+    const associatedCueFrameIds: Record<Frame["id"], CueFrame> = {};
+    for (const step of steps) {
+      for (const frameBatch of step) {
+        for (const frame of frameBatch.data) {
+          associatedCueFrameIds[frame.id] = frameBatch.data[0]; // The first frame in the batch is always a cue frame
+        }
+      }
+    }
+    return associatedCueFrameIds;
   }
 
   getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
