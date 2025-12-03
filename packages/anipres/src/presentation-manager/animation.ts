@@ -42,12 +42,31 @@ async function runFrames(
         continue;
       }
 
-      // Create and manipulate a temporary shape for animation
+      const predecessorShapePageTransform =
+        editor.getShapePageTransform(predecessorShape);
+      if (!predecessorShapePageTransform) {
+        throw new Error(
+          `Page transform not found for predecessor shape ${predecessorShape.id}`,
+        );
+      }
+      const shapePageTransform = editor.getShapePageTransform(shape);
+      if (!shapePageTransform) {
+        throw new Error(`Page transform not found for shape ${shape.id}`);
+      }
+
+      // Create and manipulate a temporary shape for animation.
+      // The temp shape is created as a direct child of the page
+      // and its x, y, and rotation are calculated in page space.
       const animeShapeId = createShapeId();
       editor.run(
         () => {
+          const { x, y, rotation } = predecessorShapePageTransform.decomposed();
           editor.createShape({
             ...predecessorShape,
+            x,
+            y,
+            rotation,
+            parentId: editor.getCurrentPageId(),
             id: animeShapeId,
             type: shape.type,
             meta: undefined,
@@ -63,9 +82,15 @@ async function runFrames(
         editor.bailToMark(historyStoppingPoint);
       };
       editor.on("tick", onTick);
+
+      const { x, y, rotation } = shapePageTransform.decomposed();
       editor.animateShape(
         {
           ...shape,
+          x,
+          y,
+          rotation,
+          parentId: editor.getCurrentPageId(),
           id: animeShapeId,
           meta: undefined,
         },
@@ -105,6 +130,8 @@ export function runStep(
     console.warn(`No step found at index ${index}`);
     return Promise.resolve();
   }
+  console.log(`Running step ${index}`);
+  console.log(step);
 
   const editor = presentationManager.editor;
 
@@ -112,6 +139,7 @@ export function runStep(
 
   const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
+    console.log(` Running frameBatch`, frameBatch);
     const predecessorFrameBatch = steps
       .slice(0, index)
       .reverse()
@@ -127,6 +155,11 @@ export function runStep(
     const frameShapes = frames
       .map((frame) => presentationManager.getShapeByFrameId(frame.id))
       .filter((shape) => shape != null);
+
+    console.log({
+      predecessorShape,
+      frameShapes,
+    });
 
     editor.run(
       () => {

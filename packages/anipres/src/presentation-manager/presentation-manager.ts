@@ -22,6 +22,8 @@ import {
   getNextGlobalIndexFromCueFrames,
   FrameAction,
   newTrackId,
+  getLeafShapes,
+  getDescendantShapes,
 } from "../models";
 import {
   getGlobalOrder,
@@ -131,9 +133,19 @@ export class PresentationManager {
     });
   }
 
-  getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
+  @computed $getCurrentPageDescendantShapes(): TLShape[] {
     const shapes = this.editor.getCurrentPageShapes();
-    return shapes.find((shape) => getFrame(shape)?.id === frameId);
+    return shapes.flatMap((shape) => getDescendantShapes(this.editor, shape));
+  }
+
+  @computed $getCurrentPageLeafShapes(): TLShape[] {
+    const shapes = this.editor.getCurrentPageShapes();
+    return shapes.flatMap((shape) => getLeafShapes(this.editor, shape));
+  }
+
+  getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
+    const leafShapes = this.$getCurrentPageLeafShapes();
+    return leafShapes.find((shape) => getFrame(shape)?.id === frameId);
   }
 
   reconcileShapeDeletion(deletedShape: TLShape) {
@@ -250,89 +262,88 @@ export class PresentationManager {
     const orderedSteps = this.$getOrderedSteps();
     const currentStepIndex = this.$currentStepIndex.get();
 
-    const shapes = editor.getCurrentPageShapes();
-    const shapesVisibilities = shapes.map<[TLShapeId, ShapeVisibility]>(
-      (shape) => {
-        const shapeId = shape.id;
+    const descendantShapes = this.$getCurrentPageDescendantShapes();
+    const shapesVisibilities = descendantShapes.map<
+      [TLShapeId, ShapeVisibility]
+    >((shape) => {
+      const shapeId = shape.id;
 
+      if (shape.type === SlideShapeType) {
+        return [shapeId, "hidden"];
+      }
+
+      if (shape.meta?.hiddenDuringAnimation) {
+        return [shapeId, "hidden"];
+      }
+
+      const frame = getFrame(shape);
+      if (frame == null) {
+        // No animation frame is attached to this shape, so it should always be visible
         const parent = editor.getShape(shape.parentId);
         if (parent?.type === GroupShapeUtil.type) {
           return [shapeId, "inherit"];
         }
+        return [shapeId, "visible"];
+      }
 
-        if (shape.type === SlideShapeType) {
+      // The last frame of a finished animation should always be visible
+      if (frame.type === "cue") {
+        const cueFrame = frame;
+        const isFuture = cueFrame.globalIndex > currentStepIndex;
+        if (isFuture) {
           return [shapeId, "hidden"];
         }
 
-        if (shape.meta?.hiddenDuringAnimation) {
-          return [shapeId, "hidden"];
-        }
-
-        const frame = getFrame(shape);
-        if (frame == null) {
-          // No animation frame is attached to this shape, so it should always be visible
+        const lastBatchIncludingThisTrack = orderedSteps
+          .slice(0, currentStepIndex + 1)
+          .reverse()
+          .flat()
+          .find((ab) => ab.trackId === cueFrame.trackId);
+        const isLatestPrevInTrack =
+          lastBatchIncludingThisTrack &&
+          lastBatchIncludingThisTrack.data.length > 0 &&
+          lastBatchIncludingThisTrack.data.findIndex(
+            (frame) => frame.id === cueFrame.id,
+          ) ===
+            lastBatchIncludingThisTrack.data.length - 1;
+        if (isLatestPrevInTrack) {
           return [shapeId, "visible"];
         }
-
-        // The last frame of a finished animation should always be visible
-        if (frame.type === "cue") {
-          const cueFrame = frame;
-          const isFuture = cueFrame.globalIndex > currentStepIndex;
-          if (isFuture) {
-            return [shapeId, "hidden"];
-          }
-
-          const lastBatchIncludingThisTrack = orderedSteps
-            .slice(0, currentStepIndex + 1)
-            .reverse()
-            .flat()
-            .find((ab) => ab.trackId === cueFrame.trackId);
-          const isLatestPrevInTrack =
-            lastBatchIncludingThisTrack &&
-            lastBatchIncludingThisTrack.data.length > 0 &&
-            lastBatchIncludingThisTrack.data.findIndex(
-              (frame) => frame.id === cueFrame.id,
-            ) ===
-              lastBatchIncludingThisTrack.data.length - 1;
-          if (isLatestPrevInTrack) {
-            return [shapeId, "visible"];
-          }
-        } else if (frame.type === "sub") {
-          const subFrame = frame;
-          const thisBatch = orderedSteps
-            .flat()
-            .find((ab) => ab.data.some((frame) => frame.id === subFrame.id));
-          if (thisBatch == null) {
-            // This should never happen, but just in case
-            return [shapeId, "hidden"];
-          }
-
-          const isFuture = thisBatch.globalIndex > currentStepIndex;
-          if (isFuture) {
-            return [shapeId, "hidden"];
-          }
-
-          const lastBatchIncludingThisTrack = orderedSteps
-            .slice(0, currentStepIndex + 1)
-            .reverse()
-            .flat()
-            .find((ab) => ab.trackId === thisBatch.trackId);
-          const isLatestPrevInTrack =
-            lastBatchIncludingThisTrack &&
-            lastBatchIncludingThisTrack.data.length > 0 &&
-            lastBatchIncludingThisTrack.data.findIndex(
-              (frame) => frame.id === subFrame.id,
-            ) ===
-              lastBatchIncludingThisTrack.data.length - 1;
-          if (isLatestPrevInTrack) {
-            return [shapeId, "visible"];
-          }
+      } else if (frame.type === "sub") {
+        const subFrame = frame;
+        const thisBatch = orderedSteps
+          .flat()
+          .find((ab) => ab.data.some((frame) => frame.id === subFrame.id));
+        if (thisBatch == null) {
+          // This should never happen, but just in case
+          return [shapeId, "hidden"];
         }
 
-        // Hidden by default
-        return [shapeId, "hidden"];
-      },
-    );
+        const isFuture = thisBatch.globalIndex > currentStepIndex;
+        if (isFuture) {
+          return [shapeId, "hidden"];
+        }
+
+        const lastBatchIncludingThisTrack = orderedSteps
+          .slice(0, currentStepIndex + 1)
+          .reverse()
+          .flat()
+          .find((ab) => ab.trackId === thisBatch.trackId);
+        const isLatestPrevInTrack =
+          lastBatchIncludingThisTrack &&
+          lastBatchIncludingThisTrack.data.length > 0 &&
+          lastBatchIncludingThisTrack.data.findIndex(
+            (frame) => frame.id === subFrame.id,
+          ) ===
+            lastBatchIncludingThisTrack.data.length - 1;
+        if (isLatestPrevInTrack) {
+          return [shapeId, "visible"];
+        }
+      }
+
+      // Hidden by default
+      return [shapeId, "hidden"];
+    });
 
     return Object.fromEntries(shapesVisibilities);
   }
