@@ -19,7 +19,6 @@ import {
   getLeafShapes,
   newTrackId,
   FrameAction,
-  BatchedFrames,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline, type ShapeSelection } from "../Timeline";
@@ -227,11 +226,8 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           requestCueFrameAddAfterGroup={(shapeSelection) => {
             const selectedShapeId = shapeSelection.shapeId;
 
-            let newFrameBatches:
-              | ReturnType<
-                  typeof insertOrderedTrackItem<BatchedFrames<FrameAction>>
-                >
-              | undefined = undefined;
+            let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
+              undefined;
 
             const copyShape = (
               origShapeId: TLShapeId,
