@@ -353,7 +353,12 @@ export class PresentationManager {
         }
       }
 
-      // Hidden by default
+      // This should never happen, but just in case
+      console.warn(
+        `Could not determine visibility for shape ${shapeId} with frame ${JSON.stringify(
+          frame,
+        )}`,
+      );
       return [shapeId, "hidden"];
     });
 
