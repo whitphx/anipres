@@ -61,7 +61,7 @@ export function GroupSelection(props: GroupSelectionProps) {
     groupRect.y -= containerRect.y;
 
     setGroupRect(groupRect);
-  }, [props.groupSelection.frameIds]);
+  }, [props.groupSelection.frameIds, props.containerRef, props.frameEditorsRef]);
 
   if (groupRect == null) {
     return null;
