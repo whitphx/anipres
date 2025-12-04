@@ -1,5 +1,11 @@
 # anipres
 
+## 0.9.2
+
+### Patch Changes
+
+- [#360](https://github.com/whitphx/anipres/pull/360) [`78a149f`](https://github.com/whitphx/anipres/commit/78a149fc5b79a2da81cb29c55d67fc9601e99909) Thanks [@whitphx](https://github.com/whitphx)! - Internal refactoring on ref usage
+
 ## 0.9.1
 
 ### Patch Changes
