@@ -121,6 +121,7 @@ export class PresentationManager {
         id: shapeId,
         type: shape.type,
         meta: {
+          ...shape.meta,
           frame: cueFrameToJsonObject(cueFrame),
         },
       });
@@ -353,12 +354,7 @@ export class PresentationManager {
         }
       }
 
-      // This should never happen, but just in case
-      console.warn(
-        `Could not determine visibility for shape ${shapeId} with frame ${JSON.stringify(
-          frame,
-        )}`,
-      );
+      // Hidden by default
       return [shapeId, "hidden"];
     });
 

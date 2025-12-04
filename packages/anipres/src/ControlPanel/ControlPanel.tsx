@@ -312,7 +312,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   return {
                     original,
                     copied,
-                    originalFrame: null,
+                    origFrame: null,
                     prevCueFrame: null,
                   };
                 }
