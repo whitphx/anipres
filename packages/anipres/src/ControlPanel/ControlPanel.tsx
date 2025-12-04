@@ -337,7 +337,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
               undefined;
             clonedShapeAndFrames.forEach(
-              ({ copied, origFrame, prevCueFrame }, i) => {
+              ({ copied, origFrame, prevCueFrame }) => {
                 if (prevCueFrame == null) {
                   return;
                 }
@@ -364,7 +364,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   trackId: newCueFrame.trackId,
                   data: [newCueFrame],
                 };
-                if (i === 0) {
+                if (newFrameBatches == null) {
                   newFrameBatches = insertOrderedTrackItem(
                     frameBatches,
                     newFrameBatch,
