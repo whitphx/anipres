@@ -68,9 +68,13 @@ export function GroupSelection(props: GroupSelectionProps) {
         onClick={() => props.requestCueFrameAddAfter(props.groupSelection)}
         style={{
           pointerEvents: "auto",
+          position: "absolute",
+          left: "100%",
+          top: "50%",
+          transform: "translate(0, -50%)",
         }}
       >
-        Add Cue Frame
+        +
       </button>
     </div>
   );
