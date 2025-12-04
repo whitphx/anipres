@@ -294,9 +294,20 @@ export function Timeline({
   const selectedFrameIds = useMemo(() => {
     return shapeSelections.flatMap((sel) => sel.frameIds);
   }, [shapeSelections]);
-  const groupSelections = useMemo(() => {
-    return shapeSelections.filter((sel) => sel.frameIds.length > 1);
-  }, [shapeSelections]);
+  const groupSelectionAndEditorDOMs = useMemo(() => {
+    const groupSelections = shapeSelections.filter(
+      (sel) => sel.frameIds.length > 1,
+    );
+    return groupSelections.map((groupSelection) => {
+      const elements = groupSelection.frameIds
+        .map((frameId) => frameEditorDOMs[frameId])
+        .filter((elem) => elem !== null);
+      return {
+        groupSelection: groupSelection,
+        elements,
+      };
+    });
+  }, [shapeSelections, frameEditorDOMs]);
 
   const [draggedFrame, setDraggedFrame] = useState<Frame | null>(null);
 
@@ -430,14 +441,12 @@ export function Timeline({
             </div>
           </div>
         )}
-        {groupSelections.map((groupSelection) => (
+        {groupSelectionAndEditorDOMs.map(({ groupSelection, elements }) => (
           <GroupSelection
             key={groupSelection.shapeId}
             groupSelection={groupSelection}
             containerRef={containerRef}
-            frameEditorDOMs={groupSelection.frameIds
-              .map((frameId) => frameEditorDOMs[frameId])
-              .filter((elem) => elem !== null)}
+            frameEditorDOMs={elements}
             requestCueFrameAddAfter={requestCueFrameAddAfterGroup}
           />
         ))}
