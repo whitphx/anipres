@@ -16,12 +16,9 @@ interface FrameDraggingState {
   deltaX: number;
 }
 function calcDraggableDOMDeltaXs(
-  draggingState: FrameDraggingState | null,
+  draggingState: FrameDraggingState,
   draggableDOMOrgRects: Record<string, (DOMRect | null)[]>,
 ) {
-  if (draggingState == null) {
-    return null;
-  }
   const { trackId, trackIndex, deltaX: delta } = draggingState;
 
   const rectsInTrack = draggableDOMOrgRects[trackId];
