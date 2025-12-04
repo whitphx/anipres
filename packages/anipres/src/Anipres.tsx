@@ -401,6 +401,7 @@ const Inner = (props: InnerProps) => {
       react("turn off edit tools in presentation mode", () => {
         const presentationMode = perInstanceAtoms.$presentationMode.get();
         if (presentationMode) {
+          editor.selectNone();
           editor.setCurrentTool("select");
         }
       }),
