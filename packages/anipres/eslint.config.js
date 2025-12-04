@@ -1,7 +1,7 @@
 // @ts-check
 
 import { defineConfig, globalIgnores } from "eslint/config";
-import eslint from "@eslint/js";
+import jsPlugin from "@eslint/js";
 import reactPlugin from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
@@ -17,7 +17,7 @@ export default defineConfig(
       },
     },
   },
-  eslint.configs.recommended,
+  jsPlugin.configs.recommended,
   tseslint.configs.recommended,
   reactPlugin.configs.flat.recommended,
   reactPlugin.configs.flat["jsx-runtime"],
