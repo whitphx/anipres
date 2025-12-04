@@ -128,15 +128,17 @@ export function Timeline({
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const frameEditorsRef = React.useRef<Record<string, HTMLElement>>({});
-  const frameEditorRefCallback =
+  const frameEditorRefCallback = useCallback(
     (frameId: string): React.RefCallback<HTMLElement> =>
-    (elem) => {
-      if (elem != null) {
-        frameEditorsRef.current[frameId] = elem;
-      } else {
-        delete frameEditorsRef.current[frameId];
-      }
-    };
+      (elem) => {
+        if (elem != null) {
+          frameEditorsRef.current[frameId] = elem;
+        } else {
+          delete frameEditorsRef.current[frameId];
+        }
+      },
+    [],
+  );
   const selectedFrameIds = useMemo(() => {
     return shapeSelections.flatMap((sel) => sel.frameIds);
   }, [shapeSelections]);
