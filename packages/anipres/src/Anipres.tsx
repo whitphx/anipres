@@ -75,16 +75,13 @@ function usePerInstanceAtoms() {
 }
 export type AnipresAtoms = ReturnType<typeof usePerInstanceAtoms>;
 
-const makeUiOverrides = (
-  {
-    $stepHotkeyEnabled,
-    $presentationModeHotkeyEnabled,
-    $presentationMode,
-  }: AnipresAtoms,
-  presentationManagerRef: React.RefObject<PresentationManager>,
-): TLUiOverrides => {
+const makeUiOverrides = ({
+  $stepHotkeyEnabled,
+  $presentationModeHotkeyEnabled,
+  $presentationMode,
+}: AnipresAtoms): TLUiOverrides => {
   return {
-    actions(_, actions) {
+    actions(editor, actions) {
       actions["next-step"] = {
         id: "next-step",
         label: "Next Step",
@@ -94,7 +91,7 @@ const makeUiOverrides = (
             return;
           }
 
-          const presentationManager = presentationManagerRef.current;
+          const presentationManager = PresentationManager.get(editor);
           if (presentationManager == null) {
             return;
           }
@@ -112,7 +109,7 @@ const makeUiOverrides = (
             return;
           }
 
-          const presentationManager = presentationManagerRef.current;
+          const presentationManager = PresentationManager.get(editor);
           if (presentationManager == null) {
             return;
           }
@@ -165,18 +162,15 @@ const makeUiOverrides = (
   };
 };
 
-const createComponents = (
-  presentationManagerRef: React.RefObject<PresentationManager | null>,
-  signals: {
-    $currentStepIndex: Atom<number>;
-    $presentationMode: Atom<boolean>;
-  },
-): TLComponents => {
+const createComponents = (signals: {
+  $currentStepIndex: Atom<number>;
+  $presentationMode: Atom<boolean>;
+}): TLComponents => {
   const { $currentStepIndex, $presentationMode } = signals;
   return {
     TopPanel: () => {
       const editor = useEditor();
-      const presentationManager = presentationManagerRef.current;
+      const presentationManager = PresentationManager.get(editor);
       const presentationMode = useValue($presentationMode);
       const currentStepIndex = useValue($currentStepIndex);
       if (presentationManager == null) {
@@ -239,8 +233,6 @@ interface InnerProps {
 const Inner = (props: InnerProps) => {
   const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
 
-  const presentationManagerRef = useRef<PresentationManager | null>(null);
-
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
   const handleMount = (editor: Editor) => {
@@ -248,7 +240,6 @@ const Inner = (props: InnerProps) => {
       editor,
       $currentStepIndex,
     );
-    presentationManagerRef.current = presentationManager;
 
     const stopHandlers: (() => void)[] = [];
 
@@ -442,12 +433,12 @@ const Inner = (props: InnerProps) => {
       onMount={handleMount}
       components={{
         ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents(presentationManagerRef, {
+        ...createComponents({
           $currentStepIndex,
           $presentationMode: perInstanceAtoms.$presentationMode,
         }),
       }}
-      overrides={makeUiOverrides(perInstanceAtoms, presentationManagerRef)}
+      overrides={makeUiOverrides(perInstanceAtoms)}
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
