@@ -2,7 +2,7 @@
 
 import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
-import pluginJs from "@eslint/js";
+import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import pluginVue from "eslint-plugin-vue";
 
@@ -17,7 +17,7 @@ export default defineConfig(
       globals: globals.browser,
     },
   },
-  pluginJs.configs.recommended,
+  eslint.configs.recommended,
   tseslint.configs.recommended,
   pluginVue.configs["flat/essential"],
   {
