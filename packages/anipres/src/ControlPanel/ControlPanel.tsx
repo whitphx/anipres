@@ -18,7 +18,6 @@ import {
   getFrame,
   getFrameBatches,
   getLeafShapes,
-  newTrackId,
   FrameAction,
 } from "../models";
 import { insertOrderedTrackItem } from "../ordered-track-item";
@@ -348,7 +347,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   id: uniqueId(),
                   type: "cue",
                   globalIndex: prevCueFrame.globalIndex + 99999, // NOTE: This will be recalculated later.
-                  trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
+                  trackId: prevCueFrame.trackId,
                   action: {
                     type: origFrame ? origFrame.action.type : "shapeAnimation",
                     duration: 1000,
