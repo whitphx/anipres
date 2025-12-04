@@ -343,7 +343,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 }
 
                 const newCueFrame: CueFrame = {
-                  id: uniqueId(),
+                  id: copied.id,
                   type: "cue",
                   globalIndex: nextGlobalIndex,
                   trackId: prevCueFrame.trackId,
