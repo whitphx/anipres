@@ -40,6 +40,7 @@ const DragStateStyleDiv = React.forwardRef<
     </div>
   );
 });
+DragStateStyleDiv.displayName = "DragStateStyleDiv";
 
 interface FrameIconProps {
   isSelected?: boolean;
@@ -50,14 +51,18 @@ interface FrameIconProps {
 }
 const FrameIcon = React.forwardRef<HTMLElement, FrameIconProps>(
   (props, ref) => {
-    return React.createElement(props.as ?? "div", {
-      ref,
-      className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
-      onClick: props.onClick,
-      children: props.children,
-    });
+    return React.createElement(
+      props.as ?? "div",
+      {
+        ref,
+        className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
+        onClick: props.onClick,
+      },
+      props.children,
+    );
   },
 );
+FrameIcon.displayName = "FrameIcon";
 
 function DroppableArea({
   type,
