@@ -73,7 +73,7 @@ export class PresentationManager {
   }
 
   @computed $getNextGlobalIndex(): number {
-    const shapes = this.editor.getCurrentPageShapes();
+    const shapes = this.$getCurrentPageDescendantShapes();
     const allCueFrames = shapes
       .map(getCueFrame)
       .filter((cueFrame) => cueFrame != null);
