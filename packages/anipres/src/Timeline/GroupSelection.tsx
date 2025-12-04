@@ -28,7 +28,7 @@ function unionRect(rects: DOMRect[]) {
 interface GroupSelectionProps {
   groupSelection: ShapeSelection;
   containerRef: React.RefObject<HTMLElement>;
-  frameEditorRefs: React.RefObject<Record<string, HTMLElement>>;
+  frameEditorsRef: React.RefObject<Record<string, HTMLElement>>;
   requestCueFrameAddAfter: (shapeSelection: ShapeSelection) => void;
 }
 export function GroupSelection(props: GroupSelectionProps) {
@@ -45,8 +45,8 @@ export function GroupSelection(props: GroupSelectionProps) {
     const rects = props.groupSelection.frameIds
       .map((frameId) => {
         const elem =
-          props.frameEditorRefs.current &&
-          props.frameEditorRefs.current[frameId];
+          props.frameEditorsRef.current &&
+          props.frameEditorsRef.current[frameId];
         return elem ? elem.getBoundingClientRect() : null;
       })
       .filter((rect): rect is DOMRect => rect !== null);
@@ -61,7 +61,7 @@ export function GroupSelection(props: GroupSelectionProps) {
     groupRect.y -= containerRect.y;
 
     setGroupRect(groupRect);
-  }, [props.groupSelection]);
+  }, [props.groupSelection.frameIds, props.containerRef, props.frameEditorsRef]);
 
   if (groupRect == null) {
     return null;
