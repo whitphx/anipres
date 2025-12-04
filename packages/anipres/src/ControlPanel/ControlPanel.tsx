@@ -336,7 +336,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
               undefined;
-            let insertedBatchGlobalIndex: number;
             clonedShapeAndFrames.forEach(
               ({ copied, origFrame, prevCueFrame }, i) => {
                 if (prevCueFrame == null) {
@@ -346,7 +345,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 const newCueFrame: CueFrame = {
                   id: uniqueId(),
                   type: "cue",
-                  globalIndex: prevCueFrame.globalIndex + 99999, // NOTE: This will be recalculated later.
+                  globalIndex: nextGlobalIndex,
                   trackId: prevCueFrame.trackId,
                   action: {
                     type: origFrame ? origFrame.action.type : "shapeAnimation",
@@ -371,14 +370,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                     newFrameBatch,
                     nextGlobalIndex,
                   );
-                  for (const batch of newFrameBatches) {
-                    batch.data[0].globalIndex = batch.globalIndex;
-                    if (batch.id === newFrameBatch.id) {
-                      insertedBatchGlobalIndex = batch.globalIndex;
-                    }
-                  }
                 } else {
-                  newFrameBatch.data[0].globalIndex = insertedBatchGlobalIndex!;
                   newFrameBatches?.push(newFrameBatch);
                 }
               },
