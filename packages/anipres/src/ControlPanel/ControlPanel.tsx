@@ -6,6 +6,7 @@ import {
   type Editor,
   GroupShapeUtil,
   TLShapeId,
+  TLShape,
 } from "tldraw";
 import {
   type Frame,
@@ -25,6 +26,8 @@ import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../SlideShapeUtil";
 import type { PresentationManager } from "../presentation-manager";
+
+const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
 
 export interface ControlPanelProps {
   editor: Editor;
@@ -210,8 +213,8 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 editor.createShape({
                   ...prevShape,
                   id: newShapeId,
-                  x: prevShape.x + 100,
-                  y: prevShape.y + 100,
+                  x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                  y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
                   meta: {
                     frame: cueFrameToJsonObject(newCueFrame),
                   },
@@ -229,97 +232,140 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
               undefined;
 
-            const copyShape = (
-              origShapeId: TLShapeId,
-              newParentShapeId: TLShapeId | undefined = undefined,
-            ): TLShapeId | undefined => {
-              const origShape = editor.getShape(origShapeId);
-              if (origShape == null) {
-                return;
-              }
-
-              const shouldAttachFrame = origShape.type !== GroupShapeUtil.type;
-
-              let newCueFrame: CueFrame | undefined = undefined;
-              if (shouldAttachFrame) {
-                const origFrame = getFrame(origShape);
-                const prevCueFrame = origFrame
-                  ? presentationManager.$getAssociatedCueFrames()[origFrame.id]
-                  : undefined;
-
-                newCueFrame = {
-                  id: uniqueId(),
-                  type: "cue",
-                  globalIndex: steps.length + 999999, // NOTE: This will be recalculated later.
-                  trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
-                  action: {
-                    type: origFrame ? origFrame.action.type : "shapeAnimation",
-                    duration: 1000,
-                  },
-                };
-                const newFrameBatch: FrameBatch = {
-                  id: `batch-${newCueFrame.id}`,
-                  globalIndex: newCueFrame.globalIndex,
-                  trackId: newCueFrame.trackId,
-                  data: [newCueFrame],
-                };
-                newFrameBatches = insertOrderedTrackItem(
-                  frameBatches,
-                  newFrameBatch,
-                  prevCueFrame
-                    ? prevCueFrame.globalIndex + 1
-                    : presentationManager.$getNextGlobalIndex(),
-                );
-                for (const batch of newFrameBatches) {
-                  batch.data[0].globalIndex = batch.globalIndex;
-                }
+            const copyShapeRecursively = (
+              rootShapeId: TLShapeId,
+              parentShapeId?: TLShapeId,
+            ): { original: TLShape; copied: TLShape }[] => {
+              const original = editor.getShape(rootShapeId);
+              if (original == null) {
+                return [];
               }
 
               const newShapeId = createShapeId();
-              const newMeta = newCueFrame
-                ? {
-                    frame: frameToJsonObject(newCueFrame),
-                  }
-                : {};
-              const isRoot = newParentShapeId === undefined;
-              if (isRoot) {
-                const pageBounds = editor.getShapePageBounds(origShape);
-                const pageX = pageBounds ? pageBounds.x : 0;
-                const pageY = pageBounds ? pageBounds.y : 0;
-                editor.createShape({
-                  ...origShape,
-                  id: newShapeId,
-                  x: pageX + 100,
-                  y: pageY + 100,
-                  parentId: editor.getCurrentPageId(),
-                  meta: newMeta,
-                });
+              const isCopiedShapeRoot = parentShapeId === undefined;
+              let copiedShapeX: number;
+              let copiedShapeY: number;
+              let copiedShapeRotation: number;
+              if (isCopiedShapeRoot) {
+                const pageTransform = editor.getShapePageTransform(original);
+                const { x, y, rotation } = pageTransform.decomposed();
+                copiedShapeX = x + COPIED_SHAPE_POSITION_OFFSET.x;
+                copiedShapeY = y + COPIED_SHAPE_POSITION_OFFSET.y;
+                copiedShapeRotation = rotation;
               } else {
-                editor.createShape({
-                  ...origShape,
-                  id: newShapeId,
-                  x: origShape.x,
-                  y: origShape.y,
-                  parentId: newParentShapeId,
-                  meta: newMeta,
-                });
+                copiedShapeX = original.x;
+                copiedShapeY = original.y;
+                copiedShapeRotation = original.rotation;
               }
+              const copied: TLShape = {
+                ...original,
+                id: newShapeId,
+                x: copiedShapeX,
+                y: copiedShapeY,
+                rotation: copiedShapeRotation,
+                parentId: parentShapeId ?? editor.getCurrentPageId(),
+              };
 
-              editor
-                .getSortedChildIdsForParent(origShapeId)
-                .forEach((childId) => {
-                  copyShape(childId, newShapeId);
+              const copiedChildren = editor
+                .getSortedChildIdsForParent(rootShapeId)
+                .flatMap((childId) => {
+                  return copyShapeRecursively(childId, newShapeId);
                 });
 
-              return newShapeId;
+              return [
+                { original: original, copied: copied },
+                ...copiedChildren,
+              ];
             };
 
+            const origAndCopiedShapes = copyShapeRecursively(selectedShapeId);
+            const dataArray = origAndCopiedShapes.map(
+              ({ original, copied }) => {
+                const shouldAttachFrame = original.type !== GroupShapeUtil.type;
+                if (!shouldAttachFrame) {
+                  return {
+                    original,
+                    copied,
+                    originalFrame: null,
+                    prevCueFrame: null,
+                  };
+                }
+
+                const origFrame = getFrame(original);
+                const prevCueFrame = origFrame
+                  ? presentationManager.$getAssociatedCueFrames()[origFrame.id]
+                  : undefined;
+                return { original, copied, origFrame, prevCueFrame };
+              },
+            );
+
+            const _prevCueFrameGlobalIndexes = dataArray
+              .map(({ prevCueFrame }) => prevCueFrame)
+              .filter((f): f is CueFrame => f != null)
+              .map((f) => f.globalIndex);
+            const nextGlobalIndex =
+              _prevCueFrameGlobalIndexes.length > 0
+                ? Math.max(..._prevCueFrameGlobalIndexes) + 1
+                : presentationManager.$getNextGlobalIndex();
+
+            let insertedIndex: number;
+            dataArray.forEach(({ copied, origFrame, prevCueFrame }, i) => {
+              if (prevCueFrame == null) {
+                return;
+              }
+
+              const newCueFrame: CueFrame = {
+                id: uniqueId(),
+                type: "cue",
+                globalIndex: prevCueFrame.globalIndex + 99999, // NOTE: This will be recalculated later.
+                trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
+                action: {
+                  type: origFrame ? origFrame.action.type : "shapeAnimation",
+                  duration: 1000,
+                },
+              };
+
+              copied.meta = {
+                ...copied.meta,
+                frame: frameToJsonObject(newCueFrame),
+              };
+
+              const newFrameBatch: FrameBatch = {
+                id: `batch-${newCueFrame.id}`,
+                globalIndex: nextGlobalIndex,
+                trackId: newCueFrame.trackId,
+                data: [newCueFrame],
+              };
+              if (i === 0) {
+                newFrameBatches = insertOrderedTrackItem(
+                  frameBatches,
+                  newFrameBatch,
+                  nextGlobalIndex,
+                );
+                for (const batch of newFrameBatches) {
+                  batch.data[0].globalIndex = batch.globalIndex;
+                  if (batch.id === newFrameBatch.id) {
+                    insertedIndex = batch.globalIndex;
+                  }
+                }
+              } else {
+                newFrameBatch.data[0].globalIndex = insertedIndex!;
+                newFrameBatches?.push(newFrameBatch);
+              }
+            });
+
+            const copiedShapes = origAndCopiedShapes.map(
+              ({ copied }) => copied,
+            );
             editor.run(
               () => {
-                const copiedShapeId = copyShape(selectedShapeId);
+                editor.createShapes(copiedShapes);
 
-                if (copiedShapeId) {
-                  editor.select(copiedShapeId);
+                const rootCopiedShape = copiedShapes.find(
+                  (s) => s.parentId === editor.getCurrentPageId(),
+                );
+                if (rootCopiedShape) {
+                  editor.select(rootCopiedShape);
                 }
                 if (newFrameBatches) {
                   handleFrameBatchesChange(newFrameBatches);
@@ -350,8 +396,8 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.createShape({
               ...prevShape,
               id: newShapeId,
-              x: prevShape.x + 100,
-              y: prevShape.y + 100,
+              x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
+              y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
               meta: {
                 frame: frameToJsonObject(newSubFrame),
               },
