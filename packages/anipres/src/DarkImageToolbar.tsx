@@ -94,6 +94,9 @@ const DarkImageToolbarContent = ({ shapeId }: { shapeId: TLShapeId }) => {
         editor.createAssets([asset]);
       }
 
+      const hasAnyAsset =
+        shape.props.assetId != null || shape.props.darkAssetId != null;
+      const shouldResize = !hasAnyAsset;
       const maxSide = 512;
       const scale = Math.min(
         1,
@@ -113,9 +116,13 @@ const DarkImageToolbarContent = ({ shapeId }: { shapeId: TLShapeId }) => {
           type: shape.type,
           props: {
             ...propsUpdate,
-            w: nextW,
-            h: nextH,
-            crop: null,
+            ...(shouldResize
+              ? {
+                  w: nextW,
+                  h: nextH,
+                  crop: null,
+                }
+              : null),
           },
         },
       ]);
