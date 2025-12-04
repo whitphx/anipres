@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import type { ShapeSelection } from "./selection";
 
 function unionRect(rects: DOMRect[]) {
@@ -28,44 +27,30 @@ function unionRect(rects: DOMRect[]) {
 interface GroupSelectionProps {
   groupSelection: ShapeSelection;
   containerRef: React.RefObject<HTMLElement>;
-  frameEditorsRef: React.RefObject<Record<string, HTMLElement>>;
+  frameEditorDOMs: HTMLElement[];
   requestCueFrameAddAfter: (shapeSelection: ShapeSelection) => void;
 }
 export function GroupSelection(props: GroupSelectionProps) {
-  const [groupRect, setGroupRect] = useState<DOMRect | null>(null);
-
-  useEffect(() => {
-    const container = props.containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-
-    const rects = props.groupSelection.frameIds
-      .map((frameId) => {
-        const elem =
-          props.frameEditorsRef.current &&
-          props.frameEditorsRef.current[frameId];
-        return elem ? elem.getBoundingClientRect() : null;
-      })
-      .filter((rect): rect is DOMRect => rect !== null);
-
-    if (rects.length === 0) {
-      setGroupRect(null);
-      return;
-    }
-
-    const groupRect = unionRect(rects);
-    groupRect.x -= containerRect.x;
-    groupRect.y -= containerRect.y;
-
-    setGroupRect(groupRect);
-  }, [props.groupSelection.frameIds, props.containerRef, props.frameEditorsRef]);
-
-  if (groupRect == null) {
+  const container = props.containerRef.current;
+  if (!container) {
     return null;
   }
+
+  const containerRect = container.getBoundingClientRect();
+
+  const rects = props.frameEditorDOMs
+    .map((elem) => {
+      return elem ? elem.getBoundingClientRect() : null;
+    })
+    .filter((rect): rect is DOMRect => rect !== null);
+
+  if (rects.length === 0) {
+    return null;
+  }
+
+  const groupRect = unionRect(rects);
+  groupRect.x -= containerRect.x;
+  groupRect.y -= containerRect.y;
 
   return (
     <div
