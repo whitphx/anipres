@@ -31,8 +31,9 @@ function calcDraggableDOMDeltaXs(
     return null;
   }
 
+  const draggableDOMDeltaXs: Record<number, number> = {};
+  draggableDOMDeltaXs[trackIndex] = delta;
   if (delta > 0) {
-    const draggableDOMDeltaXs: Record<number, number> = {};
     // Dragging right
     let right = selfRect.right + delta;
     for (let i = trackIndex + 1; i < rectsInTrack.length; i++) {
@@ -49,7 +50,6 @@ function calcDraggableDOMDeltaXs(
     return { [trackId]: draggableDOMDeltaXs };
   } else if (delta < 0) {
     // Dragging left
-    const draggableDOMDeltaXs: Record<number, number> = {};
     let left = selfRect.left + delta;
     for (let i = trackIndex - 1; i >= 0; i--) {
       const domRect = rectsInTrack[i];
