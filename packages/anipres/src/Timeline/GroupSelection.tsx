@@ -66,11 +66,16 @@ export function GroupSelection(props: GroupSelectionProps) {
     >
       <button
         onClick={() => props.requestCueFrameAddAfter(props.groupSelection)}
+        aria-label="Add Cue Frame"
         style={{
           pointerEvents: "auto",
+          position: "absolute",
+          left: "100%",
+          top: "50%",
+          transform: "translate(0, -50%)",
         }}
       >
-        Add Cue Frame
+        +
       </button>
     </div>
   );
