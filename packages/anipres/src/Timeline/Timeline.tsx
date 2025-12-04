@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
 import type { Frame, FrameBatch, CueFrame } from "../models";
-import { calcFrameBatchUIData } from "./frame-ui-data";
+import { calcFrameBatchUIData, FrameBatchUIData, Track } from "./frame-ui-data";
 import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
@@ -93,6 +93,151 @@ function DroppableArea({
   );
 }
 
+interface StepColumnProps {
+  stepIdx: number;
+  isActive: boolean;
+  onStepSelect: (stepIndex: number) => void;
+  tracks: Track[];
+  stepFrameBatches: FrameBatchUIData[];
+  selectedFrameIds: string[];
+  frameEditorRefCallback: (frameId: string) => React.RefCallback<HTMLElement>;
+  draggedFrame: Frame | null;
+  onFrameChange: (newFrame: Frame) => void;
+  onFrameSelect: (frameId: string) => void;
+  requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
+  requestSubFrameAddAfter: (prevFrame: Frame) => void;
+}
+const StepColumn = React.memo(
+  ({
+    stepIdx,
+    isActive,
+    onStepSelect,
+    tracks,
+    stepFrameBatches,
+    selectedFrameIds,
+    frameEditorRefCallback,
+    draggedFrame,
+    onFrameChange,
+    onFrameSelect,
+    requestSubFrameAddAfter,
+    requestCueFrameAddAfter,
+  }: StepColumnProps) => {
+    return (
+      <>
+        <div className={`${styles.column} ${isActive ? styles.active : ""}`}>
+          <div className={styles.headerCell}>
+            <button
+              className={`${styles.frameButton} ${isActive ? styles.selected : ""}`}
+              onClick={() => onStepSelect(stepIdx)}
+            >
+              {stepIdx + 1}
+            </button>
+          </div>
+          <DroppableArea
+            type="at"
+            globalIndex={stepIdx}
+            className={styles.droppableColumn}
+          >
+            {tracks.map((track) => {
+              const trackFrameBatches = stepFrameBatches.filter(
+                // `trackFrameBatches.length` should always be 1, but we loop over it just in case.
+                (b) => b.trackId === track.id,
+              );
+              return (
+                <div key={track.id} className={styles.frameBatchCell}>
+                  {trackFrameBatches.map((trackFrameBatch) => {
+                    const frames = trackFrameBatch.data;
+
+                    const [cueFrame, ...subFrames] = frames;
+                    return (
+                      <div
+                        key={trackFrameBatch.id}
+                        className={styles.frameBatchControl}
+                      >
+                        <DraggableFrameUI
+                          id={trackFrameBatch.id}
+                          trackId={track.id}
+                          trackIndex={cueFrame.trackIndex}
+                          globalIndex={trackFrameBatch.globalIndex}
+                          frame={cueFrame}
+                        >
+                          <FrameEditor
+                            frame={cueFrame}
+                            isPlaceholder={draggedFrame?.id === cueFrame.id}
+                            onUpdate={onFrameChange}
+                            isSelected={selectedFrameIds.includes(cueFrame.id)}
+                            onClick={() => {
+                              onFrameSelect(cueFrame.id);
+                            }}
+                            ref={frameEditorRefCallback(cueFrame.id)}
+                          />
+                        </DraggableFrameUI>
+
+                        {subFrames.map((subFrame) => {
+                          return (
+                            <DraggableFrameUI
+                              key={subFrame.id}
+                              id={subFrame.id}
+                              trackId={track.id}
+                              trackIndex={subFrame.trackIndex}
+                              globalIndex={trackFrameBatch.globalIndex}
+                              frame={subFrame}
+                            >
+                              <FrameEditor
+                                frame={subFrame}
+                                isPlaceholder={draggedFrame?.id === subFrame.id}
+                                onUpdate={onFrameChange}
+                                isSelected={selectedFrameIds.includes(
+                                  subFrame.id,
+                                )}
+                                onClick={() => {
+                                  onFrameSelect(subFrame.id);
+                                }}
+                                ref={frameEditorRefCallback(subFrame.id)}
+                              />
+                            </DraggableFrameUI>
+                          );
+                        })}
+                        <div className={styles.frameAddButtonContainer}>
+                          <FrameIcon
+                            as="button"
+                            subFrame
+                            onClick={() =>
+                              requestSubFrameAddAfter(frames.at(-1)!)
+                            }
+                          >
+                            +
+                          </FrameIcon>
+                          <div className={styles.hoverExpandedPart}>
+                            <FrameIcon
+                              as="button"
+                              onClick={() => requestCueFrameAddAfter(cueFrame)}
+                            >
+                              +
+                            </FrameIcon>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </DroppableArea>
+        </div>
+        <div className={styles.headerLessColumn}>
+          <DroppableArea
+            type="after"
+            globalIndex={stepIdx}
+            className={styles.inbetweenDroppableCell}
+          />
+        </div>
+      </>
+    );
+  },
+);
+StepColumn.displayName = "StepColumn";
+
 interface TimelineProps {
   frameBatches: FrameBatch[];
   onFrameChange: (newFrame: Frame) => void;
@@ -100,7 +245,7 @@ interface TimelineProps {
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
   shapeSelections: ShapeSelection[];
-  onFrameSelect: (cueFrameId: string) => void;
+  onFrameSelect: (frameId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
   requestSubFrameAddAfter: (prevFrame: Frame) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
@@ -127,24 +272,42 @@ export function Timeline({
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const frameEditorsRef = React.useRef<Record<string, HTMLElement>>({});
+  const [frameEditorDOMs, setFrameEditorDOMs] = useState<
+    Record<string, HTMLElement>
+  >({});
   const frameEditorRefCallback = useCallback(
     (frameId: string): React.RefCallback<HTMLElement> =>
       (elem) => {
         if (elem != null) {
-          frameEditorsRef.current[frameId] = elem;
+          setFrameEditorDOMs((prev) => ({ ...prev, [frameId]: elem }));
         } else {
-          delete frameEditorsRef.current[frameId];
+          setFrameEditorDOMs((prev) => {
+            const newState = { ...prev };
+            delete newState[frameId];
+            return newState;
+          });
         }
       },
     [],
   );
+
   const selectedFrameIds = useMemo(() => {
     return shapeSelections.flatMap((sel) => sel.frameIds);
   }, [shapeSelections]);
-  const groupSelections = useMemo(() => {
-    return shapeSelections.filter((sel) => sel.frameIds.length > 1);
-  }, [shapeSelections]);
+  const groupSelectionAndEditorDOMs = useMemo(() => {
+    const groupSelections = shapeSelections.filter(
+      (sel) => sel.frameIds.length > 1,
+    );
+    return groupSelections.map((groupSelection) => {
+      const elements = groupSelection.frameIds
+        .map((frameId) => frameEditorDOMs[frameId])
+        .filter((elem) => elem !== null);
+      return {
+        groupSelection: groupSelection,
+        elements,
+      };
+    });
+  }, [shapeSelections, frameEditorDOMs]);
 
   const [draggedFrame, setDraggedFrame] = useState<Frame | null>(null);
 
@@ -244,130 +407,21 @@ export function Timeline({
         {steps.map((stepFrameBatches, stepIdx) => {
           const isActive = stepIdx === currentStepIndex;
           return (
-            <React.Fragment key={stepFrameBatches[0].id}>
-              <div
-                className={`${styles.column} ${isActive ? styles.active : ""}`}
-              >
-                <div className={styles.headerCell}>
-                  <button
-                    className={`${styles.frameButton} ${stepIdx === currentStepIndex ? styles.selected : ""}`}
-                    onClick={() => onStepSelect(stepIdx)}
-                  >
-                    {stepIdx + 1}
-                  </button>
-                </div>
-                <DroppableArea
-                  type="at"
-                  globalIndex={stepIdx}
-                  className={styles.droppableColumn}
-                >
-                  {tracks.map((track) => {
-                    const trackFrameBatches = stepFrameBatches.filter(
-                      // `trackFrameBatches.length` should always be 1, but we loop over it just in case.
-                      (b) => b.trackId === track.id,
-                    );
-                    return (
-                      <div key={track.id} className={styles.frameBatchCell}>
-                        {trackFrameBatches.map((trackFrameBatch) => {
-                          const frames = trackFrameBatch.data;
-
-                          const [cueFrame, ...subFrames] = frames;
-                          return (
-                            <div
-                              key={trackFrameBatch.id}
-                              className={styles.frameBatchControl}
-                            >
-                              <DraggableFrameUI
-                                id={trackFrameBatch.id}
-                                trackId={track.id}
-                                trackIndex={cueFrame.trackIndex}
-                                globalIndex={trackFrameBatch.globalIndex}
-                                frame={cueFrame}
-                              >
-                                <FrameEditor
-                                  frame={cueFrame}
-                                  isPlaceholder={
-                                    draggedFrame?.id === cueFrame.id
-                                  }
-                                  onUpdate={(newCueFrame) =>
-                                    onFrameChange(newCueFrame)
-                                  }
-                                  isSelected={selectedFrameIds.includes(
-                                    cueFrame.id,
-                                  )}
-                                  onClick={() => {
-                                    onFrameSelect(cueFrame.id);
-                                  }}
-                                  ref={frameEditorRefCallback(cueFrame.id)}
-                                />
-                              </DraggableFrameUI>
-
-                              {subFrames.map((subFrame) => {
-                                return (
-                                  <DraggableFrameUI
-                                    key={subFrame.id}
-                                    id={subFrame.id}
-                                    trackId={track.id}
-                                    trackIndex={subFrame.trackIndex}
-                                    globalIndex={trackFrameBatch.globalIndex}
-                                    frame={subFrame}
-                                  >
-                                    <FrameEditor
-                                      frame={subFrame}
-                                      isPlaceholder={
-                                        draggedFrame?.id === subFrame.id
-                                      }
-                                      onUpdate={(newFrame) =>
-                                        onFrameChange(newFrame)
-                                      }
-                                      isSelected={selectedFrameIds.includes(
-                                        subFrame.id,
-                                      )}
-                                      onClick={() => {
-                                        onFrameSelect(subFrame.id);
-                                      }}
-                                      ref={frameEditorRefCallback(subFrame.id)}
-                                    />
-                                  </DraggableFrameUI>
-                                );
-                              })}
-                              <div className={styles.frameAddButtonContainer}>
-                                <FrameIcon
-                                  as="button"
-                                  subFrame
-                                  onClick={() =>
-                                    requestSubFrameAddAfter(frames.at(-1)!)
-                                  }
-                                >
-                                  +
-                                </FrameIcon>
-                                <div className={styles.hoverExpandedPart}>
-                                  <FrameIcon
-                                    as="button"
-                                    onClick={() =>
-                                      requestCueFrameAddAfter(cueFrame)
-                                    }
-                                  >
-                                    +
-                                  </FrameIcon>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </DroppableArea>
-              </div>
-              <div className={styles.headerLessColumn}>
-                <DroppableArea
-                  type="after"
-                  globalIndex={stepIdx}
-                  className={styles.inbetweenDroppableCell}
-                />
-              </div>
-            </React.Fragment>
+            <StepColumn
+              key={stepFrameBatches[0].id}
+              stepIdx={stepIdx}
+              isActive={isActive}
+              onStepSelect={onStepSelect}
+              tracks={tracks}
+              stepFrameBatches={stepFrameBatches}
+              selectedFrameIds={selectedFrameIds}
+              frameEditorRefCallback={frameEditorRefCallback}
+              draggedFrame={draggedFrame}
+              onFrameChange={onFrameChange}
+              onFrameSelect={onFrameSelect}
+              requestSubFrameAddAfter={requestSubFrameAddAfter}
+              requestCueFrameAddAfter={requestCueFrameAddAfter}
+            />
           );
         })}
         {showAttachCueFrameButton && (
@@ -387,12 +441,12 @@ export function Timeline({
             </div>
           </div>
         )}
-        {groupSelections.map((groupSel) => (
+        {groupSelectionAndEditorDOMs.map(({ groupSelection, elements }) => (
           <GroupSelection
-            key={groupSel.shapeId}
-            groupSelection={groupSel}
+            key={groupSelection.shapeId}
+            groupSelection={groupSelection}
             containerRef={containerRef}
-            frameEditorsRef={frameEditorsRef}
+            frameEditorDOMs={elements}
             requestCueFrameAddAfter={requestCueFrameAddAfterGroup}
           />
         ))}
