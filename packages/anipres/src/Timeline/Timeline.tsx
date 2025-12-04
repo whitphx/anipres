@@ -127,14 +127,14 @@ export function Timeline({
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const frameEditorRefs = React.useRef<Record<string, HTMLElement>>({});
+  const frameEditorsRef = React.useRef<Record<string, HTMLElement>>({});
   const frameEditorRefCallback =
     (frameId: string): React.RefCallback<HTMLElement> =>
     (elem) => {
       if (elem != null) {
-        frameEditorRefs.current[frameId] = elem;
+        frameEditorsRef.current[frameId] = elem;
       } else {
-        delete frameEditorRefs.current[frameId];
+        delete frameEditorsRef.current[frameId];
       }
     };
   const selectedFrameIds = useMemo(() => {
@@ -390,7 +390,7 @@ export function Timeline({
             key={groupSel.shapeId}
             groupSelection={groupSel}
             containerRef={containerRef}
-            frameEditorRefs={frameEditorRefs}
+            frameEditorsRef={frameEditorsRef}
             requestCueFrameAddAfter={requestCueFrameAddAfterGroup}
           />
         ))}
