@@ -53,10 +53,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     const leafShapes = getLeafShapes(editor, shape);
     const leafFrames = leafShapes
       .map(getFrame)
-      .filter((frame) => frame != null);
+      .filter((frame): frame is Frame => frame != null);
     return {
       shapeId: shape.id,
-      frameIds: leafFrames.map((frame) => frame!.id),
+      frameIds: leafFrames.map((frame) => frame.id),
     };
   });
 
