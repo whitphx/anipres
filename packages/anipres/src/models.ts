@@ -1,5 +1,5 @@
-import { EASINGS, uniqueId } from "tldraw";
-import type { Editor, JsonObject, TLShape, TLShapeId } from "tldraw";
+import { EASINGS, GroupShapeUtil, uniqueId } from "tldraw";
+import type { Editor, JsonObject, TLShape } from "tldraw";
 import { OrderedTrackItem } from "./ordered-track-item";
 
 export interface FrameActionBase extends JsonObject {
@@ -43,7 +43,7 @@ export type Frame<T extends FrameAction = FrameAction> =
   | CueFrame<T>
   | SubFrame<T>;
 
-type BatchedFrames<T extends FrameAction = FrameAction> = [
+export type BatchedFrames<T extends FrameAction = FrameAction> = [
   CueFrame<T>,
   ...SubFrame<T>[],
 ];
@@ -132,48 +132,17 @@ function jsonObjectToSubFrame(obj: unknown): SubFrame {
   );
 }
 
+/**
+ * @internal
+ */
 export function getNextGlobalIndexFromCueFrames(cueFrames: CueFrame[]): number {
   const globalIndexes = cueFrames.map((cf) => cf.globalIndex);
   return globalIndexes.length > 0 ? Math.max(...globalIndexes) + 1 : 0;
 }
 
-function getNextGlobalIndex(editor: Editor): number {
-  const shapes = editor.getCurrentPageShapes();
-  const allCueFrames = shapes
-    .map(getCueFrame)
-    .filter((cueFrame) => cueFrame != null);
-  return getNextGlobalIndexFromCueFrames(allCueFrames);
-}
-
-function newTrackId(): string {
+export function newTrackId(): string {
   // Use a timestamp to make the tracks sorted in the timeline.
   return `track-${Date.now()}-${uniqueId()}`;
-}
-
-export function attachCueFrame(
-  editor: Editor,
-  shapeId: TLShapeId,
-  frameAction: FrameAction,
-) {
-  const cueFrame: CueFrame = {
-    id: shapeId,
-    type: "cue",
-    globalIndex: getNextGlobalIndex(editor),
-    trackId: newTrackId(),
-    action: frameAction,
-  };
-
-  const shape = editor.getShape(shapeId);
-  if (shape == null) {
-    return;
-  }
-  editor.updateShape({
-    id: shapeId,
-    type: shape.type,
-    meta: {
-      frame: cueFrameToJsonObject(cueFrame),
-    },
-  });
 }
 
 export function getFrame(shape: TLShape): Frame | undefined {
@@ -230,4 +199,19 @@ export function getFrameBatches(frames: Frame[]): FrameBatch[] {
   }
 
   return frameBatches;
+}
+
+export function getLeafShapes(
+  editor: Editor,
+  ancestorShape: TLShape,
+): TLShape[] {
+  if (ancestorShape.type !== GroupShapeUtil.type) {
+    return [ancestorShape];
+  }
+
+  const childShapeIds = editor.getSortedChildIdsForParent(ancestorShape.id);
+  const childShapes = childShapeIds
+    .map((id) => editor.getShape(id))
+    .filter((shape) => shape != null);
+  return childShapes.flatMap((childShape) => getLeafShapes(editor, childShape));
 }
