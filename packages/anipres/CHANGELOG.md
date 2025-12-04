@@ -1,5 +1,19 @@
 # anipres
 
+## 0.9.1
+
+### Patch Changes
+
+- [#354](https://github.com/whitphx/anipres/pull/354) [`a266506`](https://github.com/whitphx/anipres/commit/a26650643137b1a6392b5f85fa016f028acd71c0) Thanks [@whitphx](https://github.com/whitphx)! - Internal refactoring not to use ref to manage the PresentationManager instance
+
+## 0.9.0
+
+### Minor Changes
+
+- [#216](https://github.com/whitphx/anipres/pull/216) [`789122c`](https://github.com/whitphx/anipres/commit/789122c20088e394ac3f7d54d6fb7cc9f2f5ad9e) Thanks [@whitphx](https://github.com/whitphx)! - Handle group shapes
+
+- [#351](https://github.com/whitphx/anipres/pull/351) [`7bdba0a`](https://github.com/whitphx/anipres/commit/7bdba0a2635f5d15c0fd392d720a7348aaa2f24e) Thanks [@whitphx](https://github.com/whitphx)! - Deselect shapes when entering the presentation mode
+
 ## 0.8.1
 
 ### Patch Changes

@@ -46,3 +46,4 @@ export const DelegateTldrawCssVars = memo((props: React.PropsWithChildren) => {
 
   return <div style={cssVars}>{props.children}</div>;
 });
+DelegateTldrawCssVars.displayName = "DelegateTldrawCssVars";

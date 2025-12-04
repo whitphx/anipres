@@ -56,6 +56,10 @@ export class PresentationManager {
     return inst;
   }
 
+  static get(editor: Editor): PresentationManager | undefined {
+    return this.instances.get(editor);
+  }
+
   @computed $getAllFrames(): Frame[] {
     const shapes = this.editor.getCurrentPageShapes();
     return getFrames(shapes);
