@@ -31,6 +31,10 @@ function calcDraggableDOMDeltaXs(
     return null;
   }
 
+  if (delta === 0) {
+    return null;
+  }
+
   const draggableDOMDeltaXs: Record<number, number> = {};
   draggableDOMDeltaXs[trackIndex] = delta;
   if (delta > 0) {
