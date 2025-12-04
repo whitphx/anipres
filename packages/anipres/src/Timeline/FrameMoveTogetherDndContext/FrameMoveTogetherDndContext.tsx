@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState, useMemo } from "react";
 import { DndContext, type DndContextProps } from "@dnd-kit/core";
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import {
@@ -168,13 +168,16 @@ export const FrameMoveTogetherDndContext = React.memo(
       [initializeDOMRects, onDragStart],
     );
 
+    const value = useMemo(
+      () => ({
+        registerDOM,
+        draggableDOMDeltaXs,
+      }),
+      [registerDOM, draggableDOMDeltaXs],
+    );
+
     return (
-      <draggableFrameDOMContext.Provider
-        value={{
-          registerDOM,
-          draggableDOMDeltaXs,
-        }}
-      >
+      <draggableFrameDOMContext.Provider value={value}>
         <DndContext
           {...dndContextProps}
           onDragStart={handleDragStart}

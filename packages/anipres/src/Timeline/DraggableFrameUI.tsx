@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useDraggableFrameDelta } from "./FrameMoveTogetherDndContext";
 import { Frame } from "../models";
@@ -21,15 +21,19 @@ export const DraggableFrameUI = React.memo(
     children: React.ReactNode;
     className?: string;
   }) => {
+    const draggableData = useMemo(
+      () => ({
+        trackId,
+        trackIndex,
+        globalIndex,
+        frame,
+      }),
+      [trackId, trackIndex, globalIndex, frame],
+    );
     const { attributes, listeners, setNodeRef, isDragging, active } =
       useDraggable({
         id,
-        data: {
-          trackId,
-          trackIndex,
-          globalIndex,
-          frame,
-        },
+        data: draggableData,
       });
     const { registerDOM, deltaX } = useDraggableFrameDelta(trackId, trackIndex);
     const transformX = deltaX ?? 0;
@@ -43,10 +47,13 @@ export const DraggableFrameUI = React.memo(
 
     return (
       <div
-        ref={(node) => {
-          setNodeRef(node);
-          registerDOM(node);
-        }}
+        ref={useCallback(
+          (node: HTMLDivElement | null) => {
+            setNodeRef(node);
+            registerDOM(node);
+          },
+          [setNodeRef, registerDOM],
+        )}
         {...attributes}
         {...listeners}
         style={style}
