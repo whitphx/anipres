@@ -5,6 +5,7 @@ import {
   useTools,
   DefaultToolbar,
   DefaultToolbarContent,
+  DefaultImageToolbar,
   TldrawUiMenuItem,
   DefaultKeyboardShortcutsDialog,
   DefaultKeyboardShortcutsDialogContent,
@@ -28,6 +29,8 @@ import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./SlideShapeUtil";
 import { SlideShapeTool } from "./SlideShapeTool";
+import { ThemeImageShapeTool } from "./DarkModeImageShapeTool";
+import { ThemeImageToolbar } from "./DarkImageToolbar";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
@@ -51,7 +54,7 @@ import React, {
 import "./tldraw-overrides.css";
 
 import { customShapeUtils } from "./shape-utils";
-const customTools = [SlideShapeTool];
+const customTools = [SlideShapeTool, ThemeImageShapeTool];
 
 // We use atoms as it's Tldraw's design,
 // but we also need to manage these states per instance of Anipres component
@@ -157,6 +160,13 @@ const makeUiOverrides = ({
         kbd: "s",
         onSelect: () => editor.setCurrentTool(SlideShapeTool.id),
       };
+      tools[ThemeImageShapeTool.id] = {
+        id: ThemeImageShapeTool.id,
+        icon: "tool-media",
+        label: "Theme Image",
+        kbd: "i",
+        onSelect: () => editor.setCurrentTool(ThemeImageShapeTool.id),
+      };
       return tools;
     },
   };
@@ -197,12 +207,19 @@ const createComponents = (signals: {
       const presentationMode = useValue($presentationMode);
       const tools = useTools();
       const isSlideToolSelected = useIsToolSelected(tools[SlideShapeTool.id]);
+      const isDarkImageToolSelected = useIsToolSelected(
+        tools[ThemeImageShapeTool.id],
+      );
       return (
         !presentationMode && (
           <DefaultToolbar {...props}>
             <TldrawUiMenuItem
               {...tools[SlideShapeTool.id]}
               isSelected={isSlideToolSelected}
+            />
+            <TldrawUiMenuItem
+              {...tools[ThemeImageShapeTool.id]}
+              isSelected={isDarkImageToolSelected}
             />
             <DefaultToolbarContent />
           </DefaultToolbar>
@@ -214,8 +231,21 @@ const createComponents = (signals: {
       return (
         <DefaultKeyboardShortcutsDialog {...props}>
           <TldrawUiMenuItem {...tools[SlideShapeTool.id]} />
+          <TldrawUiMenuItem {...tools[ThemeImageShapeTool.id]} />
           <DefaultKeyboardShortcutsDialogContent />
         </DefaultKeyboardShortcutsDialog>
+      );
+    },
+    ImageToolbar: () => {
+      const presentationMode = useValue($presentationMode);
+      if (presentationMode) {
+        return null;
+      }
+      return (
+        <>
+          <DefaultImageToolbar />
+          <ThemeImageToolbar />
+        </>
       );
     },
   };
