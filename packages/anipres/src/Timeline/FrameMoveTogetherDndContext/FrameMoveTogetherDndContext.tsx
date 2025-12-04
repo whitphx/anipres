@@ -31,6 +31,10 @@ function calcDraggableDOMDeltaXs(
     return null;
   }
 
+  if (delta === 0) {
+    return null;
+  }
+
   const draggableDOMDeltaXs: Record<number, number> = {};
   draggableDOMDeltaXs[trackIndex] = delta;
   if (delta > 0) {
@@ -64,8 +68,6 @@ function calcDraggableDOMDeltaXs(
     }
     return { [trackId]: draggableDOMDeltaXs };
   }
-
-  return null;
 }
 
 export const FrameMoveTogetherDndContext = React.memo(
