@@ -371,7 +371,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                     nextGlobalIndex,
                   );
                 } else {
-                  newFrameBatches?.push(newFrameBatch);
+                  newFrameBatches.push(newFrameBatch);
                 }
               },
             );
