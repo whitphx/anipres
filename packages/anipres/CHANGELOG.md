@@ -1,5 +1,15 @@
 # anipres
 
+## 0.9.3
+
+### Patch Changes
+
+- [#365](https://github.com/whitphx/anipres/pull/365) [`5bdd2ed`](https://github.com/whitphx/anipres/commit/5bdd2ed4008fba452cc9b49b3d2c223696ae80c0) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring to memoize DnD component
+
+- [#363](https://github.com/whitphx/anipres/pull/363) [`17ee022`](https://github.com/whitphx/anipres/commit/17ee022ff2ba7c4a99348b85edf057ec63bca385) Thanks [@whitphx](https://github.com/whitphx)! - Refactoring to handle dom mount events
+
+- [#369](https://github.com/whitphx/anipres/pull/369) [`49a0c4b`](https://github.com/whitphx/anipres/commit/49a0c4bd8085b7bbd4aae63318957dabf822d9b6) Thanks [@whitphx](https://github.com/whitphx)! - Very rough styling on the add-cue-frame button on a group
+
 ## 0.9.2
 
 ### Patch Changes
