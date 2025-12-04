@@ -229,6 +229,21 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           requestCueFrameAddAfterGroup={(shapeSelection) => {
             const selectedShapeId = shapeSelection.shapeId;
 
+            const orderedSteps = presentationManager.$getOrderedSteps();
+            const selectedLastFrameIdsPerTrack: Record<string, string> = {};
+            for (const step of orderedSteps) {
+              for (const frameBatch of step) {
+                for (const frame of frameBatch.data) {
+                  if (shapeSelection.frameIds.includes(frame.id)) {
+                    selectedLastFrameIdsPerTrack[frameBatch.trackId] = frame.id;
+                  }
+                }
+              }
+            }
+            const selectedLastFrameIdsInItsTrack = Object.values(
+              selectedLastFrameIdsPerTrack,
+            );
+
             let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
               undefined;
 
@@ -241,41 +256,56 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 return [];
               }
 
-              const newShapeId = createShapeId();
-              const isCopiedShapeRoot = parentShapeId === undefined;
-              let copiedShapeX: number;
-              let copiedShapeY: number;
-              let copiedShapeRotation: number;
-              if (isCopiedShapeRoot) {
-                const pageTransform = editor.getShapePageTransform(original);
-                const { x, y, rotation } = pageTransform.decomposed();
-                copiedShapeX = x + COPIED_SHAPE_POSITION_OFFSET.x;
-                copiedShapeY = y + COPIED_SHAPE_POSITION_OFFSET.y;
-                copiedShapeRotation = rotation;
+              const frame = getFrame(original);
+              const isShapeLastSelectedFrameInItsTrack =
+                frame && selectedLastFrameIdsInItsTrack.includes(frame.id);
+              const shouldCopyThisShape =
+                original.type === GroupShapeUtil.type ||
+                isShapeLastSelectedFrameInItsTrack;
+
+              if (shouldCopyThisShape) {
+                const newShapeId = createShapeId();
+                const isCopiedShapeRoot = parentShapeId === undefined;
+                let copiedShapeX: number;
+                let copiedShapeY: number;
+                let copiedShapeRotation: number;
+                if (isCopiedShapeRoot) {
+                  const pageTransform = editor.getShapePageTransform(original);
+                  const { x, y, rotation } = pageTransform.decomposed();
+                  copiedShapeX = x + COPIED_SHAPE_POSITION_OFFSET.x;
+                  copiedShapeY = y + COPIED_SHAPE_POSITION_OFFSET.y;
+                  copiedShapeRotation = rotation;
+                } else {
+                  copiedShapeX = original.x;
+                  copiedShapeY = original.y;
+                  copiedShapeRotation = original.rotation;
+                }
+                const copied: TLShape = {
+                  ...original,
+                  id: newShapeId,
+                  x: copiedShapeX,
+                  y: copiedShapeY,
+                  rotation: copiedShapeRotation,
+                  parentId: parentShapeId ?? editor.getCurrentPageId(),
+                };
+
+                const copiedChildren = editor
+                  .getSortedChildIdsForParent(rootShapeId)
+                  .flatMap((childId) => {
+                    return copyShapeRecursively(childId, newShapeId);
+                  });
+
+                return [
+                  { original: original, copied: copied },
+                  ...copiedChildren,
+                ];
               } else {
-                copiedShapeX = original.x;
-                copiedShapeY = original.y;
-                copiedShapeRotation = original.rotation;
+                return editor
+                  .getSortedChildIdsForParent(rootShapeId)
+                  .flatMap((childId) => {
+                    return copyShapeRecursively(childId, parentShapeId);
+                  });
               }
-              const copied: TLShape = {
-                ...original,
-                id: newShapeId,
-                x: copiedShapeX,
-                y: copiedShapeY,
-                rotation: copiedShapeRotation,
-                parentId: parentShapeId ?? editor.getCurrentPageId(),
-              };
-
-              const copiedChildren = editor
-                .getSortedChildIdsForParent(rootShapeId)
-                .flatMap((childId) => {
-                  return copyShapeRecursively(childId, newShapeId);
-                });
-
-              return [
-                { original: original, copied: copied },
-                ...copiedChildren,
-              ];
             };
 
             const origAndCopiedShapes = copyShapeRecursively(selectedShapeId);
