@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Resizable } from "re-resizable";
 import { Frame } from "../../models";
 import { FrameEditPopover } from "./FrameEditPopover";
@@ -19,74 +19,79 @@ export interface FrameEditorProps {
   isSelected: boolean;
   onClick: () => void;
 }
-export function FrameEditor(props: FrameEditorProps) {
-  const { frame, isPlaceholder, onUpdate, isSelected, onClick } = props;
-  const { duration = 0, easing } = frame.action;
+export const FrameEditor = React.forwardRef<HTMLDivElement, FrameEditorProps>(
+  (props, ref) => {
+    const { frame, isPlaceholder, onUpdate, isSelected, onClick } = props;
+    const { duration = 0, easing } = frame.action;
 
-  const [editingDuration, setEditingDuration] = useState<number | null>(null);
+    const [editingDuration, setEditingDuration] = useState<number | null>(null);
 
-  const displayDuration = editingDuration ?? duration;
+    const displayDuration = editingDuration ?? duration;
 
-  const displayDurationElemWidth = displayDuration / DURATION_PER_PIXEL;
-  const isDisplayShrinking = displayDurationElemWidth > MAX_DURATION_WIDTH;
+    const displayDurationElemWidth = displayDuration / DURATION_PER_PIXEL;
+    const isDisplayShrinking = displayDurationElemWidth > MAX_DURATION_WIDTH;
 
-  const rawDurationWidth = duration / DURATION_PER_PIXEL;
-  const durationElemWidth = Math.min(rawDurationWidth, MAX_DURATION_WIDTH);
-  return (
-    <FrameEditPopover frame={frame} onUpdate={onUpdate}>
-      <div
-        className={styles.container}
-        onClick={onClick}
-        data-selected={isSelected}
-        data-placeholder={isPlaceholder}
-      >
-        <Resizable
-          className={styles.editorContainer}
-          enable={{ right: true }}
-          size={{
-            width: durationElemWidth + FRAME_BLOCK_WIDTH,
-          }}
-          minWidth={FRAME_BLOCK_WIDTH}
-          handleComponent={{
-            right: <Handle />,
-          }}
-          onResize={(_, __, ___, delta) => {
-            setEditingDuration(
-              durationElemWidth * DURATION_PER_PIXEL +
-                delta.width * DURATION_PER_PIXEL,
-            );
-          }}
-          onResizeStop={(_, __, ___, delta) => {
-            setEditingDuration(null);
-            onUpdate({
-              ...frame,
-              action: {
-                ...frame.action,
-                duration:
-                  durationElemWidth * DURATION_PER_PIXEL +
-                  delta.width * DURATION_PER_PIXEL,
-              },
-            });
-          }}
+    const rawDurationWidth = duration / DURATION_PER_PIXEL;
+    const durationElemWidth = Math.min(rawDurationWidth, MAX_DURATION_WIDTH);
+    return (
+      <FrameEditPopover frame={frame} onUpdate={onUpdate}>
+        <div
+          ref={ref}
+          className={styles.container}
+          onClick={onClick}
+          data-selected={isSelected}
+          data-placeholder={isPlaceholder}
         >
-          <div
-            className={`${styles.durationDisplay} ${isDisplayShrinking ? styles.shrink : ""}`}
-            title={
-              `Duration: ${displayDuration}ms` +
-              (easing ? `, Easing: ${easing}` : "")
-            }
-            style={{
-              width: displayDurationElemWidth,
+          <Resizable
+            className={styles.editorContainer}
+            enable={{ right: true }}
+            size={{
+              width: durationElemWidth + FRAME_BLOCK_WIDTH,
+            }}
+            minWidth={FRAME_BLOCK_WIDTH}
+            handleComponent={{
+              right: <Handle />,
+            }}
+            onResize={(_, __, ___, delta) => {
+              setEditingDuration(
+                durationElemWidth * DURATION_PER_PIXEL +
+                  delta.width * DURATION_PER_PIXEL,
+              );
+            }}
+            onResizeStop={(_, __, ___, delta) => {
+              setEditingDuration(null);
+              onUpdate({
+                ...frame,
+                action: {
+                  ...frame.action,
+                  duration:
+                    durationElemWidth * DURATION_PER_PIXEL +
+                    delta.width * DURATION_PER_PIXEL,
+                },
+              });
             }}
           >
-            {displayDuration}
-          </div>
-          <div
-            style={{ width: FRAME_BLOCK_WIDTH, minWidth: FRAME_BLOCK_WIDTH }}
-            className={styles.frameBlock}
-          />
-        </Resizable>
-      </div>
-    </FrameEditPopover>
-  );
-}
+            <div
+              className={`${styles.durationDisplay} ${isDisplayShrinking ? styles.shrink : ""}`}
+              title={
+                `Duration: ${displayDuration}ms` +
+                (easing ? `, Easing: ${easing}` : "")
+              }
+              style={{
+                width: displayDurationElemWidth,
+              }}
+            >
+              {displayDuration}
+            </div>
+            <div
+              style={{ width: FRAME_BLOCK_WIDTH, minWidth: FRAME_BLOCK_WIDTH }}
+              className={styles.frameBlock}
+            />
+          </Resizable>
+        </div>
+      </FrameEditPopover>
+    );
+  },
+);
+
+FrameEditor.displayName = "FrameEditor";

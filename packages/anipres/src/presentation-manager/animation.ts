@@ -42,12 +42,31 @@ async function runFrames(
         continue;
       }
 
-      // Create and manipulate a temporary shape for animation
+      const predecessorShapePageTransform =
+        editor.getShapePageTransform(predecessorShape);
+      if (!predecessorShapePageTransform) {
+        throw new Error(
+          `Page transform not found for predecessor shape ${predecessorShape.id}`,
+        );
+      }
+      const shapePageTransform = editor.getShapePageTransform(shape);
+      if (!shapePageTransform) {
+        throw new Error(`Page transform not found for shape ${shape.id}`);
+      }
+
+      // Create and manipulate a temporary shape for animation.
+      // The temp shape is created as a direct child of the page
+      // and its x, y, and rotation are calculated in page space.
       const animeShapeId = createShapeId();
       editor.run(
         () => {
+          const { x, y, rotation } = predecessorShapePageTransform.decomposed();
           editor.createShape({
             ...predecessorShape,
+            x,
+            y,
+            rotation,
+            parentId: editor.getCurrentPageId(),
             id: animeShapeId,
             type: shape.type,
             meta: undefined,
@@ -63,9 +82,15 @@ async function runFrames(
         editor.bailToMark(historyStoppingPoint);
       };
       editor.on("tick", onTick);
+
+      const { x, y, rotation } = shapePageTransform.decomposed();
       editor.animateShape(
         {
           ...shape,
+          x,
+          y,
+          rotation,
+          parentId: editor.getCurrentPageId(),
           id: animeShapeId,
           meta: undefined,
         },
