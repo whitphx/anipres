@@ -443,10 +443,7 @@ const ThemeImage = memo(function ThemeImage({
           borderRadius: shape.props.crop?.isCircle ? "50%" : undefined,
         }}
       >
-        <div
-          className={classNames("tl-image-container")}
-          style={containerStyle}
-        >
+        <div className={"tl-image-container"} style={containerStyle}>
           {loadedSrc && (
             <img
               key={loadedSrc}
