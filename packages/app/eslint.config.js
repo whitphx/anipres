@@ -1,7 +1,7 @@
 // @ts-check
 
 import { defineConfig, globalIgnores } from "eslint/config";
-import jsPlugin from "@eslint/js";
+import eslint from "@eslint/js";
 import reactPlugin from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
@@ -10,7 +10,7 @@ import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended"
 
 export default defineConfig(
   globalIgnores(["dist"]),
-  jsPlugin.configs.recommended,
+  eslint.configs.recommended,
   tseslint.configs.recommended,
   reactPlugin.configs.flat.recommended,
   reactPlugin.configs.flat["jsx-runtime"],
