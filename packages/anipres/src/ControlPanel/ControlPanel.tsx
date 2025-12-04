@@ -244,10 +244,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               selectedLastFrameIdsPerTrack,
             );
 
-            let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
-              undefined;
-
-            const copyShapeRecursively = (
+            const cloneShapeRecursively = (
               rootShapeId: TLShapeId,
               parentShapeId?: TLShapeId,
             ): { original: TLShape; copied: TLShape }[] => {
@@ -292,7 +289,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 const copiedChildren = editor
                   .getSortedChildIdsForParent(rootShapeId)
                   .flatMap((childId) => {
-                    return copyShapeRecursively(childId, newShapeId);
+                    return cloneShapeRecursively(childId, newShapeId);
                   });
 
                 return [
@@ -303,13 +300,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 return editor
                   .getSortedChildIdsForParent(rootShapeId)
                   .flatMap((childId) => {
-                    return copyShapeRecursively(childId, parentShapeId);
+                    return cloneShapeRecursively(childId, parentShapeId);
                   });
               }
             };
 
-            const origAndCopiedShapes = copyShapeRecursively(selectedShapeId);
-            const dataArray = origAndCopiedShapes.map(
+            const clonedShapes = cloneShapeRecursively(selectedShapeId);
+            const clonedShapeAndFrames = clonedShapes.map(
               ({ original, copied }) => {
                 const shouldAttachFrame = original.type !== GroupShapeUtil.type;
                 if (!shouldAttachFrame) {
@@ -329,73 +326,77 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               },
             );
 
-            const _prevCueFrameGlobalIndexes = dataArray
+            const prevCueFrameGlobalIndexes = clonedShapeAndFrames
               .map(({ prevCueFrame }) => prevCueFrame)
               .filter((f): f is CueFrame => f != null)
               .map((f) => f.globalIndex);
             const nextGlobalIndex =
-              _prevCueFrameGlobalIndexes.length > 0
-                ? Math.max(..._prevCueFrameGlobalIndexes) + 1
+              prevCueFrameGlobalIndexes.length > 0
+                ? Math.max(...prevCueFrameGlobalIndexes) + 1
                 : presentationManager.$getNextGlobalIndex();
 
-            let insertedIndex: number;
-            dataArray.forEach(({ copied, origFrame, prevCueFrame }, i) => {
-              if (prevCueFrame == null) {
-                return;
-              }
-
-              const newCueFrame: CueFrame = {
-                id: uniqueId(),
-                type: "cue",
-                globalIndex: prevCueFrame.globalIndex + 99999, // NOTE: This will be recalculated later.
-                trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
-                action: {
-                  type: origFrame ? origFrame.action.type : "shapeAnimation",
-                  duration: 1000,
-                },
-              };
-
-              copied.meta = {
-                ...copied.meta,
-                frame: frameToJsonObject(newCueFrame),
-              };
-
-              const newFrameBatch: FrameBatch = {
-                id: `batch-${newCueFrame.id}`,
-                globalIndex: nextGlobalIndex,
-                trackId: newCueFrame.trackId,
-                data: [newCueFrame],
-              };
-              if (i === 0) {
-                newFrameBatches = insertOrderedTrackItem(
-                  frameBatches,
-                  newFrameBatch,
-                  nextGlobalIndex,
-                );
-                for (const batch of newFrameBatches) {
-                  batch.data[0].globalIndex = batch.globalIndex;
-                  if (batch.id === newFrameBatch.id) {
-                    insertedIndex = batch.globalIndex;
-                  }
+            let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
+              undefined;
+            let insertedBatchGlobalIndex: number;
+            clonedShapeAndFrames.forEach(
+              ({ copied, origFrame, prevCueFrame }, i) => {
+                if (prevCueFrame == null) {
+                  return;
                 }
-              } else {
-                newFrameBatch.data[0].globalIndex = insertedIndex!;
-                newFrameBatches?.push(newFrameBatch);
-              }
-            });
 
-            const copiedShapes = origAndCopiedShapes.map(
+                const newCueFrame: CueFrame = {
+                  id: uniqueId(),
+                  type: "cue",
+                  globalIndex: prevCueFrame.globalIndex + 99999, // NOTE: This will be recalculated later.
+                  trackId: prevCueFrame ? prevCueFrame.trackId : newTrackId(),
+                  action: {
+                    type: origFrame ? origFrame.action.type : "shapeAnimation",
+                    duration: 1000,
+                  },
+                };
+
+                copied.meta = {
+                  ...copied.meta,
+                  frame: frameToJsonObject(newCueFrame),
+                };
+
+                const newFrameBatch: FrameBatch = {
+                  id: `batch-${newCueFrame.id}`,
+                  globalIndex: nextGlobalIndex,
+                  trackId: newCueFrame.trackId,
+                  data: [newCueFrame],
+                };
+                if (i === 0) {
+                  newFrameBatches = insertOrderedTrackItem(
+                    frameBatches,
+                    newFrameBatch,
+                    nextGlobalIndex,
+                  );
+                  for (const batch of newFrameBatches) {
+                    batch.data[0].globalIndex = batch.globalIndex;
+                    if (batch.id === newFrameBatch.id) {
+                      insertedBatchGlobalIndex = batch.globalIndex;
+                    }
+                  }
+                } else {
+                  newFrameBatch.data[0].globalIndex = insertedBatchGlobalIndex!;
+                  newFrameBatches?.push(newFrameBatch);
+                }
+              },
+            );
+
+            const shapesToCreate = clonedShapeAndFrames.map(
               ({ copied }) => copied,
             );
             editor.run(
               () => {
-                editor.createShapes(copiedShapes);
+                editor.createShapes(shapesToCreate);
 
-                const rootCopiedShape = copiedShapes.find(
+                const rootCreatedShape = shapesToCreate.find(
                   (s) => s.parentId === editor.getCurrentPageId(),
                 );
-                if (rootCopiedShape) {
-                  editor.select(rootCopiedShape);
+                if (rootCreatedShape) {
+                  editor.select(rootCreatedShape);
                 }
                 if (newFrameBatches) {
                   handleFrameBatchesChange(newFrameBatches);
