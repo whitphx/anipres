@@ -11,7 +11,6 @@ import {
   TldrawUiContextualToolbar,
   useTranslation,
   useEditor,
-  useIsDarkMode,
   useValue,
 } from "tldraw";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -20,6 +19,7 @@ import {
   ThemeImageShapeType,
   type ThemeImageShape,
 } from "./ThemeImageShapeUtil";
+import { ThemeImageShapeProps } from "./ThemeImageShapeUtil";
 
 interface ThemeImageToolbarProps {
   fallback?: React.ReactNode;
@@ -94,7 +94,6 @@ function ThemeImageToolbarInner({ shapeId }: { shapeId: TLShapeId }) {
 function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
   const editor = useEditor();
   const msg = useTranslation();
-  const isDarkMode = useIsDarkMode();
   const lightInputRef = useRef<HTMLInputElement>(null);
   const darkInputRef = useRef<HTMLInputElement>(null);
 
@@ -129,8 +128,6 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
   const handleFileChosen = useCallback(
     async (file: File, isDark: boolean) => {
       if (!shape) return;
-      const key = isDarkMode ? "darkSize" : "lightSize";
-      const cropKey = isDarkMode ? "darkCrop" : "lightCrop";
       const asset = await editor.getAssetForExternalContent({
         type: "file",
         file,
@@ -148,23 +145,28 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
           : shape.props.h;
 
       editor.createAssets([asset]);
+
+      const assetKey: keyof ThemeImageShapeProps = isDark
+        ? "darkAssetId"
+        : "lightAssetId";
+      const dimensionKey: keyof ThemeImageShapeProps = isDark
+        ? "darkDimension"
+        : "lightDimension";
       editor.updateShape({
         id: shape.id,
         type: shape.type,
         props: {
-          [isDark ? "darkAssetId" : "lightAssetId"]: asset.id,
-          w,
-          h,
-          [key]: {
+          [assetKey]: asset.id,
+          [dimensionKey]: {
             w,
             h,
             rotation: shape.rotation,
           },
-          [cropKey]: shape.props.crop ?? null,
+          // [cropKey]: shape.props.crop ?? null,
         },
       });
     },
-    [editor, isDarkMode, shape],
+    [editor, shape],
   );
 
   const handleDownload = useCallback(

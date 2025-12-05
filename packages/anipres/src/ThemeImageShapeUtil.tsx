@@ -30,6 +30,7 @@ import {
   useUniqueSafeId,
   useValue,
   usePrefersReducedMotion,
+  Validator,
 } from "tldraw";
 import classNames from "classnames";
 import {
@@ -38,7 +39,6 @@ import {
   useCallback,
   useEffect,
   useState,
-  useRef,
 } from "react";
 
 const ThemeImageShapeCrop = T.object({
@@ -57,8 +57,8 @@ export interface ThemeImageShapeProps
   extends Omit<TLImageShapeProps, "assetId"> {
   lightAssetId: TLAssetId | null;
   darkAssetId: TLAssetId | null;
-  lightSize: { w: number; h: number; rotation: number };
-  darkSize: { w: number; h: number; rotation: number };
+  lightDimension: { w: number; h: number; rotation: number };
+  darkDimension: { w: number; h: number; rotation: number };
   lightCrop: ThemeImageShapeCrop["value"] | null;
   darkCrop: ThemeImageShapeCrop["value"] | null;
 }
@@ -75,14 +75,14 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
   h: T.nonZeroNumber,
   playing: T.boolean,
   url: T.linkUrl,
-  lightAssetId: T.string.nullable(),
-  darkAssetId: T.string.nullable(),
-  lightSize: T.object({
+  lightAssetId: T.string.nullable() as Validator<TLAssetId | null>,
+  darkAssetId: T.string.nullable() as Validator<TLAssetId | null>,
+  lightDimension: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
     rotation: T.number,
   }),
-  darkSize: T.object({
+  darkDimension: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
     rotation: T.number,
@@ -97,23 +97,23 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
 
 const imageSvgExportCache = new WeakCache<TLAsset, Promise<string | null>>();
 
-function getStoredSizeForTheme(
+function resolveModeFallback(
   shape: ThemeImageShape,
   isDarkMode: boolean,
-): { w: number; h: number; rotation: number } {
-  const primary = isDarkMode ? shape.props.darkSize : shape.props.lightSize;
-  return (
-    primary ?? { w: shape.props.w, h: shape.props.h, rotation: shape.rotation }
-  );
-}
-
-function getStoredCropForTheme(
-  shape: ThemeImageShape,
-  isDarkMode: boolean,
-): ThemeImageShape["props"]["crop"] {
-  return isDarkMode
-    ? (shape.props.darkCrop ?? null)
-    : (shape.props.lightCrop ?? null);
+): "dark" | "light" | null {
+  if (isDarkMode && shape.props.darkAssetId != null) {
+    return "dark";
+  }
+  if (!isDarkMode && shape.props.lightAssetId != null) {
+    return "light";
+  }
+  if (shape.props.lightAssetId != null) {
+    return "light";
+  }
+  if (shape.props.darkAssetId != null) {
+    return "dark";
+  }
+  return null;
 }
 
 export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
@@ -131,70 +131,26 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
   override onBeforeUpdate(
     prev: ThemeImageShape,
     next: ThemeImageShape,
-  ): ThemeImageShape {
-    const isDark = this.editor.user.getIsDarkMode();
-    const sizeKey = isDark ? "darkSize" : "lightSize";
-    const otherSizeKey = isDark ? "lightSize" : "darkSize";
-    const cropKey = isDark ? "darkCrop" : "lightCrop";
-    const otherCropKey = isDark ? "lightCrop" : "darkCrop";
-    const rotation = next.rotation ?? prev.rotation ?? 0;
-
-    if (
-      prev.props.w !== next.props.w ||
-      prev.props.h !== next.props.h ||
-      prev.rotation !== rotation
-    ) {
-      return {
-        ...next,
-        rotation,
-        props: {
-          ...next.props,
-          [sizeKey]: { w: next.props.w, h: next.props.h, rotation },
-          // initialize the opposite theme if missing so we don't fall back to defaults later
-          [otherSizeKey]: next.props[otherSizeKey] ?? {
-            w: next.props.w,
-            h: next.props.h,
-            rotation,
-          },
-          [cropKey]: next.props.crop ?? next.props[cropKey] ?? null,
-          [otherCropKey]: next.props[otherCropKey] ?? next.props.crop ?? null,
-        },
-      };
+  ): void | ThemeImageShape {
+    // Sync rotation -> per-theme size prop.
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    const colorMode = resolveModeFallback(next, isDarkMode);
+    if (colorMode == null) {
+      return;
     }
 
-    if (prev.props.crop !== next.props.crop) {
-      return {
-        ...next,
-        rotation,
-        props: {
-          ...next.props,
-          [cropKey]: next.props.crop ?? next.props[cropKey] ?? null,
+    const sizeKey: keyof ThemeImageShapeProps =
+      colorMode === "dark" ? "darkDimension" : "lightDimension";
+    return {
+      ...next,
+      props: {
+        ...next.props,
+        [sizeKey]: {
+          ...next.props[sizeKey],
+          rotation: next.rotation,
         },
-      };
-    }
-
-    // If theme switched and we need to apply stored size/crop
-    const storedSize = next.props[sizeKey] ?? next.props[otherSizeKey];
-    const storedCrop = next.props[cropKey] ?? next.props[otherCropKey] ?? null;
-    if (
-      storedSize &&
-      (storedSize.w !== next.props.w ||
-        storedSize.h !== next.props.h ||
-        storedSize.rotation !== rotation ||
-        storedCrop !== next.props.crop)
-    ) {
-      return {
-        ...next,
-        rotation: storedSize.rotation,
-        props: {
-          ...next.props,
-          w: storedSize.w,
-          h: storedSize.h,
-          crop: storedCrop,
-        },
-      };
-    }
-    return next;
+      },
+    };
   }
 
   override getDefaultProps(): ThemeImageShape["props"] {
@@ -209,8 +165,8 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       flipX: false,
       flipY: false,
       altText: "",
-      lightSize: { w: 100, h: 100, rotation: 0 },
-      darkSize: { w: 100, h: 100, rotation: 0 },
+      lightDimension: { w: 100, h: 100, rotation: 0 },
+      darkDimension: { w: 100, h: 100, rotation: 0 },
       lightCrop: null,
       darkCrop: null,
     };
@@ -244,6 +200,9 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     const { flipX, flipY } = info.initialShape.props;
     const { scaleX, scaleY, mode } = info;
 
+    // Sync width and height -> per-theme size prop.
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    const colorMode = resolveModeFallback(shape, isDarkMode);
     resized = {
       ...resized,
       props: {
@@ -252,6 +211,14 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
         flipY: scaleY < 0 !== flipY,
       },
     };
+    if (colorMode != null) {
+      resized.props[colorMode === "dark" ? "darkDimension" : "lightDimension"] =
+        {
+          w: resized.props.w,
+          h: resized.props.h,
+          rotation: resized.rotation,
+        };
+    }
     if (!shape.props.crop) return resized;
 
     const flipCropHorizontally =
@@ -436,6 +403,7 @@ const ThemeImage = memo(function ThemeImage({
 
   const { w } = getUncroppedSize(shape.props, shape.props.crop);
 
+  // Pre-load both assets to avoid delay when switching themes
   const { asset: lightAsset, url: lightAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
     assetId: shape.props.lightAssetId,
@@ -447,55 +415,33 @@ const ThemeImage = memo(function ThemeImage({
     width: w,
   });
 
+  const colorMode = resolveModeFallback(shape, isDarkMode);
+
   const asset =
-    (isDarkMode ? darkAsset : lightAsset) ?? lightAsset ?? darkAsset;
+    colorMode === "dark"
+      ? darkAsset
+      : colorMode === "light"
+        ? lightAsset
+        : null;
   const url =
-    (isDarkMode ? darkAssetUrl : lightAssetUrl) ??
-    lightAssetUrl ??
-    darkAssetUrl;
+    colorMode === "dark"
+      ? darkAssetUrl
+      : colorMode === "light"
+        ? lightAssetUrl
+        : null;
 
-  // Ensure stored sizes for each theme stay in sync and restore on theme switch.
-  const prevIsDarkModeRef = useRef(isDarkMode);
+  // Sync per-theme width, height, and rotation -> shape props.
   useEffect(() => {
-    const activeKey = isDarkMode ? "darkSize" : "lightSize";
-    const activeCropKey = isDarkMode ? "darkCrop" : "lightCrop";
-    const size = getStoredSizeForTheme(shape, isDarkMode);
-    const crop = getStoredCropForTheme(shape, isDarkMode);
-    const themeChanged = prevIsDarkModeRef.current !== isDarkMode;
-
-    // Initialize missing stored size/crop for the active theme.
-    if (!shape.props[activeKey] || shape.props[activeCropKey] === undefined) {
-      editor.updateShape({
-        id: shape.id,
-        type: shape.type,
-        rotation: shape.rotation,
-        props: {
-          [activeKey]: {
-            w: shape.props.w,
-            h: shape.props.h,
-            rotation: shape.rotation,
-          },
-          [activeCropKey]:
-            shape.props.crop ??
-            ((shape.props[activeCropKey] ?? null)
-              ? {
-                  topLeft: { ...shape.props[activeCropKey]!.topLeft },
-                  bottomRight: { ...shape.props[activeCropKey]!.bottomRight },
-                  isCircle: shape.props[activeCropKey]!.isCircle,
-                }
-              : null),
-        },
-      });
+    const size =
+      colorMode === "dark"
+        ? shape.props.darkDimension
+        : colorMode === "light"
+          ? shape.props.lightDimension
+          : null;
+    if (size == null) {
+      return;
     }
-
-    if (
-      themeChanged &&
-      size &&
-      (size.w !== shape.props.w ||
-        size.h !== shape.props.h ||
-        size.rotation !== shape.rotation ||
-        crop !== shape.props.crop)
-    ) {
+    if (size.w !== shape.props.w || size.h !== shape.props.h) {
       editor.updateShape({
         id: shape.id,
         type: shape.type,
@@ -503,12 +449,10 @@ const ThemeImage = memo(function ThemeImage({
         props: {
           w: size.w,
           h: size.h,
-          crop,
         },
       });
     }
-    prevIsDarkModeRef.current = isDarkMode;
-  }, [editor, isDarkMode, shape]);
+  }, [editor, shape, colorMode]);
 
   const prefersReducedMotion = usePrefersReducedMotion();
   const [staticFrameSrc, setStaticFrameSrc] = useState("");
