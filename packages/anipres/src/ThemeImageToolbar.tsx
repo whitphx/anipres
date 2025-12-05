@@ -1,0 +1,262 @@
+import {
+  Box,
+  TLAsset,
+  TLImageAsset,
+  TLShapeId,
+  TLAssetId,
+  TldrawUiButton,
+  TldrawUiButtonIcon,
+  TldrawUiButtonLabel,
+  TldrawUiInput,
+  TldrawUiContextualToolbar,
+  useTranslation,
+  useEditor,
+  useIsDarkMode,
+  useValue,
+} from "tldraw";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+
+import {
+  ThemeImageShapeType,
+  type ThemeImageShape,
+} from "./ThemeImageShapeUtil";
+
+interface ThemeImageToolbarProps {
+  fallback?: React.ReactNode;
+}
+
+export function ThemeImageToolbar({ fallback }: ThemeImageToolbarProps) {
+  const editor = useEditor();
+  const shapeId = useValue(
+    "theme image selection",
+    () => {
+      const onlySelectedShape = editor.getOnlySelectedShape();
+      if (
+        !onlySelectedShape ||
+        onlySelectedShape.type !== ThemeImageShapeType
+      ) {
+        return null;
+      }
+      return onlySelectedShape.id;
+    },
+    [editor],
+  );
+  const showToolbar = useValue(
+    "showToolbar",
+    () => editor.isInAny("select.idle", "select.pointing_shape"),
+    [editor],
+  );
+  const isLocked = useValue(
+    "locked",
+    () => (shapeId ? editor.getShape(shapeId)?.isLocked === true : false),
+    [editor, shapeId],
+  );
+
+  if (!shapeId || !showToolbar || isLocked) {
+    return <>{fallback}</>;
+  }
+
+  return <ThemeImageToolbarInner shapeId={shapeId} />;
+}
+
+function ThemeImageToolbarInner({ shapeId }: { shapeId: TLShapeId }) {
+  const editor = useEditor();
+  const msg = useTranslation();
+  const camera = useValue("camera", () => editor.getCamera(), [editor]);
+  const previousSelectionBounds = useRef<Box | undefined>();
+
+  useEffect(() => {
+    previousSelectionBounds.current = undefined;
+  }, [camera]);
+
+  const getSelectionBounds = useCallback(() => {
+    if (previousSelectionBounds.current) {
+      return previousSelectionBounds.current;
+    }
+    const fullBounds = editor.getSelectionScreenBounds();
+    if (!fullBounds) return undefined;
+    const bounds = new Box(fullBounds.x, fullBounds.y, fullBounds.width, 0);
+    previousSelectionBounds.current = bounds;
+    return bounds;
+  }, [editor]);
+
+  return (
+    <TldrawUiContextualToolbar
+      className="tlui-image__toolbar"
+      getSelectionBounds={getSelectionBounds}
+      label={msg("tool.image-toolbar-title")}
+    >
+      <ThemeImageToolbarContent shapeId={shapeId} />
+    </TldrawUiContextualToolbar>
+  );
+}
+
+function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
+  const editor = useEditor();
+  const msg = useTranslation();
+  const isDarkMode = useIsDarkMode();
+  const lightInputRef = useRef<HTMLInputElement>(null);
+  const darkInputRef = useRef<HTMLInputElement>(null);
+
+  const shape = useValue(
+    "shape",
+    () => editor.getShape<ThemeImageShape>(shapeId),
+    [editor, shapeId],
+  );
+
+  const altText = shape?.props.altText ?? "";
+  const lightAsset = useMemo(() => {
+    if (!shape?.props.lightAssetId) return null;
+    return editor.getAsset<TLImageAsset>(shape.props.lightAssetId as TLAssetId);
+  }, [editor, shape]);
+  const darkAsset = useMemo(() => {
+    if (!shape?.props.darkAssetId) return null;
+    return editor.getAsset<TLImageAsset>(shape.props.darkAssetId as TLAssetId);
+  }, [editor, shape]);
+
+  const handleAltChange = useCallback(
+    (next: string) => {
+      if (!shape) return;
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        props: { altText: next },
+      });
+    },
+    [editor, shape],
+  );
+
+  const handleFileChosen = useCallback(
+    async (file: File, isDark: boolean) => {
+      if (!shape) return;
+      const key = isDarkMode ? "darkSize" : "lightSize";
+      const cropKey = isDarkMode ? "darkCrop" : "lightCrop";
+      const asset = await editor.getAssetForExternalContent({
+        type: "file",
+        file,
+      });
+      if (!asset) return;
+
+      // Use natural size from the asset when replacing
+      const w =
+        "w" in asset.props
+          ? (asset.props as TLImageAsset["props"]).w
+          : shape.props.w;
+      const h =
+        "h" in asset.props
+          ? (asset.props as TLImageAsset["props"]).h
+          : shape.props.h;
+
+      editor.createAssets([asset]);
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        props: {
+          [isDark ? "darkAssetId" : "lightAssetId"]: asset.id,
+          w,
+          h,
+          [key]: {
+            w,
+            h,
+            rotation: shape.rotation,
+          },
+          [cropKey]: shape.props.crop ?? null,
+        },
+      });
+    },
+    [editor, isDarkMode, shape],
+  );
+
+  const handleDownload = useCallback(
+    async (asset: TLAsset | null | undefined) => {
+      if (!asset || asset.type !== "image") return;
+      const src = (asset.props as TLImageAsset["props"]).src;
+      if (!src) return;
+
+      const response = await fetch(src);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = asset.props.name || "image.png";
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    [],
+  );
+
+  return (
+    <div className="tlui-toolbar__row" style={{ gap: 8 }}>
+      <input
+        ref={lightInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFileChosen(file, false);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={darkInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFileChosen(file, true);
+          e.target.value = "";
+        }}
+      />
+
+      <TldrawUiButton
+        type="normal"
+        title="Upload light image"
+        onClick={() => lightInputRef.current?.click()}
+      >
+        <TldrawUiButtonIcon icon="upload" />
+        <TldrawUiButtonLabel>
+          {msg("tool.image-upload") ?? "Upload Light"}
+        </TldrawUiButtonLabel>
+      </TldrawUiButton>
+      <TldrawUiButton
+        type="normal"
+        title="Upload dark image"
+        onClick={() => darkInputRef.current?.click()}
+      >
+        <TldrawUiButtonIcon icon="upload" />
+        <TldrawUiButtonLabel>Upload Dark</TldrawUiButtonLabel>
+      </TldrawUiButton>
+
+      <div className="tlui-toolbar__divider" />
+
+      <TldrawUiButton
+        type="normal"
+        title="Download light image"
+        onClick={() => handleDownload(lightAsset)}
+        disabled={!lightAsset}
+      >
+        <TldrawUiButtonIcon icon="download" />
+        <TldrawUiButtonLabel>Download Light</TldrawUiButtonLabel>
+      </TldrawUiButton>
+      <TldrawUiButton
+        type="normal"
+        title="Download dark image"
+        onClick={() => handleDownload(darkAsset)}
+        disabled={!darkAsset}
+      >
+        <TldrawUiButtonIcon icon="download" />
+        <TldrawUiButtonLabel>Download Dark</TldrawUiButtonLabel>
+      </TldrawUiButton>
+
+      <div className="tlui-toolbar__divider" />
+
+      <TldrawUiInput
+        value={altText}
+        label="ALT"
+        onValueChange={handleAltChange}
+      />
+    </div>
+  );
+}
