@@ -97,13 +97,6 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
 
 const imageSvgExportCache = new WeakCache<TLAsset, Promise<string | null>>();
 
-function getAssetIdForTheme(shape: ThemeImageShape, isDarkMode: boolean) {
-  if (!isDarkMode) {
-    return shape.props.lightAssetId;
-  }
-  return shape.props.darkAssetId ?? shape.props.lightAssetId;
-}
-
 function getStoredSizeForTheme(
   shape: ThemeImageShape,
   isDarkMode: boolean,
@@ -313,7 +306,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
   override async toSvg(shape: ThemeImageShape, ctx: SvgExportContext) {
     const props = shape.props;
     const isDarkMode = ctx.isDarkMode ?? this.editor.user.getIsDarkMode();
-    const assetId = getAssetIdForTheme(shape, isDarkMode);
+    const assetId = isDarkMode ? props.darkAssetId : props.lightAssetId;
     if (!assetId) return null;
 
     const asset = this.editor.getAsset(assetId as TLAssetId);
@@ -442,12 +435,24 @@ const ThemeImage = memo(function ThemeImage({
   const isDarkMode = useIsDarkMode();
 
   const { w } = getUncroppedSize(shape.props, shape.props.crop);
-  const assetId = getAssetIdForTheme(shape, isDarkMode);
-  const { asset, url } = useImageOrVideoAsset({
+
+  const { asset: lightAsset, url: lightAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
-    assetId: assetId,
+    assetId: shape.props.lightAssetId,
     width: w,
   });
+  const { asset: darkAsset, url: darkAssetUrl } = useImageOrVideoAsset({
+    shapeId: shape.id,
+    assetId: shape.props.darkAssetId,
+    width: w,
+  });
+
+  const asset =
+    (isDarkMode ? darkAsset : lightAsset) ?? lightAsset ?? darkAsset;
+  const url =
+    (isDarkMode ? darkAssetUrl : lightAssetUrl) ??
+    lightAssetUrl ??
+    darkAssetUrl;
 
   // Ensure stored sizes for each theme stay in sync and restore on theme switch.
   const prevIsDarkModeRef = useRef(isDarkMode);
