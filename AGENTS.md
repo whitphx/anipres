@@ -28,6 +28,7 @@
 - Vitest unit tests live beside sources in `packages/anipres/src/*.{test,spec}.ts`.
 - Cover new behaviors with focused unit tests; prefer deterministic tests without timers or network.
 - Run `pnpm --filter anipres test` before PRs; keep tests green on CI.
+- After making changes, run `pnpm typecheck` to validate types. If the script is missing, note the failure in your summary and proceed with the available checks.
 
 ## Commit & Pull Request Guidelines
 

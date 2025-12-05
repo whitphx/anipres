@@ -25,6 +25,7 @@
   },
   "scripts": {
     "dev": "slidev",
+    "typecheck": "tsc --noEmit",
     "format": "prettier . --write",
     "lint": "eslint ."
   },
