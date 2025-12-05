@@ -44,7 +44,7 @@
     "vite-plugin-font": "^5.1.2"
   },
   "devDependencies": {
-    "@slidev/cli": "^52.8.0",
+    "@slidev/cli": "^52.10.1",
     "@slidev/client": "^52.7.0",
     "@slidev/theme-default": "^0.25.0",
     "@types/react-dom": "^18.3.0",
