@@ -128,31 +128,6 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     return true;
   }
 
-  override onBeforeUpdate(
-    prev: ThemeImageShape,
-    next: ThemeImageShape,
-  ): void | ThemeImageShape {
-    // Sync rotation -> per-theme size prop.
-    const isDarkMode = this.editor.user.getIsDarkMode();
-    const colorMode = resolveModeFallback(next, isDarkMode);
-    if (colorMode == null) {
-      return;
-    }
-
-    const sizeKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "darkDimension" : "lightDimension";
-    return {
-      ...next,
-      props: {
-        ...next.props,
-        [sizeKey]: {
-          ...next.props[sizeKey],
-          rotation: next.rotation,
-        },
-      },
-    };
-  }
-
   override getDefaultProps(): ThemeImageShape["props"] {
     return {
       w: 100,
@@ -190,6 +165,31 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
 
   override getAriaDescriptor(shape: ThemeImageShape) {
     return shape.props.altText;
+  }
+
+  override onBeforeUpdate(
+    prev: ThemeImageShape,
+    next: ThemeImageShape,
+  ): void | ThemeImageShape {
+    // Sync rotation -> per-theme size prop.
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    const colorMode = resolveModeFallback(next, isDarkMode);
+    if (colorMode == null) {
+      return;
+    }
+
+    const sizeKey: keyof ThemeImageShapeProps =
+      colorMode === "dark" ? "darkDimension" : "lightDimension";
+    return {
+      ...next,
+      props: {
+        ...next.props,
+        [sizeKey]: {
+          ...next.props[sizeKey],
+          rotation: next.rotation,
+        },
+      },
+    };
   }
 
   override onResize(
