@@ -210,7 +210,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       ...cropped,
       props: {
         ...cropped.props,
-        [cropKey]: cropped.props.crop,
+        [cropKey]: structuredClone(cropped.props.crop),
         [dimensionKey]: {
           ...shape.props[dimensionKey],
           w: cropped.props.w,
@@ -362,13 +362,16 @@ async function getDataURIFromURL(url: string): Promise<string> {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to fetch resource: ${response.status} ${response.statusText}`,
+      );
     }
     const blob = await response.blob();
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("Failed to read blob as data URL"));
+      reader.onerror = () =>
+        reject(new Error("Failed to read blob as data URL"));
       reader.readAsDataURL(blob);
     });
   } catch (error) {
