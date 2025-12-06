@@ -3,7 +3,6 @@ import {
   TLAsset,
   TLImageAsset,
   TLShapeId,
-  TLAssetId,
   TldrawUiButton,
   TldrawUiButtonIcon,
   TldrawUiButtonLabel,
@@ -106,11 +105,11 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
   const altText = shape?.props.altText ?? "";
   const lightAsset = useMemo(() => {
     if (!shape?.props.assetIdLight) return null;
-    return editor.getAsset<TLImageAsset>(shape.props.assetIdLight as TLAssetId);
+    return editor.getAsset<TLImageAsset>(shape.props.assetIdLight);
   }, [editor, shape]);
   const darkAsset = useMemo(() => {
     if (!shape?.props.assetIdDark) return null;
-    return editor.getAsset<TLImageAsset>(shape.props.assetIdDark as TLAssetId);
+    return editor.getAsset<TLImageAsset>(shape.props.assetIdDark);
   }, [editor, shape]);
 
   const handleAltChange = useCallback(
