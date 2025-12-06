@@ -9,12 +9,8 @@ import {
   SvgExportContext,
   TLAsset,
   TLAssetId,
-  TLBaseShape,
-  TLImageShapeProps,
   TLResizeInfo,
   TLShapePartial,
-  T,
-  RecordProps,
   Vec,
   WeakCache,
   getUncroppedSize,
@@ -30,11 +26,8 @@ import {
   useUniqueSafeId,
   useValue,
   usePrefersReducedMotion,
-  Validator,
   TLCropInfo,
   getCropBox,
-  TLShapeCrop,
-  ImageShapeCrop,
 } from "tldraw";
 import classNames from "classnames";
 import {
@@ -44,54 +37,12 @@ import {
   useEffect,
   useState,
 } from "react";
-
-interface ThemeDimension {
-  w: number;
-  h: number;
-  rotation: number;
-}
-
-export interface ThemeImageShapeProps
-  extends Omit<TLImageShapeProps, "assetId"> {
-  assetIdLight: TLAssetId | null;
-  assetIdDark: TLAssetId | null;
-  dimensionLight: ThemeDimension;
-  dimensionDark: ThemeDimension;
-  cropLight: TLShapeCrop | null;
-  cropDark: TLShapeCrop | null;
-}
-
-export const ThemeImageShapeType = "theme-image" as const;
-
-export type ThemeImageShape = TLBaseShape<
-  typeof ThemeImageShapeType,
-  ThemeImageShapeProps
->;
-
-export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
-  w: T.nonZeroNumber,
-  h: T.nonZeroNumber,
-  playing: T.boolean,
-  url: T.linkUrl,
-  assetIdLight: T.string.nullable() as Validator<TLAssetId | null>,
-  assetIdDark: T.string.nullable() as Validator<TLAssetId | null>,
-  dimensionLight: T.object({
-    w: T.nonZeroNumber,
-    h: T.nonZeroNumber,
-    rotation: T.number,
-  }),
-  dimensionDark: T.object({
-    w: T.nonZeroNumber,
-    h: T.nonZeroNumber,
-    rotation: T.number,
-  }),
-  crop: ImageShapeCrop.nullable(),
-  cropLight: ImageShapeCrop.nullable(),
-  cropDark: ImageShapeCrop.nullable(),
-  flipX: T.boolean,
-  flipY: T.boolean,
-  altText: T.string,
-};
+import {
+  ThemeImageShape,
+  ThemeImageShapeProps,
+  themeImageShapeType,
+  themeImageShapeProps,
+} from "./ThemeImageShape";
 
 const imageSvgExportCache = new WeakCache<TLAsset, Promise<string | null>>();
 
@@ -115,7 +66,7 @@ function resolveModeFallback(
 }
 
 export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
-  static override type = ThemeImageShapeType;
+  static override type = themeImageShapeType;
   static override props = themeImageShapeProps;
 
   override isAspectRatioLocked() {
@@ -216,7 +167,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     return resized;
   }
 
-  override onRotate(initial: ThemeImageShape, current: ThemeImageShape) {
+  override onRotate(_initial: ThemeImageShape, current: ThemeImageShape) {
     const isDarkMode = this.editor.user.getIsDarkMode();
     const colorMode = resolveModeFallback(current, isDarkMode);
     if (colorMode == null) {

@@ -16,10 +16,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
-  ThemeImageShapeType,
+  themeImageShapeType,
   type ThemeImageShape,
-} from "./ThemeImageShapeUtil";
-import { ThemeImageShapeProps } from "./ThemeImageShapeUtil";
+  type ThemeImageShapeProps,
+} from "./ThemeImageShape";
 
 interface ThemeImageToolbarProps {
   fallback?: React.ReactNode;
@@ -33,7 +33,7 @@ export function ThemeImageToolbar({ fallback }: ThemeImageToolbarProps) {
       const onlySelectedShape = editor.getOnlySelectedShape();
       if (
         !onlySelectedShape ||
-        onlySelectedShape.type !== ThemeImageShapeType
+        onlySelectedShape.type !== themeImageShapeType
       ) {
         return null;
       }
