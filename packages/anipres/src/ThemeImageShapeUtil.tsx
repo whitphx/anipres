@@ -407,7 +407,7 @@ const ThemeImage = memo(function ThemeImage({
         ? lightAssetUrl
         : null;
 
-  // Sync per-theme width, height, and rotation -> shape props.
+  // Sync per-theme width, height, rotation, and crop -> shape props.
   useEffect(() => {
     if (colorMode == null) {
       return;
