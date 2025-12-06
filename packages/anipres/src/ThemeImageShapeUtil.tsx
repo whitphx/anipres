@@ -31,6 +31,8 @@ import {
   useValue,
   usePrefersReducedMotion,
   Validator,
+  TLCropInfo,
+  getCropBox,
 } from "tldraw";
 import classNames from "classnames";
 import {
@@ -241,6 +243,31 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     };
   }
 
+  override onCrop(shape: ThemeImageShape, info: TLCropInfo<ThemeImageShape>) {
+    const cropped = getCropBox(shape, info);
+    if (cropped == null) {
+      return;
+    }
+
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    const colorMode = resolveModeFallback(shape, isDarkMode);
+
+    if (colorMode != null) {
+      const cropKey: keyof ThemeImageShapeProps =
+        colorMode === "dark" ? "darkCrop" : "lightCrop";
+      cropped.props[cropKey] = cropped.props.crop;
+
+      const dimensionKey: keyof ThemeImageShapeProps =
+        colorMode === "dark" ? "darkDimension" : "lightDimension";
+      cropped.props[dimensionKey] = {
+        ...shape.props[dimensionKey],
+        w: cropped.props.w,
+        h: cropped.props.h,
+      };
+    }
+    return cropped;
+  }
+
   component(shape: ThemeImageShape) {
     return <ThemeImage shape={shape} />;
   }
@@ -430,26 +457,26 @@ const ThemeImage = memo(function ThemeImage({
 
   // Sync per-theme width, height, and rotation -> shape props.
   useEffect(() => {
-    const size =
-      colorMode === "dark"
-        ? shape.props.darkDimension
-        : colorMode === "light"
-          ? shape.props.lightDimension
-          : null;
-    if (size == null) {
+    if (colorMode == null) {
       return;
     }
-    if (size.w !== shape.props.w || size.h !== shape.props.h) {
-      editor.updateShape({
-        id: shape.id,
-        type: shape.type,
-        rotation: size.rotation,
-        props: {
-          w: size.w,
-          h: size.h,
-        },
-      });
-    }
+    const dimension =
+      colorMode === "dark"
+        ? shape.props.darkDimension
+        : shape.props.lightDimension;
+    const crop =
+      colorMode === "dark" ? shape.props.darkCrop : shape.props.lightCrop;
+
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      rotation: dimension.rotation,
+      props: {
+        w: dimension.w,
+        h: dimension.h,
+        crop,
+      },
+    });
   }, [editor, shape, colorMode]);
 
   const prefersReducedMotion = usePrefersReducedMotion();
