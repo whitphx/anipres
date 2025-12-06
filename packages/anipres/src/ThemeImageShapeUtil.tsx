@@ -178,14 +178,14 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       return;
     }
 
-    const sizeKey: keyof ThemeImageShapeProps =
+    const dimensionKey: keyof ThemeImageShapeProps =
       colorMode === "dark" ? "darkDimension" : "lightDimension";
     return {
       ...next,
       props: {
         ...next.props,
-        [sizeKey]: {
-          ...next.props[sizeKey],
+        [dimensionKey]: {
+          ...next.props[dimensionKey],
           rotation: next.rotation,
         },
       },
