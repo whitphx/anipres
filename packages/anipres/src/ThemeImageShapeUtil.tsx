@@ -253,7 +253,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     const assetId = isDarkMode ? props.assetIdDark : props.assetIdLight;
     if (!assetId) return null;
 
-    const asset = this.editor.getAsset(assetId as TLAssetId);
+    const asset = this.editor.getAsset(assetId);
     if (!asset) return null;
 
     const { w } = getUncroppedSize(shape.props, props.crop);
