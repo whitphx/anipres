@@ -1,12 +1,11 @@
-import {
+import { T, ImageShapeCrop } from "tldraw";
+import type {
   TLAssetId,
   TLBaseShape,
   TLImageShapeProps,
-  T,
   RecordProps,
   Validator,
   TLShapeCrop,
-  ImageShapeCrop,
 } from "tldraw";
 
 export interface ThemeDimension {
