@@ -359,14 +359,22 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
 }
 
 async function getDataURIFromURL(url: string): Promise<string> {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to read blob as data URL"));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    // Optionally, you can log the error here
+    throw new Error(`Error in getDataURIFromURL: ${(error as Error).message}`);
+  }
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
