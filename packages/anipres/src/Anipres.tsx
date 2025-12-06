@@ -162,7 +162,7 @@ const makeUiOverrides = ({
       };
       tools[ThemeImageShapeTool.id] = {
         id: ThemeImageShapeTool.id,
-        icon: "asset",
+        icon: "tool-media",
         label: "Theme Image",
         onSelect: () => editor.setCurrentTool(ThemeImageShapeTool.id),
       };
