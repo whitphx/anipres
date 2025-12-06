@@ -33,6 +33,8 @@ import {
   Validator,
   TLCropInfo,
   getCropBox,
+  TLShapeCrop,
+  ImageShapeCrop,
 } from "tldraw";
 import classNames from "classnames";
 import {
@@ -43,26 +45,20 @@ import {
   useState,
 } from "react";
 
-const ThemeImageShapeCrop = T.object({
-  topLeft: T.object({
-    x: T.number,
-    y: T.number,
-  }),
-  bottomRight: T.object({
-    x: T.number,
-    y: T.number,
-  }),
-  isCircle: T.boolean.optional(),
-});
+interface ThemeDimension {
+  w: number;
+  h: number;
+  rotation: number;
+}
 
 export interface ThemeImageShapeProps
   extends Omit<TLImageShapeProps, "assetId"> {
   lightAssetId: TLAssetId | null;
   darkAssetId: TLAssetId | null;
-  lightDimension: { w: number; h: number; rotation: number };
-  darkDimension: { w: number; h: number; rotation: number };
-  lightCrop: ThemeImageShapeCrop["value"] | null;
-  darkCrop: ThemeImageShapeCrop["value"] | null;
+  lightDimension: ThemeDimension;
+  darkDimension: ThemeDimension;
+  lightCrop: TLShapeCrop | null;
+  darkCrop: TLShapeCrop | null;
 }
 
 export const ThemeImageShapeType = "theme-image" as const;
@@ -89,9 +85,9 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
     h: T.nonZeroNumber,
     rotation: T.number,
   }),
-  lightCrop: ThemeImageShapeCrop.nullable(),
-  darkCrop: ThemeImageShapeCrop.nullable(),
-  crop: ThemeImageShapeCrop.nullable(),
+  crop: ImageShapeCrop.nullable(),
+  lightCrop: ImageShapeCrop.nullable(),
+  darkCrop: ImageShapeCrop.nullable(),
   flipX: T.boolean,
   flipY: T.boolean,
   altText: T.string,
