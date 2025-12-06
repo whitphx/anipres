@@ -562,7 +562,7 @@ const ThemeImage = memo(function ThemeImage({
 });
 
 function getIsAnimated(editor: Editor, assetId: TLAssetId) {
-  const asset = assetId ? editor.getAsset(assetId as TLAssetId) : undefined;
+  const asset = editor.getAsset(assetId);
 
   if (!asset) return false;
 
