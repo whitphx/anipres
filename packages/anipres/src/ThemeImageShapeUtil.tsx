@@ -512,7 +512,7 @@ const ThemeImage = memo(function ThemeImage({
             src={loadedSrc}
             referrerPolicy="strict-origin-when-cross-origin"
             draggable={false}
-            alt=""
+            alt="crop preview"
           />
         </div>
       )}
@@ -538,7 +538,7 @@ const ThemeImage = memo(function ThemeImage({
               src={loadedSrc}
               referrerPolicy="strict-origin-when-cross-origin"
               draggable={false}
-              alt=""
+              alt={shape.props.altText}
             />
           )}
           {nextSrc && (
