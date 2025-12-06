@@ -53,12 +53,12 @@ interface ThemeDimension {
 
 export interface ThemeImageShapeProps
   extends Omit<TLImageShapeProps, "assetId"> {
-  lightAssetId: TLAssetId | null;
-  darkAssetId: TLAssetId | null;
-  lightDimension: ThemeDimension;
-  darkDimension: ThemeDimension;
-  lightCrop: TLShapeCrop | null;
-  darkCrop: TLShapeCrop | null;
+  assetIdLight: TLAssetId | null;
+  assetIdDark: TLAssetId | null;
+  dimensionLight: ThemeDimension;
+  dimensionDark: ThemeDimension;
+  cropLight: TLShapeCrop | null;
+  cropDark: TLShapeCrop | null;
 }
 
 export const ThemeImageShapeType = "theme-image" as const;
@@ -73,21 +73,21 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
   h: T.nonZeroNumber,
   playing: T.boolean,
   url: T.linkUrl,
-  lightAssetId: T.string.nullable() as Validator<TLAssetId | null>,
-  darkAssetId: T.string.nullable() as Validator<TLAssetId | null>,
-  lightDimension: T.object({
+  assetIdLight: T.string.nullable() as Validator<TLAssetId | null>,
+  assetIdDark: T.string.nullable() as Validator<TLAssetId | null>,
+  dimensionLight: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
     rotation: T.number,
   }),
-  darkDimension: T.object({
+  dimensionDark: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
     rotation: T.number,
   }),
   crop: ImageShapeCrop.nullable(),
-  lightCrop: ImageShapeCrop.nullable(),
-  darkCrop: ImageShapeCrop.nullable(),
+  cropLight: ImageShapeCrop.nullable(),
+  cropDark: ImageShapeCrop.nullable(),
   flipX: T.boolean,
   flipY: T.boolean,
   altText: T.string,
@@ -99,16 +99,16 @@ function resolveModeFallback(
   shape: ThemeImageShape,
   isDarkMode: boolean,
 ): "dark" | "light" | null {
-  if (isDarkMode && shape.props.darkAssetId != null) {
+  if (isDarkMode && shape.props.assetIdDark != null) {
     return "dark";
   }
-  if (!isDarkMode && shape.props.lightAssetId != null) {
+  if (!isDarkMode && shape.props.assetIdLight != null) {
     return "light";
   }
-  if (shape.props.lightAssetId != null) {
+  if (shape.props.assetIdLight != null) {
     return "light";
   }
-  if (shape.props.darkAssetId != null) {
+  if (shape.props.assetIdDark != null) {
     return "dark";
   }
   return null;
@@ -130,18 +130,18 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     return {
       w: 100,
       h: 100,
-      lightAssetId: null,
-      darkAssetId: null,
+      assetIdLight: null,
+      assetIdDark: null,
       playing: true,
       url: "",
       crop: null,
       flipX: false,
       flipY: false,
       altText: "",
-      lightDimension: { w: 100, h: 100, rotation: 0 },
-      darkDimension: { w: 100, h: 100, rotation: 0 },
-      lightCrop: null,
-      darkCrop: null,
+      dimensionLight: { w: 100, h: 100, rotation: 0 },
+      dimensionDark: { w: 100, h: 100, rotation: 0 },
+      cropLight: null,
+      cropDark: null,
     };
   }
 
@@ -185,7 +185,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       },
     };
     if (colorMode != null) {
-      resized.props[colorMode === "dark" ? "darkDimension" : "lightDimension"] =
+      resized.props[colorMode === "dark" ? "dimensionDark" : "dimensionLight"] =
         {
           w: resized.props.w,
           h: resized.props.h,
@@ -225,7 +225,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
 
     // Sync rotation -> per-theme dimension prop.
     const dimensionKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "darkDimension" : "lightDimension";
+      colorMode === "dark" ? "dimensionDark" : "dimensionLight";
     return {
       ...current,
       props: {
@@ -252,9 +252,9 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     }
 
     const cropKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "darkCrop" : "lightCrop";
+      colorMode === "dark" ? "cropDark" : "cropLight";
     const dimensionKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "darkDimension" : "lightDimension";
+      colorMode === "dark" ? "dimensionDark" : "dimensionLight";
     return {
       ...cropped,
       props: {
@@ -299,7 +299,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
   override async toSvg(shape: ThemeImageShape, ctx: SvgExportContext) {
     const props = shape.props;
     const isDarkMode = ctx.isDarkMode ?? this.editor.user.getIsDarkMode();
-    const assetId = isDarkMode ? props.darkAssetId : props.lightAssetId;
+    const assetId = isDarkMode ? props.assetIdDark : props.assetIdLight;
     if (!assetId) return null;
 
     const asset = this.editor.getAsset(assetId as TLAssetId);
@@ -432,12 +432,12 @@ const ThemeImage = memo(function ThemeImage({
   // Pre-load both assets to avoid delay when switching themes
   const { asset: lightAsset, url: lightAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
-    assetId: shape.props.lightAssetId,
+    assetId: shape.props.assetIdLight,
     width: w,
   });
   const { asset: darkAsset, url: darkAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
-    assetId: shape.props.darkAssetId,
+    assetId: shape.props.assetIdDark,
     width: w,
   });
 
@@ -463,10 +463,10 @@ const ThemeImage = memo(function ThemeImage({
     }
     const dimension =
       colorMode === "dark"
-        ? shape.props.darkDimension
-        : shape.props.lightDimension;
+        ? shape.props.dimensionDark
+        : shape.props.dimensionLight;
     const crop =
-      colorMode === "dark" ? shape.props.darkCrop : shape.props.lightCrop;
+      colorMode === "dark" ? shape.props.cropDark : shape.props.cropLight;
 
     editor.updateShape({
       id: shape.id,

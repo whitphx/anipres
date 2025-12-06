@@ -105,12 +105,12 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
 
   const altText = shape?.props.altText ?? "";
   const lightAsset = useMemo(() => {
-    if (!shape?.props.lightAssetId) return null;
-    return editor.getAsset<TLImageAsset>(shape.props.lightAssetId as TLAssetId);
+    if (!shape?.props.assetIdLight) return null;
+    return editor.getAsset<TLImageAsset>(shape.props.assetIdLight as TLAssetId);
   }, [editor, shape]);
   const darkAsset = useMemo(() => {
-    if (!shape?.props.darkAssetId) return null;
-    return editor.getAsset<TLImageAsset>(shape.props.darkAssetId as TLAssetId);
+    if (!shape?.props.assetIdDark) return null;
+    return editor.getAsset<TLImageAsset>(shape.props.assetIdDark as TLAssetId);
   }, [editor, shape]);
 
   const handleAltChange = useCallback(
@@ -147,11 +147,14 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
       editor.createAssets([asset]);
 
       const assetKey: keyof ThemeImageShapeProps = isDark
-        ? "darkAssetId"
-        : "lightAssetId";
+        ? "assetIdDark"
+        : "assetIdLight";
       const dimensionKey: keyof ThemeImageShapeProps = isDark
-        ? "darkDimension"
-        : "lightDimension";
+        ? "dimensionDark"
+        : "dimensionLight";
+      const cropKey: keyof ThemeImageShapeProps = isDark
+        ? "cropDark"
+        : "cropLight";
       editor.updateShape({
         id: shape.id,
         type: shape.type,
@@ -162,7 +165,7 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
             h,
             rotation: shape.rotation,
           },
-          // [cropKey]: shape.props.crop ?? null,
+          [cropKey]: null,
         },
       });
     },
