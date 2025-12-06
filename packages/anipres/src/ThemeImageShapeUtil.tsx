@@ -167,31 +167,6 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     return shape.props.altText;
   }
 
-  override onBeforeUpdate(
-    prev: ThemeImageShape,
-    next: ThemeImageShape,
-  ): void | ThemeImageShape {
-    // Sync rotation -> per-theme size prop.
-    const isDarkMode = this.editor.user.getIsDarkMode();
-    const colorMode = resolveModeFallback(next, isDarkMode);
-    if (colorMode == null) {
-      return;
-    }
-
-    const dimensionKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "darkDimension" : "lightDimension";
-    return {
-      ...next,
-      props: {
-        ...next.props,
-        [dimensionKey]: {
-          ...next.props[dimensionKey],
-          rotation: next.rotation,
-        },
-      },
-    };
-  }
-
   override onResize(
     shape: ThemeImageShape,
     info: TLResizeInfo<ThemeImageShape>,
@@ -200,7 +175,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     const { flipX, flipY } = info.initialShape.props;
     const { scaleX, scaleY, mode } = info;
 
-    // Sync width and height -> per-theme size prop.
+    // Sync width and height -> per-theme dimension prop.
     const isDarkMode = this.editor.user.getIsDarkMode();
     const colorMode = resolveModeFallback(shape, isDarkMode);
     resized = {
@@ -241,6 +216,29 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       isCircle: shape.props.crop.isCircle,
     };
     return resized;
+  }
+
+  override onRotate(initial: ThemeImageShape, current: ThemeImageShape) {
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    const colorMode = resolveModeFallback(current, isDarkMode);
+    if (colorMode == null) {
+      return;
+    }
+
+    // Sync rotation -> per-theme dimension prop.
+    const dimensionKey: keyof ThemeImageShapeProps =
+      colorMode === "dark" ? "darkDimension" : "lightDimension";
+    return {
+      ...current,
+      props: {
+        ...current.props,
+        [dimensionKey]: {
+          w: current.props[dimensionKey]?.w ?? current.props.w,
+          h: current.props[dimensionKey]?.h ?? current.props.h,
+          rotation: current.rotation,
+        },
+      },
+    };
   }
 
   component(shape: ThemeImageShape) {
