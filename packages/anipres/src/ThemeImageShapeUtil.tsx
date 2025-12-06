@@ -251,21 +251,26 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
 
     const isDarkMode = this.editor.user.getIsDarkMode();
     const colorMode = resolveModeFallback(shape, isDarkMode);
-
-    if (colorMode != null) {
-      const cropKey: keyof ThemeImageShapeProps =
-        colorMode === "dark" ? "darkCrop" : "lightCrop";
-      cropped.props[cropKey] = cropped.props.crop;
-
-      const dimensionKey: keyof ThemeImageShapeProps =
-        colorMode === "dark" ? "darkDimension" : "lightDimension";
-      cropped.props[dimensionKey] = {
-        ...shape.props[dimensionKey],
-        w: cropped.props.w,
-        h: cropped.props.h,
-      };
+    if (colorMode == null) {
+      return;
     }
-    return cropped;
+
+    const cropKey: keyof ThemeImageShapeProps =
+      colorMode === "dark" ? "darkCrop" : "lightCrop";
+    const dimensionKey: keyof ThemeImageShapeProps =
+      colorMode === "dark" ? "darkDimension" : "lightDimension";
+    return {
+      ...cropped,
+      props: {
+        ...cropped.props,
+        [cropKey]: cropped.props.crop,
+        [dimensionKey]: {
+          ...shape.props[dimensionKey],
+          w: cropped.props.w,
+          h: cropped.props.h,
+        },
+      },
+    };
   }
 
   component(shape: ThemeImageShape) {
