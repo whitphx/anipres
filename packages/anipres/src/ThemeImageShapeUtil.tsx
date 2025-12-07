@@ -111,7 +111,7 @@ function setThemeProps(
   const newDimension: Partial<ThemeDimension> = {
     ...current.props[dimensionKey],
   };
-  if (updates.w) {
+  if (updates.w != null) {
     newDimension.w = updates.w;
     isDimensionChanged = true;
   }
@@ -119,7 +119,7 @@ function setThemeProps(
     newDimension.h = updates.h;
     isDimensionChanged = true;
   }
-  if (updates.rotation) {
+  if (updates.rotation != null) {
     newDimension.rotation = updates.rotation;
     isDimensionChanged = true;
   }
@@ -205,6 +205,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
         w: resized.props.w,
         h: resized.props.h,
         rotation: resized.rotation,
+        crop: resized.props.crop,
       }),
     };
     if (!shape.props.crop) return resized;
