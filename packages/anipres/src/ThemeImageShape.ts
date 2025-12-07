@@ -11,7 +11,6 @@ import type {
 export interface ThemeDimension {
   w: number;
   h: number;
-  rotation: number;
 }
 
 export interface ThemeImageShapeProps
@@ -41,12 +40,10 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
   dimensionLight: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
-    rotation: T.number,
   }),
   dimensionDark: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,
-    rotation: T.number,
   }),
   crop: ImageShapeCrop.nullable(),
   cropLight: ImageShapeCrop.nullable(),

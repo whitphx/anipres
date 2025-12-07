@@ -162,7 +162,6 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
           [dimensionKey]: {
             w,
             h,
-            rotation: shape.rotation,
           },
           [cropKey]: null,
         },
