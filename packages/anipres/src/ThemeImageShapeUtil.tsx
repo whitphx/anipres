@@ -70,18 +70,25 @@ function resolveModeFallback(
 function getThemeProps(
   current: ThemeImageShape,
   isDarkMode: boolean,
-): { dimension: ThemeDimension; crop: TLShapeCrop | null } | null {
+): {
+  assetId: TLAssetId | null;
+  dimension: ThemeDimension;
+  crop: TLShapeCrop | null;
+} | null {
   const colorMode = resolveModeFallback(current, isDarkMode);
   if (colorMode == null) {
     return null;
   }
 
+  const assetIdKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "assetIdDark" : "assetIdLight";
   const dimensionKey: keyof ThemeImageShapeProps =
     colorMode === "dark" ? "dimensionDark" : "dimensionLight";
   const cropKey: keyof ThemeImageShapeProps =
     colorMode === "dark" ? "cropDark" : "cropLight";
 
   return {
+    assetId: current.props[assetIdKey],
     dimension: current.props[dimensionKey],
     crop: current.props[cropKey],
   };
@@ -280,15 +287,19 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
   }
 
   override async toSvg(shape: ThemeImageShape, ctx: SvgExportContext) {
-    const props = shape.props;
     const isDarkMode = ctx.isDarkMode ?? this.editor.user.getIsDarkMode();
-    const assetId = isDarkMode ? props.assetIdDark : props.assetIdLight;
+    const themeProps = getThemeProps(shape, isDarkMode);
+    if (themeProps == null) {
+      return null;
+    }
+
+    const assetId = themeProps.assetId;
     if (!assetId) return null;
 
     const asset = this.editor.getAsset(assetId);
     if (!asset) return null;
 
-    const { w } = getUncroppedSize(shape.props, props.crop);
+    const { w } = getUncroppedSize(themeProps.dimension, themeProps.crop);
 
     const src = await imageSvgExportCache.get(asset, async () => {
       let src = await ctx.resolveAssetUrl(asset.id, w);
@@ -429,22 +440,28 @@ const ThemeImage = memo(function ThemeImage({
   shape: ThemeImageShape;
 }) {
   const editor = useEditor();
-  const isDarkMode = useIsDarkMode();
-
-  const { w } = getUncroppedSize(shape.props, shape.props.crop);
 
   // Pre-load both assets to avoid delay when switching themes
+  const { w: lightW } = getUncroppedSize(
+    shape.props.dimensionLight,
+    shape.props.cropLight,
+  );
   const { asset: lightAsset, url: lightAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
     assetId: shape.props.assetIdLight,
-    width: w,
+    width: lightW,
   });
+  const { w: darkW } = getUncroppedSize(
+    shape.props.dimensionDark,
+    shape.props.cropDark,
+  );
   const { asset: darkAsset, url: darkAssetUrl } = useImageOrVideoAsset({
     shapeId: shape.id,
     assetId: shape.props.assetIdDark,
-    width: w,
+    width: darkW,
   });
 
+  const isDarkMode = useIsDarkMode();
   const colorMode = resolveModeFallback(shape, isDarkMode);
 
   const asset =
