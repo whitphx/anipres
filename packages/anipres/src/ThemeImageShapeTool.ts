@@ -1,9 +1,9 @@
 import { BaseBoxShapeTool } from "tldraw";
 
-import { themeImageShapeType } from "./ThemeImageShape";
+import { ThemeImageShapeType } from "./ThemeImageShape";
 
 export class ThemeImageShapeTool extends BaseBoxShapeTool {
-  static override readonly id = themeImageShapeType;
+  static override readonly id = ThemeImageShapeType;
   static override initial = "idle";
-  override shapeType = themeImageShapeType;
+  override shapeType = ThemeImageShapeType;
 }

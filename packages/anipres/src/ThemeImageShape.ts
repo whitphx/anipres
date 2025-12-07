@@ -23,10 +23,10 @@ export interface ThemeImageShapeProps
   cropDark: TLShapeCrop | null;
 }
 
-export const themeImageShapeType = "theme-image" as const;
+export const ThemeImageShapeType = "theme-image" as const;
 
 export type ThemeImageShape = TLBaseShape<
-  typeof themeImageShapeType,
+  typeof ThemeImageShapeType,
   ThemeImageShapeProps
 >;
 
