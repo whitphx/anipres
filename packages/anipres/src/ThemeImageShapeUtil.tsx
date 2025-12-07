@@ -243,6 +243,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     return {
       ...current,
       props: {
+        ...current.props,
         ...setThemeProps(current, isDarkMode, { rotation: current.rotation }),
       },
     };
