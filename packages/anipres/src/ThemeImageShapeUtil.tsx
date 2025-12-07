@@ -494,16 +494,38 @@ const ThemeImage = memo(function ThemeImage({
         : shape.props.dimensionLight;
     const crop =
       colorMode === "dark" ? shape.props.cropDark : shape.props.cropLight;
+    // Only update if values actually differ
+    const currentRotation = shape.rotation;
+    const currentW = shape.props.w;
+    const currentH = shape.props.h;
+    const currentCrop = shape.props.crop;
+
+    const cropIsEqual =
+      (currentCrop === crop) ||
+      (currentCrop &&
+        crop &&
+        Object.keys(crop).length === Object.keys(currentCrop).length &&
+        Object.keys(crop).every(
+          (key) => crop[key as keyof typeof crop] === currentCrop[key as keyof typeof currentCrop]
+        ));
 
     if (
-      shape.rotation === dimension.rotation &&
-      shape.props.w === dimension.w &&
-      shape.props.h === dimension.h &&
-      JSON.stringify(shape.props.crop) === JSON.stringify(crop)
+      currentRotation !== dimension.rotation ||
+      currentW !== dimension.w ||
+      currentH !== dimension.h ||
+      !cropIsEqual
     ) {
-      return;
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        rotation: dimension.rotation,
+        props: {
+          w: dimension.w,
+          h: dimension.h,
+          crop,
+        },
+      });
     }
-    editor.updateShape({
       id: shape.id,
       type: shape.type,
       rotation: dimension.rotation,
