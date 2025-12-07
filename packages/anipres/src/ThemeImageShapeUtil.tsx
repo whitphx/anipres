@@ -492,6 +492,14 @@ const ThemeImage = memo(function ThemeImage({
     const crop =
       colorMode === "dark" ? shape.props.cropDark : shape.props.cropLight;
 
+    if (
+      shape.rotation === dimension.rotation &&
+      shape.props.w === dimension.w &&
+      shape.props.h === dimension.h &&
+      JSON.stringify(shape.props.crop) === JSON.stringify(crop)
+    ) {
+      return;
+    }
     editor.updateShape({
       id: shape.id,
       type: shape.type,
