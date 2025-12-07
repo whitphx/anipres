@@ -480,12 +480,12 @@ const ThemeImage = memo(function ThemeImage({
       currentCrop === crop ||
       (currentCrop &&
         crop &&
-        Object.keys(crop).length === Object.keys(currentCrop).length &&
-        Object.keys(crop).every(
-          (key) =>
-            crop[key as keyof typeof crop] ===
-            currentCrop[key as keyof typeof currentCrop],
-        ));
+        currentCrop.topLeft.x === crop.topLeft.x &&
+        currentCrop.topLeft.y === crop.topLeft.y &&
+        currentCrop.bottomRight.x === crop.bottomRight.x &&
+        currentCrop.bottomRight.y === crop.bottomRight.y &&
+        currentCrop.isCircle === crop.isCircle) ||
+      (!currentCrop && !crop);
 
     if (currentW !== dimension.w || currentH !== dimension.h || !cropIsEqual) {
       editor.updateShape({
