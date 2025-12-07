@@ -501,12 +501,14 @@ const ThemeImage = memo(function ThemeImage({
     const currentCrop = shape.props.crop;
 
     const cropIsEqual =
-      (currentCrop === crop) ||
+      currentCrop === crop ||
       (currentCrop &&
         crop &&
         Object.keys(crop).length === Object.keys(currentCrop).length &&
         Object.keys(crop).every(
-          (key) => crop[key as keyof typeof crop] === currentCrop[key as keyof typeof currentCrop]
+          (key) =>
+            crop[key as keyof typeof crop] ===
+            currentCrop[key as keyof typeof currentCrop],
         ));
 
     if (
@@ -526,15 +528,6 @@ const ThemeImage = memo(function ThemeImage({
         },
       });
     }
-      id: shape.id,
-      type: shape.type,
-      rotation: dimension.rotation,
-      props: {
-        w: dimension.w,
-        h: dimension.h,
-        crop,
-      },
-    });
   }, [editor, shape, colorMode]);
 
   const prefersReducedMotion = usePrefersReducedMotion();
