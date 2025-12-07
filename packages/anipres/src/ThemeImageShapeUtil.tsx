@@ -409,6 +409,10 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
           x: lerp(startBR.x, endBR.x, t),
           y: lerp(startBR.y, endBR.y, t),
         },
+        isCircle:
+          startShape.props.crop?.isCircle ??
+          endShape.props.crop?.isCircle ??
+          false,
       };
     }
 
