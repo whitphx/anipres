@@ -854,7 +854,7 @@ function getFirstFrameOfAnimatedImage(url: string) {
 
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        reject("Could not get canvas context");
+        reject(new Error("Could not get canvas context"));
         return;
       }
 
