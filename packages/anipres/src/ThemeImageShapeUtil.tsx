@@ -126,7 +126,7 @@ function setThemeProps(
 
   return {
     ...(isDimensionChanged ? { [dimensionKey]: newDimension } : {}),
-    ...(updates.crop ? { [cropKey]: updates.crop } : {}),
+    ...("crop" in updates ? { [cropKey]: updates.crop ?? null } : {}),
   };
 }
 
