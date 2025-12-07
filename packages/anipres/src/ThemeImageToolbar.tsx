@@ -204,6 +204,7 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
         type="file"
         accept="image/*"
         style={{ display: "none" }}
+        aria-label="Upload light image"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) handleFileChosen(file, false);
@@ -215,6 +216,7 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
         type="file"
         accept="image/*"
         style={{ display: "none" }}
+        aria-label="Upload dark image"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) handleFileChosen(file, true);
@@ -238,7 +240,9 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
         onClick={() => darkInputRef.current?.click()}
       >
         <TldrawUiButtonIcon icon="upload" />
-        <TldrawUiButtonLabel>Upload Dark</TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>
+          {msg("tool.image-upload-dark") ?? "Upload Dark"}
+        </TldrawUiButtonLabel>
       </TldrawUiButton>
 
       <div className="tlui-toolbar__divider" />
