@@ -838,7 +838,7 @@ function HyperlinkButton({ url }: { url: string }) {
 function getFirstFrameOfAnimatedImage(url: string) {
   let cancelled = false;
 
-  const promise = new Promise<string>((resolve) => {
+  const promise = new Promise<string>((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
       if (cancelled) return;
@@ -848,7 +848,10 @@ function getFirstFrameOfAnimatedImage(url: string) {
       canvas.height = image.height;
 
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) {
+        reject("Could not get canvas context");
+        return;
+      }
 
       ctx.drawImage(image, 0, 0);
       resolve(canvas.toDataURL());
