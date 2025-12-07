@@ -177,14 +177,22 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
       const src = (asset.props as TLImageAsset["props"]).src;
       if (!src) return;
 
-      const response = await fetch(src);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = asset.props.name || "image.png";
-      a.click();
-      URL.revokeObjectURL(url);
+      try {
+        const response = await fetch(src);
+        if (!response.ok) {
+          console.error("Failed to download image:", response.statusText);
+          return;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = asset.props.name || "image.png";
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error("Failed to download image:", error);
+      }
     },
     [],
   );
