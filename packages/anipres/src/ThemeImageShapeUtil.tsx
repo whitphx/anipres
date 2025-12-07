@@ -121,7 +121,7 @@ function setThemeProps(
     newDimension.w = updates.w;
     isDimensionChanged = true;
   }
-  if (updates.h) {
+  if (updates.h != null) {
     newDimension.h = updates.h;
     isDimensionChanged = true;
   }
