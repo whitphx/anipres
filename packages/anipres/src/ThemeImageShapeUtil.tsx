@@ -28,6 +28,7 @@ import {
   usePrefersReducedMotion,
   TLCropInfo,
   getCropBox,
+  TLShapeCrop,
 } from "tldraw";
 import classNames from "classnames";
 import {
@@ -42,6 +43,7 @@ import {
   ThemeImageShapeProps,
   themeImageShapeType,
   themeImageShapeProps,
+  ThemeDimension,
 } from "./ThemeImageShape";
 
 const imageSvgExportCache = new WeakCache<TLAsset, Promise<string | null>>();
@@ -63,6 +65,69 @@ function resolveModeFallback(
     return "dark";
   }
   return null;
+}
+
+function getThemeProps(
+  current: ThemeImageShape,
+  isDarkMode: boolean,
+): { dimension: ThemeDimension; crop: TLShapeCrop | null } | null {
+  const colorMode = resolveModeFallback(current, isDarkMode);
+  if (colorMode == null) {
+    return null;
+  }
+
+  const dimensionKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "dimensionDark" : "dimensionLight";
+  const cropKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "cropDark" : "cropLight";
+
+  return {
+    dimension: current.props[dimensionKey],
+    crop: current.props[cropKey],
+  };
+}
+
+function setThemeProps(
+  current: ThemeImageShape,
+  isDarkMode: boolean,
+  updates: {
+    w?: number;
+    h?: number;
+    rotation?: number;
+    crop?: TLShapeCrop | null;
+  },
+): TLShapePartial<ThemeImageShape>["props"] | null {
+  const colorMode = resolveModeFallback(current, isDarkMode);
+  if (colorMode == null) {
+    return null;
+  }
+
+  const dimensionKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "dimensionDark" : "dimensionLight";
+  const cropKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "cropDark" : "cropLight";
+
+  let isDimensionChanged = false;
+  const newDimension: Partial<ThemeDimension> = {
+    ...current.props[dimensionKey],
+  };
+  if (updates.w) {
+    newDimension.w = updates.w;
+    isDimensionChanged = true;
+  }
+  if (updates.h) {
+    newDimension.h = updates.h;
+    isDimensionChanged = true;
+  }
+  if (updates.rotation) {
+    newDimension.rotation = updates.rotation;
+    isDimensionChanged = true;
+  }
+
+  return {
+    ...(isDimensionChanged ? { [dimensionKey]: newDimension } : {}),
+    ...(updates.crop ? { [cropKey]: updates.crop } : {}),
+  };
 }
 
 export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
@@ -124,9 +189,6 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     const { flipX, flipY } = info.initialShape.props;
     const { scaleX, scaleY, mode } = info;
 
-    // Sync width and height -> per-theme dimension prop.
-    const isDarkMode = this.editor.user.getIsDarkMode();
-    const colorMode = resolveModeFallback(shape, isDarkMode);
     resized = {
       ...resized,
       props: {
@@ -135,14 +197,16 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
         flipY: scaleY < 0 !== flipY,
       },
     };
-    if (colorMode != null) {
-      resized.props[colorMode === "dark" ? "dimensionDark" : "dimensionLight"] =
-        {
-          w: resized.props.w,
-          h: resized.props.h,
-          rotation: resized.rotation,
-        };
-    }
+    // Sync width and height -> per-theme dimension prop.
+    const isDarkMode = this.editor.user.getIsDarkMode();
+    resized.props = {
+      ...resized.props,
+      ...setThemeProps(shape, isDarkMode, {
+        w: resized.props.w,
+        h: resized.props.h,
+        rotation: resized.rotation,
+      }),
+    };
     if (!shape.props.crop) return resized;
 
     const flipCropHorizontally =
@@ -169,23 +233,16 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
 
   override onRotate(_initial: ThemeImageShape, current: ThemeImageShape) {
     const isDarkMode = this.editor.user.getIsDarkMode();
-    const colorMode = resolveModeFallback(current, isDarkMode);
-    if (colorMode == null) {
+    const themeProps = getThemeProps(current, isDarkMode);
+    if (!themeProps) {
       return;
     }
 
     // Sync rotation -> per-theme dimension prop.
-    const dimensionKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "dimensionDark" : "dimensionLight";
     return {
       ...current,
       props: {
-        ...current.props,
-        [dimensionKey]: {
-          w: current.props[dimensionKey]?.w ?? current.props.w,
-          h: current.props[dimensionKey]?.h ?? current.props.h,
-          rotation: current.rotation,
-        },
+        ...setThemeProps(current, isDarkMode, { rotation: current.rotation }),
       },
     };
   }
@@ -197,25 +254,21 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
     }
 
     const isDarkMode = this.editor.user.getIsDarkMode();
-    const colorMode = resolveModeFallback(shape, isDarkMode);
-    if (colorMode == null) {
+
+    const themeProps = getThemeProps(shape, isDarkMode);
+    if (!themeProps) {
       return;
     }
 
-    const cropKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "cropDark" : "cropLight";
-    const dimensionKey: keyof ThemeImageShapeProps =
-      colorMode === "dark" ? "dimensionDark" : "dimensionLight";
     return {
       ...cropped,
       props: {
         ...cropped.props,
-        [cropKey]: structuredClone(cropped.props.crop),
-        [dimensionKey]: {
-          ...shape.props[dimensionKey],
+        ...setThemeProps(shape, isDarkMode, {
           w: cropped.props.w,
           h: cropped.props.h,
-        },
+          crop: cropped.props.crop,
+        }),
       },
     };
   }
@@ -290,15 +343,22 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       return;
     }
 
-    const crop = structuredClone(props.crop) || {
+    const isDarkMode = this.editor.user.getIsDarkMode();
+
+    const themeProps = getThemeProps(shape, isDarkMode);
+    if (!themeProps) {
+      return;
+    }
+
+    const crop = structuredClone(themeProps.crop) || {
       topLeft: { x: 0, y: 0 },
       bottomRight: { x: 1, y: 1 },
     };
 
-    const { w, h } = getUncroppedSize(shape.props, crop);
+    const { w, h } = getUncroppedSize(themeProps.dimension, crop);
 
     const pointDelta = new Vec(crop.topLeft.x * w, crop.topLeft.y * h).rot(
-      shape.rotation,
+      themeProps.dimension.rotation,
     );
 
     const partial: TLShapePartial<ThemeImageShape> = {
@@ -307,12 +367,14 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       x: shape.x - pointDelta.x,
       y: shape.y - pointDelta.y,
       props: {
-        crop: {
-          topLeft: { x: 0, y: 0 },
-          bottomRight: { x: 1, y: 1 },
-        },
-        w,
-        h,
+        ...setThemeProps(shape, isDarkMode, {
+          w,
+          h,
+          crop: {
+            topLeft: { x: 0, y: 0 },
+            bottomRight: { x: 1, y: 1 },
+          },
+        }),
       },
     };
 
