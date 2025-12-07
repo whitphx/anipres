@@ -337,9 +337,6 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
   }
 
   override onDoubleClickEdge(shape: ThemeImageShape) {
-    const props = shape.props;
-    if (!props) return;
-
     if (this.editor.getCroppingShapeId() !== shape.id) {
       return;
     }
