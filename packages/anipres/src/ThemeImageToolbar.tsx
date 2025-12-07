@@ -226,22 +226,20 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
 
       <TldrawUiButton
         type="normal"
-        title="Upload light image"
+        title={msg("tool.image-upload")}
         onClick={() => lightInputRef.current?.click()}
       >
         <TldrawUiButtonIcon icon="upload" />
-        <TldrawUiButtonLabel>
-          {msg("tool.image-upload") ?? "Upload Light"}
-        </TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>{msg("tool.image-upload")}</TldrawUiButtonLabel>
       </TldrawUiButton>
       <TldrawUiButton
         type="normal"
-        title="Upload dark image"
+        title={msg("tool.image-upload-dark")}
         onClick={() => darkInputRef.current?.click()}
       >
         <TldrawUiButtonIcon icon="upload" />
         <TldrawUiButtonLabel>
-          {msg("tool.image-upload-dark") ?? "Upload Dark"}
+          {msg("tool.image-upload-dark")}
         </TldrawUiButtonLabel>
       </TldrawUiButton>
 
@@ -249,21 +247,23 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
 
       <TldrawUiButton
         type="normal"
-        title="Download light image"
+        title={msg("tool.image-download") ?? "Download light image"}
         onClick={() => handleDownload(lightAsset)}
         disabled={!lightAsset}
       >
         <TldrawUiButtonIcon icon="download" />
-        <TldrawUiButtonLabel>Download Light</TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>{msg("tool.image-download")}</TldrawUiButtonLabel>
       </TldrawUiButton>
       <TldrawUiButton
         type="normal"
-        title="Download dark image"
+        title={msg("tool.image-download-dark") ?? "Download dark image"}
         onClick={() => handleDownload(darkAsset)}
         disabled={!darkAsset}
       >
         <TldrawUiButtonIcon icon="download" />
-        <TldrawUiButtonLabel>Download Dark</TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>
+          {msg("tool.image-download-dark")}
+        </TldrawUiButtonLabel>
       </TldrawUiButton>
 
       <div className="tlui-toolbar__divider" />

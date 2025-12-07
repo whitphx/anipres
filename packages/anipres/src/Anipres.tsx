@@ -168,6 +168,14 @@ const makeUiOverrides = ({
       };
       return tools;
     },
+    translations: {
+      en: {
+        "tool.image-upload": "Upload Image",
+        "tool.image-upload-dark": "Upload Dark Theme Image",
+        "tool.image-download": "Download Image",
+        "tool.image-download-dark": "Download Dark Theme Image",
+      },
+    },
   };
 };
 
