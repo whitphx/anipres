@@ -863,6 +863,10 @@ function getFirstFrameOfAnimatedImage(url: string) {
     };
     image.crossOrigin = "anonymous";
     image.src = url;
+    image.onerror = () => {
+      if (cancelled) return;
+      reject(new Error(`Failed to load image: ${url}`));
+    };
   });
 
   return { promise, cancel: () => (cancelled = true) };
