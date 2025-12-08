@@ -44,6 +44,7 @@ import {
   ThemeImageShapeType,
   themeImageShapeProps,
   ThemeDimension,
+  isCropEqual,
 } from "./ThemeImageShape";
 
 const imageSvgExportCache = new WeakCache<TLAsset, Promise<string | null>>();
@@ -493,18 +494,11 @@ const ThemeImage = memo(function ThemeImage({
     const currentH = shape.props.h;
     const currentCrop = shape.props.crop;
 
-    const cropIsEqual =
-      currentCrop === crop ||
-      (currentCrop &&
-        crop &&
-        currentCrop.topLeft.x === crop.topLeft.x &&
-        currentCrop.topLeft.y === crop.topLeft.y &&
-        currentCrop.bottomRight.x === crop.bottomRight.x &&
-        currentCrop.bottomRight.y === crop.bottomRight.y &&
-        currentCrop.isCircle === crop.isCircle) ||
-      (!currentCrop && !crop);
-
-    if (currentW !== dimension.w || currentH !== dimension.h || !cropIsEqual) {
+    if (
+      currentW !== dimension.w ||
+      currentH !== dimension.h ||
+      !isCropEqual(currentCrop, crop)
+    ) {
       editor.updateShape({
         id: shape.id,
         type: shape.type,
