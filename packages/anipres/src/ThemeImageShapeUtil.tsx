@@ -133,8 +133,8 @@ function setThemeProps(
 }
 
 export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
-  static override type = ThemeImageShapeType;
-  static override props = themeImageShapeProps;
+  static override readonly type = ThemeImageShapeType;
+  static override readonly props = themeImageShapeProps;
 
   override isAspectRatioLocked() {
     return true;
