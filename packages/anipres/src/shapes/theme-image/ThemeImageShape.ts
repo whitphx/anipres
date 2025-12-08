@@ -52,3 +52,18 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
   flipY: T.boolean,
   altText: T.string,
 };
+
+export function isCropEqual(
+  cropA: TLShapeCrop | null,
+  cropB: TLShapeCrop | null,
+): boolean {
+  if (cropA === cropB) return true;
+  if (cropA == null || cropB == null) return false;
+  return (
+    cropA.topLeft.x === cropB.topLeft.x &&
+    cropA.topLeft.y === cropB.topLeft.y &&
+    cropA.bottomRight.x === cropB.bottomRight.x &&
+    cropA.bottomRight.y === cropB.bottomRight.y &&
+    cropA.isCircle === cropB.isCircle
+  );
+}
