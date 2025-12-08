@@ -1,6 +1,7 @@
 {
   "scripts": {
     "prepare": "husky",
+    "changeset": "changeset",
     "ci:publish": "changeset publish"
   },
   "devDependencies": {
