@@ -23,7 +23,7 @@ import {
 import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
-import { SlideShapeType } from "../SlideShapeUtil";
+import { SlideShapeType } from "../shapes/slide/SlideShapeUtil";
 import type { PresentationManager } from "../presentation-manager";
 
 const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };

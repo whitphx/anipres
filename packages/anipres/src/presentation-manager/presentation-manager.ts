@@ -27,7 +27,7 @@ import {
   getGlobalOrder,
   reassignGlobalIndexInplace,
 } from "../ordered-track-item";
-import { SlideShapeType } from "../SlideShapeUtil";
+import { SlideShapeType } from "../shapes/slide/SlideShapeUtil";
 import { runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
