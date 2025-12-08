@@ -526,15 +526,17 @@ const ThemeImage = memo(function ThemeImage({
     if (url && isAnimated) {
       const { promise, cancel } = getFirstFrameOfAnimatedImage(url);
 
-      promise.then((dataUrl) => {
-        setStaticFrameSrc(dataUrl);
-        setLoadedUrl(url);
-      }).catch((error) => {
-        // Handle error gracefully: log and reset state
-        console.error("Failed to get first frame of animated image:", error);
-        setStaticFrameSrc("");
-        setLoadedUrl(null);
-      });
+      promise
+        .then((dataUrl) => {
+          setStaticFrameSrc(dataUrl);
+          setLoadedUrl(url);
+        })
+        .catch((error) => {
+          // Handle error gracefully: log and reset state
+          console.error("Failed to get first frame of animated image:", error);
+          setStaticFrameSrc("");
+          setLoadedUrl(null);
+        });
 
       return () => {
         cancel();
