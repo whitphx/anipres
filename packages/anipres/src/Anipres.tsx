@@ -27,10 +27,10 @@ import type {
 } from "tldraw";
 import "tldraw/tldraw.css";
 
-import { SlideShapeType } from "./SlideShapeUtil";
-import { SlideShapeTool } from "./SlideShapeTool";
-import { ThemeImageShapeTool } from "./ThemeImageShapeTool";
-import { ThemeImageToolbar } from "./ThemeImageToolbar";
+import { SlideShapeType } from "./shapes/slide/SlideShapeUtil";
+import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
+import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
+import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
