@@ -1,5 +1,11 @@
 # anipres
 
+## 0.10.1
+
+### Patch Changes
+
+- [#379](https://github.com/whitphx/anipres/pull/379) [`996fea5`](https://github.com/whitphx/anipres/commit/996fea55a2cae35ee63ef4cd4c01cf5c4b560378) Thanks [@whitphx](https://github.com/whitphx)! - Internal refactoring to extract crop comparison helper
+
 ## 0.10.0
 
 ### Minor Changes
