@@ -170,11 +170,11 @@ const makeUiOverrides = ({
     },
     translations: {
       en: {
-        "tool.image-toolbar-title": "Theme Image",
-        "tool.image-upload": "Upload Image",
-        "tool.image-upload-dark": "Upload Dark Theme Image",
-        "tool.image-download": "Download Image",
-        "tool.image-download-dark": "Download Dark Theme Image",
+        "tool.theme-image-toolbar-title": "Theme Image",
+        "tool.theme-image-upload": "Upload Image",
+        "tool.theme-image-upload-dark": "Upload Dark Theme Image",
+        "tool.theme-image-download": "Download Image",
+        "tool.theme-image-download-dark": "Download Dark Theme Image",
       },
     },
   };

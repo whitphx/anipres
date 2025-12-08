@@ -83,7 +83,7 @@ function ThemeImageToolbarInner({ shapeId }: { shapeId: TLShapeId }) {
     <TldrawUiContextualToolbar
       className="tlui-image__toolbar"
       getSelectionBounds={getSelectionBounds}
-      label={msg("tool.image-toolbar-title")}
+      label={msg("tool.theme-image-toolbar-title")}
     >
       <ThemeImageToolbarContent shapeId={shapeId} />
     </TldrawUiContextualToolbar>
@@ -173,7 +173,7 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
   const handleDownload = useCallback(
     async (asset: TLAsset | null | undefined) => {
       if (!asset || asset.type !== "image") return;
-      const src = (asset.props as TLImageAsset["props"]).src;
+      const src = asset.props.src;
       if (!src) return;
 
       try {
@@ -227,20 +227,22 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
 
       <TldrawUiButton
         type="normal"
-        title={msg("tool.image-upload")}
+        title={msg("tool.theme-image-upload")}
         onClick={() => lightInputRef.current?.click()}
       >
         <TldrawUiButtonIcon icon="upload" />
-        <TldrawUiButtonLabel>{msg("tool.image-upload")}</TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>
+          {msg("tool.theme-image-upload")}
+        </TldrawUiButtonLabel>
       </TldrawUiButton>
       <TldrawUiButton
         type="normal"
-        title={msg("tool.image-upload-dark")}
+        title={msg("tool.theme-image-upload-dark")}
         onClick={() => darkInputRef.current?.click()}
       >
         <TldrawUiButtonIcon icon="upload" />
         <TldrawUiButtonLabel>
-          {msg("tool.image-upload-dark")}
+          {msg("tool.theme-image-upload-dark")}
         </TldrawUiButtonLabel>
       </TldrawUiButton>
 
@@ -248,22 +250,24 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
 
       <TldrawUiButton
         type="normal"
-        title={msg("tool.image-download") ?? "Download light image"}
+        title={msg("tool.theme-image-download") ?? "Download light image"}
         onClick={() => handleDownload(lightAsset)}
         disabled={!lightAsset}
       >
         <TldrawUiButtonIcon icon="download" />
-        <TldrawUiButtonLabel>{msg("tool.image-download")}</TldrawUiButtonLabel>
+        <TldrawUiButtonLabel>
+          {msg("tool.theme-image-download")}
+        </TldrawUiButtonLabel>
       </TldrawUiButton>
       <TldrawUiButton
         type="normal"
-        title={msg("tool.image-download-dark") ?? "Download dark image"}
+        title={msg("tool.theme-image-download-dark") ?? "Download dark image"}
         onClick={() => handleDownload(darkAsset)}
         disabled={!darkAsset}
       >
         <TldrawUiButtonIcon icon="download" />
         <TldrawUiButtonLabel>
-          {msg("tool.image-download-dark")}
+          {msg("tool.theme-image-download-dark")}
         </TldrawUiButtonLabel>
       </TldrawUiButton>
 
