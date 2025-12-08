@@ -1,5 +1,11 @@
 # anipres
 
+## 0.10.0
+
+### Minor Changes
+
+- [#375](https://github.com/whitphx/anipres/pull/375) [`a58ac69`](https://github.com/whitphx/anipres/commit/a58ac697451c4a16bc08015a0519a0d1577c48e4) Thanks [@whitphx](https://github.com/whitphx)! - Add ThemeImage shape
+
 ## 0.9.3
 
 ### Patch Changes
