@@ -188,7 +188,9 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
         a.href = url;
         a.download = asset.props.name || "image.png";
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 100);
       } catch (error) {
         console.error("Failed to download image:", error);
       }
