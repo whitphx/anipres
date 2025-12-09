@@ -2,4 +2,4 @@
 "anipres": patch
 ---
 
-Fix a bug that ThemeImage.crop is reset when resizing
+Fix a bug where ThemeImage.crop is reset when resizing
