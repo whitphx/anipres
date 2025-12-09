@@ -243,7 +243,6 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       ...setThemeProps(shape, isDarkMode, {
         w: resized.props.w,
         h: resized.props.h,
-        crop: resized.props.crop,
       }),
     };
     if (!shape.props.crop) return resized;
@@ -266,6 +265,12 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
         y: flipCropVertically ? 1 - topLeft.y : bottomRight.y,
       },
       isCircle: shape.props.crop.isCircle,
+    };
+    resized.props = {
+      ...resized.props,
+      ...setThemeProps(shape, isDarkMode, {
+        crop: resized.props.crop,
+      }),
     };
     return resized;
   }
