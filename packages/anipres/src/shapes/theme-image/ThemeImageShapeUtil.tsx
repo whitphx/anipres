@@ -119,7 +119,7 @@ export function setThemeProps(
     colorMode === "dark" ? "cropLight" : "cropDark";
 
   let isDimensionChanged = false;
-  const newDimension: Partial<ThemeDimension> = {
+  const newDimension: ThemeDimension = {
     ...current.props[dimensionKey],
   };
   if (updates.w != null) {
