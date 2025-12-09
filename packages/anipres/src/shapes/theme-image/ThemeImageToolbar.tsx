@@ -103,6 +103,8 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
   );
 
   const altText = shape?.props.altText ?? "";
+  const syncThemeDimensionsAndCrops =
+    shape?.props.syncThemeDimensionsAndCrops ?? true;
   const lightAsset = useMemo(() => {
     if (!shape?.props.assetIdLight) return null;
     return editor.getAsset<TLImageAsset>(shape.props.assetIdLight);
@@ -169,6 +171,18 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
     },
     [editor, shape],
   );
+
+  const handleToggleSync = useCallback(() => {
+    if (!shape) return;
+
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      props: {
+        syncThemeDimensionsAndCrops: !shape.props.syncThemeDimensionsAndCrops,
+      },
+    });
+  }, [editor, shape]);
 
   const handleDownload = useCallback(
     async (asset: TLAsset | null | undefined) => {
@@ -268,6 +282,21 @@ function ThemeImageToolbarContent({ shapeId }: { shapeId: TLShapeId }) {
         <TldrawUiButtonIcon icon="download" />
         <TldrawUiButtonLabel>
           {msg("tool.theme-image-download-dark")}
+        </TldrawUiButtonLabel>
+      </TldrawUiButton>
+
+      <div className="tlui-toolbar__divider" />
+
+      <TldrawUiButton
+        type="normal"
+        title={msg("tool.theme-image-sync")}
+        onClick={handleToggleSync}
+        aria-pressed={syncThemeDimensionsAndCrops}
+      >
+        <TldrawUiButtonIcon icon="link" />
+        <TldrawUiButtonLabel>
+          {msg("tool.theme-image-sync")}
+          {syncThemeDimensionsAndCrops ? " (On)" : " (Off)"}
         </TldrawUiButtonLabel>
       </TldrawUiButton>
 
