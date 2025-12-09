@@ -17,6 +17,7 @@ export interface ThemeImageShapeProps
   extends Omit<TLImageShapeProps, "assetId"> {
   assetIdLight: TLAssetId | null;
   assetIdDark: TLAssetId | null;
+  syncThemeDimensionsAndCrops: boolean;
   dimensionLight: ThemeDimension;
   dimensionDark: ThemeDimension;
   cropLight: TLShapeCrop | null;
@@ -37,6 +38,7 @@ export const themeImageShapeProps: RecordProps<ThemeImageShape> = {
   url: T.linkUrl,
   assetIdLight: T.string.nullable() as Validator<TLAssetId | null>,
   assetIdDark: T.string.nullable() as Validator<TLAssetId | null>,
+  syncThemeDimensionsAndCrops: T.boolean,
   dimensionLight: T.object({
     w: T.nonZeroNumber,
     h: T.nonZeroNumber,

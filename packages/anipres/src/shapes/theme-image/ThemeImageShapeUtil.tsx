@@ -95,7 +95,7 @@ function getThemeProps(
   };
 }
 
-function setThemeProps(
+export function setThemeProps(
   current: ThemeImageShape,
   isDarkMode: boolean,
   updates: {
@@ -113,9 +113,13 @@ function setThemeProps(
     colorMode === "dark" ? "dimensionDark" : "dimensionLight";
   const cropKey: keyof ThemeImageShapeProps =
     colorMode === "dark" ? "cropDark" : "cropLight";
+  const otherDimensionKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "dimensionLight" : "dimensionDark";
+  const otherCropKey: keyof ThemeImageShapeProps =
+    colorMode === "dark" ? "cropLight" : "cropDark";
 
   let isDimensionChanged = false;
-  const newDimension: Partial<ThemeDimension> = {
+  const newDimension: ThemeDimension = {
     ...current.props[dimensionKey],
   };
   if (updates.w != null) {
@@ -127,10 +131,41 @@ function setThemeProps(
     isDimensionChanged = true;
   }
 
-  return {
+  const props: TLShapePartial<ThemeImageShape>["props"] = {
     ...(isDimensionChanged ? { [dimensionKey]: newDimension } : {}),
     ...("crop" in updates ? { [cropKey]: updates.crop ?? null } : {}),
   };
+
+  if (current.props.syncThemeDimensionsAndCrops) {
+    const currentDimension = current.props[dimensionKey];
+    const otherDimension = current.props[otherDimensionKey];
+    const widthScale =
+      updates.w != null ? updates.w / currentDimension.w : null;
+    const heightScale =
+      updates.h != null ? updates.h / currentDimension.h : null;
+
+    let isOtherDimensionChanged = false;
+    const newOtherDimension: Partial<ThemeDimension> = {
+      ...otherDimension,
+    };
+    if (widthScale != null) {
+      newOtherDimension.w = otherDimension.w * widthScale;
+      isOtherDimensionChanged = true;
+    }
+    if (heightScale != null) {
+      newOtherDimension.h = otherDimension.h * heightScale;
+      isOtherDimensionChanged = true;
+    }
+
+    Object.assign(props, {
+      ...(isOtherDimensionChanged
+        ? { [otherDimensionKey]: newOtherDimension }
+        : {}),
+      ...("crop" in updates ? { [otherCropKey]: updates.crop ?? null } : {}),
+    });
+  }
+
+  return props;
 }
 
 export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
@@ -151,6 +186,7 @@ export class ThemeImageShapeUtil extends BaseBoxShapeUtil<ThemeImageShape> {
       h: 100,
       assetIdLight: null,
       assetIdDark: null,
+      syncThemeDimensionsAndCrops: true,
       playing: true,
       url: "",
       crop: null,
