@@ -24,12 +24,17 @@ import type {
   TLEditorSnapshot,
   TLInstancePageState,
   TLInstancePageStateId,
+  TLAssetId,
+  TLContent,
+  TLShape,
+  TLShapeId,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./shapes/slide/SlideShapeUtil";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
+import { ThemeImageShapeType } from "./shapes/theme-image/ThemeImageShape";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
@@ -431,6 +436,39 @@ const Inner = (props: InnerProps) => {
         }
       }),
     );
+
+    // Wrap getContentFromCurrentPage to include ThemeImage assets (assetIdLight/assetIdDark).
+    // tldraw's default implementation only collects assets from the standard `assetId` prop,
+    // so ThemeImage assets would be missing from clipboard data when copying to another document.
+    const editorWithInternal = editor as Editor & {
+      getContentFromCurrentPage(
+        shapes: TLShapeId[] | TLShape[],
+      ): TLContent | undefined;
+    };
+    const originalGetContent =
+      editorWithInternal.getContentFromCurrentPage.bind(editorWithInternal);
+    editorWithInternal.getContentFromCurrentPage = (
+      shapes: TLShapeId[] | TLShape[],
+    ) => {
+      const content = originalGetContent(shapes);
+      if (!content) return content;
+
+      const seenAssetIds = new Set<TLAssetId>(content.assets.map((a) => a.id));
+      for (const shape of content.shapes) {
+        if (shape.type !== ThemeImageShapeType) continue;
+        const props = shape.props as Record<string, unknown>;
+        for (const key of ["assetIdLight", "assetIdDark"] as const) {
+          const assetId = props[key] as TLAssetId | null;
+          if (!assetId || seenAssetIds.has(assetId)) continue;
+          seenAssetIds.add(assetId);
+          const asset = editor.getAsset(assetId);
+          if (asset) {
+            content.assets.push(asset);
+          }
+        }
+      }
+      return content;
+    };
 
     onMount?.(editor, presentationManager);
 
