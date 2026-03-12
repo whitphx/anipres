@@ -72,37 +72,35 @@
   background: #eee;
 }
 
-@media (prefers-color-scheme: dark) {
-  .sidebar {
-    background: #1e1e1e;
-    border-right-color: #333;
-  }
+:global([data-color-scheme="dark"]) .sidebar {
+  background: #1e1e1e;
+  border-right-color: #333;
+}
 
-  .header {
-    border-bottom-color: #333;
-  }
+:global([data-color-scheme="dark"]) .header {
+  border-bottom-color: #333;
+}
 
-  .headerTitle {
-    color: #999;
-  }
+:global([data-color-scheme="dark"]) .headerTitle {
+  color: #999;
+}
 
-  .newButton {
-    background: #2a2a2a;
-    border-color: #444;
-    color: #ccc;
-  }
+:global([data-color-scheme="dark"]) .newButton {
+  background: #2a2a2a;
+  border-color: #444;
+  color: #ccc;
+}
 
-  .newButton:hover {
-    background: #333;
-  }
+:global([data-color-scheme="dark"]) .newButton:hover {
+  background: #333;
+}
 
-  .toggleButton {
-    background: #2a2a2a;
-    border-color: #444;
-    color: #ccc;
-  }
+:global([data-color-scheme="dark"]) .toggleButton {
+  background: #2a2a2a;
+  border-color: #444;
+  color: #ccc;
+}
 
-  .toggleButton:hover {
-    background: #333;
-  }
+:global([data-color-scheme="dark"]) .toggleButton:hover {
+  background: #333;
 }

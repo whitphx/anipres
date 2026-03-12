@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
+import type { ColorSchemePreference } from "../hooks/useColorScheme";
+import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
 import { DocumentListItem } from "./DocumentListItem";
 import styles from "./DocumentSidebar.module.css";
 
-export function DocumentSidebar() {
+interface DocumentSidebarProps {
+  colorSchemePreference: ColorSchemePreference;
+  onColorSchemeChange: (next: ColorSchemePreference) => void;
+}
+
+export function DocumentSidebar({
+  colorSchemePreference,
+  onColorSchemeChange,
+}: DocumentSidebarProps) {
   const {
     documents,
     activeDocumentId,
@@ -56,6 +66,10 @@ export function DocumentSidebar() {
           />
         ))}
       </div>
+      <ColorSchemeSwitcher
+        preference={colorSchemePreference}
+        onChange={onColorSchemeChange}
+      />
     </div>
   );
 }

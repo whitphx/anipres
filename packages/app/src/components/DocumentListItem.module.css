@@ -76,35 +76,33 @@
   color: #e00;
 }
 
-@media (prefers-color-scheme: dark) {
-  .item:hover {
-    background: rgba(255, 255, 255, 0.08);
-  }
+:global([data-color-scheme="dark"]) .item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
 
-  .active {
-    background: rgba(255, 255, 255, 0.12);
-  }
+:global([data-color-scheme="dark"]) .active {
+  background: rgba(255, 255, 255, 0.12);
+}
 
-  .active:hover {
-    background: rgba(255, 255, 255, 0.15);
-  }
+:global([data-color-scheme="dark"]) .active:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
 
-  .titleInput {
-    background: #333;
-    color: #eee;
-    border-color: #555;
-  }
+:global([data-color-scheme="dark"]) .titleInput {
+  background: #333;
+  color: #eee;
+  border-color: #555;
+}
 
-  .titleInput:focus {
-    border-color: #4d9aff;
-  }
+:global([data-color-scheme="dark"]) .titleInput:focus {
+  border-color: #4d9aff;
+}
 
-  .deleteButton {
-    color: #777;
-  }
+:global([data-color-scheme="dark"]) .deleteButton {
+  color: #777;
+}
 
-  .deleteButton:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #f55;
-  }
+:global([data-color-scheme="dark"]) .deleteButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f55;
 }
