@@ -44,7 +44,11 @@ export function DocumentSidebar({
       <div className={styles.header}>
         <span className={styles.headerTitle}>Documents</span>
         <div style={{ display: "flex", gap: 4 }}>
-          <button className={styles.newButton} onClick={createDocument}>
+          <button
+            type="button"
+            className={styles.newButton}
+            onClick={createDocument}
+          >
             + New
           </button>
           <button

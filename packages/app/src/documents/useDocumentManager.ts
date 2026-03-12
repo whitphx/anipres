@@ -166,26 +166,34 @@ export function useDocumentManager(
 
   const renameDocument = useCallback(
     async (id: string, title: string) => {
+      if (id === activeDocumentIdRef.current) {
+        await saveCurrentEditor();
+      }
       const data = await repository.get(id);
       if (!data) return;
-      data.meta.title = title;
-      data.meta.updatedAt = Date.now();
-      await repository.save(data);
+      await repository.save({
+        ...data,
+        meta: { ...data.meta, title, updatedAt: Date.now() },
+      });
       await refreshDocuments();
     },
-    [repository, refreshDocuments],
+    [repository, refreshDocuments, saveCurrentEditor],
   );
 
   const reorderDocument = useCallback(
     async (id: string, newOrder: number) => {
+      if (id === activeDocumentIdRef.current) {
+        await saveCurrentEditor();
+      }
       const data = await repository.get(id);
       if (!data) return;
-      data.meta.order = newOrder;
-      data.meta.updatedAt = Date.now();
-      await repository.save(data);
+      await repository.save({
+        ...data,
+        meta: { ...data.meta, order: newOrder, updatedAt: Date.now() },
+      });
       await refreshDocuments();
     },
-    [repository, refreshDocuments],
+    [repository, refreshDocuments, saveCurrentEditor],
   );
 
   const registerEditor = useCallback(
