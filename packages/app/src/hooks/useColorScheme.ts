@@ -4,15 +4,22 @@ export type ColorSchemePreference = "light" | "dark" | "system";
 
 const STORAGE_KEY = "anipres-color-scheme";
 
-const darkMql = window.matchMedia("(prefers-color-scheme: dark)");
+let darkMql: MediaQueryList | null = null;
+function getDarkMql(): MediaQueryList {
+  if (!darkMql) {
+    darkMql = window.matchMedia("(prefers-color-scheme: dark)");
+  }
+  return darkMql;
+}
 
 function subscribeOsScheme(callback: () => void) {
-  darkMql.addEventListener("change", callback);
-  return () => darkMql.removeEventListener("change", callback);
+  const mql = getDarkMql();
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
 }
 
 function getOsSchemeSnapshot(): "light" | "dark" {
-  return darkMql.matches ? "dark" : "light";
+  return getDarkMql().matches ? "dark" : "light";
 }
 
 export function useColorScheme() {

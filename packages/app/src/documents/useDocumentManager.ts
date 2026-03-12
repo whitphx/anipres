@@ -123,7 +123,8 @@ export function useDocumentManager(
   const createDocument = useCallback(async () => {
     await saveCurrentEditor();
 
-    const maxOrder = documents.reduce((max, d) => Math.max(max, d.order), 0);
+    const metas = await repository.list();
+    const maxOrder = metas.reduce((max, d) => Math.max(max, d.order), 0);
     const doc = createNewDocument(maxOrder + 1);
     await repository.save(doc);
 
@@ -131,7 +132,7 @@ export function useDocumentManager(
     setActiveDocumentId(doc.meta.id);
     setActiveSnapshot(null);
     await refreshDocuments();
-  }, [documents, repository, saveCurrentEditor, refreshDocuments]);
+  }, [repository, saveCurrentEditor, refreshDocuments]);
 
   const deleteDocument = useCallback(
     async (id: string) => {
@@ -213,7 +214,10 @@ export function useDocumentManager(
     [saveCurrentEditor],
   );
 
-  // Save before tab close
+  // Best-effort save before tab close.
+  // The async saveCurrentEditor() cannot be awaited in beforeunload, but
+  // firing it still initiates the IndexedDB transaction which browsers
+  // typically allow to complete during page unload.
   useEffect(() => {
     const handleBeforeUnload = () => {
       saveCurrentEditor();
