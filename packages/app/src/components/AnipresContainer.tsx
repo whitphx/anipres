@@ -8,11 +8,13 @@ type AnipresOnMount = NonNullable<ComponentProps<typeof Anipres>["onMount"]>;
 interface AnipresContainerProps {
   documentId: string;
   snapshot: TLStoreSnapshot | null;
+  colorScheme?: "light" | "dark" | "system";
 }
 
 export function AnipresContainer({
   documentId,
   snapshot,
+  colorScheme,
 }: AnipresContainerProps) {
   const { registerEditor } = useDocumentManagerContext();
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -35,6 +37,7 @@ export function AnipresContainer({
       key={documentId}
       snapshot={snapshot ?? undefined}
       onMount={handleMount}
+      colorScheme={colorScheme}
     />
   );
 }

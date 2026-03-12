@@ -28,6 +28,7 @@ export function AppContent() {
           key={activeDocumentId}
           documentId={activeDocumentId}
           snapshot={activeSnapshot}
+          colorScheme={preference}
         />
       )}
     </AppLayout>

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { getUserPreferences, setUserPreferences } from "tldraw";
 
 export type ColorSchemePreference = "light" | "dark" | "system";
 
@@ -37,14 +36,6 @@ export function useColorScheme() {
   useEffect(() => {
     document.documentElement.dataset.colorScheme = resolved;
   }, [resolved]);
-
-  // Sync tldraw's color scheme
-  useEffect(() => {
-    setUserPreferences({
-      ...getUserPreferences(),
-      colorScheme: preference,
-    });
-  }, [preference]);
 
   return { preference, resolved, changePreference } as const;
 }
