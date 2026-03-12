@@ -1,15 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getSnapshot, type TLStore, type TLStoreSnapshot } from "tldraw";
+import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentMeta } from "./types";
-
-// The `anipres` package may bundle a different version of tldraw than `app`.
-// At runtime the Editor.store objects are structurally identical, but the
-// nominal TLStore types from different package versions are incompatible.
-// We therefore accept `unknown` at the public API boundary and cast inside.
-interface EditorLike {
-  store: TLStore;
-}
 
 function createNewDocument(order: number): DocumentData {
   return {
@@ -34,8 +26,7 @@ export interface DocumentManager {
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, title: string) => Promise<void>;
   reorderDocument: (id: string, newOrder: number) => Promise<void>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  registerEditor: (editor: any) => () => void;
+  registerEditor: (editor: Editor) => () => void;
 }
 
 export function useDocumentManager(
@@ -48,7 +39,7 @@ export function useDocumentManager(
   );
   const [loading, setLoading] = useState(true);
 
-  const editorRef = useRef<EditorLike | null>(null);
+  const editorRef = useRef<Editor | null>(null);
   const activeDocumentIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeDocumentIdRef.current = activeDocumentId;
@@ -197,9 +188,7 @@ export function useDocumentManager(
   );
 
   const registerEditor = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (editorArg: any) => {
-      const editor = editorArg as EditorLike;
+    (editor: Editor) => {
       editorRef.current = editor;
 
       // Auto-save on user changes, debounced
