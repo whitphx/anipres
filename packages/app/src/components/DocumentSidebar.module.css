@@ -4,6 +4,7 @@
   flex-direction: column;
   border-right: 1px solid #e8e8e8;
   background: #f9f9f9;
+  color: #333;
   overflow: hidden;
 }
 
@@ -97,6 +98,7 @@
 :global([data-color-scheme="dark"]) .sidebar {
   background: #1e1e1e;
   border-right-color: #333;
+  color: #ccc;
 }
 
 :global([data-color-scheme="dark"]) .header {
