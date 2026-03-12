@@ -1,5 +1,11 @@
 # anipres
 
+## 0.11.1
+
+### Patch Changes
+
+- [#393](https://github.com/whitphx/anipres/pull/393) [`c9e2dbe`](https://github.com/whitphx/anipres/commit/c9e2dbec057ab6f9f5d979696cd0c7325adde0eb) Thanks [@whitphx](https://github.com/whitphx)! - Fix ThemeImage copy-paste not transferring both assets when pasting to another document
+
 ## 0.11.0
 
 ### Minor Changes
