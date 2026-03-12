@@ -66,12 +66,6 @@
   padding: 4px;
 }
 
-.collapsed {
-  width: 0;
-  border-right: none;
-  padding: 0;
-}
-
 .toggleButton {
   position: absolute;
   top: 50px;
