@@ -1,10 +1,7 @@
-import { createContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { DocumentRepository } from "./repository";
-import { useDocumentManager, type DocumentManager } from "./useDocumentManager";
-
-export const DocumentManagerContext = createContext<DocumentManager | null>(
-  null,
-);
+import { useDocumentManager } from "./useDocumentManager";
+import { DocumentManagerContext } from "./useDocumentManagerContext";
 
 export function DocumentManagerProvider({
   repository,
