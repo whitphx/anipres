@@ -437,38 +437,65 @@ const Inner = (props: InnerProps) => {
       }),
     );
 
-    // Wrap getContentFromCurrentPage to include ThemeImage assets (assetIdLight/assetIdDark).
-    // tldraw's default implementation only collects assets from the standard `assetId` prop,
-    // so ThemeImage assets would be missing from clipboard data when copying to another document.
-    const editorWithInternal = editor as Editor & {
-      getContentFromCurrentPage(
+    // MONKEY-PATCH: Wrap `editor.getContentFromCurrentPage` to include ThemeImage assets.
+    //
+    // tldraw's default `getContentFromCurrentPage` only collects assets referenced by
+    // the standard `assetId` prop. ThemeImage uses `assetIdLight` and `assetIdDark` instead,
+    // so its assets would be missing from clipboard data when copying to another document.
+    //
+    // WARNING: `getContentFromCurrentPage` is NOT a documented/public tldraw API.
+    // It is an internal method on the Editor class that may be renamed, removed, or have
+    // its signature changed in future tldraw versions. If that happens, the runtime guard
+    // below will detect the breakage and log a warning (copy-paste will still work for
+    // standard shapes, but ThemeImage assets won't be transferred across documents).
+    //
+    // When upgrading tldraw, verify that this monkey-patch still works correctly.
+    // See: https://github.com/whitphx/anipres/issues/387
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editorAsAny = editor as any;
+    if (
+      typeof editorAsAny.getContentFromCurrentPage === "function" &&
+      editorAsAny.getContentFromCurrentPage.length === 1 // expects 1 parameter (shapes)
+    ) {
+      const editorWithInternal = editor as Editor & {
+        getContentFromCurrentPage(
+          shapes: TLShapeId[] | TLShape[],
+        ): TLContent | undefined;
+      };
+      const originalGetContent =
+        editorWithInternal.getContentFromCurrentPage.bind(editorWithInternal);
+      editorWithInternal.getContentFromCurrentPage = (
         shapes: TLShapeId[] | TLShape[],
-      ): TLContent | undefined;
-    };
-    const originalGetContent =
-      editorWithInternal.getContentFromCurrentPage.bind(editorWithInternal);
-    editorWithInternal.getContentFromCurrentPage = (
-      shapes: TLShapeId[] | TLShape[],
-    ) => {
-      const content = originalGetContent(shapes);
-      if (!content) return content;
+      ) => {
+        const content = originalGetContent(shapes);
+        if (!content) return content;
 
-      const seenAssetIds = new Set<TLAssetId>(content.assets.map((a) => a.id));
-      for (const shape of content.shapes) {
-        if (shape.type !== ThemeImageShapeType) continue;
-        const props = shape.props as Record<string, unknown>;
-        for (const key of ["assetIdLight", "assetIdDark"] as const) {
-          const assetId = props[key] as TLAssetId | null;
-          if (!assetId || seenAssetIds.has(assetId)) continue;
-          seenAssetIds.add(assetId);
-          const asset = editor.getAsset(assetId);
-          if (asset) {
-            content.assets.push(asset);
+        const seenAssetIds = new Set<TLAssetId>(
+          content.assets.map((a) => a.id),
+        );
+        for (const shape of content.shapes) {
+          if (shape.type !== ThemeImageShapeType) continue;
+          const props = shape.props as Record<string, unknown>;
+          for (const key of ["assetIdLight", "assetIdDark"] as const) {
+            const assetId = props[key] as TLAssetId | null;
+            if (!assetId || seenAssetIds.has(assetId)) continue;
+            seenAssetIds.add(assetId);
+            const asset = editor.getAsset(assetId);
+            if (asset) {
+              content.assets.push(asset);
+            }
           }
         }
-      }
-      return content;
-    };
+        return content;
+      };
+    } else {
+      console.warn(
+        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
+          "ThemeImage assets (light/dark) will not be included in clipboard data when copying. " +
+          "This is likely caused by a tldraw version upgrade. " +
+          "See: https://github.com/whitphx/anipres/issues/387",
+      );
+    }
 
     onMount?.(editor, presentationManager);
 
