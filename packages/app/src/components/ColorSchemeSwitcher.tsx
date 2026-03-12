@@ -18,16 +18,22 @@ export function ColorSchemeSwitcher({
 }: ColorSchemeSwitcherProps) {
   return (
     <div className={styles.switcher}>
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          className={`${styles.option} ${preference === opt.value ? styles.active : ""}`}
-          onClick={() => onChange(opt.value)}
-          title={opt.value.charAt(0).toUpperCase() + opt.value.slice(1)}
-        >
-          {opt.label}
-        </button>
-      ))}
+      {options.map((opt) => {
+        const label = opt.value.charAt(0).toUpperCase() + opt.value.slice(1);
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            className={`${styles.option} ${preference === opt.value ? styles.active : ""}`}
+            onClick={() => onChange(opt.value)}
+            title={label}
+            aria-label={label}
+            aria-pressed={preference === opt.value}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -37,8 +37,8 @@
 .titleInput {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
   font: inherit;
+  font-size: 13px;
   border: 1px solid #ccc;
   border-radius: 3px;
   padding: 1px 4px;
@@ -64,11 +64,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 1;
 }
 
-.item:hover .deleteButton {
-  opacity: 1;
+@media (hover: hover) {
+  .deleteButton {
+    opacity: 0;
+  }
+
+  .item:hover .deleteButton,
+  .item:focus-within .deleteButton,
+  .deleteButton:focus-visible {
+    opacity: 1;
+  }
 }
 
 .deleteButton:hover {

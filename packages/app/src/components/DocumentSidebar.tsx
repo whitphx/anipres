@@ -28,9 +28,11 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <button
+        type="button"
         className={styles.toggleButton}
         onClick={() => setCollapsed(false)}
         title="Show sidebar"
+        aria-label="Show sidebar"
       >
         ☰
       </button>
@@ -46,9 +48,11 @@ export function DocumentSidebar({
             + New
           </button>
           <button
+            type="button"
             className={styles.newButton}
             onClick={() => setCollapsed(true)}
             title="Hide sidebar"
+            aria-label="Hide sidebar"
           >
             ◀
           </button>

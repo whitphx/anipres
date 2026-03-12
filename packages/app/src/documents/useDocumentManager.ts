@@ -214,16 +214,30 @@ export function useDocumentManager(
     [saveCurrentEditor],
   );
 
-  // Best-effort save before tab close.
-  // The async saveCurrentEditor() cannot be awaited in beforeunload, but
-  // firing it still initiates the IndexedDB transaction which browsers
-  // typically allow to complete during page unload.
+  // Best-effort save when the user leaves the page.
+  // visibilitychange fires earliest (e.g. tab switch, app switch) and is
+  // bfcache-compatible. pagehide and beforeunload are fallbacks for actual
+  // navigation/close. None of these can await the async save, but firing it
+  // initiates the IndexedDB transaction which browsers typically allow to
+  // complete during page teardown.
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        saveCurrentEditor();
+      }
+    };
+    const handlePageHide = () => {
+      saveCurrentEditor();
+    };
     const handleBeforeUnload = () => {
       saveCurrentEditor();
     };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [saveCurrentEditor]);
