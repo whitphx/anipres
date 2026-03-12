@@ -13,7 +13,6 @@ import {
   useAtom,
   useValue,
   react,
-  assetIdValidator,
 } from "tldraw";
 import type {
   Atom,
@@ -25,7 +24,6 @@ import type {
   TLEditorSnapshot,
   TLInstancePageState,
   TLInstancePageStateId,
-  TLAssetId,
   TLContent,
   TLShape,
   TLShapeId,
@@ -35,8 +33,8 @@ import "tldraw/tldraw.css";
 import { SlideShapeType } from "./shapes/slide/SlideShapeUtil";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
-import { ThemeImageShapeType } from "./shapes/theme-image/ThemeImageShape";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
+import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
@@ -454,10 +452,7 @@ const Inner = (props: InnerProps) => {
     // See: https://github.com/whitphx/anipres/issues/387
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const editorAsAny = editor as any;
-    if (
-      typeof editorAsAny.getContentFromCurrentPage === "function" &&
-      editorAsAny.getContentFromCurrentPage.length === 1 // expects 1 parameter (shapes)
-    ) {
+    if (typeof editorAsAny.getContentFromCurrentPage === "function") {
       const editorWithInternal = editor as Editor & {
         getContentFromCurrentPage(
           shapes: TLShapeId[] | TLShape[],
@@ -470,25 +465,9 @@ const Inner = (props: InnerProps) => {
       ) => {
         const content = originalGetContent(shapes);
         if (!content) return content;
-
-        const seenAssetIds = new Set<TLAssetId>(
-          content.assets.map((a) => a.id),
+        augmentContentWithThemeImageAssets(content, (id) =>
+          editor.getAsset(id),
         );
-        for (const shape of content.shapes) {
-          if (shape.type !== ThemeImageShapeType) continue;
-          const props = shape.props as Record<string, unknown>;
-          for (const key of ["assetIdLight", "assetIdDark"] as const) {
-            const rawValue = props[key];
-            if (!rawValue) continue;
-            const assetId = assetIdValidator.validate(rawValue);
-            if (seenAssetIds.has(assetId)) continue;
-            seenAssetIds.add(assetId);
-            const asset = editor.getAsset(assetId);
-            if (asset) {
-              content.assets.push(asset);
-            }
-          }
-        }
         return content;
       };
     } else {
