@@ -26,8 +26,6 @@ export default {
 import {
   debounce,
   getSnapshot,
-  getUserPreferences,
-  setUserPreferences,
   type Editor,
   type TLStoreSnapshot,
   type TLEditorAssetUrls,
@@ -95,12 +93,6 @@ const fontUrls = computed(() => ({
 const savedSnapshot: SavedSnapshot | undefined = ALL_SNAPSHOT[props.id];
 
 const { isDark } = useDarkMode();
-watchEffect(() => {
-  setUserPreferences({
-    ...getUserPreferences(),
-    colorScheme: isDark.value ? "dark" : "light",
-  });
-});
 
 const { $scale, $clicksContext } = useSlideContext();
 
@@ -348,6 +340,7 @@ const drawStyleFontFamily = computed(() => {
           :stepHotkeyEnabled="false"
           :snapshot="savedSnapshot"
           :assetUrls="{ fonts: fontUrls }"
+          :colorScheme="isDark ? 'dark' : 'light'"
         />
       </div>
     </Teleport>
