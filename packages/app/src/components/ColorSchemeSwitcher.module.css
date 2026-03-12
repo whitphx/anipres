@@ -1,45 +1,72 @@
 .switcher {
   display: flex;
-  gap: 2px;
   padding: 8px;
   border-top: 1px solid #e8e8e8;
 }
 
+.track {
+  display: flex;
+  flex: 1;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
 .option {
   flex: 1;
-  padding: 4px 0;
-  border: 1px solid #ccc;
-  background: #fff;
+  padding: 6px 0;
+  border: none;
+  background: none;
   cursor: pointer;
   font-size: 14px;
   border-radius: 4px;
-  color: #333;
+  color: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
 }
 
 .option:hover {
-  background: #eee;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 .active {
-  background: #ddd;
-  border-color: #999;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.active:hover {
+  color: #000;
 }
 
 :global([data-color-scheme="dark"]) .switcher {
   border-top-color: #333;
 }
 
+:global([data-color-scheme="dark"]) .track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 :global([data-color-scheme="dark"]) .option {
-  background: #2a2a2a;
-  border-color: #444;
-  color: #ccc;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 :global([data-color-scheme="dark"]) .option:hover {
-  background: #333;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 :global([data-color-scheme="dark"]) .active {
-  background: #444;
-  border-color: #666;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:global([data-color-scheme="dark"]) .active:hover {
+  color: #fff;
 }

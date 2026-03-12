@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { DocumentMeta } from "../documents/types";
 import styles from "./DocumentListItem.module.css";
@@ -77,7 +78,7 @@ export function DocumentListItem({
         }}
         title="Delete document"
       >
-        ×
+        <X size={14} />
       </button>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Menu, PanelLeftClose, Plus } from "lucide-react";
 import { useState } from "react";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
@@ -34,7 +35,7 @@ export function DocumentSidebar({
         title="Show sidebar"
         aria-label="Show sidebar"
       >
-        ☰
+        <Menu size={16} />
       </button>
     );
   }
@@ -49,16 +50,16 @@ export function DocumentSidebar({
             className={styles.newButton}
             onClick={createDocument}
           >
-            + New
+            <Plus size={14} /> New
           </button>
           <button
             type="button"
-            className={styles.newButton}
+            className={styles.collapseButton}
             onClick={() => setCollapsed(true)}
             title="Hide sidebar"
             aria-label="Hide sidebar"
           >
-            ◀
+            <PanelLeftClose size={14} />
           </button>
         </div>
       </div>
