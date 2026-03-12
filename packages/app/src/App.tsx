@@ -1,15 +1,15 @@
-import { Anipres } from "anipres";
+import { useMemo } from "react";
 import * as xiaolai from "./fonts/XiaolaiSC-Regular.ttf";
 import "anipres/anipres.css";
+import { IdbDocumentRepository } from "./documents/idb-repository";
+import { DocumentManagerProvider } from "./documents/DocumentManagerContext";
+import { AppContent } from "./AppContent";
 
 function App() {
+  const repository = useMemo(() => new IdbDocumentRepository(), []);
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-      }}
-    >
+    <>
       <style>{`
         @font-face {
           font-family: 'Excalifont-Regular';
@@ -22,8 +22,10 @@ function App() {
           --tl-font-draw: Excalifont-Regular, '${xiaolai.css.family}', ${xiaolai.fontFamilyFallback}, 'tldraw_draw';
         }
       `}</style>
-      <Anipres />
-    </div>
+      <DocumentManagerProvider repository={repository}>
+        <AppContent />
+      </DocumentManagerProvider>
+    </>
   );
 }
 

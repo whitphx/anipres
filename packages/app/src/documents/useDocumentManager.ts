@@ -1,0 +1,239 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { getSnapshot, type TLStore, type TLStoreSnapshot } from "tldraw";
+import type { DocumentRepository } from "./repository";
+import type { DocumentData, DocumentMeta } from "./types";
+
+// The `anipres` package may bundle a different version of tldraw than `app`.
+// At runtime the Editor.store objects are structurally identical, but the
+// nominal TLStore types from different package versions are incompatible.
+// We therefore accept `unknown` at the public API boundary and cast inside.
+interface EditorLike {
+  store: TLStore;
+}
+
+function createNewDocument(order: number): DocumentData {
+  return {
+    meta: {
+      id: crypto.randomUUID(),
+      title: "Untitled",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      order,
+    },
+    snapshot: null,
+  };
+}
+
+export interface DocumentManager {
+  documents: DocumentMeta[];
+  activeDocumentId: string | null;
+  activeSnapshot: TLStoreSnapshot | null;
+  loading: boolean;
+  selectDocument: (id: string) => Promise<void>;
+  createDocument: () => Promise<void>;
+  deleteDocument: (id: string) => Promise<void>;
+  renameDocument: (id: string, title: string) => Promise<void>;
+  reorderDocument: (id: string, newOrder: number) => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerEditor: (editor: any) => () => void;
+}
+
+export function useDocumentManager(
+  repository: DocumentRepository,
+): DocumentManager {
+  const [documents, setDocuments] = useState<DocumentMeta[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
+  const [activeSnapshot, setActiveSnapshot] = useState<TLStoreSnapshot | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+
+  const editorRef = useRef<EditorLike | null>(null);
+  const activeDocumentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeDocumentIdRef.current = activeDocumentId;
+  }, [activeDocumentId]);
+
+  const saveCurrentEditor = useCallback(async () => {
+    const editor = editorRef.current;
+    const docId = activeDocumentIdRef.current;
+    if (!editor || !docId) return;
+
+    const existing = await repository.get(docId);
+    if (!existing) return;
+
+    const { document } = getSnapshot(editor.store);
+    await repository.save({
+      ...existing,
+      meta: { ...existing.meta, updatedAt: Date.now() },
+      snapshot: document,
+    });
+  }, [repository]);
+
+  // Initialize: load documents or create first one
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const metas = await repository.list();
+      if (cancelled) return;
+
+      if (metas.length === 0) {
+        const doc = createNewDocument(1);
+        await repository.save(doc);
+        setDocuments([doc.meta]);
+        setActiveDocumentId(doc.meta.id);
+        setActiveSnapshot(null);
+      } else {
+        setDocuments(metas);
+        const firstId = metas[0].id;
+        const data = await repository.get(firstId);
+        if (cancelled) return;
+        setActiveDocumentId(firstId);
+        setActiveSnapshot(data?.snapshot ?? null);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [repository]);
+
+  const refreshDocuments = useCallback(async () => {
+    const metas = await repository.list();
+    setDocuments(metas);
+  }, [repository]);
+
+  const selectDocument = useCallback(
+    async (id: string) => {
+      if (id === activeDocumentIdRef.current) return;
+
+      // Save current before switching
+      await saveCurrentEditor();
+
+      const data = await repository.get(id);
+      if (!data) return;
+
+      editorRef.current = null;
+      setActiveDocumentId(id);
+      setActiveSnapshot(data.snapshot);
+    },
+    [repository, saveCurrentEditor],
+  );
+
+  const createDocument = useCallback(async () => {
+    await saveCurrentEditor();
+
+    const maxOrder = documents.reduce((max, d) => Math.max(max, d.order), 0);
+    const doc = createNewDocument(maxOrder + 1);
+    await repository.save(doc);
+
+    editorRef.current = null;
+    setActiveDocumentId(doc.meta.id);
+    setActiveSnapshot(null);
+    await refreshDocuments();
+  }, [documents, repository, saveCurrentEditor, refreshDocuments]);
+
+  const deleteDocument = useCallback(
+    async (id: string) => {
+      await repository.delete(id);
+      const remaining = await repository.list();
+
+      if (remaining.length === 0) {
+        // Create a new document if we deleted the last one
+        const doc = createNewDocument(1);
+        await repository.save(doc);
+        setDocuments([doc.meta]);
+        editorRef.current = null;
+        setActiveDocumentId(doc.meta.id);
+        setActiveSnapshot(null);
+        return;
+      }
+
+      setDocuments(remaining);
+
+      if (id === activeDocumentIdRef.current) {
+        // Switch to the first remaining document
+        const nextDoc = remaining[0];
+        const data = await repository.get(nextDoc.id);
+        editorRef.current = null;
+        setActiveDocumentId(nextDoc.id);
+        setActiveSnapshot(data?.snapshot ?? null);
+      }
+    },
+    [repository],
+  );
+
+  const renameDocument = useCallback(
+    async (id: string, title: string) => {
+      const data = await repository.get(id);
+      if (!data) return;
+      data.meta.title = title;
+      data.meta.updatedAt = Date.now();
+      await repository.save(data);
+      await refreshDocuments();
+    },
+    [repository, refreshDocuments],
+  );
+
+  const reorderDocument = useCallback(
+    async (id: string, newOrder: number) => {
+      const data = await repository.get(id);
+      if (!data) return;
+      data.meta.order = newOrder;
+      data.meta.updatedAt = Date.now();
+      await repository.save(data);
+      await refreshDocuments();
+    },
+    [repository, refreshDocuments],
+  );
+
+  const registerEditor = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (editorArg: any) => {
+      const editor = editorArg as EditorLike;
+      editorRef.current = editor;
+
+      // Auto-save on user changes, debounced
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stopListening = editor.store.listen(
+        () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            saveCurrentEditor();
+          }, 500);
+        },
+        { source: "user", scope: "document" },
+      );
+
+      return () => {
+        clearTimeout(timer);
+        stopListening();
+      };
+    },
+    [saveCurrentEditor],
+  );
+
+  // Save before tab close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveCurrentEditor();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [saveCurrentEditor]);
+
+  return {
+    documents,
+    activeDocumentId,
+    activeSnapshot,
+    loading,
+    selectDocument,
+    createDocument,
+    deleteDocument,
+    renameDocument,
+    reorderDocument,
+    registerEditor,
+  };
+}
