@@ -1,5 +1,14 @@
 # slidev-addon-anipres
 
+## 0.8.9
+
+### Patch Changes
+
+- [#402](https://github.com/whitphx/anipres/pull/402) [`ffcd917`](https://github.com/whitphx/anipres/commit/ffcd9177e3e3dac9ddeef6e1ebfb1c0b9a3e9af3) Thanks [@whitphx](https://github.com/whitphx)! - Use Anipres `colorScheme` prop instead of global `setUserPreferences` for per-instance color scheme control
+
+- Updated dependencies [[`3237021`](https://github.com/whitphx/anipres/commit/3237021199163d475028eb0f8f53bfad7f956cac)]:
+  - anipres@0.12.0
+
 ## 0.8.8
 
 ### Patch Changes

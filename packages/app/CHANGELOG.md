@@ -1,5 +1,12 @@
 # app
 
+## 0.0.41
+
+### Patch Changes
+
+- Updated dependencies [[`3237021`](https://github.com/whitphx/anipres/commit/3237021199163d475028eb0f8f53bfad7f956cac)]:
+  - anipres@0.12.0
+
 ## 0.0.40
 
 ### Patch Changes
