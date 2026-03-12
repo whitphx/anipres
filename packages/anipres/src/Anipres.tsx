@@ -13,6 +13,7 @@ import {
   useAtom,
   useValue,
   react,
+  assetIdValidator,
 } from "tldraw";
 import type {
   Atom,
@@ -477,8 +478,10 @@ const Inner = (props: InnerProps) => {
           if (shape.type !== ThemeImageShapeType) continue;
           const props = shape.props as Record<string, unknown>;
           for (const key of ["assetIdLight", "assetIdDark"] as const) {
-            const assetId = props[key] as TLAssetId | null;
-            if (!assetId || seenAssetIds.has(assetId)) continue;
+            const rawValue = props[key];
+            if (!rawValue) continue;
+            const assetId = assetIdValidator.validate(rawValue);
+            if (seenAssetIds.has(assetId)) continue;
             seenAssetIds.add(assetId);
             const asset = editor.getAsset(assetId);
             if (asset) {
