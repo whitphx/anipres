@@ -3,12 +3,12 @@
     "allow": [
       "WebFetch(domain:tldraw.dev)",
       "Bash(pnpm install)",
-      "Bash(pnpm * dev)",
-      "Bash(pnpm * build)",
-      "Bash(pnpm * typecheck)",
-      "Bash(pnpm * lint)",
-      "Bash(pnpm * format)",
-      "Bash(pnpm * test)"
+      "Bash(pnpm dev)",
+      "Bash(pnpm build)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm format)",
+      "Bash(pnpm test)"
     ]
   }
 }
