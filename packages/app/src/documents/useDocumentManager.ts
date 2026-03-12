@@ -71,6 +71,7 @@ export function useDocumentManager(
       if (metas.length === 0) {
         const doc = createNewDocument(1);
         await repository.save(doc);
+        if (cancelled) return;
         setDocuments([doc.meta]);
         setActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
