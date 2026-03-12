@@ -1,5 +1,11 @@
 # anipres
 
+## 0.12.0
+
+### Minor Changes
+
+- [#396](https://github.com/whitphx/anipres/pull/396) [`3237021`](https://github.com/whitphx/anipres/commit/3237021199163d475028eb0f8f53bfad7f956cac) Thanks [@whitphx](https://github.com/whitphx)! - Add `colorScheme` prop to Anipres component for per-instance color scheme control via TLUser
+
 ## 0.11.1
 
 ### Patch Changes
