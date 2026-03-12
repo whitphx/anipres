@@ -1,0 +1,11 @@
+.layout {
+  display: flex;
+  position: fixed;
+  inset: 0;
+}
+
+.main {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}

@@ -13,6 +13,7 @@ import {
   useAtom,
   useValue,
   react,
+  createTLUser,
 } from "tldraw";
 import type {
   Atom,
@@ -27,6 +28,8 @@ import type {
   TLContent,
   TLShape,
   TLShapeId,
+  TLUser,
+  TLUserPreferences,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
@@ -267,9 +270,10 @@ interface InnerProps {
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
+  user: TLUser;
 }
 const Inner = (props: InnerProps) => {
-  const { onMount, snapshot, perInstanceAtoms, assetUrls } = props;
+  const { onMount, snapshot, perInstanceAtoms, assetUrls, user } = props;
 
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
@@ -528,6 +532,7 @@ const Inner = (props: InnerProps) => {
       }}
       snapshot={snapshot}
       assetUrls={assetUrls}
+      user={user}
     />
   );
 };
@@ -541,6 +546,7 @@ export interface AnipresProps {
   snapshot?: InnerProps["snapshot"];
   assetUrls?: InnerProps["assetUrls"];
   stepHotkeyEnabled?: boolean;
+  colorScheme?: "light" | "dark" | "system";
 }
 export interface AnipresRef {
   rerunStep: () => void;
@@ -553,6 +559,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       snapshot,
       assetUrls,
       stepHotkeyEnabled,
+      colorScheme,
     } = props;
 
     const anipresAtoms = usePerInstanceAtoms();
@@ -561,6 +568,25 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       $stepHotkeyEnabled,
       $presentationModeHotkeyEnabled,
     } = anipresAtoms;
+
+    const $userPrefs = useAtom<TLUserPreferences>("anipres user prefs", {
+      id: uniqueId(),
+      colorScheme: colorScheme ?? "system",
+    });
+    const user = useMemo(
+      () =>
+        createTLUser({
+          userPreferences: $userPrefs,
+          setUserPreferences: (prefs) => $userPrefs.set(prefs),
+        }),
+      [$userPrefs],
+    );
+    useEffect(() => {
+      $userPrefs.set({
+        ...$userPrefs.get(),
+        colorScheme: colorScheme ?? "system",
+      });
+    }, [$userPrefs, colorScheme]);
 
     useEffect(() => {
       $stepHotkeyEnabled.set(stepHotkeyEnabled ?? true);
@@ -615,6 +641,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         perInstanceAtoms={anipresAtoms}
         snapshot={snapshot}
         assetUrls={memoizedAssetUrls}
+        user={user}
       />
     );
   },

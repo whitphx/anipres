@@ -1,0 +1,117 @@
+.item {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  gap: 4px;
+  border: none;
+  background: none;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.active {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.active:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.titleInput {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+}
+
+.titleInput:focus {
+  border-color: #0066ff;
+}
+
+.deleteButton {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .deleteButton {
+    opacity: 0;
+  }
+
+  .item:hover .deleteButton,
+  .item:focus-within .deleteButton,
+  .deleteButton:focus-visible {
+    opacity: 1;
+  }
+}
+
+.deleteButton:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #e00;
+}
+
+:global([data-color-scheme="dark"]) .item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:global([data-color-scheme="dark"]) .active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:global([data-color-scheme="dark"]) .active:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+:global([data-color-scheme="dark"]) .titleInput {
+  background: #333;
+  color: #eee;
+  border-color: #555;
+}
+
+:global([data-color-scheme="dark"]) .titleInput:focus {
+  border-color: #4d9aff;
+}
+
+:global([data-color-scheme="dark"]) .deleteButton {
+  color: #777;
+}
+
+:global([data-color-scheme="dark"]) .deleteButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f55;
+}
