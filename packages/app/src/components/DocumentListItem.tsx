@@ -41,9 +41,17 @@ export function DocumentListItem({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className={`${styles.item} ${isActive ? styles.active : ""}`}
       onClick={() => {
         if (!editing) onSelect(doc.id);
+      }}
+      onKeyDown={(e) => {
+        if (!editing && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onSelect(doc.id);
+        }
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -71,12 +79,14 @@ export function DocumentListItem({
         <span className={styles.title}>{doc.title}</span>
       )}
       <button
+        type="button"
         className={styles.deleteButton}
         onClick={(e) => {
           e.stopPropagation();
           onDelete(doc.id);
         }}
         title="Delete document"
+        aria-label="Delete document"
       >
         <X size={14} />
       </button>
