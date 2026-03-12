@@ -13,8 +13,10 @@ export interface ThemeDimension {
   h: number;
 }
 
-export interface ThemeImageShapeProps
-  extends Omit<TLImageShapeProps, "assetId"> {
+export interface ThemeImageShapeProps extends Omit<
+  TLImageShapeProps,
+  "assetId"
+> {
   assetIdLight: TLAssetId | null;
   assetIdDark: TLAssetId | null;
   syncThemeDimensionsAndCrops: boolean;

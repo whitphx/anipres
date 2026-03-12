@@ -26,15 +26,17 @@ export interface FrameBase {
   id: string;
   type: string;
 }
-export interface CueFrame<T extends FrameAction = FrameAction>
-  extends FrameBase {
+export interface CueFrame<
+  T extends FrameAction = FrameAction,
+> extends FrameBase {
   type: "cue";
   globalIndex: OrderedTrackItem["globalIndex"];
   trackId: OrderedTrackItem["trackId"];
   action: T;
 }
-export interface SubFrame<T extends FrameAction = FrameAction>
-  extends FrameBase {
+export interface SubFrame<
+  T extends FrameAction = FrameAction,
+> extends FrameBase {
   type: "sub";
   prevFrameId: Frame["id"];
   action: T;
