@@ -24,6 +24,9 @@ import type {
   TLEditorSnapshot,
   TLInstancePageState,
   TLInstancePageStateId,
+  TLContent,
+  TLShape,
+  TLShapeId,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
@@ -31,6 +34,7 @@ import { SlideShapeType } from "./shapes/slide/SlideShapeUtil";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
+import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
@@ -431,6 +435,49 @@ const Inner = (props: InnerProps) => {
         }
       }),
     );
+
+    // MONKEY-PATCH: Wrap `editor.getContentFromCurrentPage` to include ThemeImage assets.
+    //
+    // tldraw's default `getContentFromCurrentPage` only collects assets referenced by
+    // the standard `assetId` prop. ThemeImage uses `assetIdLight` and `assetIdDark` instead,
+    // so its assets would be missing from clipboard data when copying to another document.
+    //
+    // WARNING: `getContentFromCurrentPage` is NOT a documented/public tldraw API.
+    // It is an internal method on the Editor class that may be renamed, removed, or have
+    // its signature changed in future tldraw versions. If that happens, the runtime guard
+    // below will detect the breakage and log a warning (copy-paste will still work for
+    // standard shapes, but ThemeImage assets won't be transferred across documents).
+    //
+    // When upgrading tldraw, verify that this monkey-patch still works correctly.
+    // See: https://github.com/whitphx/anipres/issues/387
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editorAsAny = editor as any;
+    if (typeof editorAsAny.getContentFromCurrentPage === "function") {
+      const editorWithInternal = editor as Editor & {
+        getContentFromCurrentPage(
+          shapes: TLShapeId[] | TLShape[],
+        ): TLContent | undefined;
+      };
+      const originalGetContent =
+        editorWithInternal.getContentFromCurrentPage.bind(editorWithInternal);
+      editorWithInternal.getContentFromCurrentPage = (
+        shapes: TLShapeId[] | TLShape[],
+      ) => {
+        const content = originalGetContent(shapes);
+        if (!content) return content;
+        augmentContentWithThemeImageAssets(content, (id) =>
+          editor.getAsset(id),
+        );
+        return content;
+      };
+    } else {
+      console.warn(
+        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
+          "ThemeImage assets (light/dark) will not be included in clipboard data when copying. " +
+          "This is likely caused by a tldraw version upgrade. " +
+          "See: https://github.com/whitphx/anipres/issues/387",
+      );
+    }
 
     onMount?.(editor, presentationManager);
 
