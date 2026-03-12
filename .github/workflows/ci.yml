@@ -51,7 +51,7 @@ jobs:
         run: pnpm build
 
       - name: Upload dist
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           path: packages/anipres/dist
           name: anipres-dist
@@ -132,7 +132,7 @@ jobs:
       - name: Build the sample slides for preview
         run: pnpm slidev build
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ matrix.os == 'ubuntu-latest' }}
         with:
           name: slidev-addon-anipres-dist
@@ -227,7 +227,7 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: app-dist
           path: packages/app/dist/
