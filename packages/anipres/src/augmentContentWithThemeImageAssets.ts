@@ -1,6 +1,9 @@
 import { assetIdValidator } from "tldraw";
 import type { TLAsset, TLAssetId, TLContent } from "tldraw";
-import { ThemeImageShapeType } from "./shapes/theme-image/ThemeImageShape";
+import {
+  ThemeImageShapeType,
+  type ThemeImageShapeProps,
+} from "./shapes/theme-image/ThemeImageShape";
 
 /**
  * Mutates `content` to include ThemeImage assets (`assetIdLight` / `assetIdDark`)
@@ -14,7 +17,10 @@ export function augmentContentWithThemeImageAssets(
   for (const shape of content.shapes) {
     if (shape.type !== ThemeImageShapeType) continue;
     const props = shape.props as Record<string, unknown>;
-    for (const key of ["assetIdLight", "assetIdDark"] as const) {
+    for (const key of [
+      "assetIdLight",
+      "assetIdDark",
+    ] as const satisfies readonly (keyof ThemeImageShapeProps)[]) {
       const rawValue = props[key];
       if (!rawValue) continue;
       let assetId: TLAssetId;
