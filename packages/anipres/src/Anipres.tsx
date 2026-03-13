@@ -28,6 +28,8 @@ import type {
   TLContent,
   TLShape,
   TLShapeId,
+  TLStore,
+  TLStoreWithStatus,
   TLUser,
   TLUserPreferences,
 } from "tldraw";
@@ -267,13 +269,14 @@ interface InnerProps {
     editor: Editor,
     presentationManager: PresentationManager,
   ) => (() => void) | void;
+  store?: TLStore | TLStoreWithStatus;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
   user: TLUser;
 }
 const Inner = (props: InnerProps) => {
-  const { onMount, snapshot, perInstanceAtoms, assetUrls, user } = props;
+  const { onMount, store, snapshot, perInstanceAtoms, assetUrls, user } = props;
 
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
@@ -531,6 +534,7 @@ const Inner = (props: InnerProps) => {
         maxPages: 1,
       }}
       snapshot={snapshot}
+      store={store}
       assetUrls={assetUrls}
       user={user}
     />
@@ -543,6 +547,7 @@ const MemoizedInner = React.memo(Inner);
 export interface AnipresProps {
   presentationMode?: boolean;
   onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
+  store?: TLStore | TLStoreWithStatus;
   snapshot?: InnerProps["snapshot"];
   assetUrls?: InnerProps["assetUrls"];
   stepHotkeyEnabled?: boolean;
@@ -556,6 +561,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     const {
       presentationMode,
       onMount,
+      store,
       snapshot,
       assetUrls,
       stepHotkeyEnabled,
@@ -639,6 +645,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       <MemoizedInner
         onMount={handleMount}
         perInstanceAtoms={anipresAtoms}
+        store={store}
         snapshot={snapshot}
         assetUrls={memoizedAssetUrls}
         user={user}
