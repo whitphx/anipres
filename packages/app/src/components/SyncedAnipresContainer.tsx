@@ -1,8 +1,6 @@
-import { useMemo } from "react";
 import { useSync } from "@tldraw/sync";
-import { defaultShapeUtils, defaultBindingUtils } from "tldraw";
 import type { TLAssetStore } from "tldraw";
-import { Anipres, customShapeUtils } from "anipres";
+import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 
 interface SyncedAnipresContainerProps {
   roomId: string;
@@ -32,12 +30,6 @@ export function SyncedAnipresContainer({
   roomId,
   colorScheme,
 }: SyncedAnipresContainerProps) {
-  const allShapeUtils = useMemo(
-    () => [...defaultShapeUtils, ...customShapeUtils],
-    [],
-  );
-  const allBindingUtils = useMemo(() => [...defaultBindingUtils], []);
-
   const store = useSync({
     uri: `${WORKER_URL}/api/connect/${roomId}`,
     shapeUtils: allShapeUtils,
