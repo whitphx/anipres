@@ -2,7 +2,7 @@
   "name": "anipres",
   "version": "0.12.0",
   "type": "module",
-  "main": "./dist/anipres.umd.cjs",
+  "main": "./dist/anipres.cjs",
   "module": "./dist/anipres.js",
   "files": [
     "dist"
@@ -13,10 +13,15 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/anipres.js"
       },
-      "require": "./dist/anipres.umd.cjs"
+      "require": "./dist/anipres.cjs"
     },
     "./anipres.css": "./dist/anipres.css",
-    "./schema": "./src/schema.ts"
+    "./schema": {
+      "import": {
+        "types": "./dist/schema.d.ts",
+        "default": "./dist/schema.js"
+      }
+    }
   },
   "types": "./dist/index.d.ts",
   "repository": {
