@@ -7,9 +7,6 @@ interface SyncedAnipresContainerProps {
   colorScheme?: "light" | "dark" | "system";
 }
 
-const WORKER_URL =
-  import.meta.env.VITE_SYNC_WORKER_URL ?? "http://localhost:8787";
-
 // POC: store images as inline data URLs. Not suitable for production.
 const inlineAssetStore: TLAssetStore = {
   async upload(_asset, file) {
@@ -31,15 +28,11 @@ export function SyncedAnipresContainer({
   colorScheme,
 }: SyncedAnipresContainerProps) {
   const store = useSync({
-    uri: `${WORKER_URL}/api/connect/${encodeURIComponent(roomId)}`,
+    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(roomId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: inlineAssetStore,
   });
 
-  return (
-    <div style={{ position: "fixed", inset: 0 }}>
-      <Anipres key={roomId} store={store} colorScheme={colorScheme} />
-    </div>
-  );
+  return <Anipres key={roomId} store={store} colorScheme={colorScheme} />;
 }

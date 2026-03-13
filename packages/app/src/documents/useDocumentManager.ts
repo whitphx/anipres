@@ -21,6 +21,7 @@ export interface DocumentManager {
   activeDocumentId: string | null;
   activeSnapshot: TLStoreSnapshot | null;
   loading: boolean;
+  synced: boolean;
   selectDocument: (id: string) => Promise<void>;
   createDocument: () => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
@@ -31,7 +32,9 @@ export interface DocumentManager {
 
 export function useDocumentManager(
   repository: DocumentRepository,
+  options?: { synced?: boolean },
 ): DocumentManager {
+  const synced = options?.synced ?? false;
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [activeSnapshot, setActiveSnapshot] = useState<TLStoreSnapshot | null>(
@@ -46,6 +49,8 @@ export function useDocumentManager(
   }, [activeDocumentId]);
 
   const saveCurrentEditor = useCallback(async () => {
+    if (synced) return;
+
     const editor = editorRef.current;
     const docId = activeDocumentIdRef.current;
     if (!editor || !docId) return;
@@ -59,7 +64,7 @@ export function useDocumentManager(
       meta: { ...existing.meta, updatedAt: Date.now() },
       snapshot: document,
     });
-  }, [repository]);
+  }, [repository, synced]);
 
   // Initialize: load documents or create first one
   useEffect(() => {
@@ -192,6 +197,12 @@ export function useDocumentManager(
     (editor: Editor) => {
       editorRef.current = editor;
 
+      if (synced) {
+        return () => {
+          // No auto-save listener to clean up in synced mode
+        };
+      }
+
       // Auto-save on user changes, debounced
       let timer: ReturnType<typeof setTimeout> | undefined;
       const stopListening = editor.store.listen(
@@ -209,7 +220,7 @@ export function useDocumentManager(
         stopListening();
       };
     },
-    [saveCurrentEditor],
+    [saveCurrentEditor, synced],
   );
 
   // Best-effort save when the user leaves the page.
@@ -218,7 +229,10 @@ export function useDocumentManager(
   // navigation/close. None of these can await the async save, but firing it
   // initiates the IndexedDB transaction which browsers typically allow to
   // complete during page teardown.
+  // Skipped in synced mode — content is persisted by useSync.
   useEffect(() => {
+    if (synced) return;
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         saveCurrentEditor();
@@ -238,13 +252,14 @@ export function useDocumentManager(
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [saveCurrentEditor]);
+  }, [saveCurrentEditor, synced]);
 
   return {
     documents,
     activeDocumentId,
     activeSnapshot,
     loading,
+    synced,
     selectDocument,
     createDocument,
     deleteDocument,
