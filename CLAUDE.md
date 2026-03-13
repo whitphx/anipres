@@ -65,7 +65,7 @@ For user-facing or API changes, add a changeset: `pnpm changeset` (base branch: 
 
 - **State management**: tldraw's atom system with `@computed` for memoization
 - **Styling**: CSS Modules (`.module.scss`, `.module.css`)
-- **File naming**: kebab-case for files, PascalCase for components/classes, camelCase for helpers
+- **File naming**: Mixed — React components and their files use PascalCase (e.g. `Anipres.tsx`, `App.tsx`), most other modules use kebab-case; camelCase for helpers. Prefer the existing convention in a given folder.
 - **Tests**: Vitest, co-located with source (`*.test.ts`)
 - **TypeScript**: Strict mode, `noUnusedLocals`, `noUnusedParameters` enabled
 - **Lint-staged**: Prettier + ESLint run on commit via husky
