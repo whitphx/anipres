@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 
 export { TldrawDurableObject } from "./TldrawDurableObject";
 
@@ -9,17 +8,16 @@ interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", cors());
-
 app.get("/api/connect/:roomId", (c) => {
+  if (c.req.header("Upgrade") !== "websocket") {
+    return c.text("Expected WebSocket upgrade", 426);
+  }
+
   const roomId = c.req.param("roomId");
   const id = c.env.TLDRAW_DURABLE_OBJECT.idFromName(roomId);
   const room = c.env.TLDRAW_DURABLE_OBJECT.get(id);
 
-  const url = new URL(c.req.url);
-  return room.fetch(url.toString(), {
-    headers: c.req.raw.headers,
-  });
+  return room.fetch(c.req.raw);
 });
 
 export default app;
