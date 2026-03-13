@@ -1,5 +1,11 @@
 # anipres
 
+## 0.12.1
+
+### Patch Changes
+
+- [#405](https://github.com/whitphx/anipres/pull/405) [`486a0b5`](https://github.com/whitphx/anipres/commit/486a0b5f0f32d6b5638e4bfbf383bb6e715c9804) Thanks [@whitphx](https://github.com/whitphx)! - Extract SlideShape types and props into a separate pure-TS file to match the ThemeImageShape pattern
+
 ## 0.12.0
 
 ### Minor Changes
