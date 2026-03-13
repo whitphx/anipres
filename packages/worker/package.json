@@ -1,5 +1,5 @@
 {
-  "name": "anipres-sync-worker",
+  "name": "anipres-worker",
   "private": true,
   "version": "0.0.1",
   "type": "module",
