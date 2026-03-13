@@ -31,7 +31,7 @@ export function SyncedAnipresContainer({
   colorScheme,
 }: SyncedAnipresContainerProps) {
   const store = useSync({
-    uri: `${WORKER_URL}/api/connect/${roomId}`,
+    uri: `${WORKER_URL}/api/connect/${encodeURIComponent(roomId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: inlineAssetStore,
