@@ -1,6 +1,9 @@
 import { useSync } from "@tldraw/sync";
+import { defaultShapeUtils, defaultBindingUtils } from "tldraw";
 import type { TLAssetStore } from "tldraw";
 import { Anipres, customShapeUtils } from "anipres";
+
+const allShapeUtils = [...defaultShapeUtils, ...customShapeUtils];
 
 const noopAssetStore: TLAssetStore = {
   upload: async () => ({ src: "" }),
@@ -21,7 +24,8 @@ export function SyncedAnipresContainer({
   const store = useSync({
     uri: `${serverBaseUrl}/api/rooms/${roomId}`,
     assets: noopAssetStore,
-    shapeUtils: customShapeUtils,
+    shapeUtils: allShapeUtils,
+    bindingUtils: defaultBindingUtils,
   });
 
   if (store.status === "loading") {
@@ -32,5 +36,9 @@ export function SyncedAnipresContainer({
     return <div>Error connecting to room: {store.error.message}</div>;
   }
 
-  return <Anipres store={store} colorScheme={colorScheme} />;
+  return (
+    <div style={{ position: "fixed", inset: 0 }}>
+      <Anipres store={store} colorScheme={colorScheme} />
+    </div>
+  );
 }
