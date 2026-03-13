@@ -32,8 +32,8 @@
 
 - **State management**:
   - Tldraw has its own signal-based state management system using atoms and computed values.
-  - Use React's built-in mechanism where the component doesn't interact with Tldraw's state.
-
+  - For editor-related state (shapes, selection, frames, presentation progress, etc.), rely on tldraw's atom/computed system (and hooks like `useAtom` / `useValue`) instead of duplicating that state in React.
+  - Use React state only for view-level concerns that are independent of the tldraw editor (for example, local UI toggles, dialog visibility, or layout switches).
 ## Architecture
 
 ### Core Library (`packages/anipres/src/`)
