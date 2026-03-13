@@ -21,13 +21,40 @@
 - TypeScript across packages; prefer `*.tsx` for React views and `*.ts` for logic.
 - Formatting enforced by Prettier 3; keep imports sorted logically and avoid lint overrides unless necessary.
 - ESLint flat configs with React, React Hooks, and Prettier plugins; fix warnings before merging.
+- Lint-staged: Prettier + ESLint run on commit via husky
 - Component/utility files use kebab- or dash-separated filenames (e.g., `ordered-track-item.ts`); exported symbols in PascalCase for components and camelCase for helpers.
+- Styling: CSS Modules (`.module.scss`, `.module.css`)
+- File naming: Mixed — React components and their files use PascalCase (e.g. `Anipres.tsx`, `App.tsx`), most other modules use kebab-case; camelCase for helpers. Prefer the existing convention in a given folder.
+- Tests: Vitest, co-located with source (`*.test.ts`)
+- TypeScript: Strict mode, `noUnusedLocals`, `noUnusedParameters` enabled
+
+## Implementation Patterns
+
+- **State management**:
+  - Tldraw has its own signal-based state management system using atoms and computed values.
+  - Use React's built-in mechanism where the component doesn't interact with Tldraw's state.
+
+## Architecture
+
+### Core Library (`packages/anipres/src/`)
+
+**Shape System** (`src/shapes/`): Custom tldraw shapes, each with a type definition file (pure TS), a `ShapeUtil` (rendering/behavior), and a `ShapeTool` (creation interaction).
+
+**Presentation Manager** (`src/presentation-manager/`): Manages animation sequencing and frame state. Uses tldraw's atom/computed system for reactive state. Instances are cached per-editor via WeakMap.
+
+**Models** (`src/models.ts`): Core data types — FrameAction (shapeAnimation, cameraZoom), Frame types (CueFrame with ordered track items, SubFrame), and Step (array of frame batches).
+
+**Timeline UI** (`src/Timeline/`): Frame editor with drag-and-drop via @dnd-kit.
+
+**Control Panel** (`src/ControlPanel/`): Step navigation, presentation mode trigger, timeline widget.
+
+**Main Component** (`src/Anipres.tsx`): Top-level React component that integrates tldraw with custom shapes, tools, and UI overrides. Uses per-instance atoms for state isolation.
 
 ## Testing Guidelines
 
-- Vitest unit tests live beside sources in `packages/anipres/src/*.{test,spec}.ts`.
+- Vitest unit tests live beside sources in `packages/*/src/*.{test,spec}.ts`.
 - Cover new behaviors with focused unit tests; prefer deterministic tests without timers or network.
-- Run `pnpm --filter anipres test` before PRs; keep tests green on CI.
+- Run `pnpm test` before PRs; keep tests green on CI.
 - After making changes, run `pnpm typecheck` to validate types. If the script is missing, note the failure in your summary and proceed with the available checks.
 
 ## Commit & Pull Request Guidelines
