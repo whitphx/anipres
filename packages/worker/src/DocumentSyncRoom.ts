@@ -29,7 +29,7 @@ export class DocumentSyncRoom extends DurableObject<Env> {
     // Phase 1 POC: no persistence — data lives only while the DO is active.
     // A future phase will add SQLite-backed persistence.
     this.room = new TLSocketRoom<TLRecord, void>({
-      schema: schema as any,
+      schema,
     });
   }
 
