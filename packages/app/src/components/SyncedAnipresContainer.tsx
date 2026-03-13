@@ -45,5 +45,9 @@ export function SyncedAnipresContainer({
     assets: inlineAssetStore,
   });
 
-  return <Anipres key={roomId} store={store} colorScheme={colorScheme} />;
+  return (
+    <div style={{ position: "fixed", inset: 0 }}>
+      <Anipres key={roomId} store={store} colorScheme={colorScheme} />
+    </div>
+  );
 }
