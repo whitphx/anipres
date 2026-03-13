@@ -2,12 +2,18 @@ import { TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
 import type { TLRecord } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
-import { customShapeSchemas } from "anipres/schema";
+import {
+  slideShapeProps,
+  SlideShapeType,
+  themeImageShapeProps,
+  ThemeImageShapeType,
+} from "anipres/schema";
 
 const schema = createTLSchema({
   shapes: {
     ...defaultShapeSchemas,
-    ...customShapeSchemas,
+    [SlideShapeType]: { props: slideShapeProps },
+    [ThemeImageShapeType]: { props: themeImageShapeProps },
   },
 });
 
