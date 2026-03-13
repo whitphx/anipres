@@ -1,0 +1,13 @@
+name = "anipres-sync-worker"
+main = "src/worker.ts"
+compatibility_date = "2025-05-08"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "TLDRAW_DURABLE_OBJECT", class_name = "TldrawDurableObject" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TldrawDurableObject"]
