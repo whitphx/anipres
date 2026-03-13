@@ -18,10 +18,10 @@ const schema = createTLSchema({
 });
 
 interface Env {
-  TLDRAW_DURABLE_OBJECT: DurableObjectNamespace;
+  DOCUMENT_SYNC_ROOM: DurableObjectNamespace;
 }
 
-export class TldrawDurableObject extends DurableObject<Env> {
+export class DocumentSyncRoom extends DurableObject<Env> {
   private room: TLSocketRoom<TLRecord, void>;
 
   constructor(ctx: DurableObjectState, env: Env) {

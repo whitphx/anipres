@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 
-export { TldrawDurableObject } from "./TldrawDurableObject";
+export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 interface Env {
-  TLDRAW_DURABLE_OBJECT: DurableObjectNamespace;
+  DOCUMENT_SYNC_ROOM: DurableObjectNamespace;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -14,8 +14,8 @@ app.get("/api/connect/:roomId", (c) => {
   }
 
   const roomId = c.req.param("roomId");
-  const id = c.env.TLDRAW_DURABLE_OBJECT.idFromName(roomId);
-  const room = c.env.TLDRAW_DURABLE_OBJECT.get(id);
+  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(roomId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
 
   return room.fetch(c.req.raw);
 });

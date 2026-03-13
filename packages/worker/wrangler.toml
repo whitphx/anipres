@@ -5,9 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [durable_objects]
 bindings = [
-  { name = "TLDRAW_DURABLE_OBJECT", class_name = "TldrawDurableObject" }
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
 ]
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["TldrawDurableObject"]
+new_sqlite_classes = ["DocumentSyncRoom"]
