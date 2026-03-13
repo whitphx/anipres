@@ -21,8 +21,10 @@ import type {
   TLComponents,
   Editor,
   TldrawProps,
+  TLStore,
   TLStoreSnapshot,
   TLEditorSnapshot,
+  TLStoreWithStatus,
   TLInstancePageState,
   TLInstancePageStateId,
   TLContent,
@@ -33,7 +35,7 @@ import type {
 } from "tldraw";
 import "tldraw/tldraw.css";
 
-import { SlideShapeType } from "./shapes/slide/SlideShapeUtil";
+import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
@@ -267,13 +269,14 @@ interface InnerProps {
     editor: Editor,
     presentationManager: PresentationManager,
   ) => (() => void) | void;
+  store?: TLStore | TLStoreWithStatus;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
   user: TLUser;
 }
 const Inner = (props: InnerProps) => {
-  const { onMount, snapshot, perInstanceAtoms, assetUrls, user } = props;
+  const { onMount, store, snapshot, perInstanceAtoms, assetUrls, user } = props;
 
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
@@ -530,7 +533,7 @@ const Inner = (props: InnerProps) => {
       options={{
         maxPages: 1,
       }}
-      snapshot={snapshot}
+      {...(store ? { store } : { snapshot })}
       assetUrls={assetUrls}
       user={user}
     />
@@ -543,6 +546,7 @@ const MemoizedInner = React.memo(Inner);
 export interface AnipresProps {
   presentationMode?: boolean;
   onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
+  store?: InnerProps["store"];
   snapshot?: InnerProps["snapshot"];
   assetUrls?: InnerProps["assetUrls"];
   stepHotkeyEnabled?: boolean;
@@ -556,6 +560,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
     const {
       presentationMode,
       onMount,
+      store,
       snapshot,
       assetUrls,
       stepHotkeyEnabled,
@@ -639,6 +644,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       <MemoizedInner
         onMount={handleMount}
         perInstanceAtoms={anipresAtoms}
+        store={store}
         snapshot={snapshot}
         assetUrls={memoizedAssetUrls}
         user={user}

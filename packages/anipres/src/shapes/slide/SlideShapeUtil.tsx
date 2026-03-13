@@ -1,5 +1,4 @@
 import {
-  TLBaseShape,
   SVGContainer,
   ShapeUtil,
   Geometry2d,
@@ -8,23 +7,12 @@ import {
   getPerfectDashProps,
   TLResizeInfo,
   resizeBox,
-  T,
-  RecordProps,
 } from "tldraw";
-
-export const SlideShapeType = "slide" as const;
-
-export type SlideShape = TLBaseShape<
-  typeof SlideShapeType,
-  { w: number; h: number }
->;
+import { SlideShapeType, slideShapeProps, type SlideShape } from "./SlideShape";
 
 export class SlideShapeUtil extends ShapeUtil<SlideShape> {
   static override readonly type = SlideShapeType;
-  static override props: RecordProps<SlideShape> = {
-    w: T.number,
-    h: T.number,
-  };
+  static override props = slideShapeProps;
 
   override canBind() {
     return false; // TODO: Be configurable?
