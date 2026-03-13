@@ -15,6 +15,12 @@
       },
       "require": "./dist/anipres.umd.cjs"
     },
+    "./schema": {
+      "import": {
+        "types": "./dist/schema.d.ts",
+        "default": "./dist/schema.js"
+      }
+    },
     "./anipres.css": "./dist/anipres.css"
   },
   "types": "./dist/index.d.ts",
