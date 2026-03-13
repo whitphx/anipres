@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tldraw/sync": "3.15.5",
     "anipres": "workspace:*",
     "idb-keyval": "^6.2.1",
     "lucide-react": "^0.577.0",
