@@ -11,11 +11,15 @@
     ".": {
       "import": {
         "types": "./dist/index.d.ts",
+        "development": "./src/index.ts",
         "default": "./dist/anipres.js"
       },
       "require": "./dist/anipres.umd.cjs"
     },
-    "./anipres.css": "./dist/anipres.css"
+    "./anipres.css": {
+      "development": "./src/_stub.css",
+      "default": "./dist/anipres.css"
+    }
   },
   "types": "./dist/index.d.ts",
   "repository": {
