@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import { githubAuth } from "@hono/oauth-providers/github";
+import { googleAuth } from "@hono/oauth-providers/google";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
@@ -10,6 +11,8 @@ interface Env {
   DB: D1Database;
   GITHUB_ID: string;
   GITHUB_SECRET: string;
+  GOOGLE_ID: string;
+  GOOGLE_SECRET: string;
   JWT_SECRET: string;
 }
 
@@ -21,6 +24,52 @@ const COOKIE_NAME = "anipres_session";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// --- Auth helpers ---
+
+async function upsertUserAndIssueSession(
+  c: {
+    env: Env;
+    redirect: (url: string) => Response;
+    text: (text: string, status: number) => Response;
+  },
+  provider: string,
+  providerId: string,
+): Promise<Response> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const user = await c.env.DB.prepare(
+    `INSERT INTO users (provider, provider_id, created_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(provider, provider_id) DO UPDATE SET provider = provider
+     RETURNING id`,
+  )
+    .bind(provider, providerId, now)
+    .first<{ id: number }>();
+
+  if (!user) {
+    return c.text("Failed to create user", 500);
+  }
+
+  const jwt = await sign(
+    {
+      sub: String(user.id),
+      exp: now + JWT_EXPIRY_SECONDS,
+      iat: now,
+    },
+    c.env.JWT_SECRET,
+  );
+
+  setCookie(c as Parameters<typeof setCookie>[0], COOKIE_NAME, jwt, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: JWT_EXPIRY_SECONDS,
+  });
+
+  return c.redirect("/");
+}
 
 // --- Auth routes ---
 
@@ -36,46 +85,25 @@ app.use(
 
 app.get("/auth/github", async (c) => {
   const ghUser = c.get("user-github");
-
   if (!ghUser) {
     return c.text("Authentication failed", 401);
   }
+  return upsertUserAndIssueSession(c, "github", String(ghUser.id));
+});
 
-  const now = Math.floor(Date.now() / 1000);
+app.use(
+  "/auth/google",
+  googleAuth({
+    scope: ["openid"],
+  }),
+);
 
-  // Upsert user and get id in one query
-  const user = await c.env.DB.prepare(
-    `INSERT INTO users (provider, provider_id, created_at)
-     VALUES ('github', ?, ?)
-     ON CONFLICT(provider, provider_id) DO UPDATE SET provider = provider
-     RETURNING id`,
-  )
-    .bind(String(ghUser.id), now)
-    .first<{ id: number }>();
-
-  if (!user) {
-    return c.text("Failed to create user", 500);
+app.get("/auth/google", async (c) => {
+  const googleUser = c.get("user-google");
+  if (!googleUser) {
+    return c.text("Authentication failed", 401);
   }
-
-  // Issue JWT
-  const jwt = await sign(
-    {
-      sub: String(user.id),
-      exp: now + JWT_EXPIRY_SECONDS,
-      iat: now,
-    },
-    c.env.JWT_SECRET,
-  );
-
-  setCookie(c, COOKIE_NAME, jwt, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    path: "/",
-    maxAge: JWT_EXPIRY_SECONDS,
-  });
-
-  return c.redirect("/");
+  return upsertUserAndIssueSession(c, "google", String(googleUser.id));
 });
 
 app.get("/auth/me", async (c) => {

@@ -25,7 +25,7 @@ export function DocumentSidebar({
     renameDocument,
   } = useDocumentManagerContext();
 
-  const { user, login, logout } = useAuth();
+  const { user, loginWithGitHub, loginWithGoogle, logout } = useAuth();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -84,9 +84,22 @@ export function DocumentSidebar({
             <LogOut size={14} /> Log out
           </button>
         ) : (
-          <button type="button" className={styles.authButton} onClick={login}>
-            <Github size={14} /> Log in with GitHub
-          </button>
+          <>
+            <button
+              type="button"
+              className={styles.authButton}
+              onClick={loginWithGitHub}
+            >
+              <Github size={14} /> Log in with GitHub
+            </button>
+            <button
+              type="button"
+              className={styles.authButton}
+              onClick={loginWithGoogle}
+            >
+              Log in with Google
+            </button>
+          </>
         )}
         <ColorSchemeSwitcher
           preference={colorSchemePreference}

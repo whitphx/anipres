@@ -10,7 +10,8 @@ import type { User } from "./types";
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: () => void;
+  loginWithGitHub: () => void;
+  loginWithGoogle: () => void;
   logout: () => void;
 }
 
@@ -37,8 +38,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  const login = useCallback(() => {
+  const loginWithGitHub = useCallback(() => {
     window.location.href = "/auth/github";
+  }, []);
+
+  const loginWithGoogle = useCallback(() => {
+    window.location.href = "/auth/google";
   }, []);
 
   const logout = useCallback(() => {
@@ -50,7 +55,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, loginWithGitHub, loginWithGoogle, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
