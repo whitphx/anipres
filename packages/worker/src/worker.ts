@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import { githubAuth } from "@hono/oauth-providers/github";
@@ -28,11 +28,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // --- Auth helpers ---
 
 async function upsertUserAndIssueSession(
-  c: {
-    env: Env;
-    redirect: (url: string) => Response;
-    text: (text: string, status: number) => Response;
-  },
+  c: Context<{ Bindings: Env; Variables: Variables }>,
   provider: string,
   providerId: string,
 ): Promise<Response> {
@@ -60,7 +56,7 @@ async function upsertUserAndIssueSession(
     c.env.JWT_SECRET,
   );
 
-  setCookie(c as Parameters<typeof setCookie>[0], COOKIE_NAME, jwt, {
+  setCookie(c, COOKIE_NAME, jwt, {
     httpOnly: true,
     secure: true,
     sameSite: "Lax",

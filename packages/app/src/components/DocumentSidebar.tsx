@@ -1,4 +1,11 @@
-import { Github, LogOut, Menu, PanelLeftClose, Plus } from "lucide-react";
+import {
+  Github,
+  LogIn,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  Plus,
+} from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
@@ -97,7 +104,7 @@ export function DocumentSidebar({
               className={styles.authButton}
               onClick={loginWithGoogle}
             >
-              Log in with Google
+              <LogIn size={14} /> Log in with Google
             </button>
           </>
         )}
