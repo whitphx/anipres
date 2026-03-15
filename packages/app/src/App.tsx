@@ -5,18 +5,19 @@ import { IdbDocumentRepository } from "./documents/idb-repository";
 import { ApiDocumentRepository } from "./documents/api-repository";
 import { DocumentManagerProvider } from "./documents/DocumentManagerContext";
 import { AppContent } from "./AppContent";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
 
-function isSyncMode(): boolean {
-  const params = new URLSearchParams(window.location.search);
-  return params.has("sync");
-}
-
-function App() {
-  const synced = useMemo(() => isSyncMode(), []);
+function AuthenticatedApp() {
+  const { user, loading: authLoading } = useAuth();
+  const synced = user !== null;
   const repository = useMemo(
     () => (synced ? new ApiDocumentRepository() : new IdbDocumentRepository()),
     [synced],
   );
+
+  if (authLoading) {
+    return null;
+  }
 
   return (
     <>
@@ -36,6 +37,14 @@ function App() {
         <AppContent />
       </DocumentManagerProvider>
     </>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
   );
 }
 

@@ -1,5 +1,6 @@
-import { Menu, PanelLeftClose, Plus } from "lucide-react";
+import { Github, LogOut, Menu, PanelLeftClose, Plus } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "../auth/AuthContext";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
@@ -23,6 +24,8 @@ export function DocumentSidebar({
     deleteDocument,
     renameDocument,
   } = useDocumentManagerContext();
+
+  const { user, login, logout } = useAuth();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -75,10 +78,25 @@ export function DocumentSidebar({
           />
         ))}
       </div>
-      <ColorSchemeSwitcher
-        preference={colorSchemePreference}
-        onChange={onColorSchemeChange}
-      />
+      <div className={styles.footer}>
+        {user ? (
+          <button
+            type="button"
+            className={styles.logoutButton}
+            onClick={logout}
+          >
+            <LogOut size={14} /> Log out
+          </button>
+        ) : (
+          <button type="button" className={styles.loginButton} onClick={login}>
+            <Github size={14} /> Log in with GitHub
+          </button>
+        )}
+        <ColorSchemeSwitcher
+          preference={colorSchemePreference}
+          onChange={onColorSchemeChange}
+        />
+      </div>
     </div>
   );
 }
