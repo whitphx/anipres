@@ -1,0 +1,12 @@
+name = "anipres-worker"
+main = "src/index.ts"
+compatibility_date = "2026-03-14"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "TLDRAW_ROOM"
+class_name = "TldrawRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TldrawRoom"]

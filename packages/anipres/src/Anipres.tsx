@@ -30,6 +30,7 @@ import type {
   TLShapeId,
   TLUser,
   TLUserPreferences,
+  TLStore,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
@@ -268,12 +269,13 @@ interface InnerProps {
     presentationManager: PresentationManager,
   ) => (() => void) | void;
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
+  store?: TLStore;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
   user: TLUser;
 }
 const Inner = (props: InnerProps) => {
-  const { onMount, snapshot, perInstanceAtoms, assetUrls, user } = props;
+  const { onMount, snapshot, store, perInstanceAtoms, assetUrls, user } = props;
 
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
@@ -530,6 +532,7 @@ const Inner = (props: InnerProps) => {
       options={{
         maxPages: 1,
       }}
+      store={store}
       snapshot={snapshot}
       assetUrls={assetUrls}
       user={user}
@@ -544,6 +547,7 @@ export interface AnipresProps {
   presentationMode?: boolean;
   onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
   snapshot?: InnerProps["snapshot"];
+  store?: TLStore;
   assetUrls?: InnerProps["assetUrls"];
   stepHotkeyEnabled?: boolean;
   colorScheme?: "light" | "dark" | "system";
@@ -557,6 +561,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       presentationMode,
       onMount,
       snapshot,
+      store,
       assetUrls,
       stepHotkeyEnabled,
       colorScheme,
@@ -639,6 +644,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       <MemoizedInner
         onMount={handleMount}
         perInstanceAtoms={anipresAtoms}
+        store={store}
         snapshot={snapshot}
         assetUrls={memoizedAssetUrls}
         user={user}
