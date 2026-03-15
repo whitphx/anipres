@@ -89,6 +89,33 @@
   background: #eee;
 }
 
+.footer {
+  border-top: 1px solid #e8e8e8;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.authButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+}
+
+.authButton:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 :global([data-color-scheme="dark"]) .sidebar {
   background: #1e1e1e;
   border-right-color: #333;
@@ -128,4 +155,17 @@
 
 :global([data-color-scheme="dark"]) .toggleButton:hover {
   background: #333;
+}
+
+:global([data-color-scheme="dark"]) .footer {
+  border-top-color: #333;
+}
+
+:global([data-color-scheme="dark"]) .authButton {
+  border-color: #444;
+  color: #999;
+}
+
+:global([data-color-scheme="dark"]) .authButton:hover {
+  background: rgba(255, 255, 255, 0.08);
 }

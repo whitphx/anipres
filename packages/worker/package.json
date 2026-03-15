@@ -9,14 +9,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "anipres": "workspace:*",
+    "@hono/oauth-providers": "^0.8.5",
     "@tldraw/sync-core": "3.15.5",
-    "tldraw": "3.15.5",
-    "hono": "^4.7.0"
+    "anipres": "workspace:*",
+    "hono": "^4.7.0",
+    "tldraw": "3.15.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250312.0",
-    "wrangler": "^4.0.0",
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "wrangler": "^4.0.0"
   }
 }
