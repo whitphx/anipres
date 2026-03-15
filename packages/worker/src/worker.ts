@@ -197,12 +197,24 @@ app.delete("/api/documents/:id", async (c) => {
 });
 
 // WebSocket upgrade for sync
-app.get("/api/connect/:roomId", (c) => {
+app.get("/api/connect/:roomId", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {
     return c.text("Expected WebSocket upgrade", 426);
   }
 
+  const userId = c.get("userId");
   const roomId = c.req.param("roomId");
+
+  const document = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
+  )
+    .bind(roomId, userId)
+    .first();
+
+  if (!document) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
   const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(roomId);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
 
