@@ -1,5 +1,5 @@
-import { T } from "tldraw";
-import type { TLBaseShape, RecordProps } from "tldraw";
+import { T } from "@tldraw/validate";
+import type { TLBaseShape, RecordProps } from "@tldraw/tlschema";
 
 export const SlideShapeType = "slide" as const;
 

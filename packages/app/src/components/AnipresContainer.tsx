@@ -6,7 +6,8 @@ import {
   type ComponentProps,
 } from "react";
 import { useSync } from "@tldraw/sync";
-import { Anipres, anipresSchema } from "anipres";
+import { Anipres } from "anipres";
+import { anipresSchema } from "anipres/schema";
 import type { TLStoreSnapshot } from "tldraw";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import {

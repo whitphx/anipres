@@ -1,7 +1,9 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import dts from "vite-plugin-dts";
 import path from "node:path";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+import dts from "vite-plugin-dts";
+
+const distDir = path.resolve(__dirname, "dist");
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -17,6 +19,8 @@ export default defineConfig({
       name: "Anipres",
       fileName: "anipres",
     },
+    outDir: distDir,
+    emptyOutDir: true,
     rollupOptions: {
       external: ["react", "react-dom", "tldraw"],
       output: {

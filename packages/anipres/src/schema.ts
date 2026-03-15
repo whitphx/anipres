@@ -2,7 +2,7 @@ import {
   createTLSchema,
   defaultBindingSchemas,
   defaultShapeSchemas,
-} from "tldraw";
+} from "@tldraw/tlschema";
 import { slideShapeProps, SlideShapeType } from "./shapes/slide/SlideShape";
 import {
   themeImageShapeProps,

@@ -1,12 +1,12 @@
-import { T, ImageShapeCrop } from "tldraw";
+import { T, type Validator } from "@tldraw/validate";
+import { ImageShapeCrop } from "@tldraw/tlschema";
 import type {
   TLAssetId,
   TLBaseShape,
   TLImageShapeProps,
   RecordProps,
-  Validator,
   TLShapeCrop,
-} from "tldraw";
+} from "@tldraw/tlschema";
 
 export interface ThemeDimension {
   w: number;
