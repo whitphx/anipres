@@ -24,6 +24,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // --- Auth routes ---
 
+// user:email scope is unused by us, but @hono/oauth-providers unconditionally
+// calls GET /user/emails after auth, which requires this scope.
 app.use(
   "/auth/github",
   githubAuth({
@@ -41,23 +43,14 @@ app.get("/auth/github", async (c) => {
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Upsert user
-  await c.env.DB.prepare(
+  // Upsert user and get id in one query
+  const user = await c.env.DB.prepare(
     `INSERT INTO users (provider, provider_id, created_at)
      VALUES ('github', ?, ?)
-     ON CONFLICT(provider, provider_id) DO NOTHING`,
+     ON CONFLICT(provider, provider_id) DO UPDATE SET provider = provider
+     RETURNING id`,
   )
-    .bind(
-      String(ghUser.id),
-      now,
-    )
-    .run();
-
-  // Get user id
-  const user = await c.env.DB.prepare(
-    "SELECT id FROM users WHERE provider = 'github' AND provider_id = ?",
-  )
-    .bind(String(ghUser.id))
+    .bind(String(ghUser.id), now)
     .first<{ id: number }>();
 
   if (!user) {
@@ -67,7 +60,7 @@ app.get("/auth/github", async (c) => {
   // Issue JWT
   const jwt = await sign(
     {
-      sub: user.id,
+      sub: String(user.id),
       exp: now + JWT_EXPIRY_SECONDS,
       iat: now,
     },
@@ -93,7 +86,7 @@ app.get("/auth/me", async (c) => {
 
   try {
     const payload = await verify(jwt, c.env.JWT_SECRET, "HS256");
-    const userId = payload.sub as number;
+    const userId = Number(payload.sub);
 
     const user = await c.env.DB.prepare(
       "SELECT id, provider FROM users WHERE id = ?",
@@ -131,7 +124,7 @@ app.use("/api/*", async (c, next) => {
 
   try {
     const payload = await verify(jwt, c.env.JWT_SECRET, "HS256");
-    c.set("userId", payload.sub as number);
+    c.set("userId", Number(payload.sub));
   } catch {
     return c.json({ error: "Invalid session" }, 401);
   }

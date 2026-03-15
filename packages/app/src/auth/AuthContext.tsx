@@ -42,13 +42,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    fetch("/auth/logout", { method: "POST" })
-      .then(() => {
+    fetch("/auth/logout", { method: "POST" }).then((res) => {
+      if (res.ok) {
         setUser(null);
-      })
-      .catch(() => {
-        setUser(null);
-      });
+      }
+    });
   }, []);
 
   return (

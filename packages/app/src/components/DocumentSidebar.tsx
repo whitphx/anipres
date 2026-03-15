@@ -80,15 +80,11 @@ export function DocumentSidebar({
       </div>
       <div className={styles.footer}>
         {user ? (
-          <button
-            type="button"
-            className={styles.logoutButton}
-            onClick={logout}
-          >
+          <button type="button" className={styles.authButton} onClick={logout}>
             <LogOut size={14} /> Log out
           </button>
         ) : (
-          <button type="button" className={styles.loginButton} onClick={login}>
+          <button type="button" className={styles.authButton} onClick={login}>
             <Github size={14} /> Log in with GitHub
           </button>
         )}
