@@ -2,7 +2,6 @@ import { type Context, Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import { githubAuth } from "@hono/oauth-providers/github";
-import { googleAuth } from "@hono/oauth-providers/google";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
@@ -21,7 +20,9 @@ type Variables = {
 };
 
 const COOKIE_NAME = "anipres_session";
+const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -87,19 +88,89 @@ app.get("/auth/github", async (c) => {
   return upsertUserAndIssueSession(c, "github", String(ghUser.id));
 });
 
-app.use(
-  "/auth/google",
-  googleAuth({
-    scope: ["openid"],
-  }),
-);
-
+// GitHub continues to use Hono's middleware. Google is handled manually below
+// because the pinned oauth-providers version has a broken Google token exchange,
+// and a provider-specific state cookie avoids cross-provider collisions.
 app.get("/auth/google", async (c) => {
-  const googleUser = c.get("user-google");
-  if (!googleUser) {
+  const state = crypto.randomUUID();
+  const redirectUri = new URL("/auth/google/callback", c.req.url).toString();
+  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authUrl.searchParams.set("client_id", c.env.GOOGLE_ID);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", "openid");
+  authUrl.searchParams.set("state", state);
+
+  setCookie(c, GOOGLE_STATE_COOKIE_NAME, state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/auth/google/callback",
+    maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
+  });
+
+  return c.redirect(authUrl.toString());
+});
+
+app.get("/auth/google/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const storedState = getCookie(c, GOOGLE_STATE_COOKIE_NAME);
+
+  deleteCookie(c, GOOGLE_STATE_COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/auth/google/callback",
+  });
+
+  if (!code || !state || !storedState || state !== storedState) {
     return c.text("Authentication failed", 401);
   }
-  return upsertUserAndIssueSession(c, "google", String(googleUser.id));
+
+  const redirectUri = new URL("/auth/google/callback", c.req.url).toString();
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: c.env.GOOGLE_ID,
+      client_secret: c.env.GOOGLE_SECRET,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    return c.text("Authentication failed", 401);
+  }
+
+  const token = (await tokenResponse.json()) as { access_token?: string };
+  if (!token.access_token) {
+    return c.text("Authentication failed", 401);
+  }
+
+  const userResponse = await fetch(
+    "https://openidconnect.googleapis.com/v1/userinfo",
+    {
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
+      },
+    },
+  );
+
+  if (!userResponse.ok) {
+    return c.text("Authentication failed", 401);
+  }
+
+  const googleUser = (await userResponse.json()) as { sub?: string };
+  if (!googleUser.sub) {
+    return c.text("Authentication failed", 401);
+  }
+
+  return upsertUserAndIssueSession(c, "google", googleUser.sub);
 });
 
 app.get("/auth/me", async (c) => {
