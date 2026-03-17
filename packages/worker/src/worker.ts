@@ -9,6 +9,14 @@ const app = new Hono<AppBindings>();
 registerAuthRoutes(app);
 registerApiAuth(app);
 
+function isSupportedAssetContentType(contentType: string) {
+  return contentType.startsWith("image/");
+}
+
+function isSvgContentType(contentType: string) {
+  return contentType === "image/svg+xml";
+}
+
 // --- Document routes (user-scoped) ---
 
 // List all documents ordered by "order"
@@ -81,10 +89,11 @@ app.post("/api/assets", async (c) => {
   if (!(file instanceof File)) {
     return c.json({ error: "Missing file field" }, 400);
   }
+  if (!isSupportedAssetContentType(file.type)) {
+    return c.json({ error: "Unsupported asset type" }, 400);
+  }
 
-  const ext = file.name.includes(".")
-    ? `.${file.name.split(".").pop()}`
-    : "";
+  const ext = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
   const key = `${crypto.randomUUID()}${ext}`;
 
   await c.env.ASSETS.put(key, file.stream(), {
@@ -101,15 +110,21 @@ app.get("/api/assets/:key", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
+  const contentType =
+    object.httpMetadata?.contentType ?? "application/octet-stream";
   const headers = new Headers();
-  headers.set(
-    "Content-Type",
-    object.httpMetadata?.contentType ?? "application/octet-stream",
-  );
-  headers.set(
-    "Cache-Control",
-    "public, max-age=31536000, immutable",
-  );
+  headers.set("Content-Type", contentType);
+  headers.set("X-Content-Type-Options", "nosniff");
+  // This endpoint is session-protected under /api/*. Marking it `public` would
+  // let a shared cache replay a response without rerunning the auth gate.
+  headers.set("Cache-Control", "private, no-store");
+
+  if (isSvgContentType(contentType)) {
+    // SVG is executable when opened as a top-level same-origin document. Keep
+    // SVG uploads working, but sandbox direct navigations so the asset cannot
+    // run script or inherit the main app origin.
+    headers.set("Content-Security-Policy", "sandbox; script-src 'none'");
+  }
 
   return new Response(object.body, { headers });
 });
