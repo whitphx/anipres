@@ -1,4 +1,11 @@
-import { Github, LogOut, Menu, PanelLeftClose, Plus } from "lucide-react";
+import {
+  Github,
+  LogIn,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  Plus,
+} from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
@@ -25,7 +32,7 @@ export function DocumentSidebar({
     renameDocument,
   } = useDocumentManagerContext();
 
-  const { user, login, logout } = useAuth();
+  const { user, loginWithGitHub, loginWithGoogle, logout } = useAuth();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -84,9 +91,22 @@ export function DocumentSidebar({
             <LogOut size={14} /> Log out
           </button>
         ) : (
-          <button type="button" className={styles.authButton} onClick={login}>
-            <Github size={14} /> Log in with GitHub
-          </button>
+          <>
+            <button
+              type="button"
+              className={styles.authButton}
+              onClick={loginWithGitHub}
+            >
+              <Github size={14} /> Log in with GitHub
+            </button>
+            <button
+              type="button"
+              className={styles.authButton}
+              onClick={loginWithGoogle}
+            >
+              <LogIn size={14} /> Log in with Google
+            </button>
+          </>
         )}
         <ColorSchemeSwitcher
           preference={colorSchemePreference}
