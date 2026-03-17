@@ -73,6 +73,24 @@ async function documentExistsForUser(
   return Boolean(document);
 }
 
+async function notifyDocumentAssetReconciliation(
+  c: AppContext,
+  documentId: string,
+) {
+  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+
+  // Uploads add D1 refs before the synced room necessarily contains the new
+  // asset record. Tell the DO to reconcile immediately so interrupted uploads
+  // still become stale and eligible for alarm-driven GC.
+  await room.fetch(
+    new Request(
+      `https://document-sync-room/internal/reconcile-assets?documentId=${encodeURIComponent(documentId)}`,
+      { method: "POST" },
+    ),
+  );
+}
+
 async function getDocumentAssetKeys(
   env: AssetEnv,
   userId: number,
@@ -473,6 +491,7 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       httpMetadata: { contentType: file.type },
     });
     await upsertDocumentAssetRefs(c.env, userId, documentId, [key]);
+    await notifyDocumentAssetReconciliation(c, documentId);
 
     return c.json({ key });
   });

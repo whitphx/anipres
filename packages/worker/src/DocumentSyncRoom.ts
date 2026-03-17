@@ -123,9 +123,24 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/internal/reconcile-assets") {
+      const documentId = url.searchParams.get("documentId");
+      if (!documentId) {
+        return new Response("Missing documentId", { status: 400 });
+      }
+
+      if (this.documentId !== documentId) {
+        this.documentId = documentId;
+        await this.ctx.storage.put(DOCUMENT_ID_STORAGE_KEY, documentId);
+      }
+
+      await this.syncAssetRefs(true);
+      return new Response(null, { status: 204 });
+    }
+
     this.setDocumentIdFromRequest(request);
 
-    const url = new URL(request.url);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) {
       return new Response("Missing sessionId", { status: 400 });
