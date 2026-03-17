@@ -13,9 +13,11 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: path.resolve(__dirname, "src/index.ts"),
+      entry: {
+        anipres: path.resolve(__dirname, "src/index.ts"),
+        schema: path.resolve(__dirname, "src/schema.ts"),
+      },
       name: "Anipres",
-      fileName: "anipres",
     },
     rollupOptions: {
       external: ["react", "react-dom", "tldraw"],

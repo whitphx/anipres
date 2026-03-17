@@ -1,0 +1,18 @@
+name = "anipres-worker"
+main = "src/worker.ts"
+compatibility_date = "2025-05-08"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anipres-db"
+database_id = "local"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DocumentSyncRoom"]

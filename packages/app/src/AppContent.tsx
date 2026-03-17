@@ -2,10 +2,11 @@ import { useDocumentManagerContext } from "./documents/useDocumentManagerContext
 import { AppLayout } from "./components/AppLayout";
 import { DocumentSidebar } from "./components/DocumentSidebar";
 import { AnipresContainer } from "./components/AnipresContainer";
+import { SyncedAnipresContainer } from "./components/SyncedAnipresContainer";
 import { useColorScheme } from "./hooks/useColorScheme";
 
 export function AppContent() {
-  const { activeDocumentId, activeSnapshot, loading } =
+  const { activeDocumentId, activeSnapshot, loading, synced } =
     useDocumentManagerContext();
 
   const { preference, changePreference } = useColorScheme();
@@ -23,14 +24,21 @@ export function AppContent() {
         />
       }
     >
-      {activeDocumentId && (
-        <AnipresContainer
-          key={activeDocumentId}
-          documentId={activeDocumentId}
-          snapshot={activeSnapshot}
-          colorScheme={preference}
-        />
-      )}
+      {activeDocumentId &&
+        (synced ? (
+          <SyncedAnipresContainer
+            key={activeDocumentId}
+            roomId={activeDocumentId}
+            colorScheme={preference}
+          />
+        ) : (
+          <AnipresContainer
+            key={activeDocumentId}
+            documentId={activeDocumentId}
+            snapshot={activeSnapshot}
+            colorScheme={preference}
+          />
+        ))}
     </AppLayout>
   );
 }
