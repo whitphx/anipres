@@ -93,7 +93,15 @@ app.post("/api/assets", async (c) => {
     return c.json({ error: "Unsupported asset type" }, 400);
   }
 
-  const ext = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
+  const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
+  if (file.size > MAX_ASSET_SIZE) {
+    return c.json({ error: "File too large" }, 413);
+  }
+
+  const rawExt = file.name.includes(".")
+    ? file.name.split(".").pop()!.toLowerCase()
+    : "";
+  const ext = /^[a-z0-9]+$/.test(rawExt) ? `.${rawExt}` : "";
   const key = `${crypto.randomUUID()}${ext}`;
 
   await c.env.ASSETS.put(key, file.stream(), {

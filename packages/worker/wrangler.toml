@@ -20,3 +20,4 @@ new_sqlite_classes = ["DocumentSyncRoom"]
 [[r2_buckets]]
 binding = "ASSETS"
 bucket_name = "anipres-assets"
+preview_bucket_name = "anipres-assets-preview"

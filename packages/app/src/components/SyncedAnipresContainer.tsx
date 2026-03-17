@@ -19,7 +19,7 @@ const remoteAssetStore: TLAssetStore = {
       throw new Error(`Asset upload failed: ${res.status}`);
     }
     const { key } = (await res.json()) as { key: string };
-    return { src: `/api/assets/${key}` };
+    return { src: `/api/assets/${encodeURIComponent(key)}` };
   },
   resolve(asset) {
     return asset.props.src;
