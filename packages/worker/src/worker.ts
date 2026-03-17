@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { deleteDocumentAssetsForDocument, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
 
@@ -8,14 +9,7 @@ const app = new Hono<AppBindings>();
 
 registerAuthRoutes(app);
 registerApiAuth(app);
-
-function isSupportedAssetContentType(contentType: string) {
-  return contentType.startsWith("image/");
-}
-
-function isSvgContentType(contentType: string) {
-  return contentType === "image/svg+xml";
-}
+registerAssetRoutes(app);
 
 // --- Document routes (user-scoped) ---
 
@@ -75,66 +69,11 @@ app.put("/api/documents/:id", async (c) => {
 app.delete("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
+  await deleteDocumentAssetsForDocument(c, userId, id);
   await c.env.DB.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?")
     .bind(id, userId)
     .run();
   return c.json({ ok: true });
-});
-
-// --- Asset routes ---
-
-app.post("/api/assets", async (c) => {
-  const body = await c.req.parseBody();
-  const file = body["file"];
-  if (!(file instanceof File)) {
-    return c.json({ error: "Missing file field" }, 400);
-  }
-  if (!isSupportedAssetContentType(file.type)) {
-    return c.json({ error: "Unsupported asset type" }, 400);
-  }
-
-  const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
-  if (file.size > MAX_ASSET_SIZE) {
-    return c.json({ error: "File too large" }, 413);
-  }
-
-  const rawExt = file.name.includes(".")
-    ? file.name.split(".").pop()!.toLowerCase()
-    : "";
-  const ext = /^[a-z0-9]+$/.test(rawExt) ? `.${rawExt}` : "";
-  const key = `${crypto.randomUUID()}${ext}`;
-
-  await c.env.ASSETS.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type },
-  });
-
-  return c.json({ key });
-});
-
-app.get("/api/assets/:key", async (c) => {
-  const key = c.req.param("key");
-  const object = await c.env.ASSETS.get(key);
-  if (!object) {
-    return c.json({ error: "Not found" }, 404);
-  }
-
-  const contentType =
-    object.httpMetadata?.contentType ?? "application/octet-stream";
-  const headers = new Headers();
-  headers.set("Content-Type", contentType);
-  headers.set("X-Content-Type-Options", "nosniff");
-  // This endpoint is session-protected under /api/*. Marking it `public` would
-  // let a shared cache replay a response without rerunning the auth gate.
-  headers.set("Cache-Control", "private, no-store");
-
-  if (isSvgContentType(contentType)) {
-    // SVG is executable when opened as a top-level same-origin document. Keep
-    // SVG uploads working, but sandbox direct navigations so the asset cannot
-    // run script or inherit the main app origin.
-    headers.set("Content-Security-Policy", "sandbox; script-src 'none'");
-  }
-
-  return new Response(object.body, { headers });
 });
 
 // WebSocket upgrade for sync
