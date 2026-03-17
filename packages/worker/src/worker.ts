@@ -73,6 +73,47 @@ app.delete("/api/documents/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// --- Asset routes ---
+
+app.post("/api/assets", async (c) => {
+  const body = await c.req.parseBody();
+  const file = body["file"];
+  if (!(file instanceof File)) {
+    return c.json({ error: "Missing file field" }, 400);
+  }
+
+  const ext = file.name.includes(".")
+    ? `.${file.name.split(".").pop()}`
+    : "";
+  const key = `${crypto.randomUUID()}${ext}`;
+
+  await c.env.ASSETS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  });
+
+  return c.json({ key });
+});
+
+app.get("/api/assets/:key", async (c) => {
+  const key = c.req.param("key");
+  const object = await c.env.ASSETS.get(key);
+  if (!object) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const headers = new Headers();
+  headers.set(
+    "Content-Type",
+    object.httpMetadata?.contentType ?? "application/octet-stream",
+  );
+  headers.set(
+    "Cache-Control",
+    "public, max-age=31536000, immutable",
+  );
+
+  return new Response(object.body, { headers });
+});
+
 // WebSocket upgrade for sync
 app.get("/api/connect/:roomId", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {
