@@ -22,11 +22,23 @@ type AssetKeyRow = {
   asset_key: string;
 };
 
+type DocumentAssetRow = {
+  asset_key: string;
+  stale_at: number | null;
+};
+
+type MinStaleAtRow = {
+  stale_at: number | null;
+};
+
 type AssetEnv = Pick<Env, "ASSETS" | "DB">;
 
 const MANAGED_ASSET_PATH_PREFIX = "/api/assets/";
 const MANAGED_ASSET_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
+const MANAGED_ASSET_RECORD_TYPES = new Set(["image", "video"]);
+const ASSET_ID_PROP_PREFIX = "assetId";
+const ASSET_STALE_GRACE_PERIOD_SECONDS = 5 * 60;
 
 function isSupportedAssetContentType(contentType: string) {
   return SUPPORTED_ASSET_CONTENT_TYPES.has(contentType);
@@ -42,6 +54,10 @@ function isManagedAssetKey(key: string) {
 
 function makePlaceholders(count: number) {
   return Array.from({ length: count }, () => "?").join(", ");
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 async function documentExistsForUser(
@@ -70,6 +86,19 @@ async function getDocumentAssetKeys(
   return results.map((row) => row.asset_key);
 }
 
+async function getDocumentAssetRows(
+  env: AssetEnv,
+  userId: number,
+  documentId: string,
+) {
+  const { results } = await env.DB.prepare(
+    "SELECT asset_key, stale_at FROM document_assets WHERE document_id = ? AND user_id = ?",
+  )
+    .bind(documentId, userId)
+    .all<DocumentAssetRow>();
+  return results;
+}
+
 async function getUserOwnedAssetKeys(
   env: AssetEnv,
   userId: number,
@@ -90,7 +119,7 @@ async function getUserOwnedAssetKeys(
   return results.map((row) => row.asset_key);
 }
 
-async function insertDocumentAssetRefs(
+async function upsertDocumentAssetRefs(
   env: AssetEnv,
   userId: number,
   documentId: string,
@@ -104,14 +133,15 @@ async function insertDocumentAssetRefs(
   await env.DB.batch(
     assetKeys.map((assetKey) =>
       env.DB.prepare(
-        `INSERT OR IGNORE INTO document_assets (document_id, asset_key, user_id, created_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO document_assets (document_id, asset_key, user_id, created_at, stale_at)
+         VALUES (?, ?, ?, ?, NULL)
+         ON CONFLICT(document_id, asset_key) DO UPDATE SET stale_at = NULL`,
       ).bind(documentId, assetKey, userId, now),
     ),
   );
 }
 
-async function deleteDocumentAssetRefs(
+async function markDocumentAssetRefsStale(
   env: AssetEnv,
   userId: number,
   documentId: string,
@@ -121,13 +151,66 @@ async function deleteDocumentAssetRefs(
     return;
   }
 
+  const now = Math.floor(Date.now() / 1000);
   await env.DB.batch(
     assetKeys.map((assetKey) =>
       env.DB.prepare(
-        "DELETE FROM document_assets WHERE document_id = ? AND user_id = ? AND asset_key = ?",
-      ).bind(documentId, userId, assetKey),
+        `UPDATE document_assets
+         SET stale_at = COALESCE(stale_at, ?)
+         WHERE document_id = ? AND user_id = ? AND asset_key = ?`,
+      ).bind(now, documentId, userId, assetKey),
     ),
   );
+}
+
+async function deleteExpiredStaleDocumentAssetRefs(
+  env: AssetEnv,
+  userId: number,
+  documentId: string,
+) {
+  const cutoff =
+    Math.floor(Date.now() / 1000) - ASSET_STALE_GRACE_PERIOD_SECONDS;
+  const { results } = await env.DB.prepare(
+    `SELECT asset_key
+     FROM document_assets
+     WHERE document_id = ? AND user_id = ? AND stale_at IS NOT NULL AND stale_at <= ?`,
+  )
+    .bind(documentId, userId, cutoff)
+    .all<AssetKeyRow>();
+
+  const expiredKeys = results.map((row) => row.asset_key);
+  if (expiredKeys.length === 0) {
+    return [];
+  }
+
+  await env.DB.prepare(
+    `DELETE FROM document_assets
+     WHERE document_id = ? AND user_id = ? AND stale_at IS NOT NULL AND stale_at <= ?`,
+  )
+    .bind(documentId, userId, cutoff)
+    .run();
+
+  return expiredKeys;
+}
+
+async function getNextDocumentAssetGcAt(
+  env: AssetEnv,
+  userId: number,
+  documentId: string,
+) {
+  const row = await env.DB.prepare(
+    `SELECT MIN(stale_at) AS stale_at
+     FROM document_assets
+     WHERE document_id = ? AND user_id = ? AND stale_at IS NOT NULL`,
+  )
+    .bind(documentId, userId)
+    .first<MinStaleAtRow>();
+
+  if (!row?.stale_at) {
+    return null;
+  }
+
+  return (row.stale_at + ASSET_STALE_GRACE_PERIOD_SECONDS) * 1000;
 }
 
 async function deleteUnreferencedAssets(env: AssetEnv, assetKeys: string[]) {
@@ -172,25 +255,39 @@ function getManagedAssetKeyFromSrc(src: string) {
   }
 }
 
-function collectManagedAssetKeys(value: unknown, keys: Set<string>) {
-  if (typeof value === "string") {
-    const assetKey = getManagedAssetKeyFromSrc(value);
-    if (assetKey) {
-      keys.add(assetKey);
+function getShapeAssetIds(record: unknown) {
+  if (!isObject(record) || record.typeName !== "shape" || !isObject(record.props)) {
+    return [];
+  }
+
+  return Object.entries(record.props).flatMap(([key, value]) => {
+    if (
+      key.startsWith(ASSET_ID_PROP_PREFIX) &&
+      typeof value === "string" &&
+      value.startsWith("asset:")
+    ) {
+      return [value];
     }
-    return;
+
+    return [];
+  });
+}
+
+function getAssetRecord(record: unknown) {
+  if (
+    !isObject(record) ||
+    typeof record.id !== "string" ||
+    record.typeName !== "asset" ||
+    !MANAGED_ASSET_RECORD_TYPES.has(String(record.type)) ||
+    !isObject(record.props)
+  ) {
+    return null;
   }
 
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectManagedAssetKeys(item, keys));
-    return;
-  }
-
-  if (!value || typeof value !== "object") {
-    return;
-  }
-
-  Object.values(value).forEach((item) => collectManagedAssetKeys(item, keys));
+  return {
+    id: record.id,
+    props: record.props,
+  };
 }
 
 function normalizeRange(
@@ -267,9 +364,44 @@ export async function getDocumentOwnerUserId(
   return row?.user_id ?? null;
 }
 
-export function getManagedAssetKeysFromValue(value: unknown) {
+export function getManagedAssetKeysFromSnapshot(snapshot: unknown) {
+  if (!isObject(snapshot) || !Array.isArray(snapshot.documents)) {
+    return [];
+  }
+
+  const assetRecords = new Map<string, Record<string, unknown>>();
+  const referencedAssetIds = new Set<string>();
+
+  for (const document of snapshot.documents) {
+    if (!isObject(document) || !("state" in document)) {
+      continue;
+    }
+
+    const record = document.state;
+    const assetRecord = getAssetRecord(record);
+    if (assetRecord) {
+      assetRecords.set(assetRecord.id, assetRecord.props);
+      continue;
+    }
+
+    getShapeAssetIds(record).forEach((assetId) => {
+      referencedAssetIds.add(assetId);
+    });
+  }
+
   const keys = new Set<string>();
-  collectManagedAssetKeys(value, keys);
+  referencedAssetIds.forEach((assetId) => {
+    const src = assetRecords.get(assetId)?.src;
+    if (typeof src !== "string") {
+      return;
+    }
+
+    const assetKey = getManagedAssetKeyFromSrc(src);
+    if (assetKey && isManagedAssetKey(assetKey)) {
+      keys.add(assetKey);
+    }
+  });
+
   return Array.from(keys).sort();
 }
 
@@ -283,18 +415,29 @@ export async function reconcileDocumentAssetRefs(
     new Set(requestedKeys.filter((key) => isManagedAssetKey(key))),
   );
   const nextKeys = await getUserOwnedAssetKeys(env, userId, dedupedKeys);
-  const currentKeys = await getDocumentAssetKeys(env, userId, documentId);
+  const currentRows = await getDocumentAssetRows(env, userId, documentId);
 
   const nextKeySet = new Set(nextKeys);
-  const currentKeySet = new Set(currentKeys);
-  const staleKeys = currentKeys.filter((key) => !nextKeySet.has(key));
-  const addedKeys = nextKeys.filter((key) => !currentKeySet.has(key));
+  const staleKeys = currentRows
+    .filter((row) => !nextKeySet.has(row.asset_key))
+    .map((row) => row.asset_key);
 
-  // Persist document-to-asset refs so normal edits can release stale R2
-  // objects instead of leaking storage forever.
-  await insertDocumentAssetRefs(env, userId, documentId, addedKeys);
-  await deleteDocumentAssetRefs(env, userId, documentId, staleKeys);
-  await deleteUnreferencedAssets(env, staleKeys);
+  // Uploads hit R2 and D1 before the synced room necessarily reflects the new
+  // shape/asset records. Mark missing refs stale first and only GC them after a
+  // grace period so reconciliation does not race freshly uploaded assets.
+  await upsertDocumentAssetRefs(env, userId, documentId, nextKeys);
+  await markDocumentAssetRefsStale(env, userId, documentId, staleKeys);
+
+  const expiredStaleKeys = await deleteExpiredStaleDocumentAssetRefs(
+    env,
+    userId,
+    documentId,
+  );
+  await deleteUnreferencedAssets(env, expiredStaleKeys);
+
+  return {
+    nextGcAt: await getNextDocumentAssetGcAt(env, userId, documentId),
+  };
 }
 
 export function registerAssetRoutes(app: Hono<AppBindings>) {
@@ -329,7 +472,7 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     await c.env.ASSETS.put(key, file.stream(), {
       httpMetadata: { contentType: file.type },
     });
-    await insertDocumentAssetRefs(c.env, userId, documentId, [key]);
+    await upsertDocumentAssetRefs(c.env, userId, documentId, [key]);
 
     return c.json({ key });
   });
