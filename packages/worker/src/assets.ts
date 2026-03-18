@@ -91,6 +91,14 @@ async function notifyDocumentAssetReconciliation(
   );
 }
 
+function scheduleDocumentAssetReconciliation(c: AppContext, documentId: string) {
+  c.executionCtx.waitUntil(
+    notifyDocumentAssetReconciliation(c, documentId).catch((error) => {
+      console.error("Failed to notify document asset reconciliation", error);
+    }),
+  );
+}
+
 async function getDocumentAssetKeys(
   env: AssetEnv,
   userId: number,
@@ -489,8 +497,16 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     await c.env.ASSETS.put(key, file.stream(), {
       httpMetadata: { contentType: file.type },
     });
-    await upsertDocumentAssetRefs(c.env, userId, documentId, [key]);
-    await notifyDocumentAssetReconciliation(c, documentId);
+    try {
+      await upsertDocumentAssetRefs(c.env, userId, documentId, [key]);
+    } catch (error) {
+      // The upload is only usable once both R2 and document_assets agree on
+      // the key. If the D1 write fails after the put, delete the object so we
+      // do not strand an unreachable R2 blob.
+      await c.env.ASSETS.delete(key);
+      throw error;
+    }
+    scheduleDocumentAssetReconciliation(c, documentId);
 
     return c.json({ key });
   });
