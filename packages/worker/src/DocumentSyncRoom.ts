@@ -28,7 +28,7 @@ const DOCUMENT_ID_STORAGE_KEY = "documentId";
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
-  private lastSyncedAssetKeysJson = "[]";
+  private lastSyncedAssetKeysJson: string | null = null;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(ctx: DurableObjectState, env: WorkerEnv) {
@@ -60,6 +60,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
 
     this.documentId = roomId;
+    this.lastSyncedAssetKeysJson = null;
     this.ctx.waitUntil(this.ctx.storage.put(DOCUMENT_ID_STORAGE_KEY, roomId));
     this.scheduleAssetRefSync();
   }
@@ -94,7 +95,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       this.room.getCurrentSnapshot(),
     );
     const nextAssetKeysJson = JSON.stringify(assetKeys);
-    if (!force && nextAssetKeysJson === this.lastSyncedAssetKeysJson) {
+    if (
+      !force &&
+      this.lastSyncedAssetKeysJson !== null &&
+      nextAssetKeysJson === this.lastSyncedAssetKeysJson
+    ) {
       return;
     }
 
@@ -132,6 +137,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
       if (this.documentId !== documentId) {
         this.documentId = documentId;
+        this.lastSyncedAssetKeysJson = null;
         await this.ctx.storage.put(DOCUMENT_ID_STORAGE_KEY, documentId);
       }
 
