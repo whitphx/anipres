@@ -38,7 +38,7 @@ const MANAGED_ASSET_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
 const MANAGED_ASSET_RECORD_TYPES = new Set(["image", "video"]);
 const ASSET_ID_PROP_PREFIX = "assetId";
-const ASSET_STALE_GRACE_PERIOD_SECONDS = 5 * 60;
+const ASSET_STALE_GRACE_PERIOD_MS = 5 * 60 * 1000;
 
 function isSupportedAssetContentType(contentType: string) {
   return SUPPORTED_ASSET_CONTENT_TYPES.has(contentType);
@@ -147,7 +147,7 @@ async function upsertDocumentAssetRefs(
     return;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = Date.now();
   await env.DB.batch(
     assetKeys.map((assetKey) =>
       env.DB.prepare(
@@ -169,7 +169,7 @@ async function markDocumentAssetRefsStale(
     return;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = Date.now();
   await env.DB.batch(
     assetKeys.map((assetKey) =>
       env.DB.prepare(
@@ -186,8 +186,7 @@ async function deleteExpiredStaleDocumentAssetRefs(
   userId: number,
   documentId: string,
 ) {
-  const cutoff =
-    Math.floor(Date.now() / 1000) - ASSET_STALE_GRACE_PERIOD_SECONDS;
+  const cutoff = Date.now() - ASSET_STALE_GRACE_PERIOD_MS;
   const { results } = await env.DB.prepare(
     `SELECT asset_key
      FROM document_assets
@@ -228,7 +227,7 @@ async function getNextDocumentAssetGcAt(
     return null;
   }
 
-  return (row.stale_at + ASSET_STALE_GRACE_PERIOD_SECONDS) * 1000;
+  return row.stale_at + ASSET_STALE_GRACE_PERIOD_MS;
 }
 
 async function deleteUnreferencedAssets(env: AssetEnv, assetKeys: string[]) {
