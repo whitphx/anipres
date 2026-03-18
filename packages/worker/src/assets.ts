@@ -10,7 +10,7 @@ const SUPPORTED_ASSET_CONTENT_TYPES = new Set([
   "image/apng",
   "image/avif",
   "image/svg+xml",
-  // Videos (matches tldraw DEFAULT_SUPPORT_VIDEO_TYPES)
+  // Videos (matches tldraw DEFAULT_SUPPORTED_VIDEO_TYPES)
   "video/mp4",
   "video/webm",
   "video/quicktime",
@@ -365,18 +365,27 @@ function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
   return headers;
 }
 
-export async function deleteDocumentAssetsForDocument(
+/**
+ * Collect asset keys for a document, then delete the document row (which
+ * CASCADE-deletes its document_assets refs), then GC orphaned R2 objects.
+ *
+ * This ordering ensures that if the document DELETE fails, no assets are lost.
+ * If only the R2 GC fails, we have harmless orphaned blobs but no data loss.
+ */
+export async function deleteDocumentAndAssets(
   c: AppContext,
   userId: number,
   documentId: string,
 ) {
   const assetKeys = await getDocumentAssetKeys(c.env, userId, documentId);
-  await c.env.DB.prepare(
-    "DELETE FROM document_assets WHERE document_id = ? AND user_id = ?",
+  const { meta } = await c.env.DB.prepare(
+    "DELETE FROM documents WHERE id = ? AND user_id = ?",
   )
     .bind(documentId, userId)
     .run();
-  await deleteUnreferencedAssets(c.env, assetKeys);
+  if (meta.changes > 0) {
+    await deleteUnreferencedAssets(c.env, assetKeys);
+  }
 }
 
 export async function getDocumentOwnerUserId(

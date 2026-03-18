@@ -76,7 +76,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      void this.syncAssetRefs();
+      void this.syncAssetRefs().catch((error) => {
+        console.error("Asset ref sync failed", error);
+      });
     }, 500);
   }
 
