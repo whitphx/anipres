@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useSync } from "@tldraw/sync";
 import type { TLAssetStore } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
@@ -7,31 +8,41 @@ interface SyncedAnipresContainerProps {
   colorScheme?: "light" | "dark" | "system";
 }
 
-// POC: store images as inline data URLs. Not suitable for production.
-const inlineAssetStore: TLAssetStore = {
-  async upload(_asset, file) {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    return { src: dataUrl };
-  },
-  resolve(asset) {
-    return asset.props.src;
-  },
-};
+function createRemoteAssetStore(documentId: string): TLAssetStore {
+  return {
+    async upload(_asset, file) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("documentId", documentId);
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        throw new Error(`Asset upload failed: ${res.status}`);
+      }
+      const { key } = (await res.json()) as { key: string };
+      return { src: `/api/assets/${encodeURIComponent(key)}` };
+    },
+    resolve(asset) {
+      return asset.props.src;
+    },
+  };
+}
 
 export function SyncedAnipresContainer({
   roomId,
   colorScheme,
 }: SyncedAnipresContainerProps) {
+  const remoteAssetStore = useMemo(
+    () => createRemoteAssetStore(roomId),
+    [roomId],
+  );
   const store = useSync({
     uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(roomId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
-    assets: inlineAssetStore,
+    assets: remoteAssetStore,
   });
 
   return <Anipres key={roomId} store={store} colorScheme={colorScheme} />;

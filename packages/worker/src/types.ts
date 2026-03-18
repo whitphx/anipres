@@ -8,6 +8,7 @@ export interface Env {
   GOOGLE_ID: string;
   GOOGLE_SECRET: string;
   JWT_SECRET: string;
+  ASSETS: R2Bucket;
 }
 
 export type Variables = {

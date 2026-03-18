@@ -16,3 +16,8 @@ database_id = "local"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["DocumentSyncRoom"]
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "anipres-assets"
+preview_bucket_name = "anipres-assets-preview"
