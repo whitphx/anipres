@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS document_assets (
   asset_key TEXT NOT NULL,
   user_id INTEGER NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL,
+  stale_at INTEGER,
   PRIMARY KEY (document_id, asset_key)
 );
 
