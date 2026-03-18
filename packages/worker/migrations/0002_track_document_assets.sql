@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS document_assets (
-  document_id TEXT NOT NULL REFERENCES documents(id),
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   asset_key TEXT NOT NULL,
   user_id INTEGER NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL,
