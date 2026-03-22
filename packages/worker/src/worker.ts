@@ -44,7 +44,7 @@ app.get("/api/documents/:id", async (c) => {
   });
   if (!paramsResult.success) {
     return c.json(
-      { error: "Invalid document id", details: paramsResult.issues },
+      { error: "Invalid room id", details: paramsResult.issues },
       400,
     );
   }
