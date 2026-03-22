@@ -1,11 +1,24 @@
 import { Hono } from "hono";
+import { number, object, pipe, string, uuid } from "valibot";
 import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
+import { validateWithSchema } from "./validation";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
+
+const documentIdParamSchema = object({
+  id: pipe(string(), uuid()),
+});
+
+const documentMetadataSchema = object({
+  title: string(),
+  order: number(),
+  created_at: number(),
+  updated_at: number(),
+});
 
 registerAuthRoutes(app);
 registerApiAuth(app);
@@ -42,13 +55,33 @@ app.get("/api/documents/:id", async (c) => {
 // Upsert document metadata
 app.put("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const id = c.req.param("id");
-  const body = await c.req.json<{
-    title: string;
-    order: number;
-    created_at: number;
-    updated_at: number;
-  }>();
+  const paramsResult = validateWithSchema(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const bodyResult = validateWithSchema(documentMetadataSchema, json);
+  if (!bodyResult.success) {
+    return c.json(
+      { error: "Invalid document metadata", details: bodyResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const body = bodyResult.output;
 
   await c.env.DB.prepare(
     `INSERT INTO documents (id, title, "order", created_at, updated_at, user_id)

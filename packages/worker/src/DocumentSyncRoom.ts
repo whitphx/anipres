@@ -12,6 +12,7 @@ import {
   getDocumentOwnerUserId,
   getManagedAssetKeysFromSnapshot,
   reconcileDocumentAssetRefs,
+  runDocumentAssetGc,
 } from "./assets";
 import type { Env as WorkerEnv } from "./types";
 
@@ -168,6 +169,21 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async alarm() {
-    await this.syncAssetRefs(true);
+    if (!this.documentId) {
+      return;
+    }
+
+    const userId = await getDocumentOwnerUserId(this.env, this.documentId);
+    if (userId === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+
+    const { nextGcAt } = await runDocumentAssetGc(
+      this.env,
+      userId,
+      this.documentId,
+    );
+    await this.syncGcAlarm(nextGcAt);
   }
 }

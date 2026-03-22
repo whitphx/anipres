@@ -1,7 +1,9 @@
 import type { Hono } from "hono";
+import { file, maxSize, mimeType, object, pipe, string } from "valibot";
 import type { AppBindings, AppContext, Env } from "./types";
+import { validateWithSchema } from "./validation";
 
-const SUPPORTED_ASSET_CONTENT_TYPES = new Set([
+const SUPPORTED_ASSET_CONTENT_TYPES = [
   // Images (matches tldraw DEFAULT_SUPPORTED_IMAGE_TYPES)
   "image/jpeg",
   "image/png",
@@ -14,12 +16,19 @@ const SUPPORTED_ASSET_CONTENT_TYPES = new Set([
   "video/mp4",
   "video/webm",
   "video/quicktime",
-]);
+] as const;
 
 const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
   MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("Request body too large");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
 
 type AssetKeyRow = {
   asset_key: string;
@@ -43,9 +52,18 @@ const MANAGED_ASSET_RECORD_TYPES = new Set(["image", "video"]);
 const ASSET_ID_PROP_PREFIX = "assetId";
 const ASSET_STALE_GRACE_PERIOD_MS = 5 * 60 * 1000;
 
-function isSupportedAssetContentType(contentType: string) {
-  return SUPPORTED_ASSET_CONTENT_TYPES.has(contentType);
-}
+const assetUploadFieldsSchema = object({
+  file: file("Missing file field"),
+  documentId: string("Missing documentId field"),
+});
+
+const assetUploadFileSchema = pipe(
+  // Validate file metadata after multipart parsing. The stream-size cap above
+  // still protects request processing before we materialize the File object.
+  file(),
+  mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
+  maxSize(MAX_ASSET_SIZE),
+);
 
 function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
@@ -62,6 +80,55 @@ function getDeclaredContentLength(contentLength: string | undefined) {
 
   const parsed = Number(contentLength);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function readRequestBodyWithLimit(request: Request, limit: number) {
+  if (!request.body) {
+    return null;
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      throw new RequestBodyTooLargeError();
+    }
+
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
+}
+
+async function parseAssetUploadFormData(request: Request) {
+  const body = await readRequestBodyWithLimit(
+    request,
+    MAX_ASSET_REQUEST_BODY_SIZE,
+  );
+  const headers = new Headers(request.headers);
+  headers.delete("Content-Length");
+
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body,
+  }).formData();
 }
 
 function makePlaceholders(count: number) {
@@ -235,6 +302,23 @@ async function getNextDocumentAssetGcAt(
   }
 
   return row.stale_at + ASSET_STALE_GRACE_PERIOD_MS;
+}
+
+export async function runDocumentAssetGc(
+  env: AssetEnv,
+  userId: number,
+  documentId: string,
+) {
+  const expiredStaleKeys = await deleteExpiredStaleDocumentAssetRefs(
+    env,
+    userId,
+    documentId,
+  );
+  await deleteUnreferencedAssets(env, expiredStaleKeys);
+
+  return {
+    nextGcAt: await getNextDocumentAssetGcAt(env, userId, documentId),
+  };
 }
 
 async function deleteUnreferencedAssets(env: AssetEnv, assetKeys: string[]) {
@@ -483,17 +567,7 @@ export async function reconcileDocumentAssetRefs(
   // grace period so reconciliation does not race freshly uploaded assets.
   await upsertDocumentAssetRefs(env, userId, documentId, nextKeys);
   await markDocumentAssetRefsStale(env, userId, documentId, staleKeys);
-
-  const expiredStaleKeys = await deleteExpiredStaleDocumentAssetRefs(
-    env,
-    userId,
-    documentId,
-  );
-  await deleteUnreferencedAssets(env, expiredStaleKeys);
-
-  return {
-    nextGcAt: await getNextDocumentAssetGcAt(env, userId, documentId),
-  };
+  return runDocumentAssetGc(env, userId, documentId);
 }
 
 export function registerAssetRoutes(app: Hono<AppBindings>) {
@@ -513,24 +587,41 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       return c.json({ error: "File too large" }, 413);
     }
 
-    const body = await c.req.parseBody();
-    const file = body["file"];
-    const documentId = body["documentId"];
+    let formData: FormData;
+    try {
+      formData = await parseAssetUploadFormData(c.req.raw);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return c.json({ error: "File too large" }, 413);
+      }
+      throw error;
+    }
 
-    if (!(file instanceof File)) {
-      return c.json({ error: "Missing file field" }, 400);
+    const uploadFieldsResult = validateWithSchema(assetUploadFieldsSchema, {
+      file: formData.get("file"),
+      documentId: formData.get("documentId"),
+    });
+    if (!uploadFieldsResult.success) {
+      return c.json(
+        { error: "Invalid asset upload fields", details: uploadFieldsResult.issues },
+        400,
+      );
     }
-    if (typeof documentId !== "string") {
-      return c.json({ error: "Missing documentId field" }, 400);
-    }
+
+    const { file, documentId } = uploadFieldsResult.output;
     if (!(await documentExistsForUser(c, userId, documentId))) {
       return c.json({ error: "Not found" }, 404);
     }
-    if (!isSupportedAssetContentType(file.type)) {
-      return c.json({ error: "Unsupported asset type" }, 400);
-    }
-    if (file.size > MAX_ASSET_SIZE) {
-      return c.json({ error: "File too large" }, 413);
+
+    const uploadFileResult = validateWithSchema(assetUploadFileSchema, file);
+    if (!uploadFileResult.success) {
+      return c.json(
+        {
+          error: file.size > MAX_ASSET_SIZE ? "File too large" : "Unsupported asset type",
+          details: uploadFileResult.issues,
+        },
+        file.size > MAX_ASSET_SIZE ? 413 : 400,
+      );
     }
 
     const rawExt = file.name.includes(".")
@@ -577,8 +668,14 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     if (rangeHeader) {
       try {
         object = await c.env.ASSETS.get(key, { range: c.req.raw.headers });
-      } catch {
-        return new Response("Range Not Satisfiable", { status: 416 });
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.toLowerCase().includes("range")
+        ) {
+          return new Response("Range Not Satisfiable", { status: 416 });
+        }
+        throw error;
       }
     } else {
       object = await c.env.ASSETS.get(key);
