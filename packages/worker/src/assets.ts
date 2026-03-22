@@ -483,11 +483,13 @@ function buildUnsatisfiableRangeHeaders(size: number) {
 }
 
 /**
- * Collect asset keys for a document, then delete the document row (which
- * CASCADE-deletes its document_assets refs), then GC orphaned R2 objects.
+ * Delete document_assets refs for a document (collecting their asset keys),
+ * then delete the document row in the same batch, then GC the now-unreferenced
+ * R2 objects.
  *
- * This ordering ensures that if the document DELETE fails, no assets are lost.
- * If only the R2 GC fails, we have harmless orphaned blobs but no data loss.
+ * This ordering and batching ensure that we never GC assets that are still
+ * referenced by a document; if the DELETE batch fails, no assets are GC'd,
+ * and if only the R2 GC fails, we have harmless orphaned blobs but no data loss.
  */
 export async function deleteDocumentAndAssets(
   c: AppContext,
