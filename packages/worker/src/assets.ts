@@ -573,9 +573,16 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     }
 
     const rangeHeader = c.req.header("Range");
-    const object = rangeHeader
-      ? await c.env.ASSETS.get(key, { range: c.req.raw.headers })
-      : await c.env.ASSETS.get(key);
+    let object: R2ObjectBody | null;
+    if (rangeHeader) {
+      try {
+        object = await c.env.ASSETS.get(key, { range: c.req.raw.headers });
+      } catch {
+        return new Response("Range Not Satisfiable", { status: 416 });
+      }
+    } else {
+      object = await c.env.ASSETS.get(key);
+    }
     if (!object) {
       return c.json({ error: "Not found" }, 404);
     }
