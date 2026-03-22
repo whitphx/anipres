@@ -156,11 +156,9 @@ async function documentExistsForUser(
   return Boolean(document);
 }
 
-type R2RangeLike = R2Range | undefined;
-
 function normalizeRange(
   size: number,
-  range?: R2RangeLike,
+  range?: R2Range,
 ): { offset: number; length: number } | undefined {
   if (!range) {
     return undefined;
@@ -182,7 +180,7 @@ function normalizeRange(
   return { offset, length };
 }
 
-function buildAssetHeaders(contentType: string, size: number, range?: R2RangeLike) {
+function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
   const headers = new Headers();
   headers.set("Content-Type", contentType);
   headers.set("X-Content-Type-Options", "nosniff");

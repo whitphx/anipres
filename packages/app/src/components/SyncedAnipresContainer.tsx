@@ -11,6 +11,10 @@ interface SyncedAnipresContainerProps {
 function createRemoteAssetStore(documentId: string): TLAssetStore {
   return {
     async upload(_asset, file) {
+      // tldraw resolves copied managed asset URLs to data URLs before placing
+      // them on the clipboard, then re-uploads that file on paste. That keeps
+      // every synced asset owned by the destination document instead of
+      // preserving a source document's asset URL across documents.
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch(
