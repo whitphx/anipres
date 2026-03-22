@@ -73,16 +73,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
-  private async closeRoom() {
-    this.cancelPendingSync();
-    await this.ctx.storage.deleteAlarm();
-    await this.ctx.storage.delete(DOCUMENT_ID_STORAGE_KEY);
-    this.documentId = null;
-    this.lastSyncedAssetKeysJson = null;
-    this.room.close();
-    this.room = this.createRoom();
-  }
-
   private setDocumentIdFromRequest(request: Request) {
     let roomId: string;
     try {
@@ -170,7 +160,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/internal/flush-active-assets") {
+    if (url.pathname === "/internal/reconcile-assets") {
       const documentId = url.searchParams.get("documentId");
       if (!documentId) {
         return new Response("Missing documentId", { status: 400 });
@@ -180,28 +170,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       if (this.hasActiveSessions()) {
         await this.syncAssetRefs(true);
       }
-      return new Response(null, { status: 204 });
-    }
-
-    if (url.pathname === "/internal/close-room") {
-      const documentId = url.searchParams.get("documentId");
-      if (!documentId) {
-        return new Response("Missing documentId", { status: 400 });
-      }
-
-      await this.bindDocumentId(documentId);
-      await this.closeRoom();
-      return new Response(null, { status: 204 });
-    }
-
-    if (url.pathname === "/internal/reconcile-assets") {
-      const documentId = url.searchParams.get("documentId");
-      if (!documentId) {
-        return new Response("Missing documentId", { status: 400 });
-      }
-
-      await this.bindDocumentId(documentId);
-      await this.syncAssetRefs(true);
       return new Response(null, { status: 204 });
     }
 

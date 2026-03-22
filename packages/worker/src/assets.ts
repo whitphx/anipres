@@ -173,12 +173,17 @@ async function notifyDocumentAssetReconciliation(
   // Uploads add D1 refs before the synced room necessarily contains the new
   // asset record. Tell the DO to reconcile immediately so interrupted uploads
   // still become stale and eligible for alarm-driven GC.
-  await room.fetch(
+  const response = await room.fetch(
     new Request(
       `https://document-sync-room/internal/reconcile-assets?documentId=${encodeURIComponent(documentId)}`,
       { method: "POST" },
     ),
   );
+  if (!response.ok) {
+    throw new Error(
+      `Document room /internal/reconcile-assets failed for ${documentId}: ${response.status}`,
+    );
+  }
 }
 
 function scheduleDocumentAssetReconciliation(c: AppContext, documentId: string) {

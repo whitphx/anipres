@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { number, object, pipe, string, uuid } from "valibot";
 import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
-import type { AppBindings, AppContext } from "./types";
+import type { AppBindings } from "./types";
 import { validateWithSchema } from "./validation";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
@@ -19,53 +19,6 @@ const documentMetadataSchema = object({
   created_at: number(),
   updated_at: number(),
 });
-
-type DocumentIdRow = {
-  id: string;
-};
-
-async function callDocumentRoomInternalRoute(
-  c: AppContext,
-  documentId: string,
-  path: string,
-) {
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
-  const response = await room.fetch(
-    new Request(
-      `https://document-sync-room${path}?documentId=${encodeURIComponent(documentId)}`,
-      { method: "POST" },
-    ),
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Document room ${path} failed for ${documentId}: ${response.status}`,
-    );
-  }
-}
-
-async function flushActiveDocumentAssetRefsForUser(
-  c: AppContext,
-  userId: number,
-  deletedDocumentId: string,
-) {
-  const { results } = await c.env.DB.prepare(
-    "SELECT id FROM documents WHERE user_id = ? AND id != ?",
-  )
-    .bind(userId, deletedDocumentId)
-    .all<DocumentIdRow>();
-
-  await Promise.all(
-    results.map(({ id }) =>
-      callDocumentRoomInternalRoute(c, id, "/internal/flush-active-assets"),
-    ),
-  );
-}
-
-async function closeDocumentRoom(c: AppContext, documentId: string) {
-  await callDocumentRoomInternalRoute(c, documentId, "/internal/close-room");
-}
 
 registerAuthRoutes(app);
 registerApiAuth(app);
@@ -148,10 +101,27 @@ app.put("/api/documents/:id", async (c) => {
 // Delete a document
 app.delete("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const id = c.req.param("id");
-  await flushActiveDocumentAssetRefsForUser(c, userId, id);
+  const paramsResult = validateWithSchema(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const document = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
+  )
+    .bind(id, userId)
+    .first();
+  if (!document) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
   await deleteDocumentAndAssets(c, userId, id);
-  await closeDocumentRoom(c, id);
   return c.json({ ok: true });
 });
 
