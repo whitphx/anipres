@@ -48,9 +48,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private setDocumentIdFromRequest(request: Request) {
-    const roomId = decodeURIComponent(
-      new URL(request.url).pathname.split("/").pop() ?? "",
-    );
+    let roomId: string;
+    try {
+      roomId = decodeURIComponent(
+        new URL(request.url).pathname.split("/").pop() ?? "",
+      );
+    } catch {
+      return;
+    }
     if (!roomId) {
       return;
     }

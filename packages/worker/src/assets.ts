@@ -262,7 +262,11 @@ async function deleteUnreferencedAssets(env: AssetEnv, assetKeys: string[]) {
     return;
   }
 
-  await env.ASSETS.delete(orphanedKeys);
+  try {
+    await env.ASSETS.delete(orphanedKeys);
+  } catch (error) {
+    console.error("Failed to delete orphaned R2 assets", error);
+  }
 }
 
 function getManagedAssetKeyFromSrc(src: string) {
@@ -330,8 +334,11 @@ function normalizeRange(
     };
   }
 
-  const offset = range.offset ?? 0;
-  const length = range.length ?? size - offset;
+  const offset = Math.min(range.offset ?? 0, size);
+  const length = Math.min(range.length ?? size - offset, size - offset);
+  if (length <= 0) {
+    return undefined;
+  }
   return { offset, length };
 }
 
