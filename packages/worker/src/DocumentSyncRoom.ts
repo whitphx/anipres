@@ -38,14 +38,49 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       this.documentId =
         (await ctx.storage.get<string>(DOCUMENT_ID_STORAGE_KEY)) ?? null;
     });
+    this.room = this.createRoom();
+  }
+
+  private createRoom() {
     // Phase 1 POC: no persistence — data lives only while the DO is active.
     // A future phase will add SQLite-backed persistence.
-    this.room = new TLSocketRoom<TLRecord, void>({
+    return new TLSocketRoom<TLRecord, void>({
       schema,
       onDataChange: () => {
         this.scheduleAssetRefSync();
       },
     });
+  }
+
+  private async bindDocumentId(documentId: string) {
+    if (this.documentId === documentId) {
+      return;
+    }
+
+    this.documentId = documentId;
+    this.lastSyncedAssetKeysJson = null;
+    await this.ctx.storage.put(DOCUMENT_ID_STORAGE_KEY, documentId);
+  }
+
+  private hasActiveSessions() {
+    return this.room.getNumActiveSessions() > 0;
+  }
+
+  private cancelPendingSync() {
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+    }
+  }
+
+  private async closeRoom() {
+    this.cancelPendingSync();
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.delete(DOCUMENT_ID_STORAGE_KEY);
+    this.documentId = null;
+    this.lastSyncedAssetKeysJson = null;
+    this.room.close();
+    this.room = this.createRoom();
   }
 
   private setDocumentIdFromRequest(request: Request) {
@@ -76,9 +111,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    if (this.syncTimer) {
-      clearTimeout(this.syncTimer);
-    }
+    this.cancelPendingSync();
 
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
@@ -137,18 +170,37 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/internal/flush-active-assets") {
+      const documentId = url.searchParams.get("documentId");
+      if (!documentId) {
+        return new Response("Missing documentId", { status: 400 });
+      }
+
+      await this.bindDocumentId(documentId);
+      if (this.hasActiveSessions()) {
+        await this.syncAssetRefs(true);
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === "/internal/close-room") {
+      const documentId = url.searchParams.get("documentId");
+      if (!documentId) {
+        return new Response("Missing documentId", { status: 400 });
+      }
+
+      await this.bindDocumentId(documentId);
+      await this.closeRoom();
+      return new Response(null, { status: 204 });
+    }
+
     if (url.pathname === "/internal/reconcile-assets") {
       const documentId = url.searchParams.get("documentId");
       if (!documentId) {
         return new Response("Missing documentId", { status: 400 });
       }
 
-      if (this.documentId !== documentId) {
-        this.documentId = documentId;
-        this.lastSyncedAssetKeysJson = null;
-        await this.ctx.storage.put(DOCUMENT_ID_STORAGE_KEY, documentId);
-      }
-
+      await this.bindDocumentId(documentId);
       await this.syncAssetRefs(true);
       return new Response(null, { status: 204 });
     }

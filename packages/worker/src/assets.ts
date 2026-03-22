@@ -30,6 +30,13 @@ class RequestBodyTooLargeError extends Error {
   }
 }
 
+class InvalidMultipartFormDataError extends Error {
+  constructor() {
+    super("Invalid multipart form data");
+    this.name = "InvalidMultipartFormDataError";
+  }
+}
+
 type AssetKeyRow = {
   asset_key: string;
 };
@@ -124,11 +131,15 @@ async function parseAssetUploadFormData(request: Request) {
   const headers = new Headers(request.headers);
   headers.delete("Content-Length");
 
-  return new Request(request.url, {
-    method: request.method,
-    headers,
-    body,
-  }).formData();
+  try {
+    return await new Request(request.url, {
+      method: request.method,
+      headers,
+      body,
+    }).formData();
+  } catch {
+    throw new InvalidMultipartFormDataError();
+  }
 }
 
 function makePlaceholders(count: number) {
@@ -593,6 +604,9 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     } catch (error) {
       if (error instanceof RequestBodyTooLargeError) {
         return c.json({ error: "File too large" }, 413);
+      }
+      if (error instanceof InvalidMultipartFormDataError) {
+        return c.json({ error: "Invalid multipart form data" }, 400);
       }
       throw error;
     }
