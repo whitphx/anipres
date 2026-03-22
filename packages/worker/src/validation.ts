@@ -1,5 +1,9 @@
 import type { GenericSchema, InferOutput } from "valibot";
-import { flatten, safeParse } from "valibot";
+import { flatten, object, pipe, safeParse, string, uuid } from "valibot";
+
+export const documentIdParamSchema = object({
+  id: pipe(string(), uuid()),
+});
 
 export function validateWithSchema<TSchema extends GenericSchema>(
   schema: TSchema,

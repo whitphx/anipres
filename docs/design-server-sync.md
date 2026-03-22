@@ -259,8 +259,8 @@ DELETE /api/documents/:id         -> Delete document (+ destroy DO state)
 GET    /rooms/:id                 -> WebSocket upgrade -> TLSocketRoom
 
 # Assets (R2)
-POST   /api/assets                -> Upload file -> R2
-GET    /api/assets/:key           -> Serve from R2 (edge-cached)
+POST   /api/documents/:id/assets  -> Upload file under the document's R2 prefix
+GET    /api/documents/:id/assets/:assetName -> Serve a document-owned asset
 ```
 
 ---
@@ -360,7 +360,7 @@ The `packages/anipres` library should export these schema definitions so the wor
 
 ### Phase 4 — Assets + migration
 
-- R2 asset upload/download routes
+- Document-scoped R2 asset upload/download routes
 - `TLAssetStore` implementation pointing to the Worker
 - Local-to-cloud document migration flow on first login
 
@@ -384,7 +384,7 @@ The `packages/anipres` library should export these schema definitions so the wor
 - **Version pinning**: Client and server tldraw versions must match exactly. Pin both and deploy together.
 - **Custom shape schema sharing**: `packages/anipres` must export shape props/migrations for the worker. May need a non-React build target.
 - **Durable Object limits**: 128MB memory, 10GB SQLite per DO. More than enough for individual documents.
-- **TODO: document deletion vs active rooms**: Deleting a document that still has an active sync room needs a future design for room invalidation and asset-reference coordination. The current worker intentionally does not try to close rooms or flush other rooms during delete, because doing that safely requires a bounded way to identify truly active rooms and to avoid deleting shared assets before their refs are persisted.
+- **TODO: document deletion vs active rooms**: Deleting a document that still has an active sync room needs a future design for room invalidation. Assets are now document-scoped in R2, so the old cross-document shared-blob coordination problem is intentionally gone, but an already-open room for a deleted document can still hold stale in-memory state until refresh.
 - **Offline data loss window**: Edits made in the last 500ms before a browser crash can be lost. Acceptable tradeoff.
 - **Collaboration scope**: tldraw sync gives multi-cursor, real-time co-editing for free once Phase 1 is done.
 - **Cost**: Cloudflare free tier is generous. Paid tier is very affordable at small-to-medium scale.

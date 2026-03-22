@@ -3,15 +3,11 @@ import { number, object, pipe, string, uuid } from "valibot";
 import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
-import { validateWithSchema } from "./validation";
+import { documentIdParamSchema, validateWithSchema } from "./validation";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
-
-const documentIdParamSchema = object({
-  id: pipe(string(), uuid()),
-});
 
 const documentMetadataSchema = object({
   title: string(),

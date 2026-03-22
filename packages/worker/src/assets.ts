@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
-import { file, maxSize, mimeType, object, pipe, string, uuid } from "valibot";
-import type { AppBindings, AppContext, Env } from "./types";
-import { validateWithSchema } from "./validation";
+import { file, maxSize, mimeType, object, pipe } from "valibot";
+import type { AppBindings, AppContext } from "./types";
+import { documentIdParamSchema, validateWithSchema } from "./validation";
 
 const SUPPORTED_ASSET_CONTENT_TYPES = [
   "image/jpeg",
@@ -24,8 +24,6 @@ const MAX_ASSET_REQUEST_BODY_SIZE =
 const DOCUMENT_ASSET_PREFIX = "documents";
 const ASSET_NAME_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
-const DOCUMENT_ASSET_PATH_PATTERN =
-  /^\/api\/documents\/([0-9a-f-]{36})\/assets\/([^/]+)$/i;
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -50,14 +48,6 @@ const documentAssetUploadFileSchema = pipe(
   mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
   maxSize(MAX_ASSET_SIZE),
 );
-
-const documentIdParamSchema = object({
-  id: pipe(string(), uuid()),
-});
-
-type AssetCloneRequest = {
-  src: string;
-};
 
 function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
@@ -86,26 +76,6 @@ function getDocumentAssetKey(documentId: string, assetName: string) {
 
 function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
-}
-
-function parseManagedDocumentAssetSrc(src: string) {
-  try {
-    const url = new URL(src, "https://anipres.invalid");
-    const match = url.pathname.match(DOCUMENT_ASSET_PATH_PATTERN);
-    if (!match) {
-      return null;
-    }
-
-    const [, documentId, encodedAssetName] = match;
-    const assetName = decodeURIComponent(encodedAssetName);
-    if (!isManagedAssetName(assetName)) {
-      return null;
-    }
-
-    return { documentId, assetName };
-  } catch {
-    return null;
-  }
 }
 
 async function readRequestBodyWithLimit(request: Request, limit: number) {
@@ -253,35 +223,6 @@ async function deleteDocumentAssetPrefix(bucket: R2Bucket, documentId: string) {
   }
 }
 
-async function cloneDocumentAsset(
-  env: Pick<Env, "ASSETS">,
-  sourceDocumentId: string,
-  sourceAssetName: string,
-  targetDocumentId: string,
-) {
-  const sourceKey = getDocumentAssetKey(sourceDocumentId, sourceAssetName);
-  const sourceObject = await env.ASSETS.get(sourceKey);
-  if (!sourceObject) {
-    return null;
-  }
-
-  const rawExt = sourceAssetName.includes(".")
-    ? sourceAssetName.split(".").pop()!.toLowerCase()
-    : "";
-  const ext = /^[a-z0-9]+$/.test(rawExt) ? `.${rawExt}` : "";
-  const targetAssetName = `${crypto.randomUUID()}${ext}`;
-  const targetKey = getDocumentAssetKey(targetDocumentId, targetAssetName);
-
-  await env.ASSETS.put(targetKey, sourceObject.body, {
-    httpMetadata: sourceObject.httpMetadata,
-  });
-
-  return {
-    assetName: targetAssetName,
-    src: getDocumentAssetSrc(targetDocumentId, targetAssetName),
-  };
-}
-
 export async function deleteDocumentAndAssets(
   c: AppContext,
   userId: number,
@@ -386,56 +327,6 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       assetName,
       src: getDocumentAssetSrc(documentId, assetName),
     });
-  });
-
-  app.post("/api/documents/:id/assets/clone", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = validateWithSchema(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
-
-    const { id: targetDocumentId } = paramsResult.output;
-    if (!(await documentExistsForUser(c, userId, targetDocumentId))) {
-      return c.json({ error: "Not found" }, 404);
-    }
-
-    let json: unknown;
-    try {
-      json = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-
-    const request = json as Partial<AssetCloneRequest>;
-    if (typeof request.src !== "string") {
-      return c.json({ error: "Missing src" }, 400);
-    }
-
-    const source = parseManagedDocumentAssetSrc(request.src);
-    if (!source) {
-      return c.json({ error: "Invalid asset src" }, 400);
-    }
-    if (!(await documentExistsForUser(c, userId, source.documentId))) {
-      return c.json({ error: "Not found" }, 404);
-    }
-
-    const clone = await cloneDocumentAsset(
-      c.env,
-      source.documentId,
-      source.assetName,
-      targetDocumentId,
-    );
-    if (!clone) {
-      return c.json({ error: "Not found" }, 404);
-    }
-
-    return c.json(clone);
   });
 
   app.get("/api/documents/:id/assets/:assetName", async (c) => {
