@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { number, object, pipe, safeParse, string, uuid } from "valibot";
+import * as v from "valibot";
 import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
@@ -8,15 +8,19 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
 
-const documentIdParamSchema = object({
-  id: pipe(string(), uuid()),
+const documentIdParamSchema = v.object({
+  id: v.pipe(v.string(), v.uuid()),
 });
 
-const documentMetadataSchema = object({
-  title: string(),
-  order: number(),
-  created_at: number(),
-  updated_at: number(),
+const roomIdParamSchema = v.object({
+  roomId: v.pipe(v.string(), v.uuid()),
+});
+
+const documentMetadataSchema = v.object({
+  title: v.string(),
+  order: v.number(),
+  created_at: v.number(),
+  updated_at: v.number(),
 });
 
 registerAuthRoutes(app);
@@ -39,12 +43,12 @@ app.get("/api/documents", async (c) => {
 // Get a single document (metadata only; snapshot is null)
 app.get("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = safeParse(documentIdParamSchema, {
+  const paramsResult = v.safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
     return c.json(
-      { error: "Invalid room id", details: paramsResult.issues },
+      { error: "Invalid document id", details: paramsResult.issues },
       400,
     );
   }
@@ -64,7 +68,7 @@ app.get("/api/documents/:id", async (c) => {
 // Upsert document metadata
 app.put("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = safeParse(documentIdParamSchema, {
+  const paramsResult = v.safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
@@ -81,7 +85,7 @@ app.put("/api/documents/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const bodyResult = safeParse(documentMetadataSchema, json);
+  const bodyResult = v.safeParse(documentMetadataSchema, json);
   if (!bodyResult.success) {
     return c.json(
       { error: "Invalid document metadata", details: bodyResult.issues },
@@ -110,7 +114,7 @@ app.put("/api/documents/:id", async (c) => {
 // Delete a document
 app.delete("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = safeParse(documentIdParamSchema, {
+  const paramsResult = v.safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
@@ -141,15 +145,12 @@ app.get("/api/connect/:roomId", async (c) => {
   }
 
   const userId = c.get("userId");
-  const paramsResult = safeParse(
-    object({
-      roomId: pipe(string(), uuid()),
-    }),
-    { roomId: c.req.param("roomId") },
-  );
+  const paramsResult = v.safeParse(roomIdParamSchema, {
+    roomId: c.req.param("roomId"),
+  });
   if (!paramsResult.success) {
     return c.json(
-      { error: "Invalid document id", details: paramsResult.issues },
+      { error: "Invalid room id", details: paramsResult.issues },
       400,
     );
   }

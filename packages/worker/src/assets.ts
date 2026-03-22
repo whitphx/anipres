@@ -1,14 +1,5 @@
 import type { Hono } from "hono";
-import {
-  file,
-  maxSize,
-  mimeType,
-  object,
-  pipe,
-  safeParse,
-  string,
-  uuid,
-} from "valibot";
+import * as v from "valibot";
 import type { AppBindings, AppContext } from "./types";
 
 const SUPPORTED_ASSET_CONTENT_TYPES = [
@@ -47,26 +38,33 @@ class InvalidMultipartFormDataError extends Error {
   }
 }
 
-const documentAssetUploadFieldsSchema = object({
-  file: file("Missing file field"),
+const documentAssetUploadFieldsSchema = v.object({
+  file: v.file("Missing file field"),
 });
 
-const documentAssetUploadFileSchema = pipe(
-  file(),
-  mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
-  maxSize(MAX_ASSET_SIZE),
+const documentAssetUploadFileSchema = v.pipe(
+  v.file(),
+  v.mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
+  v.maxSize(MAX_ASSET_SIZE),
 );
 
-const documentIdParamSchema = object({
-  id: pipe(string(), uuid()),
+const documentIdParamSchema = v.object({
+  id: v.pipe(v.string(), v.uuid()),
 });
+
+const assetNameSchema = v.pipe(
+  v.string(),
+  v.regex(ASSET_NAME_PATTERN, "Invalid asset name"),
+);
+
+type SnapshotRecord = {
+  id: string;
+  typeName: string;
+  props?: Record<string, unknown>;
+};
 
 function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
-}
-
-function isManagedAssetName(assetName: string) {
-  return ASSET_NAME_PATTERN.test(assetName);
 }
 
 function getDeclaredContentLength(contentLength: string | undefined) {
@@ -88,6 +86,32 @@ function getDocumentAssetKey(documentId: string, assetName: string) {
 
 function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
+}
+
+function getAssetNameFromDocumentAssetKey(documentId: string, key: string) {
+  const prefix = getDocumentAssetPrefix(documentId);
+  if (!key.startsWith(prefix)) {
+    return null;
+  }
+
+  const assetName = key.slice(prefix.length);
+  return v.safeParse(assetNameSchema, assetName).success ? assetName : null;
+}
+
+function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
+  try {
+    const url = new URL(src, "https://anipres.invalid");
+    const prefix = `/api/documents/${encodeURIComponent(documentId)}/assets/`;
+    if (!url.pathname.startsWith(prefix)) {
+      return null;
+    }
+
+    const encodedAssetName = url.pathname.slice(prefix.length);
+    const assetName = decodeURIComponent(encodedAssetName);
+    return v.safeParse(assetNameSchema, assetName).success ? assetName : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readRequestBodyWithLimit(request: Request, limit: number) {
@@ -233,6 +257,88 @@ async function deleteDocumentAssetPrefix(bucket: R2Bucket, documentId: string) {
   }
 }
 
+export function getReferencedDocumentAssetNames(
+  snapshot: {
+    documents: Array<{ state: SnapshotRecord }>;
+  },
+  documentId: string,
+) {
+  const records = snapshot.documents.map((document) => document.state);
+  const assetsById = new Map<string, SnapshotRecord>();
+  const referencedAssetIds = new Set<string>();
+
+  for (const record of records) {
+    if (record.typeName === "asset") {
+      assetsById.set(record.id, record);
+      continue;
+    }
+
+    if (record.typeName !== "shape") {
+      continue;
+    }
+
+    const props = record.props;
+    if (!props) {
+      continue;
+    }
+
+    for (const key of ["assetId", "assetIdLight", "assetIdDark"] as const) {
+      const assetId = props[key];
+      if (typeof assetId === "string" && assetId.length > 0) {
+        referencedAssetIds.add(assetId);
+      }
+    }
+  }
+
+  const assetNames = new Set<string>();
+  for (const assetId of referencedAssetIds) {
+    const asset = assetsById.get(assetId) as
+      | (SnapshotRecord & { props?: { src?: unknown } })
+      | undefined;
+    const src = asset?.props?.src;
+    if (typeof src !== "string") {
+      continue;
+    }
+
+    const assetName = getAssetNameFromDocumentAssetSrc(src, documentId);
+    if (assetName) {
+      assetNames.add(assetName);
+    }
+  }
+
+  return Array.from(assetNames).sort();
+}
+
+export async function deleteUnreferencedDocumentAssets(
+  bucket: R2Bucket,
+  documentId: string,
+  referencedAssetNames: readonly string[],
+) {
+  const referencedSet = new Set(referencedAssetNames);
+  const prefix = getDocumentAssetPrefix(documentId);
+  let cursor: string | undefined;
+
+  while (true) {
+    const result = await bucket.list({ prefix, cursor });
+    const keysToDelete = result.objects
+      .map((object) => object.key)
+      .filter((key) => {
+        const assetName = getAssetNameFromDocumentAssetKey(documentId, key);
+        return assetName !== null && !referencedSet.has(assetName);
+      });
+
+    if (keysToDelete.length > 0) {
+      await bucket.delete(keysToDelete);
+    }
+
+    if (!result.truncated) {
+      break;
+    }
+
+    cursor = result.cursor;
+  }
+}
+
 export async function deleteDocumentAndAssets(
   c: AppContext,
   userId: number,
@@ -256,7 +362,7 @@ export async function deleteDocumentAndAssets(
 export function registerAssetRoutes(app: Hono<AppBindings>) {
   app.post("/api/documents/:id/assets", async (c) => {
     const userId = c.get("userId");
-    const paramsResult = safeParse(documentIdParamSchema, {
+    const paramsResult = v.safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
     });
     if (!paramsResult.success) {
@@ -294,7 +400,7 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       throw error;
     }
 
-    const uploadFieldsResult = safeParse(documentAssetUploadFieldsSchema, {
+    const uploadFieldsResult = v.safeParse(documentAssetUploadFieldsSchema, {
       file: formData.get("file"),
     });
     if (!uploadFieldsResult.success) {
@@ -308,7 +414,10 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     }
 
     const { file: uploadFile } = uploadFieldsResult.output;
-    const uploadFileResult = safeParse(documentAssetUploadFileSchema, uploadFile);
+    const uploadFileResult = v.safeParse(
+      documentAssetUploadFileSchema,
+      uploadFile,
+    );
     if (!uploadFileResult.success) {
       return c.json(
         {
@@ -341,7 +450,7 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
 
   app.get("/api/documents/:id/assets/:assetName", async (c) => {
     const userId = c.get("userId");
-    const paramsResult = safeParse(documentIdParamSchema, {
+    const paramsResult = v.safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
     });
     if (!paramsResult.success) {
@@ -357,11 +466,12 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     }
 
     const assetName = c.req.param("assetName");
-    if (!isManagedAssetName(assetName)) {
+    const assetNameResult = v.safeParse(assetNameSchema, assetName);
+    if (!assetNameResult.success) {
       return c.json({ error: "Not found" }, 404);
     }
 
-    const key = getDocumentAssetKey(documentId, assetName);
+    const key = getDocumentAssetKey(documentId, assetNameResult.output);
     const rangeHeader = c.req.header("Range");
     let object: R2ObjectBody | null;
     if (rangeHeader) {
