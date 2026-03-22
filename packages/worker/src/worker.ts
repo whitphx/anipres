@@ -1,13 +1,16 @@
 import { Hono } from "hono";
-import { number, object, pipe, string, uuid } from "valibot";
+import { number, object, pipe, safeParse, string, uuid } from "valibot";
 import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
-import { documentIdParamSchema, validateWithSchema } from "./validation";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
+
+const documentIdParamSchema = object({
+  id: pipe(string(), uuid()),
+});
 
 const documentMetadataSchema = object({
   title: string(),
@@ -36,7 +39,7 @@ app.get("/api/documents", async (c) => {
 // Get a single document (metadata only; snapshot is null)
 app.get("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = validateWithSchema(documentIdParamSchema, {
+  const paramsResult = safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
@@ -61,7 +64,7 @@ app.get("/api/documents/:id", async (c) => {
 // Upsert document metadata
 app.put("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = validateWithSchema(documentIdParamSchema, {
+  const paramsResult = safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
@@ -78,7 +81,7 @@ app.put("/api/documents/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const bodyResult = validateWithSchema(documentMetadataSchema, json);
+  const bodyResult = safeParse(documentMetadataSchema, json);
   if (!bodyResult.success) {
     return c.json(
       { error: "Invalid document metadata", details: bodyResult.issues },
@@ -107,7 +110,7 @@ app.put("/api/documents/:id", async (c) => {
 // Delete a document
 app.delete("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const paramsResult = validateWithSchema(documentIdParamSchema, {
+  const paramsResult = safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
   });
   if (!paramsResult.success) {
@@ -138,7 +141,7 @@ app.get("/api/connect/:roomId", async (c) => {
   }
 
   const userId = c.get("userId");
-  const paramsResult = validateWithSchema(
+  const paramsResult = safeParse(
     object({
       roomId: pipe(string(), uuid()),
     }),

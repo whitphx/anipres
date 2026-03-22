@@ -1,7 +1,15 @@
 import type { Hono } from "hono";
-import { file, maxSize, mimeType, object, pipe } from "valibot";
+import {
+  file,
+  maxSize,
+  mimeType,
+  object,
+  pipe,
+  safeParse,
+  string,
+  uuid,
+} from "valibot";
 import type { AppBindings, AppContext } from "./types";
-import { documentIdParamSchema, validateWithSchema } from "./validation";
 
 const SUPPORTED_ASSET_CONTENT_TYPES = [
   "image/jpeg",
@@ -48,6 +56,10 @@ const documentAssetUploadFileSchema = pipe(
   mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
   maxSize(MAX_ASSET_SIZE),
 );
+
+const documentIdParamSchema = object({
+  id: pipe(string(), uuid()),
+});
 
 function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
@@ -246,7 +258,7 @@ export async function deleteDocumentAndAssets(
 export function registerAssetRoutes(app: Hono<AppBindings>) {
   app.post("/api/documents/:id/assets", async (c) => {
     const userId = c.get("userId");
-    const paramsResult = validateWithSchema(documentIdParamSchema, {
+    const paramsResult = safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
     });
     if (!paramsResult.success) {
@@ -284,21 +296,21 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       throw error;
     }
 
-    const uploadFieldsResult = validateWithSchema(documentAssetUploadFieldsSchema, {
+    const uploadFieldsResult = safeParse(documentAssetUploadFieldsSchema, {
       file: formData.get("file"),
     });
     if (!uploadFieldsResult.success) {
       return c.json(
-        { error: "Invalid asset upload fields", details: uploadFieldsResult.issues },
+        {
+          error: "Invalid asset upload fields",
+          details: uploadFieldsResult.issues,
+        },
         400,
       );
     }
 
     const { file: uploadFile } = uploadFieldsResult.output;
-    const uploadFileResult = validateWithSchema(
-      documentAssetUploadFileSchema,
-      uploadFile,
-    );
+    const uploadFileResult = safeParse(documentAssetUploadFileSchema, uploadFile);
     if (!uploadFileResult.success) {
       return c.json(
         {
@@ -331,7 +343,7 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
 
   app.get("/api/documents/:id/assets/:assetName", async (c) => {
     const userId = c.get("userId");
-    const paramsResult = validateWithSchema(documentIdParamSchema, {
+    const paramsResult = safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
     });
     if (!paramsResult.success) {
