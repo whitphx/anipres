@@ -40,7 +40,17 @@ app.get("/api/documents", async (c) => {
 // Get a single document (metadata only; snapshot is null)
 app.get("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
-  const id = c.req.param("id");
+  const paramsResult = validateWithSchema(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
   const row = await c.env.DB.prepare(
     'SELECT id, title, "order", created_at, updated_at FROM documents WHERE id = ? AND user_id = ?',
   )
@@ -132,7 +142,20 @@ app.get("/api/connect/:roomId", async (c) => {
   }
 
   const userId = c.get("userId");
-  const roomId = c.req.param("roomId");
+  const paramsResult = validateWithSchema(
+    object({
+      roomId: pipe(string(), uuid()),
+    }),
+    { roomId: c.req.param("roomId") },
+  );
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { roomId } = paramsResult.output;
 
   const document = await c.env.DB.prepare(
     "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",

@@ -13,16 +13,18 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
     async upload(_asset, file) {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("documentId", documentId);
-      const res = await fetch("/api/assets", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/assets`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
       if (!res.ok) {
         throw new Error(`Asset upload failed: ${res.status}`);
       }
-      const { key } = (await res.json()) as { key: string };
-      return { src: `/api/assets/${encodeURIComponent(key)}` };
+      const { src } = (await res.json()) as { src: string };
+      return { src };
     },
     resolve(asset) {
       return asset.props.src;
