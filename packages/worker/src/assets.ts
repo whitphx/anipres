@@ -17,6 +17,9 @@ const SUPPORTED_ASSET_CONTENT_TYPES = new Set([
 ]);
 
 const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
+const MAX_ASSET_REQUEST_BODY_SIZE =
+  MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
 
 type AssetKeyRow = {
   asset_key: string;
@@ -50,6 +53,15 @@ function isSvgContentType(contentType: string) {
 
 function isManagedAssetKey(key: string) {
   return MANAGED_ASSET_KEY_PATTERN.test(key);
+}
+
+function getDeclaredContentLength(contentLength: string | undefined) {
+  if (!contentLength) {
+    return null;
+  }
+
+  const parsed = Number(contentLength);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function makePlaceholders(count: number) {
@@ -97,19 +109,6 @@ function scheduleDocumentAssetReconciliation(c: AppContext, documentId: string) 
       console.error("Failed to notify document asset reconciliation", error);
     }),
   );
-}
-
-async function getDocumentAssetKeys(
-  env: AssetEnv,
-  userId: number,
-  documentId: string,
-) {
-  const { results } = await env.DB.prepare(
-    "SELECT asset_key FROM document_assets WHERE document_id = ? AND user_id = ?",
-  )
-    .bind(documentId, userId)
-    .all<AssetKeyRow>();
-  return results.map((row) => row.asset_key);
 }
 
 async function getDocumentAssetRows(
@@ -384,13 +383,29 @@ export async function deleteDocumentAndAssets(
   userId: number,
   documentId: string,
 ) {
-  const assetKeys = await getDocumentAssetKeys(c.env, userId, documentId);
-  const { meta } = await c.env.DB.prepare(
-    "DELETE FROM documents WHERE id = ? AND user_id = ?",
-  )
-    .bind(documentId, userId)
-    .run();
-  if (meta.changes > 0) {
+  const [deletedAssetsResult, deletedDocumentResult] = await c.env.DB.batch([
+    // Delete and return the current refs in the same D1 batch as the document
+    // delete so a concurrent upload cannot land between "collect keys" and the
+    // actual deletion step.
+    c.env.DB.prepare(
+      `DELETE FROM document_assets
+       WHERE document_id = ? AND user_id = ?
+         AND EXISTS (
+           SELECT 1 FROM documents WHERE id = ? AND user_id = ?
+         )
+       RETURNING asset_key`,
+    ).bind(documentId, userId, documentId, userId),
+    c.env.DB.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?").bind(
+      documentId,
+      userId,
+    ),
+  ]);
+  if (deletedDocumentResult.meta.changes > 0) {
+    const assetKeys = deletedAssetsResult.results
+      .map((row) =>
+        isObject(row) && typeof row.asset_key === "string" ? row.asset_key : null,
+      )
+      .filter((assetKey): assetKey is string => assetKey !== null);
     await deleteUnreferencedAssets(c.env, assetKeys);
   }
 }
@@ -484,6 +499,20 @@ export async function reconcileDocumentAssetRefs(
 export function registerAssetRoutes(app: Hono<AppBindings>) {
   app.post("/api/assets", async (c) => {
     const userId = c.get("userId");
+    const declaredContentLength = getDeclaredContentLength(
+      c.req.header("Content-Length"),
+    );
+    if (
+      declaredContentLength !== null &&
+      declaredContentLength > MAX_ASSET_REQUEST_BODY_SIZE
+    ) {
+      // `parseBody()` materializes the multipart payload before we can inspect
+      // the File object, so reject obviously oversized requests from the
+      // declared Content-Length before parsing. Keep the later File.size check
+      // because the header may be absent or imprecise.
+      return c.json({ error: "File too large" }, 413);
+    }
+
     const body = await c.req.parseBody();
     const file = body["file"];
     const documentId = body["documentId"];
