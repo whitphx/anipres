@@ -232,6 +232,7 @@ async function upsertDocumentAssetRefs(
   userId: number,
   documentId: string,
   assetKeys: string[],
+  staleAtOnInsert: number | null = null,
 ) {
   if (assetKeys.length === 0) {
     return;
@@ -242,9 +243,9 @@ async function upsertDocumentAssetRefs(
     assetKeys.map((assetKey) =>
       env.DB.prepare(
         `INSERT INTO document_assets (document_id, asset_key, user_id, created_at, stale_at)
-         VALUES (?, ?, ?, ?, NULL)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(document_id, asset_key) DO UPDATE SET stale_at = NULL`,
-      ).bind(documentId, assetKey, userId, now),
+      ).bind(documentId, assetKey, userId, now, staleAtOnInsert),
     ),
   );
 }
@@ -471,6 +472,16 @@ function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
   return headers;
 }
 
+function buildUnsatisfiableRangeHeaders(size: number) {
+  const headers = new Headers();
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("Content-Range", `bytes */${size}`);
+  headers.set("Content-Type", "text/plain; charset=utf-8");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return headers;
+}
+
 /**
  * Collect asset keys for a document, then delete the document row (which
  * CASCADE-deletes its document_assets refs), then GC orphaned R2 objects.
@@ -653,7 +664,11 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       httpMetadata: { contentType: file.type },
     });
     try {
-      await upsertDocumentAssetRefs(c.env, userId, documentId, [key]);
+      // Seed newly uploaded refs as stale until the synced room confirms the
+      // asset actually exists in document state. This lets disconnected uploads
+      // age out instead of leaking forever, while later reconciliation clears
+      // `stale_at` once the asset becomes live in the room snapshot.
+      await upsertDocumentAssetRefs(c.env, userId, documentId, [key], Date.now());
     } catch (error) {
       // The upload is only usable once both R2 and document_assets agree on
       // the key. If the D1 write fails after the put, delete the object so we
@@ -692,7 +707,14 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
           error instanceof Error &&
           error.message.toLowerCase().includes("range")
         ) {
-          return new Response("Range Not Satisfiable", { status: 416 });
+          const metadata = await c.env.ASSETS.head(key);
+          if (!metadata) {
+            return c.json({ error: "Not found" }, 404);
+          }
+          return new Response("Range Not Satisfiable", {
+            status: 416,
+            headers: buildUnsatisfiableRangeHeaders(metadata.size),
+          });
         }
         throw error;
       }

@@ -144,6 +144,25 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.syncGcAlarm(nextGcAt);
   }
 
+  private async syncAssetGcOnly() {
+    if (!this.documentId) {
+      return;
+    }
+
+    const userId = await getDocumentOwnerUserId(this.env, this.documentId);
+    if (userId === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+
+    const { nextGcAt } = await runDocumentAssetGc(
+      this.env,
+      userId,
+      this.documentId,
+    );
+    await this.syncGcAlarm(nextGcAt);
+  }
+
   private async syncGcAlarm(nextGcAt: number | null) {
     const currentAlarm = await this.ctx.storage.getAlarm();
     if (nextGcAt === null) {
@@ -169,6 +188,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       await this.bindDocumentId(documentId);
       if (this.hasActiveSessions()) {
         await this.syncAssetRefs(true);
+      } else {
+        await this.syncAssetGcOnly();
       }
       return new Response(null, { status: 204 });
     }
@@ -189,21 +210,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async alarm() {
-    if (!this.documentId) {
-      return;
-    }
-
-    const userId = await getDocumentOwnerUserId(this.env, this.documentId);
-    if (userId === null) {
-      await this.ctx.storage.deleteAlarm();
-      return;
-    }
-
-    const { nextGcAt } = await runDocumentAssetGc(
-      this.env,
-      userId,
-      this.documentId,
-    );
-    await this.syncGcAlarm(nextGcAt);
+    await this.syncAssetGcOnly();
   }
 }
