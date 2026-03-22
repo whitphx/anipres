@@ -28,7 +28,7 @@ export function AppContent() {
         (synced ? (
           <SyncedAnipresContainer
             key={activeDocumentId}
-            roomId={activeDocumentId}
+            documentId={activeDocumentId}
             colorScheme={preference}
           />
         ) : (

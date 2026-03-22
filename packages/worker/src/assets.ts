@@ -19,6 +19,7 @@ const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
   MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
+const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const DOCUMENT_ASSET_PREFIX = "documents";
 const ASSET_NAME_PATTERN =
@@ -88,16 +89,6 @@ function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
 }
 
-function getAssetNameFromDocumentAssetKey(documentId: string, key: string) {
-  const prefix = getDocumentAssetPrefix(documentId);
-  if (!key.startsWith(prefix)) {
-    return null;
-  }
-
-  const assetName = key.slice(prefix.length);
-  return v.safeParse(assetNameSchema, assetName).success ? assetName : null;
-}
-
 function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
   try {
     const url = new URL(src, "https://anipres.invalid");
@@ -111,6 +102,25 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
     return v.safeParse(assetNameSchema, assetName).success ? assetName : null;
   } catch {
     return null;
+  }
+}
+
+async function scheduleDocumentAssetGc(
+  c: AppContext,
+  documentId: string,
+): Promise<void> {
+  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+  const response = await room.fetch(
+    `https://document-sync-room/internal/schedule-asset-gc/${encodeURIComponent(documentId)}`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Document asset GC scheduling failed: ${response.status} ${response.statusText}`,
+    );
   }
 }
 
@@ -257,6 +267,149 @@ async function deleteDocumentAssetPrefix(bucket: R2Bucket, documentId: string) {
   }
 }
 
+function getInClausePlaceholders(length: number) {
+  return Array.from({ length }, () => "?").join(", ");
+}
+
+async function insertDocumentAsset(
+  env: AppContext["env"],
+  documentId: string,
+  assetName: string,
+  contentType: string,
+) {
+  const now = Date.now();
+  // Uploads start as stale until the synced document state actually references
+  // them. That lets us reclaim abandoned uploads while keeping a grace window
+  // for the editor to write the new asset into the room snapshot.
+  await env.DB.prepare(
+    `INSERT INTO assets (
+       document_id,
+       asset_name,
+       content_type,
+       created_at,
+       last_seen_at,
+       stale_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(documentId, assetName, contentType, now, now, now)
+    .run();
+}
+
+async function clearReferencedDocumentAssets(
+  env: AppContext["env"],
+  documentId: string,
+  assetNames: readonly string[],
+  now: number,
+) {
+  if (assetNames.length === 0) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `UPDATE assets
+     SET last_seen_at = ?, stale_at = NULL
+     WHERE document_id = ?
+       AND asset_name IN (${getInClausePlaceholders(assetNames.length)})`,
+  )
+    .bind(now, documentId, ...assetNames)
+    .run();
+}
+
+async function markUnreferencedDocumentAssetsStale(
+  env: AppContext["env"],
+  documentId: string,
+  referencedAssetNames: readonly string[],
+  now: number,
+) {
+  if (referencedAssetNames.length === 0) {
+    await env.DB.prepare(
+      `UPDATE assets
+       SET stale_at = COALESCE(stale_at, ?)
+       WHERE document_id = ?`,
+    )
+      .bind(now, documentId)
+      .run();
+    return;
+  }
+
+  await env.DB.prepare(
+    `UPDATE assets
+     SET stale_at = COALESCE(stale_at, ?)
+     WHERE document_id = ?
+       AND asset_name NOT IN (${getInClausePlaceholders(referencedAssetNames.length)})`,
+  )
+    .bind(now, documentId, ...referencedAssetNames)
+    .run();
+}
+
+async function getNextDocumentAssetGcAt(
+  env: AppContext["env"],
+  documentId: string,
+) {
+  const row = await env.DB.prepare(
+    `SELECT MIN(stale_at) AS stale_at
+     FROM assets
+     WHERE document_id = ? AND stale_at IS NOT NULL`,
+  )
+    .bind(documentId)
+    .first<{ stale_at: number | null }>();
+  return row?.stale_at === null || row?.stale_at === undefined
+    ? null
+    : row.stale_at + STALE_ASSET_RETENTION_MS;
+}
+
+export async function reconcileDocumentAssets(
+  env: AppContext["env"],
+  documentId: string,
+  referencedAssetNames: readonly string[],
+) {
+  const now = Date.now();
+  // The live room snapshot is only safe to treat as "currently referenced".
+  // We mark missing assets stale here, then delete them later after a grace
+  // period so undo/redo can still restore older asset URLs.
+  await clearReferencedDocumentAssets(env, documentId, referencedAssetNames, now);
+  await markUnreferencedDocumentAssetsStale(
+    env,
+    documentId,
+    referencedAssetNames,
+    now,
+  );
+  return getNextDocumentAssetGcAt(env, documentId);
+}
+
+export async function runDocumentAssetGc(
+  env: AppContext["env"],
+  documentId: string,
+) {
+  const cutoff = Date.now() - STALE_ASSET_RETENTION_MS;
+  const expiredAssets = await env.DB.prepare(
+    `SELECT asset_name
+     FROM assets
+     WHERE document_id = ?
+       AND stale_at IS NOT NULL
+       AND stale_at <= ?`,
+  )
+    .bind(documentId, cutoff)
+    .all<{ asset_name: string }>();
+
+  if (expiredAssets.results.length > 0) {
+    const keys = expiredAssets.results.map(({ asset_name }) =>
+      getDocumentAssetKey(documentId, asset_name),
+    );
+    await env.ASSETS.delete(keys);
+    await env.DB.prepare(
+      `DELETE FROM assets
+       WHERE document_id = ?
+         AND stale_at IS NOT NULL
+         AND stale_at <= ?`,
+    )
+      .bind(documentId, cutoff)
+      .run();
+  }
+
+  return getNextDocumentAssetGcAt(env, documentId);
+}
+
 export function getReferencedDocumentAssetNames(
   snapshot: {
     documents: Array<{ state: SnapshotRecord }>;
@@ -307,36 +460,6 @@ export function getReferencedDocumentAssetNames(
   }
 
   return Array.from(assetNames).sort();
-}
-
-export async function deleteUnreferencedDocumentAssets(
-  bucket: R2Bucket,
-  documentId: string,
-  referencedAssetNames: readonly string[],
-) {
-  const referencedSet = new Set(referencedAssetNames);
-  const prefix = getDocumentAssetPrefix(documentId);
-  let cursor: string | undefined;
-
-  while (true) {
-    const result = await bucket.list({ prefix, cursor });
-    const keysToDelete = result.objects
-      .map((object) => object.key)
-      .filter((key) => {
-        const assetName = getAssetNameFromDocumentAssetKey(documentId, key);
-        return assetName !== null && !referencedSet.has(assetName);
-      });
-
-    if (keysToDelete.length > 0) {
-      await bucket.delete(keysToDelete);
-    }
-
-    if (!result.truncated) {
-      break;
-    }
-
-    cursor = result.cursor;
-  }
 }
 
 export async function deleteDocumentAndAssets(
@@ -438,9 +561,21 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     const assetName = `${crypto.randomUUID()}${ext}`;
     const key = getDocumentAssetKey(documentId, assetName);
 
-    await c.env.ASSETS.put(key, uploadFile.stream(), {
-      httpMetadata: { contentType: uploadFile.type },
-    });
+    try {
+      await c.env.ASSETS.put(key, uploadFile.stream(), {
+        httpMetadata: { contentType: uploadFile.type },
+      });
+      await insertDocumentAsset(c.env, documentId, assetName, uploadFile.type);
+    } catch (error) {
+      await c.env.ASSETS.delete(key);
+      throw error;
+    }
+
+    c.executionCtx.waitUntil(
+      scheduleDocumentAssetGc(c, documentId).catch((error) => {
+        console.error("Failed to schedule document asset GC", error);
+      }),
+    );
 
     return c.json({
       assetName,

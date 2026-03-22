@@ -4,7 +4,7 @@ import type { TLAssetStore } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 
 interface SyncedAnipresContainerProps {
-  roomId: string;
+  documentId: string;
   colorScheme?: "light" | "dark" | "system";
 }
 
@@ -37,19 +37,19 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
 }
 
 export function SyncedAnipresContainer({
-  roomId,
+  documentId,
   colorScheme,
 }: SyncedAnipresContainerProps) {
   const remoteAssetStore = useMemo(
-    () => createRemoteAssetStore(roomId),
-    [roomId],
+    () => createRemoteAssetStore(documentId),
+    [documentId],
   );
   const store = useSync({
-    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(roomId)}`,
+    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: remoteAssetStore,
   });
 
-  return <Anipres key={roomId} store={store} colorScheme={colorScheme} />;
+  return <Anipres key={documentId} store={store} colorScheme={colorScheme} />;
 }

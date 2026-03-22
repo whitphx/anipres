@@ -12,8 +12,8 @@ const documentIdParamSchema = v.object({
   id: v.pipe(v.string(), v.uuid()),
 });
 
-const roomIdParamSchema = v.object({
-  roomId: v.pipe(v.string(), v.uuid()),
+const documentConnectParamSchema = v.object({
+  documentId: v.pipe(v.string(), v.uuid()),
 });
 
 const documentMetadataSchema = v.object({
@@ -139,35 +139,35 @@ app.delete("/api/documents/:id", async (c) => {
 });
 
 // WebSocket upgrade for sync
-app.get("/api/connect/:roomId", async (c) => {
+app.get("/api/connect/:documentId", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {
     return c.text("Expected WebSocket upgrade", 426);
   }
 
   const userId = c.get("userId");
-  const paramsResult = v.safeParse(roomIdParamSchema, {
-    roomId: c.req.param("roomId"),
+  const paramsResult = v.safeParse(documentConnectParamSchema, {
+    documentId: c.req.param("documentId"),
   });
   if (!paramsResult.success) {
     return c.json(
-      { error: "Invalid room id", details: paramsResult.issues },
+      { error: "Invalid document id", details: paramsResult.issues },
       400,
     );
   }
 
-  const { roomId } = paramsResult.output;
+  const { documentId } = paramsResult.output;
 
   const document = await c.env.DB.prepare(
     "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
   )
-    .bind(roomId, userId)
+    .bind(documentId, userId)
     .first();
 
   if (!document) {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(roomId);
+  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
 
   return room.fetch(c.req.raw);
