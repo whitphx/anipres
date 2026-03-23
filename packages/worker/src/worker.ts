@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import * as v from "valibot";
-import { deleteDocumentAndAssets, registerAssetRoutes } from "./assets";
+import { registerAssetRoutes, startDocumentDeletion } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import type { AppBindings } from "./types";
 
@@ -142,7 +142,7 @@ app.delete("/api/documents/:id", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  await deleteDocumentAndAssets(c, userId, id);
+  await startDocumentDeletion(c, userId, id);
   return c.json({ ok: true });
 });
 

@@ -9,7 +9,9 @@ import {
   ThemeImageShapeType,
 } from "anipres/schema";
 import {
+  finalizeDeletingDocument,
   getReferencedDocumentAssetNames,
+  isDocumentDeleting,
   reconcileDocumentAssets,
   runDocumentAssetGc,
 } from "./assets";
@@ -22,6 +24,8 @@ const schema = createTLSchema({
     [ThemeImageShapeType]: { props: themeImageShapeProps },
   },
 });
+
+const DOCUMENT_DELETE_RETRY_MS = 30_000;
 
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room: TLSocketRoom<TLRecord, void>;
@@ -131,9 +135,41 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
+  private async runDeletePass() {
+    if (!this.documentId) {
+      return;
+    }
+
+    try {
+      const deleted = await finalizeDeletingDocument(this.env, this.documentId);
+      if (deleted) {
+        await this.ctx.storage.deleteAlarm();
+      }
+    } catch (error) {
+      console.error("Failed to finalize document deletion", error);
+      await this.ctx.storage.setAlarm(Date.now() + DOCUMENT_DELETE_RETRY_MS);
+    }
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "POST" && url.pathname.startsWith("/internal/")) {
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/internal/start-delete/")
+    ) {
+      this.setDocumentIdFromRequest(request);
+      if (!this.documentId) {
+        return new Response("Missing documentId", { status: 400 });
+      }
+
+      await this.ctx.storage.setAlarm(Date.now());
+      return new Response(null, { status: 202 });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/internal/schedule-asset-gc/")
+    ) {
       this.setDocumentIdFromRequest(request);
       if (!this.documentId) {
         return new Response("Missing documentId", { status: 400 });
@@ -163,6 +199,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         (await this.ctx.storage.get<string>("documentId")) ?? null;
     }
     if (!this.documentId) {
+      return;
+    }
+
+    if (await isDocumentDeleting(this.env, this.documentId)) {
+      await this.runDeletePass();
       return;
     }
 

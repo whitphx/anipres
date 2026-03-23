@@ -15,6 +15,22 @@ const SUPPORTED_ASSET_CONTENT_TYPES = [
   "video/quicktime",
 ] as const;
 
+const ASSET_EXTENSION_BY_CONTENT_TYPE = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/apng": ".apng",
+  "image/avif": ".avif",
+  "image/svg+xml": ".svg",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+} as const satisfies Record<
+  (typeof SUPPORTED_ASSET_CONTENT_TYPES)[number],
+  string
+>;
+
 const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
@@ -74,6 +90,17 @@ function isSupportedAssetContentType(contentType: string): boolean {
   );
 }
 
+function getAssetExtensionForContentType(contentType: string) {
+  const ext =
+    ASSET_EXTENSION_BY_CONTENT_TYPE[
+      contentType as keyof typeof ASSET_EXTENSION_BY_CONTENT_TYPE
+    ];
+  if (!ext) {
+    throw new Error(`Unsupported asset content type: ${contentType}`);
+  }
+  return ext;
+}
+
 function getDeclaredContentLength(contentLength: string | undefined) {
   if (!contentLength) {
     return null;
@@ -126,6 +153,25 @@ async function scheduleDocumentAssetGc(
   if (!response.ok) {
     throw new Error(
       `Document asset GC scheduling failed: ${response.status} ${response.statusText}`,
+    );
+  }
+}
+
+async function scheduleDocumentDeletion(
+  c: AppContext,
+  documentId: string,
+): Promise<void> {
+  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+  const response = await room.fetch(
+    `https://document-sync-room/internal/start-delete/${encodeURIComponent(documentId)}`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Document deletion scheduling failed: ${response.status} ${response.statusText}`,
     );
   }
 }
@@ -500,6 +546,18 @@ export async function runDocumentAssetGc(
   return getNextDocumentAssetGcAt(env, documentId);
 }
 
+export async function isDocumentDeleting(
+  env: AppContext["env"],
+  documentId: string,
+) {
+  const row = await env.DB.prepare(
+    "SELECT deleting_at FROM documents WHERE id = ?",
+  )
+    .bind(documentId)
+    .first<{ deleting_at: number | null }>();
+  return row?.deleting_at !== null && row?.deleting_at !== undefined;
+}
+
 export function getReferencedDocumentAssetNames(
   snapshot: {
     documents: Array<{ state: SnapshotRecord }>;
@@ -552,7 +610,29 @@ export function getReferencedDocumentAssetNames(
   return Array.from(assetNames).sort();
 }
 
-export async function deleteDocumentAndAssets(
+export async function finalizeDeletingDocument(
+  env: AppContext["env"],
+  documentId: string,
+) {
+  const document = await env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND deleting_at IS NOT NULL",
+  )
+    .bind(documentId)
+    .first();
+  if (!document) {
+    return false;
+  }
+
+  await deleteDocumentAssetPrefix(env.ASSETS, documentId);
+  await env.DB.prepare(
+    "DELETE FROM documents WHERE id = ? AND deleting_at IS NOT NULL",
+  )
+    .bind(documentId)
+    .run();
+  return true;
+}
+
+export async function startDocumentDeletion(
   c: AppContext,
   userId: number,
   documentId: string,
@@ -564,16 +644,19 @@ export async function deleteDocumentAndAssets(
   )
     .bind(Date.now(), documentId, userId)
     .run();
-
-  // Delete document-scoped blobs before removing the document row. If R2
-  // deletion fails, we want the document and its asset metadata to remain so
-  // the delete can be retried instead of leaking orphaned blobs permanently.
-  await deleteDocumentAssetPrefix(c.env.ASSETS, documentId);
-  await c.env.DB.prepare(
-    "DELETE FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NOT NULL",
-  )
-    .bind(documentId, userId)
-    .run();
+  try {
+    // Prefix cleanup can take long enough to exceed a request budget. Hand the
+    // actual delete work to the document DO so `deleting_at` can remain a
+    // retryable state until the R2 sweep finishes successfully.
+    await scheduleDocumentDeletion(c, documentId);
+  } catch (error) {
+    await c.env.DB.prepare(
+      "UPDATE documents SET deleting_at = NULL WHERE id = ? AND user_id = ?",
+    )
+      .bind(documentId, userId)
+      .run();
+    throw error;
+  }
 }
 
 export function registerAssetRoutes(app: Hono<AppBindings>) {
@@ -648,10 +731,10 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       );
     }
 
-    const rawExt = uploadFile.name.includes(".")
-      ? uploadFile.name.split(".").pop()!.toLowerCase()
-      : "";
-    const ext = /^[a-z0-9]+$/.test(rawExt) ? `.${rawExt}` : "";
+    // Derive the suffix from the validated MIME type instead of trusting the
+    // uploaded filename. That keeps asset keys bounded and predictable even if
+    // a client sends a pathological or misleading name.
+    const ext = getAssetExtensionForContentType(uploadFile.type);
     const assetName = `${crypto.randomUUID()}${ext}`;
     const key = getDocumentAssetKey(documentId, assetName);
 
