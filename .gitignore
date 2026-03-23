@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Worker local secrets
+.dev.vars
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
