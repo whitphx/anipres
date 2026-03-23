@@ -129,7 +129,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
-  private async runGcPass() {
+  private async runDocumentAssetGcCycle() {
     if (!this.documentId) {
       return;
     }
@@ -163,7 +163,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async scheduleAssetGc(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
-    await this.runGcPass();
+    await this.runDocumentAssetGcCycle();
   }
 
   async startDelete(documentId: string): Promise<void> {
@@ -201,6 +201,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    await this.runGcPass();
+    await this.runDocumentAssetGcCycle();
   }
 }
