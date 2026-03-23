@@ -1,38 +1,55 @@
+import { useMemo } from "react";
 import { useSync } from "@tldraw/sync";
 import type { TLAssetStore } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 
 interface SyncedAnipresContainerProps {
-  roomId: string;
+  documentId: string;
   colorScheme?: "light" | "dark" | "system";
 }
 
-// POC: store images as inline data URLs. Not suitable for production.
-const inlineAssetStore: TLAssetStore = {
-  async upload(_asset, file) {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    return { src: dataUrl };
-  },
-  resolve(asset) {
-    return asset.props.src;
-  },
-};
+function createRemoteAssetStore(documentId: string): TLAssetStore {
+  return {
+    async upload(_asset, file) {
+      // tldraw resolves copied managed asset URLs to data URLs before placing
+      // them on the clipboard, then re-uploads that file on paste. That keeps
+      // every synced asset owned by the destination document instead of
+      // preserving a source document's asset URL across documents.
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/assets`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Asset upload failed: ${res.status}`);
+      }
+      const { src } = (await res.json()) as { src: string };
+      return { src };
+    },
+    resolve(asset) {
+      return asset.props.src;
+    },
+  };
+}
 
 export function SyncedAnipresContainer({
-  roomId,
+  documentId,
   colorScheme,
 }: SyncedAnipresContainerProps) {
+  const remoteAssetStore = useMemo(
+    () => createRemoteAssetStore(documentId),
+    [documentId],
+  );
   const store = useSync({
-    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(roomId)}`,
+    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
-    assets: inlineAssetStore,
+    assets: remoteAssetStore,
   });
 
-  return <Anipres key={roomId} store={store} colorScheme={colorScheme} />;
+  return <Anipres key={documentId} store={store} colorScheme={colorScheme} />;
 }
