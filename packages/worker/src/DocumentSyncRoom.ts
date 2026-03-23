@@ -27,20 +27,33 @@ const schema = createTLSchema({
 
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
+const ROOM_SNAPSHOT_STORAGE_KEY = "roomSnapshot";
+
+type RoomSnapshot = ReturnType<TLSocketRoom<TLRecord, void>["getCurrentSnapshot"]>;
+type PersistedRoomSnapshot = {
+  version: 1;
+  snapshot: RoomSnapshot;
+};
 
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
   private lastSyncedAssetNamesJson: string | null = null;
   private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private roomTask: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: WorkerEnv) {
     super(ctx, env);
+    this.room = this.createRoom();
     ctx.blockConcurrencyWhile(async () => {
       this.documentId =
         (await this.ctx.storage.get<string>("documentId")) ?? null;
+      const persistedSnapshot =
+        await this.ctx.storage.get<PersistedRoomSnapshot>(ROOM_SNAPSHOT_STORAGE_KEY);
+      if (persistedSnapshot?.version === 1) {
+        this.room.loadSnapshot(persistedSnapshot.snapshot);
+      }
     });
-    this.room = this.createRoom();
   }
 
   private createRoom() {
@@ -50,6 +63,18 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       schema,
       onDataChange: () => {
         this.scheduleAssetSync();
+      },
+      onSessionRemoved: (_room, { numSessionsRemaining }) => {
+        if (numSessionsRemaining !== 0 || !this.documentId) {
+          return;
+        }
+
+        const flushTask = this.runRoomTask(() =>
+          this.syncSnapshotAndReferencedAssets(),
+        ).catch((error) => {
+          console.error("Failed to flush room snapshot after last disconnect", error);
+        });
+        this.ctx.waitUntil(flushTask);
       },
     });
   }
@@ -97,6 +122,23 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.ctx.storage.setAlarm(nextGcAt);
   }
 
+  private runRoomTask<T>(task: () => Promise<T>) {
+    const run = this.roomTask.then(task, task);
+    this.roomTask = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async persistRoomSnapshot(snapshot: RoomSnapshot) {
+    const payload: PersistedRoomSnapshot = {
+      version: 1,
+      snapshot,
+    };
+    await this.ctx.storage.put(ROOM_SNAPSHOT_STORAGE_KEY, payload);
+  }
+
   private scheduleAssetSync() {
     if (!this.documentId) {
       return;
@@ -108,22 +150,24 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     this.assetSyncTimer = setTimeout(() => {
       this.assetSyncTimer = null;
-      const reconciliation = this.syncReferencedAssets().catch((error) => {
-        console.error("Failed to reconcile document assets", error);
+      const syncTask = this.runRoomTask(() =>
+        this.syncSnapshotAndReferencedAssets(),
+      ).catch((error) => {
+        console.error("Failed to sync room snapshot and document assets", error);
       });
-      this.ctx.waitUntil(reconciliation);
+      this.ctx.waitUntil(syncTask);
     }, 500);
   }
 
-  private async syncReferencedAssets() {
+  private async syncSnapshotAndReferencedAssets() {
     if (!this.documentId) {
       return;
     }
 
-    const assetNames = getReferencedDocumentAssetNames(
-      this.room.getCurrentSnapshot(),
-      this.documentId,
-    );
+    const snapshot = this.room.getCurrentSnapshot();
+    await this.persistRoomSnapshot(snapshot);
+
+    const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
       return;
@@ -143,12 +187,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    // Snapshot reconciliation is debounced, but alarm-driven GC must observe
-    // the latest live room state first so undo/redo does not delete a blob
-    // that was just referenced again.
-    if (this.room.getNumActiveSessions() > 0) {
-      await this.syncReferencedAssets();
-    }
+    // The room snapshot is now restored from DO storage on startup, so it is
+    // authoritative enough to reconcile before GC even when no sockets are
+    // currently attached. That closes the "upload then quick disconnect"
+    // window where a referenced asset could otherwise stay stale forever.
+    await this.syncSnapshotAndReferencedAssets();
 
     const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
     await this.scheduleAssetGcAlarm(nextGcAt);
@@ -170,6 +213,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       );
       if (completed) {
         await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
+        await this.ctx.storage.delete(ROOM_SNAPSHOT_STORAGE_KEY);
+        await this.ctx.storage.delete("documentId");
         await this.ctx.storage.deleteAlarm();
         return;
       }
@@ -187,7 +232,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async scheduleAssetGc(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
-    await this.runDocumentAssetGcCycle();
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
   }
 
   async startDelete(documentId: string): Promise<void> {
@@ -223,10 +268,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
 
     if (await isDocumentDeleting(this.env, this.documentId)) {
-      await this.runDocumentDeleteCycle();
+      await this.runRoomTask(() => this.runDocumentDeleteCycle());
       return;
     }
 
-    await this.runDocumentAssetGcCycle();
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
   }
 }
