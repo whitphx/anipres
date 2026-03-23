@@ -57,8 +57,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private createRoom() {
-    // Phase 1 POC: no persistence — data lives only while the DO is active.
-    // A future phase will add SQLite-backed persistence.
+    // Phase 4.x: persist the room snapshot in DO storage so synced documents
+    // survive disconnects and DO restarts. A future phase may still move this
+    // to SQLite-backed persistence for richer server-side history/storage.
     return new TLSocketRoom<TLRecord, void>({
       schema,
       onDataChange: () => {
