@@ -26,6 +26,7 @@ const schema = createTLSchema({
 });
 
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
+const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
 
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room: TLSocketRoom<TLRecord, void>;
@@ -146,16 +147,31 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
-  private async runDeletePass() {
+  private async runDocumentDeleteCycle() {
     if (!this.documentId) {
       return;
     }
 
     try {
-      const deleted = await finalizeDeletingDocument(this.env, this.documentId);
-      if (deleted) {
+      const cursor =
+        (await this.ctx.storage.get<string>(DOCUMENT_DELETE_CURSOR_STORAGE_KEY)) ??
+        undefined;
+      const { completed, nextCursor } = await finalizeDeletingDocument(
+        this.env,
+        this.documentId,
+        cursor,
+      );
+      if (completed) {
+        await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
         await this.ctx.storage.deleteAlarm();
+        return;
       }
+
+      if (!nextCursor) {
+        throw new Error("Expected a delete cursor for incomplete document deletion");
+      }
+      await this.ctx.storage.put(DOCUMENT_DELETE_CURSOR_STORAGE_KEY, nextCursor);
+      await this.ctx.storage.setAlarm(Date.now());
     } catch (error) {
       console.error("Failed to finalize document deletion", error);
       await this.ctx.storage.setAlarm(Date.now() + DOCUMENT_DELETE_RETRY_MS);
@@ -169,6 +185,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
+    await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
     await this.ctx.storage.setAlarm(Date.now());
   }
 
@@ -198,7 +215,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
 
     if (await isDocumentDeleting(this.env, this.documentId)) {
-      await this.runDeletePass();
+      await this.runDocumentDeleteCycle();
       return;
     }
 
