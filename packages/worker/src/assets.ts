@@ -68,6 +68,12 @@ function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
 }
 
+function isSupportedAssetContentType(contentType: string): boolean {
+  return (SUPPORTED_ASSET_CONTENT_TYPES as readonly string[]).includes(
+    contentType,
+  );
+}
+
 function getDeclaredContentLength(contentLength: string | undefined) {
   if (!contentLength) {
     return null;
@@ -215,6 +221,61 @@ function normalizeRange(
   }
 
   return { offset, length };
+}
+
+function parseRangeHeader(rangeHeader: string, size: number): R2Range | null {
+  const match = /^bytes=(.+)$/i.exec(rangeHeader.trim());
+  if (!match) {
+    return null;
+  }
+
+  const spec = match[1].trim();
+  if (spec.length === 0 || spec.includes(",")) {
+    return null;
+  }
+
+  const [rawStart, rawEnd] = spec.split("-", 2);
+  if (rawStart === undefined || rawEnd === undefined) {
+    return null;
+  }
+
+  if (rawStart === "") {
+    if (!/^\d+$/.test(rawEnd)) {
+      return null;
+    }
+
+    const suffix = Number(rawEnd);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) {
+      return null;
+    }
+
+    return suffix > size ? { suffix: size } : { suffix };
+  }
+
+  if (!/^\d+$/.test(rawStart)) {
+    return null;
+  }
+
+  const start = Number(rawStart);
+  if (!Number.isSafeInteger(start) || start < 0 || start >= size) {
+    return null;
+  }
+
+  if (rawEnd === "") {
+    return { offset: start };
+  }
+
+  if (!/^\d+$/.test(rawEnd)) {
+    return null;
+  }
+
+  const end = Number(rawEnd);
+  if (!Number.isSafeInteger(end) || end < start) {
+    return null;
+  }
+
+  const clampedEnd = Math.min(end, size - 1);
+  return { offset: start, length: clampedEnd - start + 1 };
 }
 
 function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
@@ -645,26 +706,23 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
 
     const key = getDocumentAssetKey(documentId, assetNameResult.output);
     const rangeHeader = c.req.header("Range");
+    let metadata: R2Object | null = null;
     let object: R2ObjectBody | null;
     if (rangeHeader) {
-      try {
-        object = await c.env.ASSETS.get(key, { range: c.req.raw.headers });
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.toLowerCase().includes("range")
-        ) {
-          const metadata = await c.env.ASSETS.head(key);
-          if (!metadata) {
-            return c.json({ error: "Not found" }, 404);
-          }
-          return new Response("Range Not Satisfiable", {
-            status: 416,
-            headers: buildUnsatisfiableRangeHeaders(metadata.size),
-          });
-        }
-        throw error;
+      const rangedMetadata = await c.env.ASSETS.head(key);
+      if (!rangedMetadata) {
+        return c.json({ error: "Not found" }, 404);
       }
+      metadata = rangedMetadata;
+      const range = parseRangeHeader(rangeHeader, rangedMetadata.size);
+      if (!range) {
+        return new Response("Range Not Satisfiable", {
+          status: 416,
+          headers: buildUnsatisfiableRangeHeaders(rangedMetadata.size),
+        });
+      }
+
+      object = await c.env.ASSETS.get(key, { range });
     } else {
       object = await c.env.ASSETS.get(key);
     }
@@ -674,7 +732,11 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
     }
 
     const contentType =
-      object.httpMetadata?.contentType ?? "application/octet-stream";
+      object.httpMetadata?.contentType ?? metadata?.httpMetadata?.contentType;
+    if (!contentType || !isSupportedAssetContentType(contentType)) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
     const headers = buildAssetHeaders(contentType, object.size, object.range);
     const status = rangeHeader && object.range ? 206 : 200;
 
