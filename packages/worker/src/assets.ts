@@ -467,19 +467,13 @@ export async function deleteDocumentAndAssets(
   userId: number,
   documentId: string,
 ) {
-  const { meta } = await c.env.DB.prepare(
-    "DELETE FROM documents WHERE id = ? AND user_id = ?",
-  )
+  // Delete document-scoped blobs before removing the document row. If R2
+  // deletion fails, we want the document and its asset metadata to remain so
+  // the delete can be retried instead of leaking orphaned blobs permanently.
+  await deleteDocumentAssetPrefix(c.env.ASSETS, documentId);
+  await c.env.DB.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?")
     .bind(documentId, userId)
     .run();
-
-  if (meta.changes > 0) {
-    try {
-      await deleteDocumentAssetPrefix(c.env.ASSETS, documentId);
-    } catch (error) {
-      console.error("Failed to delete document asset prefix", error);
-    }
-  }
 }
 
 export function registerAssetRoutes(app: Hono<AppBindings>) {
