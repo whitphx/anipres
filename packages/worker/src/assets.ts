@@ -144,17 +144,7 @@ async function scheduleDocumentAssetGc(
 ): Promise<void> {
   const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
-  const response = await room.fetch(
-    `https://document-sync-room/internal/schedule-asset-gc/${encodeURIComponent(documentId)}`,
-    {
-      method: "POST",
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Document asset GC scheduling failed: ${response.status} ${response.statusText}`,
-    );
-  }
+  await room.scheduleAssetGc(documentId);
 }
 
 async function scheduleDocumentDeletion(
@@ -163,17 +153,7 @@ async function scheduleDocumentDeletion(
 ): Promise<void> {
   const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
-  const response = await room.fetch(
-    `https://document-sync-room/internal/start-delete/${encodeURIComponent(documentId)}`,
-    {
-      method: "POST",
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Document deletion scheduling failed: ${response.status} ${response.statusText}`,
-    );
-  }
+  await room.startDelete(documentId);
 }
 
 async function readRequestBodyWithLimit(request: Request, limit: number) {

@@ -70,6 +70,16 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
+  private async setDocumentId(documentId: string) {
+    if (!documentId || documentId === this.documentId) {
+      return;
+    }
+
+    this.documentId = documentId;
+    this.lastSyncedAssetNamesJson = null;
+    await this.ctx.storage.put("documentId", documentId);
+  }
+
   private async scheduleAssetGcAlarm(nextGcAt: number | null) {
     if (nextGcAt === null) {
       await this.ctx.storage.deleteAlarm();
@@ -151,34 +161,18 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
+  async scheduleAssetGc(documentId: string): Promise<void> {
+    await this.setDocumentId(documentId);
+    await this.runGcPass();
+  }
+
+  async startDelete(documentId: string): Promise<void> {
+    await this.setDocumentId(documentId);
+    await this.ctx.storage.setAlarm(Date.now());
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/internal/start-delete/")
-    ) {
-      this.setDocumentIdFromRequest(request);
-      if (!this.documentId) {
-        return new Response("Missing documentId", { status: 400 });
-      }
-
-      await this.ctx.storage.setAlarm(Date.now());
-      return new Response(null, { status: 202 });
-    }
-
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/internal/schedule-asset-gc/")
-    ) {
-      this.setDocumentIdFromRequest(request);
-      if (!this.documentId) {
-        return new Response("Missing documentId", { status: 400 });
-      }
-
-      await this.runGcPass();
-      return new Response(null, { status: 204 });
-    }
-
     this.setDocumentIdFromRequest(request);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) {
