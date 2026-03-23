@@ -82,6 +82,13 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private async scheduleAssetGcAlarm(nextGcAt: number | null) {
+    if (this.documentId && (await isDocumentDeleting(this.env, this.documentId))) {
+      // Document deletion owns the single DO alarm slot until final cleanup
+      // finishes. Once `deleting_at` is set, asset-GC reconciles must not
+      // clear or push out that delete retry schedule.
+      return;
+    }
+
     if (nextGcAt === null) {
       await this.ctx.storage.deleteAlarm();
       return;
