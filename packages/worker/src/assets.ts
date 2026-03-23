@@ -182,8 +182,11 @@ async function documentExistsForUser(
   userId: number,
   documentId: string,
 ) {
+  // Upload and asset-read paths only operate on active documents. Once a
+  // delete starts, `deleting_at` closes the race where an in-flight upload
+  // could otherwise recreate a blob after the delete sweep has already run.
   const document = await c.env.DB.prepare(
-    "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
   )
     .bind(documentId, userId)
     .first();
@@ -393,18 +396,38 @@ export async function runDocumentAssetGc(
     .all<{ asset_name: string }>();
 
   if (expiredAssets.results.length > 0) {
-    const keys = expiredAssets.results.map(({ asset_name }) =>
-      getDocumentAssetKey(documentId, asset_name),
+    const staleAssetNames = expiredAssets.results.map(
+      ({ asset_name }) => asset_name,
     );
     try {
+      // Re-check right before deleting blobs so a stale row that was revived by
+      // a recent reconcile or undo does not lose its underlying object.
+      const currentExpiredAssets = await env.DB.prepare(
+        `SELECT asset_name
+         FROM assets
+         WHERE document_id = ?
+           AND stale_at IS NOT NULL
+           AND stale_at <= ?
+           AND asset_name IN (${getInClausePlaceholders(staleAssetNames.length)})`,
+      )
+        .bind(documentId, cutoff, ...staleAssetNames)
+        .all<{ asset_name: string }>();
+      const keys = currentExpiredAssets.results.map(({ asset_name }) =>
+        getDocumentAssetKey(documentId, asset_name),
+      );
+      if (keys.length === 0) {
+        return getNextDocumentAssetGcAt(env, documentId);
+      }
+
       await env.ASSETS.delete(keys);
       await env.DB.prepare(
         `DELETE FROM assets
          WHERE document_id = ?
            AND stale_at IS NOT NULL
-           AND stale_at <= ?`,
+           AND stale_at <= ?
+           AND asset_name IN (${getInClausePlaceholders(staleAssetNames.length)})`,
       )
-        .bind(documentId, cutoff)
+        .bind(documentId, cutoff, ...staleAssetNames)
         .run();
     } catch (error) {
       // Keep stale rows so the next alarm can retry blob deletion instead of
@@ -473,11 +496,21 @@ export async function deleteDocumentAndAssets(
   userId: number,
   documentId: string,
 ) {
+  await c.env.DB.prepare(
+    `UPDATE documents
+     SET deleting_at = COALESCE(deleting_at, ?)
+     WHERE id = ? AND user_id = ?`,
+  )
+    .bind(Date.now(), documentId, userId)
+    .run();
+
   // Delete document-scoped blobs before removing the document row. If R2
   // deletion fails, we want the document and its asset metadata to remain so
   // the delete can be retried instead of leaking orphaned blobs permanently.
   await deleteDocumentAssetPrefix(c.env.ASSETS, documentId);
-  await c.env.DB.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?")
+  await c.env.DB.prepare(
+    "DELETE FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NOT NULL",
+  )
     .bind(documentId, userId)
     .run();
 }
@@ -565,6 +598,10 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       await c.env.ASSETS.put(key, uploadFile.stream(), {
         httpMetadata: { contentType: uploadFile.type },
       });
+      if (!(await documentExistsForUser(c, userId, documentId))) {
+        await c.env.ASSETS.delete(key);
+        return c.json({ error: "Not found" }, 404);
+      }
       await insertDocumentAsset(c.env, documentId, assetName, uploadFile.type);
     } catch (error) {
       await c.env.ASSETS.delete(key);

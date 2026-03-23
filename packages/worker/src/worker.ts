@@ -28,12 +28,15 @@ registerApiAuth(app);
 registerAssetRoutes(app);
 
 // --- Document routes (user-scoped) ---
+// `deleting_at` is a real intermediate state. Once delete starts, user-facing
+// routes stop treating the document as active so uploads and sync connections
+// cannot race with the R2 cleanup that runs before final row removal.
 
 // List all documents ordered by "order"
 app.get("/api/documents", async (c) => {
   const userId = c.get("userId");
   const { results } = await c.env.DB.prepare(
-    'SELECT id, title, "order", created_at, updated_at FROM documents WHERE user_id = ? ORDER BY "order" ASC',
+    'SELECT id, title, "order", created_at, updated_at FROM documents WHERE user_id = ? AND deleting_at IS NULL ORDER BY "order" ASC',
   )
     .bind(userId)
     .all();
@@ -55,7 +58,7 @@ app.get("/api/documents/:id", async (c) => {
 
   const { id } = paramsResult.output;
   const row = await c.env.DB.prepare(
-    'SELECT id, title, "order", created_at, updated_at FROM documents WHERE id = ? AND user_id = ?',
+    'SELECT id, title, "order", created_at, updated_at FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL',
   )
     .bind(id, userId)
     .first();
@@ -96,17 +99,22 @@ app.put("/api/documents/:id", async (c) => {
   const { id } = paramsResult.output;
   const body = bodyResult.output;
 
-  await c.env.DB.prepare(
+  const { meta } = await c.env.DB.prepare(
     `INSERT INTO documents (id, title, "order", created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
        "order" = excluded."order",
        updated_at = excluded.updated_at
-     WHERE documents.user_id = excluded.user_id`,
+     WHERE documents.user_id = excluded.user_id
+       AND documents.deleting_at IS NULL`,
   )
     .bind(id, body.title, body.order, body.created_at, body.updated_at, userId)
     .run();
+
+  if (meta.changes === 0) {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   return c.json({ ok: true });
 });
@@ -158,7 +166,7 @@ app.get("/api/connect/:documentId", async (c) => {
   const { documentId } = paramsResult.output;
 
   const document = await c.env.DB.prepare(
-    "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
   )
     .bind(documentId, userId)
     .first();

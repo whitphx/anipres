@@ -115,6 +115,22 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
+  private async runGcPass() {
+    if (!this.documentId) {
+      return;
+    }
+
+    // Snapshot reconciliation is debounced, but alarm-driven GC must observe
+    // the latest live room state first so undo/redo does not delete a blob
+    // that was just referenced again.
+    if (this.room.getNumActiveSessions() > 0) {
+      await this.syncReferencedAssets();
+    }
+
+    const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
+    await this.scheduleAssetGcAlarm(nextGcAt);
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname.startsWith("/internal/")) {
@@ -123,8 +139,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         return new Response("Missing documentId", { status: 400 });
       }
 
-      const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
-      await this.scheduleAssetGcAlarm(nextGcAt);
+      await this.runGcPass();
       return new Response(null, { status: 204 });
     }
 
@@ -151,7 +166,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
-    await this.scheduleAssetGcAlarm(nextGcAt);
+    await this.runGcPass();
   }
 }
