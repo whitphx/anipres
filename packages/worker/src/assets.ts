@@ -627,21 +627,28 @@ export async function startDocumentDeletion(
   userId: number,
   documentId: string,
 ) {
-  await c.env.DB.prepare(
+  const { meta } = await c.env.DB.prepare(
     `UPDATE documents
-     SET deleting_at = COALESCE(deleting_at, ?)
-     WHERE id = ? AND user_id = ?`,
+     SET deleting_at = ?
+     WHERE id = ? AND user_id = ? AND deleting_at IS NULL`,
   )
     .bind(Date.now(), documentId, userId)
     .run();
+  if (meta.changes === 0) {
+    return;
+  }
+
   try {
     // Prefix cleanup can take long enough to exceed a request budget. Hand the
     // actual delete work to the document DO so `deleting_at` can remain a
     // retryable state until the R2 sweep finishes successfully.
     await scheduleDocumentDeletion(c, documentId);
   } catch (error) {
+    // Only roll back the deleting state if this call actually transitioned the
+    // document into deletion. Existing delete retries must stay hidden from
+    // active routes so uploads/connects cannot race against unfinished cleanup.
     await c.env.DB.prepare(
-      "UPDATE documents SET deleting_at = NULL WHERE id = ? AND user_id = ?",
+      "UPDATE documents SET deleting_at = NULL WHERE id = ? AND user_id = ? AND deleting_at IS NOT NULL",
     )
       .bind(documentId, userId)
       .run();

@@ -134,12 +134,16 @@ app.delete("/api/documents/:id", async (c) => {
 
   const { id } = paramsResult.output;
   const document = await c.env.DB.prepare(
-    "SELECT 1 FROM documents WHERE id = ? AND user_id = ?",
+    "SELECT deleting_at FROM documents WHERE id = ? AND user_id = ?",
   )
     .bind(id, userId)
-    .first();
+    .first<{ deleting_at: number | null }>();
   if (!document) {
     return c.json({ error: "Not found" }, 404);
+  }
+
+  if (document.deleting_at !== null && document.deleting_at !== undefined) {
+    return c.json({ ok: true });
   }
 
   await startDocumentDeletion(c, userId, id);

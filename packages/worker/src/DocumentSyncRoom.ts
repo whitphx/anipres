@@ -192,7 +192,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
-    await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
+    // Preserve any in-progress cursor so repeated DELETE requests or retries do
+    // not restart the R2 prefix sweep from the beginning.
     await this.ctx.storage.setAlarm(Date.now());
   }
 
