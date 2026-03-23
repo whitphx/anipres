@@ -396,15 +396,21 @@ export async function runDocumentAssetGc(
     const keys = expiredAssets.results.map(({ asset_name }) =>
       getDocumentAssetKey(documentId, asset_name),
     );
-    await env.ASSETS.delete(keys);
-    await env.DB.prepare(
-      `DELETE FROM assets
-       WHERE document_id = ?
-         AND stale_at IS NOT NULL
-         AND stale_at <= ?`,
-    )
-      .bind(documentId, cutoff)
-      .run();
+    try {
+      await env.ASSETS.delete(keys);
+      await env.DB.prepare(
+        `DELETE FROM assets
+         WHERE document_id = ?
+           AND stale_at IS NOT NULL
+           AND stale_at <= ?`,
+      )
+        .bind(documentId, cutoff)
+        .run();
+    } catch (error) {
+      // Keep stale rows so the next alarm can retry blob deletion instead of
+      // breaking the GC chain on a transient R2 failure.
+      console.error("Failed to delete stale document assets", error);
+    }
   }
 
   return getNextDocumentAssetGcAt(env, documentId);
