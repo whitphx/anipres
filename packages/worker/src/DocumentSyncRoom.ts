@@ -64,7 +64,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
       this.documentId = documentId;
       this.lastSyncedAssetNamesJson = null;
-      void this.ctx.storage.put("documentId", documentId);
+      this.ctx.waitUntil(this.ctx.storage.put("documentId", documentId));
     } catch {
       // Ignore malformed internal URLs; the route handler will reject them later.
     }
@@ -100,9 +100,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     this.assetSyncTimer = setTimeout(() => {
       this.assetSyncTimer = null;
-      void this.syncReferencedAssets().catch((error) => {
+      const reconciliation = this.syncReferencedAssets().catch((error) => {
         console.error("Failed to reconcile document assets", error);
       });
+      this.ctx.waitUntil(reconciliation);
     }, 500);
   }
 

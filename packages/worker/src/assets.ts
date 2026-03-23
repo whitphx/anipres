@@ -36,6 +36,7 @@ const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
   MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
 const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const DOCUMENT_DELETE_BATCH_SIZE = 128;
 
 const DOCUMENT_ASSET_PREFIX = "documents";
 const ASSET_NAME_PATTERN =
@@ -339,22 +340,22 @@ function buildUnsatisfiableRangeHeaders(size: number) {
   return headers;
 }
 
-async function deleteDocumentAssetPrefix(bucket: R2Bucket, documentId: string) {
+async function deleteDocumentAssetPrefixBatch(
+  bucket: R2Bucket,
+  documentId: string,
+  cursor?: string,
+) {
   const prefix = getDocumentAssetPrefix(documentId);
-  let cursor: string | undefined;
-
-  while (true) {
-    const result = await bucket.list({ prefix, cursor });
-    if (result.objects.length > 0) {
-      await bucket.delete(result.objects.map((object) => object.key));
-    }
-
-    if (!result.truncated) {
-      break;
-    }
-
-    cursor = result.cursor;
+  const result = await bucket.list({
+    prefix,
+    cursor,
+    limit: DOCUMENT_DELETE_BATCH_SIZE,
+  });
+  if (result.objects.length > 0) {
+    await bucket.delete(result.objects.map((object) => object.key));
   }
+
+  return result.truncated ? result.cursor : null;
 }
 
 function getInClausePlaceholders(length: number) {
@@ -593,6 +594,7 @@ export function getReferencedDocumentAssetNames(
 export async function finalizeDeletingDocument(
   env: AppContext["env"],
   documentId: string,
+  cursor?: string,
 ) {
   const document = await env.DB.prepare(
     "SELECT 1 FROM documents WHERE id = ? AND deleting_at IS NOT NULL",
@@ -600,16 +602,24 @@ export async function finalizeDeletingDocument(
     .bind(documentId)
     .first();
   if (!document) {
-    return false;
+    return { completed: true, nextCursor: null };
   }
 
-  await deleteDocumentAssetPrefix(env.ASSETS, documentId);
+  const nextCursor = await deleteDocumentAssetPrefixBatch(
+    env.ASSETS,
+    documentId,
+    cursor,
+  );
+  if (nextCursor !== null) {
+    return { completed: false, nextCursor };
+  }
+
   await env.DB.prepare(
     "DELETE FROM documents WHERE id = ? AND deleting_at IS NOT NULL",
   )
     .bind(documentId)
     .run();
-  return true;
+  return { completed: true, nextCursor: null };
 }
 
 export async function startDocumentDeletion(
