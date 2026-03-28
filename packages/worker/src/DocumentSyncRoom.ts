@@ -1,4 +1,4 @@
-import { TLSocketRoom } from "@tldraw/sync-core";
+import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
 import type { TLRecord } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
@@ -27,29 +27,64 @@ const schema = createTLSchema({
 
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
+const SNAPSHOT_SAVE_DELAY_MS = 3_000;
 
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
-  private room: TLSocketRoom<TLRecord, void>;
+  private room!: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
   private lastSyncedAssetNamesJson: string | null = null;
   private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private snapshotDirty = false;
+  private roomTask: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: WorkerEnv) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
+      // Ensure the SQLite snapshot table exists.
+      ctx.storage.sql.exec(
+        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)",
+      );
+
       this.documentId =
         (await this.ctx.storage.get<string>("documentId")) ?? null;
+
+      let initialSnapshot: RoomSnapshot | undefined;
+      const rows = ctx.storage.sql
+        .exec("SELECT data FROM snapshot WHERE id = 1")
+        .toArray();
+      if (rows.length > 0) {
+        try {
+          initialSnapshot = JSON.parse(rows[0].data as string);
+        } catch (error) {
+          console.error("Failed to parse stored snapshot; deleting corrupted row", error);
+          ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+        }
+      }
+
+      this.room = this.createRoom(initialSnapshot);
     });
-    this.room = this.createRoom();
   }
 
-  private createRoom() {
-    // Phase 1 POC: no persistence — data lives only while the DO is active.
-    // A future phase will add SQLite-backed persistence.
+  private createRoom(initialSnapshot?: RoomSnapshot) {
     return new TLSocketRoom<TLRecord, void>({
       schema,
+      initialSnapshot,
       onDataChange: () => {
         this.scheduleAssetSync();
+        this.scheduleSnapshotSave();
+      },
+      onSessionRemoved: (_room, { numSessionsRemaining }) => {
+        if (numSessionsRemaining !== 0 || !this.documentId) {
+          return;
+        }
+
+        const flushTask = this.runRoomTask(() =>
+          this.syncSnapshotAndReferencedAssets(),
+        ).catch((error) => {
+          console.error("Failed to flush room snapshot after last disconnect", error);
+        });
+        this.ctx.waitUntil(flushTask);
       },
     });
   }
@@ -97,6 +132,56 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.ctx.storage.setAlarm(nextGcAt);
   }
 
+  private runRoomTask<T>(task: () => Promise<T>) {
+    const run = this.roomTask.then(task, task);
+    this.roomTask = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * Write the current room snapshot to SQLite.
+   * `ctx.storage.sql` operations are synchronous within the DO isolate.
+   */
+  private flushSnapshot() {
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO snapshot (id, data) VALUES (1, ?)",
+      JSON.stringify(this.room.getCurrentSnapshot()),
+    );
+    this.snapshotDirty = false;
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+  }
+
+  private flushSnapshotIfDirty() {
+    if (this.snapshotDirty) {
+      this.flushSnapshot();
+    }
+  }
+
+  /**
+   * Fixed-window throttle: fires {@link SNAPSHOT_SAVE_DELAY_MS} after the
+   * *first* change. Subsequent changes within the window do not reset the
+   * timer, guaranteeing bounded persistence latency.
+   */
+  private scheduleSnapshotSave() {
+    this.snapshotDirty = true;
+    if (this.snapshotSaveTimer) return;
+    this.snapshotSaveTimer = setTimeout(() => {
+      this.snapshotSaveTimer = null;
+      const flushTask = this.runRoomTask(async () => {
+        this.flushSnapshotIfDirty();
+      }).catch((error) => {
+        console.error("Failed to persist room snapshot", error);
+      });
+      this.ctx.waitUntil(flushTask);
+    }, SNAPSHOT_SAVE_DELAY_MS);
+  }
+
   private scheduleAssetSync() {
     if (!this.documentId) {
       return;
@@ -108,22 +193,24 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     this.assetSyncTimer = setTimeout(() => {
       this.assetSyncTimer = null;
-      const reconciliation = this.syncReferencedAssets().catch((error) => {
-        console.error("Failed to reconcile document assets", error);
+      const syncTask = this.runRoomTask(() =>
+        this.syncSnapshotAndReferencedAssets(),
+      ).catch((error) => {
+        console.error("Failed to sync room snapshot and document assets", error);
       });
-      this.ctx.waitUntil(reconciliation);
+      this.ctx.waitUntil(syncTask);
     }, 500);
   }
 
-  private async syncReferencedAssets() {
+  private async syncSnapshotAndReferencedAssets() {
     if (!this.documentId) {
       return;
     }
 
-    const assetNames = getReferencedDocumentAssetNames(
-      this.room.getCurrentSnapshot(),
-      this.documentId,
-    );
+    this.flushSnapshotIfDirty();
+
+    const snapshot = this.room.getCurrentSnapshot();
+    const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
       return;
@@ -143,12 +230,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    // Snapshot reconciliation is debounced, but alarm-driven GC must observe
-    // the latest live room state first so undo/redo does not delete a blob
-    // that was just referenced again.
-    if (this.room.getNumActiveSessions() > 0) {
-      await this.syncReferencedAssets();
-    }
+    // The room snapshot is now restored from DO storage on startup, so it is
+    // authoritative enough to reconcile before GC even when no sockets are
+    // currently attached. That closes the "upload then quick disconnect"
+    // window where a referenced asset could otherwise stay stale forever.
+    await this.syncSnapshotAndReferencedAssets();
 
     const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
     await this.scheduleAssetGcAlarm(nextGcAt);
@@ -170,6 +256,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       );
       if (completed) {
         await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
+        this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+        await this.ctx.storage.delete("documentId");
         await this.ctx.storage.deleteAlarm();
         return;
       }
@@ -187,11 +275,34 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async scheduleAssetGc(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
-    await this.runDocumentAssetGcCycle();
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
+  }
+
+  private cancelPendingSnapshotSave() {
+    this.snapshotDirty = false;
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+  }
+
+  private cancelPendingAssetSync() {
+    if (this.assetSyncTimer) {
+      clearTimeout(this.assetSyncTimer);
+      this.assetSyncTimer = null;
+    }
   }
 
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
+    // Delete owns the document lifecycle from here. Drop any pending asset
+    // reconcile timer so it cannot do unnecessary snapshot/asset work while
+    // the document is already in its retryable deleting state.
+    this.cancelPendingAssetSync();
+    // Cancel any pending save so it cannot re-insert the row after deletion.
+    this.cancelPendingSnapshotSave();
+    // Clear the snapshot so a re-created document doesn't inherit stale state.
+    this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
     // Preserve any in-progress cursor so repeated DELETE requests or retries do
     // not restart the R2 prefix sweep from the beginning.
     await this.ctx.storage.setAlarm(Date.now());
@@ -223,10 +334,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
 
     if (await isDocumentDeleting(this.env, this.documentId)) {
-      await this.runDocumentDeleteCycle();
+      await this.runRoomTask(() => this.runDocumentDeleteCycle());
       return;
     }
 
-    await this.runDocumentAssetGcCycle();
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
   }
 }
