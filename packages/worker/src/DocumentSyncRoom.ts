@@ -54,7 +54,12 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         .exec("SELECT data FROM snapshot WHERE id = 1")
         .toArray();
       if (rows.length > 0) {
-        initialSnapshot = JSON.parse(rows[0].data as string);
+        try {
+          initialSnapshot = JSON.parse(rows[0].data as string);
+        } catch (error) {
+          console.error("Failed to parse stored snapshot; deleting corrupted row", error);
+          ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+        }
       }
 
       this.room = this.createRoom(initialSnapshot);
@@ -152,8 +157,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
+  private flushSnapshotIfDirty() {
+    if (this.snapshotDirty) {
+      this.flushSnapshot();
+    }
+  }
+
   /**
-   * Trailing-edge throttle: fires {@link SNAPSHOT_SAVE_DELAY_MS} after the
+   * Fixed-window throttle: fires {@link SNAPSHOT_SAVE_DELAY_MS} after the
    * *first* change. Subsequent changes within the window do not reset the
    * timer, guaranteeing bounded persistence latency.
    */
@@ -162,9 +173,12 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     if (this.snapshotSaveTimer) return;
     this.snapshotSaveTimer = setTimeout(() => {
       this.snapshotSaveTimer = null;
-      if (this.snapshotDirty) {
-        this.flushSnapshot();
-      }
+      const flushTask = this.runRoomTask(async () => {
+        this.flushSnapshotIfDirty();
+      }).catch((error) => {
+        console.error("Failed to persist room snapshot", error);
+      });
+      this.ctx.waitUntil(flushTask);
     }, SNAPSHOT_SAVE_DELAY_MS);
   }
 
@@ -193,7 +207,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    this.flushSnapshot();
+    this.flushSnapshotIfDirty();
 
     const snapshot = this.room.getCurrentSnapshot();
     const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
@@ -264,8 +278,29 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.runRoomTask(() => this.runDocumentAssetGcCycle());
   }
 
+  private cancelPendingSnapshotSave() {
+    this.snapshotDirty = false;
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+  }
+
+  private cancelPendingAssetSync() {
+    if (this.assetSyncTimer) {
+      clearTimeout(this.assetSyncTimer);
+      this.assetSyncTimer = null;
+    }
+  }
+
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
+    // Delete owns the document lifecycle from here. Drop any pending asset
+    // reconcile timer so it cannot do unnecessary snapshot/asset work while
+    // the document is already in its retryable deleting state.
+    this.cancelPendingAssetSync();
+    // Cancel any pending save so it cannot re-insert the row after deletion.
+    this.cancelPendingSnapshotSave();
     // Clear the snapshot so a re-created document doesn't inherit stale state.
     this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
     // Preserve any in-progress cursor so repeated DELETE requests or retries do
