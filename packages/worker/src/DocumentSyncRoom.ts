@@ -117,7 +117,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private async scheduleAssetGcAlarm(nextGcAt: number | null) {
-    if (this.documentId && (await isDocumentDeleting(this.env, this.documentId))) {
+    if (await this.isDeleting()) {
       // Document deletion owns the single DO alarm slot until final cleanup
       // finishes. Once `deleting_at` is set, asset-GC reconciles must not
       // clear or push out that delete retry schedule.
@@ -132,6 +132,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     await this.ctx.storage.setAlarm(nextGcAt);
   }
 
+  private async isDeleting() {
+    return this.documentId ? isDocumentDeleting(this.env, this.documentId) : false;
+  }
+
   private runRoomTask<T>(task: () => Promise<T>) {
     const run = this.roomTask.then(task, task);
     this.roomTask = run.then(
@@ -142,13 +146,13 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   /**
-   * Write the current room snapshot to SQLite.
-   * `ctx.storage.sql` operations are synchronous within the DO isolate.
+   * Write a room snapshot to SQLite. Uses the given snapshot or falls back to
+   * the current room state. `ctx.storage.sql` ops are synchronous in the DO.
    */
-  private flushSnapshot() {
+  private flushSnapshot(snapshot?: RoomSnapshot) {
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO snapshot (id, data) VALUES (1, ?)",
-      JSON.stringify(this.room.getCurrentSnapshot()),
+      JSON.stringify(snapshot ?? this.room.getCurrentSnapshot()),
     );
     this.snapshotDirty = false;
     if (this.snapshotSaveTimer) {
@@ -174,9 +178,13 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     this.snapshotSaveTimer = setTimeout(() => {
       this.snapshotSaveTimer = null;
       const flushTask = this.runRoomTask(async () => {
+        if (await this.isDeleting()) {
+          return;
+        }
         this.flushSnapshotIfDirty();
       }).catch((error) => {
         console.error("Failed to persist room snapshot", error);
+        this.scheduleSnapshotSave();
       });
       this.ctx.waitUntil(flushTask);
     }, SNAPSHOT_SAVE_DELAY_MS);
@@ -206,10 +214,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     if (!this.documentId) {
       return;
     }
-
-    this.flushSnapshotIfDirty();
+    if (await this.isDeleting()) {
+      return;
+    }
 
     const snapshot = this.room.getCurrentSnapshot();
+    if (this.snapshotDirty) {
+      this.flushSnapshot(snapshot);
+    }
     const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
