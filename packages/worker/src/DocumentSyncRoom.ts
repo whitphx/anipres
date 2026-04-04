@@ -324,11 +324,12 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     this.cancelPendingAssetSync();
     // Cancel any pending save so it cannot re-insert the row after deletion.
     this.cancelPendingSnapshotSave();
-    // Clear the snapshot so a re-created document doesn't inherit stale state.
-    this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
     // Preserve any in-progress cursor so repeated DELETE requests or retries do
     // not restart the R2 prefix sweep from the beginning.
     await this.ctx.storage.setAlarm(Date.now());
+    // Clear the snapshot only after the alarm is durably scheduled so a failed
+    // startDelete call cannot leave an active document without its snapshot.
+    this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
   }
 
   override async fetch(request: Request): Promise<Response> {
