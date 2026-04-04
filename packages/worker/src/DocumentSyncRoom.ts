@@ -62,6 +62,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         }
       }
 
+      // Intentionally not wrapped in try/catch: if room creation fails (e.g.
+      // a transient schema bug), the DO should fail closed rather than delete
+      // the snapshot row and silently replace it with an empty room.
       this.room = this.createRoom(initialSnapshot);
     });
   }
@@ -273,6 +276,12 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
         await this.ctx.storage.delete("documentId");
         await this.ctx.storage.deleteAlarm();
+        // Reset in-memory state so a warm DO doesn't serve stale data if the
+        // same document UUID is re-created.
+        this.documentId = null;
+        this.lastSyncedAssetNamesJson = null;
+        this.snapshotDirty = false;
+        this.room = this.createRoom();
         return;
       }
 
