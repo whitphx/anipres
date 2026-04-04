@@ -182,18 +182,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
           return;
         }
         this.flushSnapshotIfDirty();
-      }).catch((error) => {
+      }).catch(async (error) => {
         console.error("Failed to persist room snapshot", error);
-        this.ctx.waitUntil(
-          this.runRoomTask(async () => {
-            if (await this.isDeleting()) {
-              return;
-            }
-            this.scheduleSnapshotSave();
-          }).catch((retryError) => {
-            console.error("Failed to reschedule room snapshot persistence", retryError);
-          }),
-        );
+        if (!(await this.isDeleting())) {
+          this.scheduleSnapshotSave();
+        }
       });
       this.ctx.waitUntil(flushTask);
     }, SNAPSHOT_SAVE_DELAY_MS);
