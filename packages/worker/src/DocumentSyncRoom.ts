@@ -176,6 +176,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * timer, guaranteeing bounded persistence latency.
    */
   private scheduleSnapshotSave() {
+    if (!this.documentId) return;
     this.snapshotDirty = true;
     if (this.snapshotSaveTimer) return;
     this.snapshotSaveTimer = setTimeout(() => {
@@ -318,18 +319,20 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
-    // Delete owns the document lifecycle from here. Drop any pending asset
-    // reconcile timer so it cannot do unnecessary snapshot/asset work while
-    // the document is already in its retryable deleting state.
-    this.cancelPendingAssetSync();
-    // Cancel any pending save so it cannot re-insert the row after deletion.
-    this.cancelPendingSnapshotSave();
-    // Preserve any in-progress cursor so repeated DELETE requests or retries do
-    // not restart the R2 prefix sweep from the beginning.
-    await this.ctx.storage.setAlarm(Date.now());
-    // Clear the snapshot only after the alarm is durably scheduled so a failed
-    // startDelete call cannot leave an active document without its snapshot.
-    this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+    await this.runRoomTask(async () => {
+      // Delete owns the document lifecycle from here. Drop any pending asset
+      // reconcile timer so it cannot do unnecessary snapshot/asset work while
+      // the document is already in its retryable deleting state.
+      this.cancelPendingAssetSync();
+      // Cancel any pending save so it cannot re-insert the row after deletion.
+      this.cancelPendingSnapshotSave();
+      // Preserve any in-progress cursor so repeated DELETE requests or retries do
+      // not restart the R2 prefix sweep from the beginning.
+      await this.ctx.storage.setAlarm(Date.now());
+      // Clear the snapshot only after the alarm is durably scheduled so a failed
+      // startDelete call cannot leave an active document without its snapshot.
+      this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+    });
   }
 
   override async fetch(request: Request): Promise<Response> {
