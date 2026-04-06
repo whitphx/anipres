@@ -150,6 +150,74 @@ app.delete("/api/documents/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// Push a snapshot from an offline client into the Durable Object room.
+// Used by the push-or-fork reconnection flow after an offline editing session.
+app.put("/api/documents/:id/snapshot", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const bodyResult = v.safeParse(
+    v.object({
+      snapshot: v.record(v.string(), v.unknown()),
+      expectedUpdatedAt: v.number(),
+    }),
+    json,
+  );
+  if (!bodyResult.success) {
+    return c.json(
+      { error: "Invalid request body", details: bodyResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const { snapshot, expectedUpdatedAt } = bodyResult.output;
+
+  // Ownership + existence check.
+  const row = await c.env.DB.prepare(
+    "SELECT updated_at FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first<{ updated_at: number }>();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  // Optimistic concurrency: reject if server state has diverged.
+  if (row.updated_at > expectedUpdatedAt) {
+    return c.json({ error: "Conflict", serverUpdatedAt: row.updated_at }, 409);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  await room.replaceSnapshot(id, snapshot);
+
+  // Bump updated_at in D1.
+  const now = Date.now();
+  await c.env.DB.prepare(
+    "UPDATE documents SET updated_at = ? WHERE id = ? AND user_id = ?",
+  )
+    .bind(now, id, userId)
+    .run();
+
+  return c.json({ ok: true });
+});
+
 // WebSocket upgrade for sync
 app.get("/api/connect/:documentId", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {

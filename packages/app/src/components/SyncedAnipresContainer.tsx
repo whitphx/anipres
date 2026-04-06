@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useSync } from "@tldraw/sync";
-import type { TLAssetStore } from "tldraw";
+import { getSnapshot, type TLAssetStore } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
+import { setSyncCache } from "../documents/idb-sync-cache";
 
 interface SyncedAnipresContainerProps {
   documentId: string;
@@ -44,12 +45,59 @@ export function SyncedAnipresContainer({
     () => createRemoteAssetStore(documentId),
     [documentId],
   );
-  const store = useSync({
+  const storeWithStatus = useSync({
     uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: remoteAssetStore,
   });
 
-  return <Anipres key={documentId} store={store} colorScheme={colorScheme} />;
+  // Cache the synced store to IDB so it's available for offline fallback.
+  const documentIdRef = useRef(documentId);
+  useEffect(() => {
+    documentIdRef.current = documentId;
+  }, [documentId]);
+  useEffect(() => {
+    if (storeWithStatus.status !== "synced-remote") return;
+
+    const store = storeWithStatus.store;
+
+    const flush = () => {
+      const { document } = getSnapshot(store);
+      setSyncCache(documentIdRef.current, document);
+    };
+
+    // Debounced write on store changes (500ms).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopListening = store.listen(
+      () => {
+        clearTimeout(timer);
+        timer = setTimeout(flush, 500);
+      },
+      { source: "all", scope: "document" },
+    );
+
+    // Flush on visibility hidden and page hide (best-effort for tab close).
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    const handlePageHide = () => flush();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      clearTimeout(timer);
+      stopListening();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [storeWithStatus]);
+
+  return (
+    <Anipres
+      key={documentId}
+      store={storeWithStatus}
+      colorScheme={colorScheme}
+    />
+  );
 }

@@ -317,6 +317,21 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
+  async replaceSnapshot(
+    documentId: string,
+    // The snapshot arrives as a deserialized JSON object via DO RPC, so the
+    // concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
+    // `TLStoreSnapshot` and will validate internally.
+    snapshot: unknown,
+  ): Promise<void> {
+    await this.setDocumentId(documentId);
+    await this.runRoomTask(async () => {
+      this.room.loadSnapshot(snapshot as RoomSnapshot);
+      this.flushSnapshot();
+      await this.syncSnapshotAndReferencedAssets();
+    });
+  }
+
   async startDelete(documentId: string): Promise<void> {
     await this.setDocumentId(documentId);
     await this.runRoomTask(async () => {

@@ -28,6 +28,7 @@ export interface DocumentManager {
   renameDocument: (id: string, title: string) => Promise<void>;
   reorderDocument: (id: string, newOrder: number) => Promise<void>;
   registerEditor: (editor: Editor) => () => void;
+  refreshDocuments: () => Promise<void>;
 }
 
 export function useDocumentManager(
@@ -266,5 +267,6 @@ export function useDocumentManager(
     renameDocument,
     reorderDocument,
     registerEditor,
+    refreshDocuments,
   };
 }

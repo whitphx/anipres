@@ -2,7 +2,7 @@ import { useDocumentManagerContext } from "./documents/useDocumentManagerContext
 import { AppLayout } from "./components/AppLayout";
 import { DocumentSidebar } from "./components/DocumentSidebar";
 import { AnipresContainer } from "./components/AnipresContainer";
-import { SyncedAnipresContainer } from "./components/SyncedAnipresContainer";
+import { OfflineAwareSyncedContainer } from "./components/OfflineAwareSyncedContainer";
 import { useColorScheme } from "./hooks/useColorScheme";
 
 export function AppContent() {
@@ -26,7 +26,7 @@ export function AppContent() {
     >
       {activeDocumentId &&
         (synced ? (
-          <SyncedAnipresContainer
+          <OfflineAwareSyncedContainer
             key={activeDocumentId}
             documentId={activeDocumentId}
             colorScheme={preference}
