@@ -198,14 +198,24 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  // Optimistic concurrency: reject if server state has diverged.
+  // Cheap pre-check on metadata. Note: live WebSocket edits do NOT bump
+  // documents.updated_at (only PUT/rename/reorder do), so this only catches
+  // divergence in metadata. The authoritative guard against clobbering live
+  // editing happens inside the DO via getNumActiveSessions().
   if (row.updated_at > expectedUpdatedAt) {
     return c.json({ error: "Conflict", serverUpdatedAt: row.updated_at }, 409);
   }
 
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  await room.replaceSnapshot(id, snapshot);
+  const replaced = await room.replaceSnapshot(id, snapshot);
+  if (!replaced) {
+    // Active sessions are connected — refuse to overwrite live state.
+    return c.json(
+      { error: "Conflict", reason: "Document has active live editing sessions" },
+      409,
+    );
+  }
 
   // Bump updated_at in D1.
   const now = Date.now();

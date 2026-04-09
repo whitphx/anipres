@@ -317,18 +317,26 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
-  async replaceSnapshot(
-    documentId: string,
-    // The snapshot arrives as a deserialized JSON object via DO RPC, so the
-    // concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
-    // `TLStoreSnapshot` and will validate internally.
-    snapshot: unknown,
-  ): Promise<void> {
+  /**
+   * Replace the room snapshot with a snapshot pushed by an offline client.
+   * Returns `true` on success, `false` if the room currently has active
+   * WebSocket sessions (which means live editing is in progress and overwriting
+   * could clobber unsaved changes).
+   *
+   * The snapshot arrives as a deserialized JSON object via DO RPC, so the
+   * concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
+   * `TLStoreSnapshot` and will validate internally.
+   */
+  async replaceSnapshot(documentId: string, snapshot: unknown): Promise<boolean> {
     await this.setDocumentId(documentId);
-    await this.runRoomTask(async () => {
+    return this.runRoomTask(async () => {
+      if (this.room.getNumActiveSessions() > 0) {
+        return false;
+      }
       this.room.loadSnapshot(snapshot as RoomSnapshot);
       this.flushSnapshot();
       await this.syncSnapshotAndReferencedAssets();
+      return true;
     });
   }
 

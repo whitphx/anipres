@@ -54,6 +54,12 @@ export function OfflineAwareSyncedContainer({
 
   // Listen for online event to trigger reconnection.
   const handleOnline = useCallback(async () => {
+    // If we couldn't load any cached snapshot, just switch to synced mode now
+    // that the network is back — useSync can fetch the live state.
+    if (mode.type === "unavailable") {
+      setMode({ type: "synced" });
+      return;
+    }
     if (mode.type !== "offline") return;
 
     setMode({ type: "reconnecting" });
@@ -79,21 +85,22 @@ export function OfflineAwareSyncedContainer({
       repository,
     });
 
-    await deleteSyncCache(documentId);
-
     if (result.action === "pushed") {
+      // Only clear the cache after a successful push so transient errors do
+      // not cause permanent data loss.
+      await deleteSyncCache(documentId);
       setMode({ type: "synced" });
     } else if (result.action === "forked") {
+      await deleteSyncCache(documentId);
       await refreshDocuments();
       await selectDocument(result.forkedDocumentId);
       // selectDocument will cause a re-render with the new documentId, which
       // will mount a fresh SyncedAnipresContainer for the forked document.
     } else {
-      // Error during reconciliation — fall back to synced mode anyway so the
-      // user at least gets the server version. The offline edits remain in IDB
-      // if deleteSyncCache hasn't run yet.
+      // Error during reconciliation — preserve the offline cache so the user
+      // can retry. Stay in offline mode so they can keep editing locally.
       console.error("Offline reconciliation failed:", result.reason);
-      setMode({ type: "synced" });
+      setMode({ type: "offline", snapshot });
     }
   }, [mode.type, documentId, refreshDocuments, selectDocument]);
 
