@@ -37,6 +37,17 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
   };
 }
 
+async function fetchSnapshotVersion(documentId: string) {
+  const res = await fetch(
+    `/api/documents/${encodeURIComponent(documentId)}/snapshot-version`,
+  );
+  if (!res.ok) {
+    throw new Error(`Snapshot version fetch failed: ${res.status}`);
+  }
+  const body = (await res.json()) as { snapshotVersion: number };
+  return body.snapshotVersion;
+}
+
 export function SyncedAnipresContainer({
   documentId,
   colorScheme,
@@ -62,9 +73,10 @@ export function SyncedAnipresContainer({
 
     const store = storeWithStatus.store;
 
-    const flush = () => {
+    const flush = async () => {
       const { document } = getSnapshot(store);
-      setSyncCache(documentIdRef.current, document);
+      const snapshotVersion = await fetchSnapshotVersion(documentIdRef.current);
+      await setSyncCache(documentIdRef.current, document, snapshotVersion);
     };
 
     // Debounced write on store changes (500ms).
@@ -72,16 +84,32 @@ export function SyncedAnipresContainer({
     const stopListening = store.listen(
       () => {
         clearTimeout(timer);
-        timer = setTimeout(flush, 500);
+        timer = setTimeout(() => {
+          void flush().catch((error) => {
+            console.error("Failed to cache synced snapshot", error);
+          });
+        }, 500);
       },
       { source: "all", scope: "document" },
     );
 
+    void flush().catch((error) => {
+      console.error("Failed to initialize synced snapshot cache", error);
+    });
+
     // Flush on visibility hidden and page hide (best-effort for tab close).
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") flush();
+      if (document.visibilityState === "hidden") {
+        void flush().catch((error) => {
+          console.error("Failed to cache synced snapshot on hide", error);
+        });
+      }
     };
-    const handlePageHide = () => flush();
+    const handlePageHide = () => {
+      void flush().catch((error) => {
+        console.error("Failed to cache synced snapshot on pagehide", error);
+      });
+    };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
 

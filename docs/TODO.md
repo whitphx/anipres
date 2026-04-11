@@ -12,5 +12,5 @@ Tasks deferred during development that should be addressed before production rel
 
 - **Phase 4 — Local-to-cloud asset migration**: R2 asset storage and remote `TLAssetStore` are implemented. Remaining: migrate inline data-URL assets from local IDB snapshots to R2 on first login/sync.
 - **Phase 4.x — Persist synced document snapshots on the server**: `DocumentSyncRoom` still keeps the live tldraw room state in memory only. Persisting/restoring the server snapshot would let asset reconciliation trust `getCurrentSnapshot()` even after the last socket disconnects, instead of relying on current stopgap behavior around stale uploaded assets.
-- **Phase 5 — Offline support + IDB cache**: Debounced IDB cache in synced mode, offline fallback, push-or-fork reconnection logic.
+- **Phase 5 — Offline support + IDB cache**: Debounced IDB cache in synced mode, offline fallback, push-or-fork reconnection logic. Follow-up: stop fetching `snapshotVersion` on every debounced cache flush in `SyncedAnipresContainer`; instead, expose the current sync revision from the live sync path and reuse that in-memory value when writing the IDB cache.
 - **Phase 6 — Anonymous mode + polish**: Online/offline indicator, reconnection UX, user profile/settings, rate limiting, input validation.

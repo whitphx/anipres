@@ -5,7 +5,7 @@ const store = createStore("anipres-sync-cache", "snapshots");
 
 interface SyncCacheEntry {
   snapshot: TLStoreSnapshot;
-  cachedAt: number;
+  snapshotVersion: number;
 }
 
 export async function getSyncCache(
@@ -17,10 +17,11 @@ export async function getSyncCache(
 export async function setSyncCache(
   documentId: string,
   snapshot: TLStoreSnapshot,
+  snapshotVersion: number,
 ): Promise<void> {
   await set(
     documentId,
-    { snapshot, cachedAt: Date.now() } satisfies SyncCacheEntry,
+    { snapshot, snapshotVersion } satisfies SyncCacheEntry,
     store,
   );
 }

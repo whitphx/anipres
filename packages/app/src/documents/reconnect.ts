@@ -14,10 +14,10 @@ export type ReconnectResult =
 export async function reconcileOfflineEdits(params: {
   documentId: string;
   localSnapshot: TLStoreSnapshot;
-  cachedAt: number;
+  snapshotVersion: number;
   repository: ApiDocumentRepository;
 }): Promise<ReconnectResult> {
-  const { documentId, localSnapshot, cachedAt, repository } = params;
+  const { documentId, localSnapshot, snapshotVersion, repository } = params;
 
   // Fetch current server metadata to compare timestamps.
   const serverDoc = await repository.get(documentId);
@@ -25,7 +25,8 @@ export async function reconcileOfflineEdits(params: {
     return { action: "error", reason: "Document no longer exists on server" };
   }
 
-  // Try to push: the server endpoint rejects with 409 if updated_at diverged.
+  // Try to push: the server endpoint rejects with 409 if the DO snapshot
+  // version has advanced since this cached snapshot was written.
   const pushRes = await fetch(
     `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
     {
@@ -33,7 +34,7 @@ export async function reconcileOfflineEdits(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         snapshot: localSnapshot,
-        expectedUpdatedAt: cachedAt,
+        expectedSnapshotVersion: snapshotVersion,
       }),
     },
   );
@@ -75,7 +76,7 @@ export async function reconcileOfflineEdits(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         snapshot: localSnapshot,
-        expectedUpdatedAt: now,
+        expectedSnapshotVersion: 0,
       }),
     },
   );

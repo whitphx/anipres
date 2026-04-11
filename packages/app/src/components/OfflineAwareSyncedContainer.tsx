@@ -31,7 +31,7 @@ export function OfflineAwareSyncedContainer({
 
   // Track the offline editor so we can grab its snapshot for reconciliation.
   const offlineEditorRef = useRef<Editor | null>(null);
-  const cachedAtRef = useRef<number>(0);
+  const snapshotVersionRef = useRef<number>(0);
 
   // On mount when offline, try to load from IDB cache.
   useEffect(() => {
@@ -41,7 +41,7 @@ export function OfflineAwareSyncedContainer({
     getSyncCache(documentId).then((entry) => {
       if (cancelled) return;
       if (entry) {
-        cachedAtRef.current = entry.cachedAt;
+        snapshotVersionRef.current = entry.snapshotVersion;
         setMode({ type: "offline", snapshot: entry.snapshot });
       } else {
         setMode({ type: "unavailable" });
@@ -81,7 +81,7 @@ export function OfflineAwareSyncedContainer({
     const result = await reconcileOfflineEdits({
       documentId,
       localSnapshot: snapshot,
-      cachedAt: cachedAtRef.current,
+      snapshotVersion: snapshotVersionRef.current,
       repository,
     });
 

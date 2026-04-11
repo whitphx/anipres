@@ -174,7 +174,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
   const bodyResult = v.safeParse(
     v.object({
       snapshot: v.record(v.string(), v.unknown()),
-      expectedUpdatedAt: v.number(),
+      expectedSnapshotVersion: v.number(),
     }),
     json,
   );
@@ -186,33 +186,30 @@ app.put("/api/documents/:id/snapshot", async (c) => {
   }
 
   const { id } = paramsResult.output;
-  const { snapshot, expectedUpdatedAt } = bodyResult.output;
+  const { snapshot, expectedSnapshotVersion } = bodyResult.output;
 
-  // Ownership + existence check.
   const row = await c.env.DB.prepare(
-    "SELECT updated_at FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
   )
     .bind(id, userId)
-    .first<{ updated_at: number }>();
+    .first();
   if (!row) {
     return c.json({ error: "Not found" }, 404);
   }
 
-  // Cheap pre-check on metadata. Note: live WebSocket edits do NOT bump
-  // documents.updated_at (only PUT/rename/reorder do), so this only catches
-  // divergence in metadata. The authoritative guard against clobbering live
-  // editing happens inside the DO via getNumActiveSessions().
-  if (row.updated_at > expectedUpdatedAt) {
-    return c.json({ error: "Conflict", serverUpdatedAt: row.updated_at }, 409);
-  }
-
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const replaced = await room.replaceSnapshot(id, snapshot);
-  if (!replaced) {
-    // Active sessions are connected — refuse to overwrite live state.
+  const result = await room.replaceSnapshot(
+    id,
+    snapshot,
+    expectedSnapshotVersion,
+  );
+  if (!result.replaced) {
     return c.json(
-      { error: "Conflict", reason: "Document has active live editing sessions" },
+      {
+        error: "Conflict",
+        snapshotVersion: result.snapshotVersion,
+      },
       409,
     );
   }
@@ -226,6 +223,34 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     .run();
 
   return c.json({ ok: true });
+});
+
+app.get("/api/documents/:id/snapshot-version", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  const snapshotVersion = await room.getSnapshotVersion(id);
+  return c.json({ snapshotVersion });
 });
 
 // WebSocket upgrade for sync

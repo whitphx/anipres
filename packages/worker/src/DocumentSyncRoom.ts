@@ -32,6 +32,7 @@ const SNAPSHOT_SAVE_DELAY_MS = 3_000;
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room!: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
+  private snapshotVersion = 0;
   private lastSyncedAssetNamesJson: string | null = null;
   private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -43,7 +44,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     ctx.blockConcurrencyWhile(async () => {
       // Ensure the SQLite snapshot table exists.
       ctx.storage.sql.exec(
-        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL)",
       );
 
       this.documentId =
@@ -51,14 +52,16 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
       let initialSnapshot: RoomSnapshot | undefined;
       const rows = ctx.storage.sql
-        .exec("SELECT data FROM snapshot WHERE id = 1")
+        .exec("SELECT data, version FROM snapshot WHERE id = 1")
         .toArray();
       if (rows.length > 0) {
         try {
           initialSnapshot = JSON.parse(rows[0].data as string);
+          this.snapshotVersion = Number(rows[0].version ?? 0);
         } catch (error) {
           console.error("Failed to parse stored snapshot; deleting corrupted row", error);
           ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+          this.snapshotVersion = 0;
         }
       }
 
@@ -152,10 +155,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * Write a room snapshot to SQLite. Uses the given snapshot or falls back to
    * the current room state. `ctx.storage.sql` ops are synchronous in the DO.
    */
-  private flushSnapshot(snapshot?: RoomSnapshot) {
+  private flushSnapshot(snapshot?: RoomSnapshot, incrementVersion = false) {
+    if (incrementVersion) {
+      this.snapshotVersion += 1;
+    }
     this.ctx.storage.sql.exec(
-      "INSERT OR REPLACE INTO snapshot (id, data) VALUES (1, ?)",
+      "INSERT OR REPLACE INTO snapshot (id, data, version) VALUES (1, ?, ?)",
       JSON.stringify(snapshot ?? this.room.getCurrentSnapshot()),
+      this.snapshotVersion,
     );
     this.snapshotDirty = false;
     if (this.snapshotSaveTimer) {
@@ -166,7 +173,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   private flushSnapshotIfDirty() {
     if (this.snapshotDirty) {
-      this.flushSnapshot();
+      this.flushSnapshot(undefined, true);
     }
   }
 
@@ -226,7 +233,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     const snapshot = this.room.getCurrentSnapshot();
     if (this.snapshotDirty) {
-      this.flushSnapshot(snapshot);
+      this.flushSnapshot(snapshot, true);
     }
     const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
@@ -280,6 +287,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         // Reset in-memory state so a warm DO doesn't serve stale data if the
         // same document UUID is re-created.
         this.documentId = null;
+        this.snapshotVersion = 0;
         this.lastSyncedAssetNamesJson = null;
         this.snapshotDirty = false;
         this.room = this.createRoom();
@@ -327,16 +335,36 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
    * `TLStoreSnapshot` and will validate internally.
    */
-  async replaceSnapshot(documentId: string, snapshot: unknown): Promise<boolean> {
+  async replaceSnapshot(
+    documentId: string,
+    snapshot: unknown,
+    expectedSnapshotVersion: number,
+  ): Promise<{ replaced: boolean; snapshotVersion: number }> {
     await this.setDocumentId(documentId);
     return this.runRoomTask(async () => {
+      this.flushSnapshotIfDirty();
       if (this.room.getNumActiveSessions() > 0) {
-        return false;
+        return { replaced: false, snapshotVersion: this.snapshotVersion };
+      }
+      if (this.snapshotVersion !== expectedSnapshotVersion) {
+        return { replaced: false, snapshotVersion: this.snapshotVersion };
       }
       this.room.loadSnapshot(snapshot as RoomSnapshot);
-      this.flushSnapshot();
+      this.cancelPendingAssetSync();
+      this.cancelPendingSnapshotSave();
+      this.flushSnapshot(undefined, true);
       await this.syncSnapshotAndReferencedAssets();
-      return true;
+      return { replaced: true, snapshotVersion: this.snapshotVersion };
+    });
+  }
+
+  async getSnapshotVersion(documentId: string): Promise<number> {
+    await this.setDocumentId(documentId);
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      return this.snapshotVersion;
     });
   }
 
