@@ -19,7 +19,7 @@ export async function reconcileOfflineEdits(params: {
 }): Promise<ReconnectResult> {
   const { documentId, localSnapshot, snapshotVersion, repository } = params;
 
-  // Fetch current server metadata to compare timestamps.
+  // Fetch current server metadata before deciding whether to fork on conflict.
   const serverDoc = await repository.get(documentId);
   if (!serverDoc) {
     return { action: "error", reason: "Document no longer exists on server" };

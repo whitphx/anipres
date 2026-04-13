@@ -78,28 +78,33 @@ export function OfflineAwareSyncedContainer({
       return;
     }
 
-    const result = await reconcileOfflineEdits({
-      documentId,
-      localSnapshot: snapshot,
-      snapshotVersion: snapshotVersionRef.current,
-      repository,
-    });
+    try {
+      const result = await reconcileOfflineEdits({
+        documentId,
+        localSnapshot: snapshot,
+        snapshotVersion: snapshotVersionRef.current,
+        repository,
+      });
 
-    if (result.action === "pushed") {
-      // Only clear the cache after a successful push so transient errors do
-      // not cause permanent data loss.
-      await deleteSyncCache(documentId);
-      setMode({ type: "synced" });
-    } else if (result.action === "forked") {
-      await deleteSyncCache(documentId);
-      await refreshDocuments();
-      await selectDocument(result.forkedDocumentId);
-      // selectDocument will cause a re-render with the new documentId, which
-      // will mount a fresh SyncedAnipresContainer for the forked document.
-    } else {
-      // Error during reconciliation — preserve the offline cache so the user
-      // can retry. Stay in offline mode so they can keep editing locally.
-      console.error("Offline reconciliation failed:", result.reason);
+      if (result.action === "pushed") {
+        // Only clear the cache after a successful push so transient errors do
+        // not cause permanent data loss.
+        await deleteSyncCache(documentId);
+        setMode({ type: "synced" });
+      } else if (result.action === "forked") {
+        await deleteSyncCache(documentId);
+        await refreshDocuments();
+        await selectDocument(result.forkedDocumentId);
+        // selectDocument will cause a re-render with the new documentId, which
+        // will mount a fresh SyncedAnipresContainer for the forked document.
+      } else {
+        // Error during reconciliation — preserve the offline cache so the user
+        // can retry. Stay in offline mode so they can keep editing locally.
+        console.error("Offline reconciliation failed:", result.reason);
+        setMode({ type: "offline", snapshot });
+      }
+    } catch (error) {
+      console.error("Offline reconciliation threw unexpectedly:", error);
       setMode({ type: "offline", snapshot });
     }
   }, [mode.type, documentId, refreshDocuments, selectDocument]);

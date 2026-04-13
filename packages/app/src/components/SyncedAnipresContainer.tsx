@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useSync } from "@tldraw/sync";
-import { getSnapshot, type TLAssetStore } from "tldraw";
+import type { TLAssetStore, TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { setSyncCache } from "../documents/idb-sync-cache";
 
@@ -37,15 +37,20 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
   };
 }
 
-async function fetchSnapshotVersion(documentId: string) {
+async function fetchOfflineCache(documentId: string): Promise<{
+  snapshot: TLStoreSnapshot;
+  snapshotVersion: number;
+}> {
   const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/snapshot-version`,
+    `/api/documents/${encodeURIComponent(documentId)}/offline-cache`,
   );
   if (!res.ok) {
-    throw new Error(`Snapshot version fetch failed: ${res.status}`);
+    throw new Error(`Offline cache fetch failed: ${res.status}`);
   }
-  const body = (await res.json()) as { snapshotVersion: number };
-  return body.snapshotVersion;
+  return (await res.json()) as {
+    snapshot: TLStoreSnapshot;
+    snapshotVersion: number;
+  };
 }
 
 export function SyncedAnipresContainer({
@@ -70,13 +75,13 @@ export function SyncedAnipresContainer({
   }, [documentId]);
   useEffect(() => {
     if (storeWithStatus.status !== "synced-remote") return;
-
     const store = storeWithStatus.store;
 
     const flush = async () => {
-      const { document } = getSnapshot(store);
-      const snapshotVersion = await fetchSnapshotVersion(documentIdRef.current);
-      await setSyncCache(documentIdRef.current, document, snapshotVersion);
+      const { snapshot, snapshotVersion } = await fetchOfflineCache(
+        documentIdRef.current,
+      );
+      await setSyncCache(documentIdRef.current, snapshot, snapshotVersion);
     };
 
     // Debounced write on store changes (500ms).

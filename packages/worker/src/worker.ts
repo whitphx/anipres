@@ -225,7 +225,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/api/documents/:id/snapshot-version", async (c) => {
+app.get("/api/documents/:id/offline-cache", async (c) => {
   const userId = c.get("userId");
   const paramsResult = v.safeParse(documentIdParamSchema, {
     id: c.req.param("id"),
@@ -249,8 +249,8 @@ app.get("/api/documents/:id/snapshot-version", async (c) => {
 
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const snapshotVersion = await room.getSnapshotVersion(id);
-  return c.json({ snapshotVersion });
+  const cachedSnapshot = await room.getCachedSnapshot(id);
+  return Response.json(cachedSnapshot);
 });
 
 // WebSocket upgrade for sync

@@ -1,6 +1,6 @@
 import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
-import type { TLRecord } from "tldraw";
+import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
 import {
   slideShapeProps,
@@ -28,6 +28,15 @@ const schema = createTLSchema({
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
 const SNAPSHOT_SAVE_DELAY_MS = 3_000;
+
+function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
+  return {
+    store: Object.fromEntries(
+      snapshot.documents.map(({ state }) => [state.id, state as TLRecord]),
+    ) as TLStoreSnapshot["store"],
+    schema: snapshot.schema ?? schema.serialize(),
+  };
+}
 
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room!: TLSocketRoom<TLRecord, void>;
@@ -358,13 +367,22 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     });
   }
 
-  async getSnapshotVersion(documentId: string): Promise<number> {
+  async getCachedSnapshot(documentId: string): Promise<{
+    // This crosses the DO RPC boundary. Keeping it as `unknown` avoids
+    // forcing the full nested TLStoreSnapshot type through the stub/provider
+    // machinery, which otherwise triggers TS2589 at the worker call site.
+    snapshot: unknown;
+    snapshotVersion: number;
+  }> {
     await this.setDocumentId(documentId);
     return this.runRoomTask(async () => {
       if (!(await this.isDeleting())) {
         this.flushSnapshotIfDirty();
       }
-      return this.snapshotVersion;
+      return {
+        snapshot: roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot()),
+        snapshotVersion: this.snapshotVersion,
+      };
     });
   }
 
