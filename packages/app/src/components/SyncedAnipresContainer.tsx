@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useSync } from "@tldraw/sync";
-import type { TLAssetStore, TLStoreSnapshot } from "tldraw";
+import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { setSyncCache } from "../documents/idb-sync-cache";
 
@@ -70,6 +70,7 @@ export function SyncedAnipresContainer({
 
   // Cache the synced store to IDB so it's available for offline fallback.
   const documentIdRef = useRef(documentId);
+  const snapshotVersionRef = useRef(0);
   useEffect(() => {
     documentIdRef.current = documentId;
   }, [documentId]);
@@ -77,11 +78,26 @@ export function SyncedAnipresContainer({
     if (storeWithStatus.status !== "synced-remote") return;
     const store = storeWithStatus.store;
 
-    const flush = async () => {
-      const { snapshot, snapshotVersion } = await fetchOfflineCache(
+    const refreshSnapshotVersion = async () => {
+      const { snapshotVersion } = await fetchOfflineCache(
         documentIdRef.current,
       );
-      await setSyncCache(documentIdRef.current, snapshot, snapshotVersion);
+      snapshotVersionRef.current = snapshotVersion;
+    };
+
+    const flush = async () => {
+      const { document } = getSnapshot(store);
+      await setSyncCache(
+        documentIdRef.current,
+        document,
+        snapshotVersionRef.current,
+      );
+
+      // Refresh the server revision best-effort while online, but do not make
+      // local cache durability depend on the network path.
+      if (navigator.onLine) {
+        await refreshSnapshotVersion();
+      }
     };
 
     // Debounced write on store changes (500ms).
@@ -98,9 +114,17 @@ export function SyncedAnipresContainer({
       { source: "all", scope: "document" },
     );
 
-    void flush().catch((error) => {
-      console.error("Failed to initialize synced snapshot cache", error);
-    });
+    void (async () => {
+      try {
+        const { snapshot, snapshotVersion } = await fetchOfflineCache(
+          documentIdRef.current,
+        );
+        snapshotVersionRef.current = snapshotVersion;
+        await setSyncCache(documentIdRef.current, snapshot, snapshotVersion);
+      } catch (error) {
+        console.error("Failed to initialize synced snapshot cache", error);
+      }
+    })();
 
     // Flush on visibility hidden and page hide (best-effort for tab close).
     const handleVisibilityChange = () => {

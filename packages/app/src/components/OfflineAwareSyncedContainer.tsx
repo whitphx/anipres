@@ -20,6 +20,10 @@ interface OfflineAwareSyncedContainerProps {
 
 const repository = new ApiDocumentRepository();
 
+function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function OfflineAwareSyncedContainer({
   documentId,
   colorScheme,
@@ -78,6 +82,12 @@ export function OfflineAwareSyncedContainer({
       return;
     }
 
+    if (snapshotsEqual(snapshot, mode.snapshot)) {
+      await deleteSyncCache(documentId);
+      setMode({ type: "synced" });
+      return;
+    }
+
     try {
       const result = await reconcileOfflineEdits({
         documentId,
@@ -107,7 +117,7 @@ export function OfflineAwareSyncedContainer({
       console.error("Offline reconciliation threw unexpectedly:", error);
       setMode({ type: "offline", snapshot });
     }
-  }, [mode.type, documentId, refreshDocuments, selectDocument]);
+  }, [mode, documentId, refreshDocuments, selectDocument]);
 
   useEffect(() => {
     window.addEventListener("online", handleOnline);
