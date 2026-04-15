@@ -155,9 +155,27 @@ export function OfflineAwareSyncedContainer({
       });
 
       if (result.action === "pushed") {
-        // Only clear the cache after a successful push so transient errors do
-        // not cause permanent data loss.
-        await deleteSyncCache(documentId);
+        const pushedSnapshotState = {
+          snapshot,
+          snapshotVersion: snapshotVersionRef.current,
+          baselineSnapshot: snapshot,
+          reconnectSnapshot: snapshot,
+          hasPendingOfflineChanges: false,
+        };
+
+        // Preserve the pushed snapshot locally until the synced room republishes
+        // its fresh state. A second disconnect in that handoff window should
+        // continue from the just-pushed document, not from the stale pre-
+        // offline snapshot that may still be sitting in the synced ref.
+        liveSyncedSnapshotStateRef.current = pushedSnapshotState;
+        await setSyncCache(
+          documentId,
+          snapshot,
+          snapshotVersionRef.current,
+          false,
+          snapshot,
+          snapshot,
+        );
         setMode({ type: "synced" });
       } else if (result.action === "forked") {
         await deleteSyncCache(documentId);
