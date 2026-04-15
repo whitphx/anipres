@@ -63,36 +63,44 @@ export function OfflineAwareSyncedContainer({
   // before the synced container overwrites the cache with server state.
   useEffect(() => {
     let cancelled = false;
-    getSyncCache(documentId).then((entry) => {
-      if (cancelled) return;
-      if (entry) {
-        snapshotVersionRef.current = entry.snapshotVersion;
-        const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
-        const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
-        if (navigator.onLine && entry.hasPendingOfflineChanges) {
-          shouldAutoReconnectRef.current = true;
-          setMode({
-            type: "offline",
-            snapshot: entry.snapshot,
-            baselineSnapshot,
-            reconnectSnapshot,
-          });
-        } else if (!navigator.onLine) {
-          setMode({
-            type: "offline",
-            snapshot: entry.snapshot,
-            baselineSnapshot,
-            reconnectSnapshot,
-          });
+    getSyncCache(documentId)
+      .then((entry) => {
+        if (cancelled) return;
+        if (entry) {
+          snapshotVersionRef.current = entry.snapshotVersion;
+          const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
+          const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
+          if (navigator.onLine && entry.hasPendingOfflineChanges) {
+            shouldAutoReconnectRef.current = true;
+            setMode({
+              type: "offline",
+              snapshot: entry.snapshot,
+              baselineSnapshot,
+              reconnectSnapshot,
+            });
+          } else if (!navigator.onLine) {
+            setMode({
+              type: "offline",
+              snapshot: entry.snapshot,
+              baselineSnapshot,
+              reconnectSnapshot,
+            });
+          } else {
+            setMode({ type: "synced" });
+          }
         } else {
-          setMode({ type: "synced" });
+          setMode(
+            navigator.onLine ? { type: "synced" } : { type: "unavailable" },
+          );
         }
-      } else {
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load cached synced snapshot", error);
         setMode(
           navigator.onLine ? { type: "synced" } : { type: "unavailable" },
         );
-      }
-    });
+      });
     return () => {
       cancelled = true;
     };
@@ -129,7 +137,10 @@ export function OfflineAwareSyncedContainer({
       return;
     }
 
-    if (snapshotsEqual(snapshot, mode.baselineSnapshot)) {
+    if (
+      snapshotsEqual(snapshot, mode.baselineSnapshot) ||
+      snapshotsEqual(snapshot, mode.reconnectSnapshot)
+    ) {
       await deleteSyncCache(documentId);
       setMode({ type: "synced" });
       return;
