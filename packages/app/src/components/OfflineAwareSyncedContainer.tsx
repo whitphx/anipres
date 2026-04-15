@@ -51,6 +51,7 @@ export function OfflineAwareSyncedContainer({
     snapshotVersion: number;
     baselineSnapshot: TLStoreSnapshot;
     reconnectSnapshot: TLStoreSnapshot;
+    hasPendingOfflineChanges: boolean;
   } | null>(null);
   const retryHandleOnlineRef = useRef<(() => void) | null>(null);
   const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -228,7 +229,7 @@ export function OfflineAwareSyncedContainer({
           currentDocumentId,
           liveSnapshotState.snapshot,
           liveSnapshotState.snapshotVersion,
-          false,
+          liveSnapshotState.hasPendingOfflineChanges,
           liveSnapshotState.baselineSnapshot,
           liveSnapshotState.reconnectSnapshot,
         ).catch((error) => {

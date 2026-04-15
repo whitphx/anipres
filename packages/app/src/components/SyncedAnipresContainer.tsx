@@ -12,6 +12,7 @@ interface SyncedAnipresContainerProps {
     snapshotVersion: number;
     baselineSnapshot: TLStoreSnapshot;
     reconnectSnapshot: TLStoreSnapshot;
+    hasPendingOfflineChanges: boolean;
   }) => void;
 }
 
@@ -84,12 +85,14 @@ export function SyncedAnipresContainer({
     snapshotVersionRef.current = 0;
     let confirmedSnapshotRef: TLStoreSnapshot | null = null;
     let hasObservedLocalChanges = false;
+    let hasPendingOfflineChanges = false;
 
     const refreshSnapshotVersion = async () => {
       const { snapshot, snapshotVersion } =
         await fetchOfflineCache(currentDocumentId);
       snapshotVersionRef.current = snapshotVersion;
       confirmedSnapshotRef = snapshot;
+      hasPendingOfflineChanges = false;
     };
 
     const publishSnapshot = () => {
@@ -99,6 +102,7 @@ export function SyncedAnipresContainer({
         snapshotVersion: snapshotVersionRef.current,
         baselineSnapshot: confirmedSnapshotRef ?? snapshot,
         reconnectSnapshot: snapshot,
+        hasPendingOfflineChanges,
       });
     };
 
@@ -108,7 +112,7 @@ export function SyncedAnipresContainer({
         currentDocumentId,
         document,
         snapshotVersionRef.current,
-        false,
+        hasPendingOfflineChanges,
         confirmedSnapshotRef ?? document,
         document,
       );
@@ -144,6 +148,7 @@ export function SyncedAnipresContainer({
     const stopListening = store.listen(
       () => {
         hasObservedLocalChanges = true;
+        hasPendingOfflineChanges = true;
         publishSnapshot();
         clearTimeout(timer);
         timer = setTimeout(() => {
@@ -171,6 +176,7 @@ export function SyncedAnipresContainer({
           snapshotVersion,
           baselineSnapshot: snapshot,
           reconnectSnapshot: snapshot,
+          hasPendingOfflineChanges: false,
         });
         await setSyncCache(
           currentDocumentId,

@@ -175,17 +175,27 @@ export async function reconcileOfflineEdits(params: {
   });
 
   // Push the local snapshot into the fork's Durable Object room.
-  const forkPushRes = await fetch(
-    `/api/documents/${encodeURIComponent(forkId)}/snapshot`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        snapshot: localSnapshot,
-        expectedSnapshotVersion: 0,
-      }),
-    },
-  );
+  let forkPushRes: Response;
+  try {
+    forkPushRes = await fetch(
+      `/api/documents/${encodeURIComponent(forkId)}/snapshot`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          snapshot: localSnapshot,
+          expectedSnapshotVersion: 0,
+        }),
+      },
+    );
+  } catch (error) {
+    await repository.delete(forkId).catch(() => {});
+    return {
+      action: "error",
+      reason: `Failed to push snapshot to forked document: ${String(error)}`,
+      reasonCode: "other",
+    };
+  }
 
   if (!forkPushRes.ok) {
     // Clean up the fork metadata if the snapshot push fails.
