@@ -14,7 +14,11 @@ import { useDocumentManagerContext } from "../documents/useDocumentManagerContex
 type Mode =
   | { type: "loading" }
   | { type: "synced" }
-  | { type: "offline"; snapshot: TLStoreSnapshot }
+  | {
+      type: "offline";
+      snapshot: TLStoreSnapshot;
+      baselineSnapshot: TLStoreSnapshot;
+    }
   | { type: "reconnecting" }
   | { type: "unavailable" };
 
@@ -51,11 +55,20 @@ export function OfflineAwareSyncedContainer({
       if (cancelled) return;
       if (entry) {
         snapshotVersionRef.current = entry.snapshotVersion;
+        const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
         if (navigator.onLine && entry.hasPendingOfflineChanges) {
           shouldAutoReconnectRef.current = true;
-          setMode({ type: "offline", snapshot: entry.snapshot });
+          setMode({
+            type: "offline",
+            snapshot: entry.snapshot,
+            baselineSnapshot,
+          });
         } else if (!navigator.onLine) {
-          setMode({ type: "offline", snapshot: entry.snapshot });
+          setMode({
+            type: "offline",
+            snapshot: entry.snapshot,
+            baselineSnapshot,
+          });
         } else {
           setMode({ type: "synced" });
         }
@@ -96,7 +109,7 @@ export function OfflineAwareSyncedContainer({
       return;
     }
 
-    if (snapshotsEqual(snapshot, mode.snapshot)) {
+    if (snapshotsEqual(snapshot, mode.baselineSnapshot)) {
       await deleteSyncCache(documentId);
       setMode({ type: "synced" });
       return;
@@ -125,11 +138,19 @@ export function OfflineAwareSyncedContainer({
         // Error during reconciliation — preserve the offline cache so the user
         // can retry. Stay in offline mode so they can keep editing locally.
         console.error("Offline reconciliation failed:", result.reason);
-        setMode({ type: "offline", snapshot });
+        setMode({
+          type: "offline",
+          snapshot,
+          baselineSnapshot: mode.baselineSnapshot,
+        });
       }
     } catch (error) {
       console.error("Offline reconciliation threw unexpectedly:", error);
-      setMode({ type: "offline", snapshot });
+      setMode({
+        type: "offline",
+        snapshot,
+        baselineSnapshot: mode.baselineSnapshot,
+      });
     }
   }, [mode, documentId, refreshDocuments, selectDocument]);
 
@@ -150,7 +171,11 @@ export function OfflineAwareSyncedContainer({
         .then((entry) => {
           if (entry) {
             snapshotVersionRef.current = entry.snapshotVersion;
-            setMode({ type: "offline", snapshot: entry.snapshot });
+            setMode({
+              type: "offline",
+              snapshot: entry.snapshot,
+              baselineSnapshot: entry.baselineSnapshot ?? entry.snapshot,
+            });
             return;
           }
 
@@ -208,6 +233,7 @@ export function OfflineAwareSyncedContainer({
         snapshot,
         snapshotVersionRef.current,
         true,
+        mode.baselineSnapshot,
       );
     };
 
