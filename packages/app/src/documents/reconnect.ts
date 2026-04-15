@@ -38,10 +38,17 @@ async function fetchOfflineCache(documentId: string): Promise<{
 export async function reconcileOfflineEdits(params: {
   documentId: string;
   localSnapshot: TLStoreSnapshot;
+  baselineSnapshot: TLStoreSnapshot;
   snapshotVersion: number;
   repository: ApiDocumentRepository;
 }): Promise<ReconnectResult> {
-  const { documentId, localSnapshot, snapshotVersion, repository } = params;
+  const {
+    documentId,
+    localSnapshot,
+    baselineSnapshot,
+    snapshotVersion,
+    repository,
+  } = params;
 
   // Fetch current server metadata before deciding whether to fork on conflict.
   const serverDoc = await repository.get(documentId);
@@ -97,6 +104,48 @@ export async function reconcileOfflineEdits(params: {
     const serverCache = await fetchOfflineCache(documentId);
     if (snapshotsEqual(serverCache.snapshot, localSnapshot)) {
       return { action: "pushed" };
+    }
+
+    // If the cached revision lagged behind but the server still matches the
+    // last known online baseline, reuse the current server revision instead of
+    // forking a document that has not actually diverged.
+    if (snapshotsEqual(serverCache.snapshot, baselineSnapshot)) {
+      const retryPushRes = await fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            snapshot: localSnapshot,
+            expectedSnapshotVersion: serverCache.snapshotVersion,
+          }),
+        },
+      );
+
+      if (retryPushRes.ok) {
+        return { action: "pushed" };
+      }
+
+      if (retryPushRes.status === 409) {
+        const retryConflictBody = (await retryPushRes
+          .json()
+          .catch(() => null)) as {
+          reason?: "active-session" | "version-conflict";
+        } | null;
+        if (retryConflictBody?.reason === "active-session") {
+          return {
+            action: "error",
+            reason: "Document is still open in another session",
+            reasonCode: "active-session",
+          };
+        }
+      } else {
+        return {
+          action: "error",
+          reason: `Snapshot retry failed: ${retryPushRes.status}`,
+          reasonCode: "other",
+        };
+      }
     }
   } catch (error) {
     console.error("Failed to compare server snapshot after conflict:", error);

@@ -133,6 +133,7 @@ export function OfflineAwareSyncedContainer({
       const result = await reconcileOfflineEdits({
         documentId,
         localSnapshot: snapshot,
+        baselineSnapshot: mode.baselineSnapshot,
         snapshotVersion: snapshotVersionRef.current,
         repository,
       });
