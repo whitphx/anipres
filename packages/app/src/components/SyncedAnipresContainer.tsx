@@ -7,6 +7,11 @@ import { setSyncCache } from "../documents/idb-sync-cache";
 interface SyncedAnipresContainerProps {
   documentId: string;
   colorScheme?: "light" | "dark" | "system";
+  onSnapshotUpdate?: (snapshotState: {
+    snapshot: TLStoreSnapshot;
+    snapshotVersion: number;
+    baselineSnapshot: TLStoreSnapshot;
+  }) => void;
 }
 
 function createRemoteAssetStore(documentId: string): TLAssetStore {
@@ -56,6 +61,7 @@ async function fetchOfflineCache(documentId: string): Promise<{
 export function SyncedAnipresContainer({
   documentId,
   colorScheme,
+  onSnapshotUpdate,
 }: SyncedAnipresContainerProps) {
   const remoteAssetStore = useMemo(
     () => createRemoteAssetStore(documentId),
@@ -75,10 +81,21 @@ export function SyncedAnipresContainer({
     const store = storeWithStatus.store;
     const currentDocumentId = documentId;
     snapshotVersionRef.current = 0;
+    let confirmedSnapshotRef: TLStoreSnapshot | null = null;
 
     const refreshSnapshotVersion = async () => {
       const { snapshotVersion } = await fetchOfflineCache(currentDocumentId);
       snapshotVersionRef.current = snapshotVersion;
+      confirmedSnapshotRef = getSnapshot(store).document;
+    };
+
+    const publishSnapshot = () => {
+      const snapshot = getSnapshot(store).document;
+      onSnapshotUpdate?.({
+        snapshot,
+        snapshotVersion: snapshotVersionRef.current,
+        baselineSnapshot: confirmedSnapshotRef ?? snapshot,
+      });
     };
 
     const persistLocalSnapshot = async () => {
@@ -88,23 +105,31 @@ export function SyncedAnipresContainer({
         document,
         snapshotVersionRef.current,
         false,
+        confirmedSnapshotRef ?? document,
       );
     };
 
     const flushWithVersionRefresh = async () => {
       if (navigator.onLine) {
-        await refreshSnapshotVersion();
+        try {
+          await refreshSnapshotVersion();
+        } catch (error) {
+          console.error("Failed to refresh synced snapshot version", error);
+        }
       }
+      publishSnapshot();
       await persistLocalSnapshot();
     };
 
     const flushBestEffort = async () => {
+      publishSnapshot();
       await persistLocalSnapshot();
 
       // The page may be backgrounding or closing, so durability of the local
       // snapshot matters more than refreshing the server revision first.
       if (navigator.onLine) {
         await refreshSnapshotVersion();
+        publishSnapshot();
         await persistLocalSnapshot();
       }
     };
@@ -113,6 +138,7 @@ export function SyncedAnipresContainer({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopListening = store.listen(
       () => {
+        publishSnapshot();
         clearTimeout(timer);
         timer = setTimeout(() => {
           void flushWithVersionRefresh().catch((error) => {
@@ -128,11 +154,27 @@ export function SyncedAnipresContainer({
         const { snapshot, snapshotVersion } =
           await fetchOfflineCache(currentDocumentId);
         snapshotVersionRef.current = snapshotVersion;
-        await setSyncCache(currentDocumentId, snapshot, snapshotVersion, false);
+        confirmedSnapshotRef = snapshot;
+        onSnapshotUpdate?.({
+          snapshot,
+          snapshotVersion,
+          baselineSnapshot: snapshot,
+        });
+        await setSyncCache(
+          currentDocumentId,
+          snapshot,
+          snapshotVersion,
+          false,
+          snapshot,
+        );
       } catch (error) {
         console.error("Failed to initialize synced snapshot cache", error);
       }
     })();
+
+    // Seed the wrapper with the live synced state immediately so a first
+    // disconnect does not depend on the async cache bootstrap finishing first.
+    publishSnapshot();
 
     // Flush on visibility hidden and page hide (best-effort for tab close).
     const handleVisibilityChange = () => {
@@ -156,7 +198,7 @@ export function SyncedAnipresContainer({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [documentId, storeWithStatus]);
+  }, [documentId, onSnapshotUpdate, storeWithStatus]);
 
   return (
     <Anipres

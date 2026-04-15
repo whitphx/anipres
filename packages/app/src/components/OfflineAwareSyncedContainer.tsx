@@ -45,6 +45,15 @@ export function OfflineAwareSyncedContainer({
   const [offlineEditor, setOfflineEditor] = useState<Editor | null>(null);
   const snapshotVersionRef = useRef<number>(0);
   const shouldAutoReconnectRef = useRef(false);
+  const liveSyncedSnapshotStateRef = useRef<{
+    snapshot: TLStoreSnapshot;
+    snapshotVersion: number;
+    baselineSnapshot: TLStoreSnapshot;
+  } | null>(null);
+  const retryHandleOnlineRef = useRef<(() => void) | null>(null);
+  const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // On mount, load any cached snapshot. If it contains pending offline edits,
   // restore it even when the browser is back online so we can reconcile it
@@ -85,6 +94,11 @@ export function OfflineAwareSyncedContainer({
 
   // Listen for online event to trigger reconnection.
   const handleOnline = useCallback(async () => {
+    if (reconnectRetryTimerRef.current) {
+      clearTimeout(reconnectRetryTimerRef.current);
+      reconnectRetryTimerRef.current = null;
+    }
+
     // If we couldn't load any cached snapshot, just switch to synced mode now
     // that the network is back — useSync can fetch the live state.
     if (mode.type === "unavailable") {
@@ -138,6 +152,14 @@ export function OfflineAwareSyncedContainer({
         // Error during reconciliation — preserve the offline cache so the user
         // can retry. Stay in offline mode so they can keep editing locally.
         console.error("Offline reconciliation failed:", result.reason);
+        if (result.reasonCode === "active-session") {
+          if (reconnectRetryTimerRef.current) {
+            clearTimeout(reconnectRetryTimerRef.current);
+          }
+          reconnectRetryTimerRef.current = setTimeout(() => {
+            retryHandleOnlineRef.current?.();
+          }, 3000);
+        }
         setMode({
           type: "offline",
           snapshot,
@@ -155,6 +177,23 @@ export function OfflineAwareSyncedContainer({
   }, [mode, documentId, refreshDocuments, selectDocument]);
 
   useEffect(() => {
+    retryHandleOnlineRef.current = () => {
+      void handleOnline();
+    };
+    return () => {
+      retryHandleOnlineRef.current = null;
+    };
+  }, [handleOnline]);
+
+  useEffect(() => {
+    return () => {
+      if (reconnectRetryTimerRef.current) {
+        clearTimeout(reconnectRetryTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
   }, [handleOnline]);
@@ -164,6 +203,29 @@ export function OfflineAwareSyncedContainer({
 
     const handleOffline = () => {
       if (mode.type !== "synced") {
+        return;
+      }
+
+      const liveSnapshotState = liveSyncedSnapshotStateRef.current;
+      if (liveSnapshotState) {
+        setMode({
+          type: "offline",
+          snapshot: liveSnapshotState.snapshot,
+          baselineSnapshot: liveSnapshotState.baselineSnapshot,
+        });
+        snapshotVersionRef.current = liveSnapshotState.snapshotVersion;
+        void setSyncCache(
+          currentDocumentId,
+          liveSnapshotState.snapshot,
+          liveSnapshotState.snapshotVersion,
+          false,
+          liveSnapshotState.baselineSnapshot,
+        ).catch((error) => {
+          console.error(
+            "Failed to persist live snapshot after disconnect",
+            error,
+          );
+        });
         return;
       }
 
@@ -271,13 +333,22 @@ export function OfflineAwareSyncedContainer({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [documentId, mode.type, offlineEditor]);
+  }, [
+    documentId,
+    mode.type === "offline" ? mode.baselineSnapshot : undefined,
+    mode.type,
+    offlineEditor,
+  ]);
 
   if (mode.type === "synced") {
     return (
       <SyncedAnipresContainer
         documentId={documentId}
         colorScheme={colorScheme}
+        onSnapshotUpdate={(snapshotState) => {
+          liveSyncedSnapshotStateRef.current = snapshotState;
+          snapshotVersionRef.current = snapshotState.snapshotVersion;
+        }}
       />
     );
   }
