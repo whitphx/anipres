@@ -123,24 +123,16 @@ export function OfflineAwareSyncedContainer({
 
     setMode({ type: "reconnecting" });
 
-    // Grab the latest snapshot from the offline editor if available.
+    // Prefer the live offline editor state, but fall back to the cached
+    // snapshot restored into offline mode so a fast reconnect before mount
+    // does not discard offline edits.
     const editor = offlineEditorRef.current;
-    let snapshot: TLStoreSnapshot | undefined;
+    let snapshot: TLStoreSnapshot = mode.snapshot;
     if (editor) {
       snapshot = getSnapshot(editor.store).document;
     }
 
-    if (!snapshot) {
-      // No edits were made offline, just switch to synced mode.
-      await deleteSyncCache(documentId);
-      setMode({ type: "synced" });
-      return;
-    }
-
-    if (
-      snapshotsEqual(snapshot, mode.baselineSnapshot) ||
-      snapshotsEqual(snapshot, mode.reconnectSnapshot)
-    ) {
+    if (snapshotsEqual(snapshot, mode.baselineSnapshot)) {
       await deleteSyncCache(documentId);
       setMode({ type: "synced" });
       return;
