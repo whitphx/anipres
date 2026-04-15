@@ -86,9 +86,10 @@ export function SyncedAnipresContainer({
     let hasObservedLocalChanges = false;
 
     const refreshSnapshotVersion = async () => {
-      const { snapshotVersion } = await fetchOfflineCache(currentDocumentId);
+      const { snapshot, snapshotVersion } =
+        await fetchOfflineCache(currentDocumentId);
       snapshotVersionRef.current = snapshotVersion;
-      confirmedSnapshotRef = getSnapshot(store).document;
+      confirmedSnapshotRef = snapshot;
     };
 
     const publishSnapshot = () => {
