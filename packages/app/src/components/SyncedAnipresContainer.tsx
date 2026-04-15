@@ -11,6 +11,7 @@ interface SyncedAnipresContainerProps {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
     baselineSnapshot: TLStoreSnapshot;
+    reconnectSnapshot: TLStoreSnapshot;
   }) => void;
 }
 
@@ -82,6 +83,7 @@ export function SyncedAnipresContainer({
     const currentDocumentId = documentId;
     snapshotVersionRef.current = 0;
     let confirmedSnapshotRef: TLStoreSnapshot | null = null;
+    let hasObservedLocalChanges = false;
 
     const refreshSnapshotVersion = async () => {
       const { snapshotVersion } = await fetchOfflineCache(currentDocumentId);
@@ -95,6 +97,7 @@ export function SyncedAnipresContainer({
         snapshot,
         snapshotVersion: snapshotVersionRef.current,
         baselineSnapshot: confirmedSnapshotRef ?? snapshot,
+        reconnectSnapshot: snapshot,
       });
     };
 
@@ -106,6 +109,7 @@ export function SyncedAnipresContainer({
         snapshotVersionRef.current,
         false,
         confirmedSnapshotRef ?? document,
+        document,
       );
     };
 
@@ -138,6 +142,7 @@ export function SyncedAnipresContainer({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopListening = store.listen(
       () => {
+        hasObservedLocalChanges = true;
         publishSnapshot();
         clearTimeout(timer);
         timer = setTimeout(() => {
@@ -155,16 +160,23 @@ export function SyncedAnipresContainer({
           await fetchOfflineCache(currentDocumentId);
         snapshotVersionRef.current = snapshotVersion;
         confirmedSnapshotRef = snapshot;
+        if (hasObservedLocalChanges) {
+          publishSnapshot();
+          await persistLocalSnapshot();
+          return;
+        }
         onSnapshotUpdate?.({
           snapshot,
           snapshotVersion,
           baselineSnapshot: snapshot,
+          reconnectSnapshot: snapshot,
         });
         await setSyncCache(
           currentDocumentId,
           snapshot,
           snapshotVersion,
           false,
+          snapshot,
           snapshot,
         );
       } catch (error) {

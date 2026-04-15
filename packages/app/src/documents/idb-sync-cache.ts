@@ -8,6 +8,7 @@ interface SyncCacheEntry {
   snapshotVersion: number;
   hasPendingOfflineChanges?: boolean;
   baselineSnapshot?: TLStoreSnapshot;
+  reconnectSnapshot?: TLStoreSnapshot;
 }
 
 export async function getSyncCache(
@@ -22,6 +23,7 @@ export async function setSyncCache(
   snapshotVersion: number,
   hasPendingOfflineChanges = false,
   baselineSnapshot?: TLStoreSnapshot,
+  reconnectSnapshot?: TLStoreSnapshot,
 ): Promise<void> {
   await set(
     documentId,
@@ -30,6 +32,7 @@ export async function setSyncCache(
       snapshotVersion,
       hasPendingOfflineChanges,
       baselineSnapshot,
+      reconnectSnapshot,
     } satisfies SyncCacheEntry,
     store,
   );

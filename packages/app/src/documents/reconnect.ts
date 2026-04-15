@@ -39,6 +39,7 @@ export async function reconcileOfflineEdits(params: {
   documentId: string;
   localSnapshot: TLStoreSnapshot;
   baselineSnapshot: TLStoreSnapshot;
+  reconnectSnapshot: TLStoreSnapshot;
   snapshotVersion: number;
   repository: ApiDocumentRepository;
 }): Promise<ReconnectResult> {
@@ -46,6 +47,7 @@ export async function reconcileOfflineEdits(params: {
     documentId,
     localSnapshot,
     baselineSnapshot,
+    reconnectSnapshot,
     snapshotVersion,
     repository,
   } = params;
@@ -109,7 +111,10 @@ export async function reconcileOfflineEdits(params: {
     // If the cached revision lagged behind but the server still matches the
     // last known online baseline, reuse the current server revision instead of
     // forking a document that has not actually diverged.
-    if (snapshotsEqual(serverCache.snapshot, baselineSnapshot)) {
+    if (
+      snapshotsEqual(serverCache.snapshot, baselineSnapshot) ||
+      snapshotsEqual(serverCache.snapshot, reconnectSnapshot)
+    ) {
       const retryPushRes = await fetch(
         `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
         {

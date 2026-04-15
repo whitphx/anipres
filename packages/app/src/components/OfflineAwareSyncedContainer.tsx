@@ -18,6 +18,7 @@ type Mode =
       type: "offline";
       snapshot: TLStoreSnapshot;
       baselineSnapshot: TLStoreSnapshot;
+      reconnectSnapshot: TLStoreSnapshot;
     }
   | { type: "reconnecting" }
   | { type: "unavailable" };
@@ -49,6 +50,7 @@ export function OfflineAwareSyncedContainer({
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
     baselineSnapshot: TLStoreSnapshot;
+    reconnectSnapshot: TLStoreSnapshot;
   } | null>(null);
   const retryHandleOnlineRef = useRef<(() => void) | null>(null);
   const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -65,18 +67,21 @@ export function OfflineAwareSyncedContainer({
       if (entry) {
         snapshotVersionRef.current = entry.snapshotVersion;
         const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
+        const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
         if (navigator.onLine && entry.hasPendingOfflineChanges) {
           shouldAutoReconnectRef.current = true;
           setMode({
             type: "offline",
             snapshot: entry.snapshot,
             baselineSnapshot,
+            reconnectSnapshot,
           });
         } else if (!navigator.onLine) {
           setMode({
             type: "offline",
             snapshot: entry.snapshot,
             baselineSnapshot,
+            reconnectSnapshot,
           });
         } else {
           setMode({ type: "synced" });
@@ -134,6 +139,7 @@ export function OfflineAwareSyncedContainer({
         documentId,
         localSnapshot: snapshot,
         baselineSnapshot: mode.baselineSnapshot,
+        reconnectSnapshot: mode.reconnectSnapshot,
         snapshotVersion: snapshotVersionRef.current,
         repository,
       });
@@ -165,6 +171,7 @@ export function OfflineAwareSyncedContainer({
           type: "offline",
           snapshot,
           baselineSnapshot: mode.baselineSnapshot,
+          reconnectSnapshot: mode.reconnectSnapshot,
         });
       }
     } catch (error) {
@@ -173,6 +180,7 @@ export function OfflineAwareSyncedContainer({
         type: "offline",
         snapshot,
         baselineSnapshot: mode.baselineSnapshot,
+        reconnectSnapshot: mode.reconnectSnapshot,
       });
     }
   }, [mode, documentId, refreshDocuments, selectDocument]);
@@ -213,6 +221,7 @@ export function OfflineAwareSyncedContainer({
           type: "offline",
           snapshot: liveSnapshotState.snapshot,
           baselineSnapshot: liveSnapshotState.baselineSnapshot,
+          reconnectSnapshot: liveSnapshotState.reconnectSnapshot,
         });
         snapshotVersionRef.current = liveSnapshotState.snapshotVersion;
         void setSyncCache(
@@ -221,6 +230,7 @@ export function OfflineAwareSyncedContainer({
           liveSnapshotState.snapshotVersion,
           false,
           liveSnapshotState.baselineSnapshot,
+          liveSnapshotState.reconnectSnapshot,
         ).catch((error) => {
           console.error(
             "Failed to persist live snapshot after disconnect",
@@ -238,6 +248,7 @@ export function OfflineAwareSyncedContainer({
               type: "offline",
               snapshot: entry.snapshot,
               baselineSnapshot: entry.baselineSnapshot ?? entry.snapshot,
+              reconnectSnapshot: entry.reconnectSnapshot ?? entry.snapshot,
             });
             return;
           }
@@ -297,6 +308,7 @@ export function OfflineAwareSyncedContainer({
         snapshotVersionRef.current,
         true,
         mode.baselineSnapshot,
+        mode.reconnectSnapshot,
       );
     };
 
@@ -337,6 +349,7 @@ export function OfflineAwareSyncedContainer({
   }, [
     documentId,
     mode.type === "offline" ? mode.baselineSnapshot : undefined,
+    mode.type === "offline" ? mode.reconnectSnapshot : undefined,
     mode.type,
     offlineEditor,
   ]);
