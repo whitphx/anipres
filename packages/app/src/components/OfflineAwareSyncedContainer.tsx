@@ -57,6 +57,10 @@ export function OfflineAwareSyncedContainer({
   const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const resetOfflineEditor = useCallback(() => {
+    offlineEditorRef.current = null;
+    setOfflineEditor(null);
+  }, []);
 
   // On mount, load any cached snapshot. If it contains pending offline edits,
   // restore it even when the browser is back online so we can reconcile it
@@ -71,6 +75,7 @@ export function OfflineAwareSyncedContainer({
           const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
           const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
           if (navigator.onLine && entry.hasPendingOfflineChanges) {
+            resetOfflineEditor();
             shouldAutoReconnectRef.current = true;
             setMode({
               type: "offline",
@@ -79,6 +84,7 @@ export function OfflineAwareSyncedContainer({
               reconnectSnapshot,
             });
           } else if (!navigator.onLine) {
+            resetOfflineEditor();
             setMode({
               type: "offline",
               snapshot: entry.snapshot,
@@ -104,7 +110,7 @@ export function OfflineAwareSyncedContainer({
     return () => {
       cancelled = true;
     };
-  }, [documentId]);
+  }, [documentId, resetOfflineEditor]);
 
   // Listen for online event to trigger reconnection.
   const handleOnline = useCallback(async () => {
@@ -221,6 +227,7 @@ export function OfflineAwareSyncedContainer({
 
       const liveSnapshotState = liveSyncedSnapshotStateRef.current;
       if (liveSnapshotState) {
+        resetOfflineEditor();
         setMode({
           type: "offline",
           snapshot: liveSnapshotState.snapshot,
@@ -248,6 +255,7 @@ export function OfflineAwareSyncedContainer({
         .then((entry) => {
           if (entry) {
             snapshotVersionRef.current = entry.snapshotVersion;
+            resetOfflineEditor();
             setMode({
               type: "offline",
               snapshot: entry.snapshot,
@@ -270,7 +278,7 @@ export function OfflineAwareSyncedContainer({
 
     window.addEventListener("offline", handleOffline);
     return () => window.removeEventListener("offline", handleOffline);
-  }, [documentId, mode.type]);
+  }, [documentId, mode.type, resetOfflineEditor]);
 
   useEffect(() => {
     if (
