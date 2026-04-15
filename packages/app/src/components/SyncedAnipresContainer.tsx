@@ -44,6 +44,10 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
   };
 }
 
+function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
@@ -90,9 +94,17 @@ export function SyncedAnipresContainer({
     const refreshSnapshotVersion = async () => {
       const { snapshot, snapshotVersion } =
         await fetchOfflineCache(currentDocumentId);
-      snapshotVersionRef.current = snapshotVersion;
-      confirmedSnapshotRef = snapshot;
-      hasPendingOfflineChanges = false;
+      const localSnapshot = getSnapshot(store).document;
+
+      // Only mark the local cache as clean once the server snapshot matches
+      // the current local store. A slower offline-cache fetch can otherwise
+      // race behind a just-made local edit and incorrectly clear the pending
+      // flag before that edit is actually reflected by the server state.
+      if (snapshotsEqual(snapshot, localSnapshot)) {
+        snapshotVersionRef.current = snapshotVersion;
+        confirmedSnapshotRef = snapshot;
+        hasPendingOfflineChanges = false;
+      }
     };
 
     const publishSnapshot = () => {
