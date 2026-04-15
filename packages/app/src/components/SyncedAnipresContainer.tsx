@@ -87,17 +87,15 @@ export function SyncedAnipresContainer({
 
     const flush = async () => {
       const { document } = getSnapshot(store);
+      if (navigator.onLine) {
+        await refreshSnapshotVersion();
+      }
+
       await setSyncCache(
         documentIdRef.current,
         document,
         snapshotVersionRef.current,
       );
-
-      // Refresh the server revision best-effort while online, but do not make
-      // local cache durability depend on the network path.
-      if (navigator.onLine) {
-        await refreshSnapshotVersion();
-      }
     };
 
     // Debounced write on store changes (500ms).

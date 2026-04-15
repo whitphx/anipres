@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { Anipres } from "anipres";
 import { SyncedAnipresContainer } from "./SyncedAnipresContainer";
-import { getSyncCache, deleteSyncCache } from "../documents/idb-sync-cache";
+import {
+  getSyncCache,
+  deleteSyncCache,
+  setSyncCache,
+} from "../documents/idb-sync-cache";
 import { reconcileOfflineEdits } from "../documents/reconnect";
 import { ApiDocumentRepository } from "../documents/api-repository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
@@ -35,6 +39,7 @@ export function OfflineAwareSyncedContainer({
 
   // Track the offline editor so we can grab its snapshot for reconciliation.
   const offlineEditorRef = useRef<Editor | null>(null);
+  const [offlineEditor, setOfflineEditor] = useState<Editor | null>(null);
   const snapshotVersionRef = useRef<number>(0);
 
   // On mount when offline, try to load from IDB cache.
@@ -126,7 +131,58 @@ export function OfflineAwareSyncedContainer({
 
   const handleOfflineMount = useCallback((editor: Editor) => {
     offlineEditorRef.current = editor;
+    setOfflineEditor(editor);
   }, []);
+
+  useEffect(() => {
+    if (mode.type !== "offline") {
+      return;
+    }
+
+    if (!offlineEditor) {
+      return;
+    }
+
+    const flush = async () => {
+      const snapshot = getSnapshot(offlineEditor.store).document;
+      await setSyncCache(documentId, snapshot, snapshotVersionRef.current);
+    };
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopListening = offlineEditor.store.listen(
+      () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          void flush().catch((error) => {
+            console.error("Failed to cache offline snapshot", error);
+          });
+        }, 500);
+      },
+      { source: "all", scope: "document" },
+    );
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void flush().catch((error) => {
+          console.error("Failed to cache offline snapshot on hide", error);
+        });
+      }
+    };
+    const handlePageHide = () => {
+      void flush().catch((error) => {
+        console.error("Failed to cache offline snapshot on pagehide", error);
+      });
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      clearTimeout(timer);
+      stopListening();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [documentId, mode.type, offlineEditor]);
 
   if (mode.type === "synced") {
     return (
