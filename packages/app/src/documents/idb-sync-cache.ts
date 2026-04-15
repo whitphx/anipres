@@ -6,6 +6,7 @@ const store = createStore("anipres-sync-cache", "snapshots");
 interface SyncCacheEntry {
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
+  hasPendingOfflineChanges?: boolean;
 }
 
 export async function getSyncCache(
@@ -18,10 +19,15 @@ export async function setSyncCache(
   documentId: string,
   snapshot: TLStoreSnapshot,
   snapshotVersion: number,
+  hasPendingOfflineChanges = false,
 ): Promise<void> {
   await set(
     documentId,
-    { snapshot, snapshotVersion } satisfies SyncCacheEntry,
+    {
+      snapshot,
+      snapshotVersion,
+      hasPendingOfflineChanges,
+    } satisfies SyncCacheEntry,
     store,
   );
 }

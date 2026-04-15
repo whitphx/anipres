@@ -12,6 +12,7 @@ import { ApiDocumentRepository } from "../documents/api-repository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
 type Mode =
+  | { type: "loading" }
   | { type: "synced" }
   | { type: "offline"; snapshot: TLStoreSnapshot }
   | { type: "reconnecting" }
@@ -32,28 +33,36 @@ export function OfflineAwareSyncedContainer({
   documentId,
   colorScheme,
 }: OfflineAwareSyncedContainerProps) {
-  const [mode, setMode] = useState<Mode>(() =>
-    navigator.onLine ? { type: "synced" } : { type: "unavailable" },
-  );
+  const [mode, setMode] = useState<Mode>({ type: "loading" });
   const { refreshDocuments, selectDocument } = useDocumentManagerContext();
 
   // Track the offline editor so we can grab its snapshot for reconciliation.
   const offlineEditorRef = useRef<Editor | null>(null);
   const [offlineEditor, setOfflineEditor] = useState<Editor | null>(null);
   const snapshotVersionRef = useRef<number>(0);
+  const shouldAutoReconnectRef = useRef(false);
 
-  // On mount when offline, try to load from IDB cache.
+  // On mount, load any cached snapshot. If it contains pending offline edits,
+  // restore it even when the browser is back online so we can reconcile it
+  // before the synced container overwrites the cache with server state.
   useEffect(() => {
-    if (navigator.onLine) return;
-
     let cancelled = false;
     getSyncCache(documentId).then((entry) => {
       if (cancelled) return;
       if (entry) {
         snapshotVersionRef.current = entry.snapshotVersion;
-        setMode({ type: "offline", snapshot: entry.snapshot });
+        if (navigator.onLine && entry.hasPendingOfflineChanges) {
+          shouldAutoReconnectRef.current = true;
+          setMode({ type: "offline", snapshot: entry.snapshot });
+        } else if (!navigator.onLine) {
+          setMode({ type: "offline", snapshot: entry.snapshot });
+        } else {
+          setMode({ type: "synced" });
+        }
       } else {
-        setMode({ type: "unavailable" });
+        setMode(
+          navigator.onLine ? { type: "synced" } : { type: "unavailable" },
+        );
       }
     });
     return () => {
@@ -129,6 +138,55 @@ export function OfflineAwareSyncedContainer({
     return () => window.removeEventListener("online", handleOnline);
   }, [handleOnline]);
 
+  useEffect(() => {
+    const currentDocumentId = documentId;
+
+    const handleOffline = () => {
+      if (mode.type !== "synced") {
+        return;
+      }
+
+      void getSyncCache(currentDocumentId)
+        .then((entry) => {
+          if (entry) {
+            snapshotVersionRef.current = entry.snapshotVersion;
+            setMode({ type: "offline", snapshot: entry.snapshot });
+            return;
+          }
+
+          setMode({ type: "unavailable" });
+        })
+        .catch((error) => {
+          console.error(
+            "Failed to load offline snapshot after disconnect",
+            error,
+          );
+          setMode({ type: "unavailable" });
+        });
+    };
+
+    window.addEventListener("offline", handleOffline);
+    return () => window.removeEventListener("offline", handleOffline);
+  }, [documentId, mode.type]);
+
+  useEffect(() => {
+    if (
+      !shouldAutoReconnectRef.current ||
+      !navigator.onLine ||
+      mode.type !== "offline" ||
+      !offlineEditor
+    ) {
+      return;
+    }
+
+    shouldAutoReconnectRef.current = false;
+    const timer = setTimeout(() => {
+      void handleOnline();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [handleOnline, mode.type, offlineEditor]);
+
   const handleOfflineMount = useCallback((editor: Editor) => {
     offlineEditorRef.current = editor;
     setOfflineEditor(editor);
@@ -145,7 +203,12 @@ export function OfflineAwareSyncedContainer({
 
     const flush = async () => {
       const snapshot = getSnapshot(offlineEditor.store).document;
-      await setSyncCache(documentId, snapshot, snapshotVersionRef.current);
+      await setSyncCache(
+        documentId,
+        snapshot,
+        snapshotVersionRef.current,
+        true,
+      );
     };
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -238,6 +301,24 @@ export function OfflineAwareSyncedContainer({
         }}
       >
         Reconnecting...
+      </div>
+    );
+  }
+
+  if (mode.type === "loading") {
+    return (
+      <div
+        role="status"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          fontSize: 14,
+          color: "#666",
+        }}
+      >
+        Loading...
       </div>
     );
   }

@@ -50,6 +50,16 @@ export async function reconcileOfflineEdits(params: {
     };
   }
 
+  const conflictBody = (await pushRes.json().catch(() => null)) as {
+    reason?: "active-session" | "version-conflict";
+  } | null;
+  if (conflictBody?.reason === "active-session") {
+    return {
+      action: "error",
+      reason: "Document is still open in another session",
+    };
+  }
+
   // Server has diverged — fork the local version as a new document.
   const originalTitle = serverDoc.meta.title;
   const forkTitle = `${originalTitle} (offline copy)`;

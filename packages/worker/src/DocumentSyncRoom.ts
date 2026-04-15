@@ -348,15 +348,27 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     documentId: string,
     snapshot: unknown,
     expectedSnapshotVersion: number,
-  ): Promise<{ replaced: boolean; snapshotVersion: number }> {
+  ): Promise<{
+    replaced: boolean;
+    snapshotVersion: number;
+    reason?: "active-session" | "version-conflict";
+  }> {
     await this.setDocumentId(documentId);
     return this.runRoomTask(async () => {
       this.flushSnapshotIfDirty();
       if (this.room.getNumActiveSessions() > 0) {
-        return { replaced: false, snapshotVersion: this.snapshotVersion };
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "active-session",
+        };
       }
       if (this.snapshotVersion !== expectedSnapshotVersion) {
-        return { replaced: false, snapshotVersion: this.snapshotVersion };
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "version-conflict",
+        };
       }
       this.room.loadSnapshot(snapshot as RoomSnapshot);
       this.cancelPendingAssetSync();

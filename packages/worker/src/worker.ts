@@ -209,6 +209,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
       {
         error: "Conflict",
         snapshotVersion: result.snapshotVersion,
+        reason: result.reason,
       },
       409,
     );

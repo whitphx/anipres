@@ -69,33 +69,44 @@ export function SyncedAnipresContainer({
   });
 
   // Cache the synced store to IDB so it's available for offline fallback.
-  const documentIdRef = useRef(documentId);
   const snapshotVersionRef = useRef(0);
-  useEffect(() => {
-    documentIdRef.current = documentId;
-  }, [documentId]);
   useEffect(() => {
     if (storeWithStatus.status !== "synced-remote") return;
     const store = storeWithStatus.store;
+    const currentDocumentId = documentId;
+    snapshotVersionRef.current = 0;
 
     const refreshSnapshotVersion = async () => {
-      const { snapshotVersion } = await fetchOfflineCache(
-        documentIdRef.current,
-      );
+      const { snapshotVersion } = await fetchOfflineCache(currentDocumentId);
       snapshotVersionRef.current = snapshotVersion;
     };
 
-    const flush = async () => {
+    const persistLocalSnapshot = async () => {
       const { document } = getSnapshot(store);
+      await setSyncCache(
+        currentDocumentId,
+        document,
+        snapshotVersionRef.current,
+        false,
+      );
+    };
+
+    const flushWithVersionRefresh = async () => {
       if (navigator.onLine) {
         await refreshSnapshotVersion();
       }
+      await persistLocalSnapshot();
+    };
 
-      await setSyncCache(
-        documentIdRef.current,
-        document,
-        snapshotVersionRef.current,
-      );
+    const flushBestEffort = async () => {
+      await persistLocalSnapshot();
+
+      // The page may be backgrounding or closing, so durability of the local
+      // snapshot matters more than refreshing the server revision first.
+      if (navigator.onLine) {
+        await refreshSnapshotVersion();
+        await persistLocalSnapshot();
+      }
     };
 
     // Debounced write on store changes (500ms).
@@ -104,7 +115,7 @@ export function SyncedAnipresContainer({
       () => {
         clearTimeout(timer);
         timer = setTimeout(() => {
-          void flush().catch((error) => {
+          void flushWithVersionRefresh().catch((error) => {
             console.error("Failed to cache synced snapshot", error);
           });
         }, 500);
@@ -114,11 +125,10 @@ export function SyncedAnipresContainer({
 
     void (async () => {
       try {
-        const { snapshot, snapshotVersion } = await fetchOfflineCache(
-          documentIdRef.current,
-        );
+        const { snapshot, snapshotVersion } =
+          await fetchOfflineCache(currentDocumentId);
         snapshotVersionRef.current = snapshotVersion;
-        await setSyncCache(documentIdRef.current, snapshot, snapshotVersion);
+        await setSyncCache(currentDocumentId, snapshot, snapshotVersion, false);
       } catch (error) {
         console.error("Failed to initialize synced snapshot cache", error);
       }
@@ -127,13 +137,13 @@ export function SyncedAnipresContainer({
     // Flush on visibility hidden and page hide (best-effort for tab close).
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        void flush().catch((error) => {
+        void flushBestEffort().catch((error) => {
           console.error("Failed to cache synced snapshot on hide", error);
         });
       }
     };
     const handlePageHide = () => {
-      void flush().catch((error) => {
+      void flushBestEffort().catch((error) => {
         console.error("Failed to cache synced snapshot on pagehide", error);
       });
     };
@@ -146,7 +156,7 @@ export function SyncedAnipresContainer({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [storeWithStatus]);
+  }, [documentId, storeWithStatus]);
 
   return (
     <Anipres
