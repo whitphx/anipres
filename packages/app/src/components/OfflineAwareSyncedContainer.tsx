@@ -19,6 +19,7 @@ type Mode =
       snapshot: TLStoreSnapshot;
       baselineSnapshot: TLStoreSnapshot;
       reconnectSnapshot: TLStoreSnapshot;
+      hasPendingOfflineChanges: boolean;
     }
   | { type: "reconnecting" }
   | { type: "unavailable" };
@@ -82,6 +83,7 @@ export function OfflineAwareSyncedContainer({
               snapshot: entry.snapshot,
               baselineSnapshot,
               reconnectSnapshot,
+              hasPendingOfflineChanges: true,
             });
           } else if (!navigator.onLine) {
             resetOfflineEditor();
@@ -90,6 +92,7 @@ export function OfflineAwareSyncedContainer({
               snapshot: entry.snapshot,
               baselineSnapshot,
               reconnectSnapshot,
+              hasPendingOfflineChanges: entry.hasPendingOfflineChanges ?? false,
             });
           } else {
             setMode({ type: "synced" });
@@ -138,7 +141,11 @@ export function OfflineAwareSyncedContainer({
       snapshot = getSnapshot(editor.store).document;
     }
 
-    if (snapshotsEqual(snapshot, mode.baselineSnapshot)) {
+    if (
+      snapshotsEqual(snapshot, mode.baselineSnapshot) ||
+      (!mode.hasPendingOfflineChanges &&
+        snapshotsEqual(snapshot, mode.reconnectSnapshot))
+    ) {
       await deleteSyncCache(documentId);
       setMode({ type: "synced" });
       return;
@@ -200,6 +207,7 @@ export function OfflineAwareSyncedContainer({
           snapshot,
           baselineSnapshot: mode.baselineSnapshot,
           reconnectSnapshot: mode.reconnectSnapshot,
+          hasPendingOfflineChanges: mode.hasPendingOfflineChanges,
         });
       }
     } catch (error) {
@@ -209,6 +217,7 @@ export function OfflineAwareSyncedContainer({
         snapshot,
         baselineSnapshot: mode.baselineSnapshot,
         reconnectSnapshot: mode.reconnectSnapshot,
+        hasPendingOfflineChanges: mode.hasPendingOfflineChanges,
       });
     }
   }, [mode, documentId, refreshDocuments, selectDocument]);
@@ -251,6 +260,7 @@ export function OfflineAwareSyncedContainer({
           snapshot: liveSnapshotState.snapshot,
           baselineSnapshot: liveSnapshotState.baselineSnapshot,
           reconnectSnapshot: liveSnapshotState.reconnectSnapshot,
+          hasPendingOfflineChanges: liveSnapshotState.hasPendingOfflineChanges,
         });
         snapshotVersionRef.current = liveSnapshotState.snapshotVersion;
         void setSyncCache(
@@ -279,6 +289,7 @@ export function OfflineAwareSyncedContainer({
               snapshot: entry.snapshot,
               baselineSnapshot: entry.baselineSnapshot ?? entry.snapshot,
               reconnectSnapshot: entry.reconnectSnapshot ?? entry.snapshot,
+              hasPendingOfflineChanges: entry.hasPendingOfflineChanges ?? false,
             });
             return;
           }
