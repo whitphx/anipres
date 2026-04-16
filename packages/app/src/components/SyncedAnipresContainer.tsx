@@ -169,7 +169,7 @@ export function SyncedAnipresContainer({
           });
         }, 500);
       },
-      { source: "all", scope: "document" },
+      { source: "user", scope: "document" },
     );
 
     void (async () => {
