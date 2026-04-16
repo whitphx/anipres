@@ -83,10 +83,12 @@ export function SyncedAnipresContainer({
   // Cache the synced store to IDB so it's available for offline fallback.
   const snapshotVersionRef = useRef(0);
   const confirmedSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+  const baselineSnapshotRef = useRef<TLStoreSnapshot | null>(null);
   const hasPendingOfflineChangesRef = useRef(false);
   useEffect(() => {
     snapshotVersionRef.current = 0;
     confirmedSnapshotRef.current = null;
+    baselineSnapshotRef.current = null;
     hasPendingOfflineChangesRef.current = false;
   }, [documentId]);
 
@@ -94,6 +96,7 @@ export function SyncedAnipresContainer({
     if (storeWithStatus.status !== "synced-remote") return;
     const store = storeWithStatus.store;
     const currentDocumentId = documentId;
+    baselineSnapshotRef.current ??= getSnapshot(store).document;
 
     const refreshSnapshotVersion = async () => {
       const { snapshot, snapshotVersion } =
@@ -107,6 +110,7 @@ export function SyncedAnipresContainer({
       if (snapshotsEqual(snapshot, localSnapshot)) {
         snapshotVersionRef.current = snapshotVersion;
         confirmedSnapshotRef.current = snapshot;
+        baselineSnapshotRef.current = snapshot;
         hasPendingOfflineChangesRef.current = false;
       }
     };
@@ -116,7 +120,10 @@ export function SyncedAnipresContainer({
       onSnapshotUpdate?.({
         snapshot,
         snapshotVersion: snapshotVersionRef.current,
-        baselineSnapshot: confirmedSnapshotRef.current ?? snapshot,
+        baselineSnapshot:
+          confirmedSnapshotRef.current ??
+          baselineSnapshotRef.current ??
+          snapshot,
         reconnectSnapshot: snapshot,
         hasPendingOfflineChanges: hasPendingOfflineChangesRef.current,
       });
@@ -129,7 +136,7 @@ export function SyncedAnipresContainer({
         document,
         snapshotVersionRef.current,
         hasPendingOfflineChangesRef.current,
-        confirmedSnapshotRef.current ?? document,
+        confirmedSnapshotRef.current ?? baselineSnapshotRef.current ?? document,
         document,
       );
     };
@@ -165,6 +172,10 @@ export function SyncedAnipresContainer({
       (entry) => {
         if (entry.source === "user") {
           hasPendingOfflineChangesRef.current = true;
+        } else if (!hasPendingOfflineChangesRef.current) {
+          // Before the initial offline-cache bootstrap completes, preserve the
+          // latest known server-backed snapshot as the reconnect baseline.
+          baselineSnapshotRef.current = getSnapshot(store).document;
         }
         publishSnapshot();
         clearTimeout(timer);
@@ -191,6 +202,7 @@ export function SyncedAnipresContainer({
 
         snapshotVersionRef.current = snapshotVersion;
         confirmedSnapshotRef.current = snapshot;
+        baselineSnapshotRef.current = snapshot;
         hasPendingOfflineChangesRef.current = false;
         onSnapshotUpdate?.({
           snapshot,
