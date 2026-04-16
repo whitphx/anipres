@@ -97,6 +97,7 @@ export function SyncedAnipresContainer({
     const store = storeWithStatus.store;
     const currentDocumentId = documentId;
     baselineSnapshotRef.current ??= getSnapshot(store).document;
+    let retryRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     const refreshSnapshotVersion = async () => {
       const { snapshot, snapshotVersion } =
@@ -112,7 +113,23 @@ export function SyncedAnipresContainer({
         confirmedSnapshotRef.current = snapshot;
         baselineSnapshotRef.current = snapshot;
         hasPendingOfflineChangesRef.current = false;
+        clearTimeout(retryRefreshTimer);
+        return true;
       }
+
+      if (navigator.onLine && hasPendingOfflineChangesRef.current) {
+        clearTimeout(retryRefreshTimer);
+        retryRefreshTimer = setTimeout(() => {
+          void refreshAndPublishIfConfirmed().catch((error) => {
+            console.error(
+              "Failed to retry synced snapshot version refresh",
+              error,
+            );
+          });
+        }, 1000);
+      }
+
+      return false;
     };
 
     const publishSnapshot = () => {
@@ -141,10 +158,18 @@ export function SyncedAnipresContainer({
       );
     };
 
+    const refreshAndPublishIfConfirmed = async () => {
+      const confirmed = await refreshSnapshotVersion();
+      if (!confirmed) return;
+
+      publishSnapshot();
+      await persistLocalSnapshot();
+    };
+
     const flushWithVersionRefresh = async () => {
       if (navigator.onLine) {
         try {
-          await refreshSnapshotVersion();
+          await refreshAndPublishIfConfirmed();
         } catch (error) {
           console.error("Failed to refresh synced snapshot version", error);
         }
@@ -160,9 +185,7 @@ export function SyncedAnipresContainer({
       // The page may be backgrounding or closing, so durability of the local
       // snapshot matters more than refreshing the server revision first.
       if (navigator.onLine) {
-        await refreshSnapshotVersion();
-        publishSnapshot();
-        await persistLocalSnapshot();
+        await refreshAndPublishIfConfirmed();
       }
     };
 
@@ -246,6 +269,7 @@ export function SyncedAnipresContainer({
 
     return () => {
       clearTimeout(timer);
+      clearTimeout(retryRefreshTimer);
       stopListening();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
