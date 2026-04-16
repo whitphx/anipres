@@ -82,14 +82,18 @@ export function SyncedAnipresContainer({
 
   // Cache the synced store to IDB so it's available for offline fallback.
   const snapshotVersionRef = useRef(0);
+  const confirmedSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+  const hasPendingOfflineChangesRef = useRef(false);
+  useEffect(() => {
+    snapshotVersionRef.current = 0;
+    confirmedSnapshotRef.current = null;
+    hasPendingOfflineChangesRef.current = false;
+  }, [documentId]);
+
   useEffect(() => {
     if (storeWithStatus.status !== "synced-remote") return;
     const store = storeWithStatus.store;
     const currentDocumentId = documentId;
-    snapshotVersionRef.current = 0;
-    let confirmedSnapshotRef: TLStoreSnapshot | null = null;
-    let hasObservedDocumentChanges = false;
-    let hasPendingOfflineChanges = false;
 
     const refreshSnapshotVersion = async () => {
       const { snapshot, snapshotVersion } =
@@ -102,8 +106,8 @@ export function SyncedAnipresContainer({
       // flag before that edit is actually reflected by the server state.
       if (snapshotsEqual(snapshot, localSnapshot)) {
         snapshotVersionRef.current = snapshotVersion;
-        confirmedSnapshotRef = snapshot;
-        hasPendingOfflineChanges = false;
+        confirmedSnapshotRef.current = snapshot;
+        hasPendingOfflineChangesRef.current = false;
       }
     };
 
@@ -112,9 +116,9 @@ export function SyncedAnipresContainer({
       onSnapshotUpdate?.({
         snapshot,
         snapshotVersion: snapshotVersionRef.current,
-        baselineSnapshot: confirmedSnapshotRef ?? snapshot,
+        baselineSnapshot: confirmedSnapshotRef.current ?? snapshot,
         reconnectSnapshot: snapshot,
-        hasPendingOfflineChanges,
+        hasPendingOfflineChanges: hasPendingOfflineChangesRef.current,
       });
     };
 
@@ -124,8 +128,8 @@ export function SyncedAnipresContainer({
         currentDocumentId,
         document,
         snapshotVersionRef.current,
-        hasPendingOfflineChanges,
-        confirmedSnapshotRef ?? document,
+        hasPendingOfflineChangesRef.current,
+        confirmedSnapshotRef.current ?? document,
         document,
       );
     };
@@ -159,9 +163,8 @@ export function SyncedAnipresContainer({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopListening = store.listen(
       (entry) => {
-        hasObservedDocumentChanges = true;
         if (entry.source === "user") {
-          hasPendingOfflineChanges = true;
+          hasPendingOfflineChangesRef.current = true;
         }
         publishSnapshot();
         clearTimeout(timer);
@@ -178,13 +181,17 @@ export function SyncedAnipresContainer({
       try {
         const { snapshot, snapshotVersion } =
           await fetchOfflineCache(currentDocumentId);
-        snapshotVersionRef.current = snapshotVersion;
-        confirmedSnapshotRef = snapshot;
-        if (hasObservedDocumentChanges) {
+        const localSnapshot = getSnapshot(store).document;
+
+        if (!snapshotsEqual(localSnapshot, snapshot)) {
           publishSnapshot();
           await persistLocalSnapshot();
           return;
         }
+
+        snapshotVersionRef.current = snapshotVersion;
+        confirmedSnapshotRef.current = snapshot;
+        hasPendingOfflineChangesRef.current = false;
         onSnapshotUpdate?.({
           snapshot,
           snapshotVersion,
