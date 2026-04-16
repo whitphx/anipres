@@ -88,7 +88,7 @@ export function SyncedAnipresContainer({
     const currentDocumentId = documentId;
     snapshotVersionRef.current = 0;
     let confirmedSnapshotRef: TLStoreSnapshot | null = null;
-    let hasObservedLocalChanges = false;
+    let hasObservedDocumentChanges = false;
     let hasPendingOfflineChanges = false;
 
     const refreshSnapshotVersion = async () => {
@@ -158,9 +158,11 @@ export function SyncedAnipresContainer({
     // Debounced write on store changes (500ms).
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopListening = store.listen(
-      () => {
-        hasObservedLocalChanges = true;
-        hasPendingOfflineChanges = true;
+      (entry) => {
+        hasObservedDocumentChanges = true;
+        if (entry.source === "user") {
+          hasPendingOfflineChanges = true;
+        }
         publishSnapshot();
         clearTimeout(timer);
         timer = setTimeout(() => {
@@ -169,7 +171,7 @@ export function SyncedAnipresContainer({
           });
         }, 500);
       },
-      { source: "user", scope: "document" },
+      { source: "all", scope: "document" },
     );
 
     void (async () => {
@@ -178,7 +180,7 @@ export function SyncedAnipresContainer({
           await fetchOfflineCache(currentDocumentId);
         snapshotVersionRef.current = snapshotVersion;
         confirmedSnapshotRef = snapshot;
-        if (hasObservedLocalChanges) {
+        if (hasObservedDocumentChanges) {
           publishSnapshot();
           await persistLocalSnapshot();
           return;
