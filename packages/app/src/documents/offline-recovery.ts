@@ -37,19 +37,15 @@ export function getOfflineSnapshotState(
 }
 
 export function resolveStartupState(params: {
-  entry: SyncCacheEntry | undefined;
+  cacheEntry: SyncCacheEntry | undefined;
+  recoveryEntry: SyncCacheEntry | undefined;
   isOnline: boolean;
-  currentSessionId: string;
 }): StartupState {
-  const { entry, isOnline, currentSessionId } = params;
-
-  if (!entry) {
-    return isOnline ? { type: "synced" } : { type: "unavailable" };
-  }
+  const { cacheEntry, recoveryEntry, isOnline } = params;
 
   if (isOnline) {
-    if (entry.recovery?.ownerSessionId === currentSessionId) {
-      const { snapshot, ...recovery } = getOfflineSnapshotState(entry);
+    if (recoveryEntry) {
+      const { snapshot, ...recovery } = getOfflineSnapshotState(recoveryEntry);
       return {
         type: "offline",
         snapshot,
@@ -61,7 +57,21 @@ export function resolveStartupState(params: {
     return { type: "synced" };
   }
 
-  const { snapshot, ...recovery } = getOfflineSnapshotState(entry);
+  if (recoveryEntry) {
+    const { snapshot, ...recovery } = getOfflineSnapshotState(recoveryEntry);
+    return {
+      type: "offline",
+      snapshot,
+      recovery,
+      shouldAutoReconnect: false,
+    };
+  }
+
+  if (!cacheEntry) {
+    return { type: "unavailable" };
+  }
+
+  const { snapshot, ...recovery } = getOfflineSnapshotState(cacheEntry);
   return {
     type: "offline",
     snapshot,
@@ -86,12 +96,10 @@ export function createRecoveryState(params: {
   baselineSnapshot: TLStoreSnapshot;
   reconnectSnapshot: TLStoreSnapshot;
   hasPendingOfflineChanges: boolean;
-  ownerSessionId: string;
 }): SyncRecoveryState {
   return {
     baselineSnapshot: params.baselineSnapshot,
     reconnectSnapshot: params.reconnectSnapshot,
     hasPendingOfflineChanges: params.hasPendingOfflineChanges,
-    ownerSessionId: params.ownerSessionId,
   };
 }

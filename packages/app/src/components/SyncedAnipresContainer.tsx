@@ -3,8 +3,10 @@ import { useSync } from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import {
+  deleteSyncRecovery,
   getSyncCacheSessionId,
   setSyncCache,
+  setSyncRecovery,
 } from "../documents/idb-sync-cache";
 import {
   createRecoveryState,
@@ -156,24 +158,29 @@ export function SyncedAnipresContainer({
       const { document } = getSnapshot(store);
       const baselineSnapshot =
         confirmedSnapshotRef.current ?? baselineSnapshotRef.current ?? document;
-      await setSyncCache(
-        currentDocumentId,
-        hasPendingOfflineChangesRef.current
-          ? {
-              snapshot: document,
-              snapshotVersion: snapshotVersionRef.current,
-              recovery: createRecoveryState({
-                baselineSnapshot,
-                reconnectSnapshot: document,
-                hasPendingOfflineChanges: true,
-                ownerSessionId: currentSessionId,
-              }),
-            }
-          : {
-              snapshot: document,
-              snapshotVersion: snapshotVersionRef.current,
-            },
-      );
+      await setSyncCache(currentDocumentId, {
+        snapshot: baselineSnapshot,
+        snapshotVersion: snapshotVersionRef.current,
+      });
+
+      if (hasPendingOfflineChangesRef.current) {
+        await setSyncRecovery(
+          currentDocumentId,
+          {
+            snapshot: document,
+            snapshotVersion: snapshotVersionRef.current,
+            recovery: createRecoveryState({
+              baselineSnapshot,
+              reconnectSnapshot: document,
+              hasPendingOfflineChanges: true,
+            }),
+          },
+          currentSessionId,
+        );
+        return;
+      }
+
+      await deleteSyncRecovery(currentDocumentId, currentSessionId);
     };
 
     const refreshAndPublishIfConfirmed = async () => {
@@ -258,6 +265,7 @@ export function SyncedAnipresContainer({
           snapshot,
           snapshotVersion,
         });
+        await deleteSyncRecovery(currentDocumentId, currentSessionId);
       } catch (error) {
         console.error("Failed to initialize synced snapshot cache", error);
       }

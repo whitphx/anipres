@@ -19,9 +19,9 @@ describe("resolveStartupState", () => {
   it("starts synced online without a cache entry", () => {
     expect(
       resolveStartupState({
-        entry: undefined,
+        cacheEntry: undefined,
+        recoveryEntry: undefined,
         isOnline: true,
-        currentSessionId: "tab-a",
       }),
     ).toEqual({ type: "synced" });
   });
@@ -29,52 +29,45 @@ describe("resolveStartupState", () => {
   it("starts unavailable offline without a cache entry", () => {
     expect(
       resolveStartupState({
-        entry: undefined,
+        cacheEntry: undefined,
+        recoveryEntry: undefined,
         isOnline: false,
-        currentSessionId: "tab-a",
       }),
     ).toEqual({ type: "unavailable" });
   });
 
-  it("does not restore another tab's recovery state while online", () => {
+  it("ignores the shared cache while online without a recovery entry", () => {
     const snapshot = createSnapshot("doc");
 
     expect(
       resolveStartupState({
-        entry: {
+        cacheEntry: {
           snapshot,
           snapshotVersion: 3,
-          recovery: createRecoveryState({
-            baselineSnapshot: snapshot,
-            reconnectSnapshot: snapshot,
-            hasPendingOfflineChanges: true,
-            ownerSessionId: "tab-a",
-          }),
         },
+        recoveryEntry: undefined,
         isOnline: true,
-        currentSessionId: "tab-b",
       }),
     ).toEqual({ type: "synced" });
   });
 
-  it("restores this tab's recovery state while online", () => {
+  it("restores a recovery entry while online", () => {
     const snapshot = createSnapshot("doc");
     const reconnectSnapshot = createSnapshot("doc-next");
 
     expect(
       resolveStartupState({
-        entry: {
+        cacheEntry: undefined,
+        recoveryEntry: {
           snapshot,
           snapshotVersion: 3,
           recovery: createRecoveryState({
             baselineSnapshot: snapshot,
             reconnectSnapshot,
             hasPendingOfflineChanges: true,
-            ownerSessionId: "tab-a",
           }),
         },
         isOnline: true,
-        currentSessionId: "tab-a",
       }),
     ).toEqual({
       type: "offline",
@@ -93,12 +86,12 @@ describe("resolveStartupState", () => {
 
     expect(
       resolveStartupState({
-        entry: {
+        cacheEntry: {
           snapshot,
           snapshotVersion: 5,
         },
+        recoveryEntry: undefined,
         isOnline: false,
-        currentSessionId: "tab-a",
       }),
     ).toEqual({
       type: "offline",
@@ -107,6 +100,39 @@ describe("resolveStartupState", () => {
         baselineSnapshot: snapshot,
         reconnectSnapshot: snapshot,
         hasPendingOfflineChanges: false,
+      },
+      shouldAutoReconnect: false,
+    });
+  });
+
+  it("prefers the recovery entry over the shared cache offline", () => {
+    const cacheSnapshot = createSnapshot("cache");
+    const recoverySnapshot = createSnapshot("recovery");
+
+    expect(
+      resolveStartupState({
+        cacheEntry: {
+          snapshot: cacheSnapshot,
+          snapshotVersion: 3,
+        },
+        recoveryEntry: {
+          snapshot: recoverySnapshot,
+          snapshotVersion: 4,
+          recovery: createRecoveryState({
+            baselineSnapshot: cacheSnapshot,
+            reconnectSnapshot: recoverySnapshot,
+            hasPendingOfflineChanges: true,
+          }),
+        },
+        isOnline: false,
+      }),
+    ).toEqual({
+      type: "offline",
+      snapshot: recoverySnapshot,
+      recovery: {
+        baselineSnapshot: cacheSnapshot,
+        reconnectSnapshot: recoverySnapshot,
+        hasPendingOfflineChanges: true,
       },
       shouldAutoReconnect: false,
     });

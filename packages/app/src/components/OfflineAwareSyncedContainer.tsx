@@ -8,9 +8,11 @@ import {
   type ReconnectSnapshotState,
 } from "../documents/offline-recovery";
 import {
+  deleteSyncRecovery,
   getSyncCache,
-  deleteSyncCache,
+  getSyncRecovery,
   setSyncCache,
+  setSyncRecovery,
   getSyncCacheSessionId,
 } from "../documents/idb-sync-cache";
 import {
@@ -70,14 +72,18 @@ export function OfflineAwareSyncedContainer({
   // plain offline fallback and normal sync starts immediately.
   useEffect(() => {
     let cancelled = false;
-    getSyncCache(documentId)
-      .then((entry) => {
+    Promise.all([
+      getSyncCache(documentId),
+      getSyncRecovery(documentId, currentSessionId),
+    ])
+      .then(([cacheEntry, recoveryEntry]) => {
         if (cancelled) return;
-        snapshotVersionRef.current = entry?.snapshotVersion ?? 0;
+        snapshotVersionRef.current =
+          recoveryEntry?.snapshotVersion ?? cacheEntry?.snapshotVersion ?? 0;
         const startupState = resolveStartupState({
-          entry,
+          cacheEntry,
+          recoveryEntry,
           isOnline: navigator.onLine,
-          currentSessionId,
         });
 
         if (startupState.type === "offline") {
@@ -151,7 +157,7 @@ export function OfflineAwareSyncedContainer({
     }
 
     if (result.action === "noop") {
-      await deleteSyncCache(documentId);
+      await deleteSyncRecovery(documentId, currentSessionId);
       setMode({ type: "synced" });
       return;
     }
@@ -176,9 +182,10 @@ export function OfflineAwareSyncedContainer({
         snapshot,
         snapshotVersion: snapshotVersionRef.current,
       });
+      await deleteSyncRecovery(documentId, currentSessionId);
       setMode({ type: "synced" });
     } else if (result.action === "forked") {
-      await deleteSyncCache(documentId);
+      await deleteSyncRecovery(documentId, currentSessionId);
       await refreshDocuments();
       await selectDocument(result.forkedDocumentId);
       // selectDocument will cause a re-render with the new documentId, which
@@ -243,30 +250,50 @@ export function OfflineAwareSyncedContainer({
         });
         snapshotVersionRef.current = liveSnapshotState.snapshotVersion;
         void setSyncCache(currentDocumentId, {
-          snapshot: liveSnapshotState.snapshot,
+          snapshot: liveSnapshotState.recovery.hasPendingOfflineChanges
+            ? liveSnapshotState.recovery.baselineSnapshot
+            : liveSnapshotState.snapshot,
           snapshotVersion: liveSnapshotState.snapshotVersion,
-          recovery: createRecoveryState({
-            ...liveSnapshotState.recovery,
-            ownerSessionId: currentSessionId,
-          }),
         }).catch((error) => {
           console.error(
-            "Failed to persist live snapshot after disconnect",
+            "Failed to persist live synced snapshot after disconnect",
+            error,
+          );
+        });
+        void setSyncRecovery(
+          currentDocumentId,
+          {
+            snapshot: liveSnapshotState.snapshot,
+            snapshotVersion: liveSnapshotState.snapshotVersion,
+            recovery: createRecoveryState({
+              ...liveSnapshotState.recovery,
+            }),
+          },
+          currentSessionId,
+        ).catch((error) => {
+          console.error(
+            "Failed to persist live recovery snapshot after disconnect",
             error,
           );
         });
         return;
       }
 
-      void getSyncCache(currentDocumentId)
-        .then((entry) => {
-          if (entry) {
-            snapshotVersionRef.current = entry.snapshotVersion;
+      Promise.all([
+        getSyncCache(currentDocumentId),
+        getSyncRecovery(currentDocumentId, currentSessionId),
+      ])
+        .then(([cacheEntry, recoveryEntry]) => {
+          if (cacheEntry || recoveryEntry) {
+            snapshotVersionRef.current =
+              recoveryEntry?.snapshotVersion ??
+              cacheEntry?.snapshotVersion ??
+              0;
             resetOfflineEditor();
             const startupState = resolveStartupState({
-              entry,
+              cacheEntry,
+              recoveryEntry,
               isOnline: false,
-              currentSessionId,
             });
             if (startupState.type === "offline") {
               setMode({
@@ -328,15 +355,18 @@ export function OfflineAwareSyncedContainer({
 
     const flush = async () => {
       const snapshot = getSnapshot(offlineEditor.store).document;
-      await setSyncCache(documentId, {
-        snapshot,
-        snapshotVersion: snapshotVersionRef.current,
-        recovery: createRecoveryState({
-          ...mode.recovery,
-          hasPendingOfflineChanges: true,
-          ownerSessionId: currentSessionId,
-        }),
-      });
+      await setSyncRecovery(
+        documentId,
+        {
+          snapshot,
+          snapshotVersion: snapshotVersionRef.current,
+          recovery: createRecoveryState({
+            ...mode.recovery,
+            hasPendingOfflineChanges: true,
+          }),
+        },
+        currentSessionId,
+      );
     };
 
     let timer: ReturnType<typeof setTimeout> | undefined;
