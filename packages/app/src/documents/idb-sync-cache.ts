@@ -9,6 +9,33 @@ interface SyncCacheEntry {
   hasPendingOfflineChanges?: boolean;
   baselineSnapshot?: TLStoreSnapshot;
   reconnectSnapshot?: TLStoreSnapshot;
+  ownerSessionId?: string;
+}
+
+let tabSessionId: string | null = null;
+
+export function getSyncCacheSessionId(): string {
+  if (tabSessionId) {
+    return tabSessionId;
+  }
+
+  try {
+    const existing = window.sessionStorage.getItem(
+      "anipres-sync-cache-session",
+    );
+    if (existing) {
+      tabSessionId = existing;
+      return existing;
+    }
+
+    const created = crypto.randomUUID();
+    window.sessionStorage.setItem("anipres-sync-cache-session", created);
+    tabSessionId = created;
+    return created;
+  } catch {
+    tabSessionId = crypto.randomUUID();
+    return tabSessionId;
+  }
 }
 
 export async function getSyncCache(
@@ -24,6 +51,7 @@ export async function setSyncCache(
   hasPendingOfflineChanges = false,
   baselineSnapshot?: TLStoreSnapshot,
   reconnectSnapshot?: TLStoreSnapshot,
+  ownerSessionId = getSyncCacheSessionId(),
 ): Promise<void> {
   await set(
     documentId,
@@ -33,6 +61,7 @@ export async function setSyncCache(
       hasPendingOfflineChanges,
       baselineSnapshot,
       reconnectSnapshot,
+      ownerSessionId,
     } satisfies SyncCacheEntry,
     store,
   );

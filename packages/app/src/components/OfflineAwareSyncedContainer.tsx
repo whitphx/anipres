@@ -6,6 +6,7 @@ import {
   getSyncCache,
   deleteSyncCache,
   setSyncCache,
+  getSyncCacheSessionId,
 } from "../documents/idb-sync-cache";
 import { reconcileOfflineEdits } from "../documents/reconnect";
 import { ApiDocumentRepository } from "../documents/api-repository";
@@ -41,6 +42,7 @@ export function OfflineAwareSyncedContainer({
 }: OfflineAwareSyncedContainerProps) {
   const [mode, setMode] = useState<Mode>({ type: "loading" });
   const { refreshDocuments, selectDocument } = useDocumentManagerContext();
+  const currentSessionId = getSyncCacheSessionId();
 
   // Track the offline editor so we can grab its snapshot for reconciliation.
   const offlineEditorRef = useRef<Editor | null>(null);
@@ -75,7 +77,11 @@ export function OfflineAwareSyncedContainer({
           snapshotVersionRef.current = entry.snapshotVersion;
           const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
           const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
-          if (navigator.onLine && entry.hasPendingOfflineChanges) {
+          if (
+            navigator.onLine &&
+            entry.hasPendingOfflineChanges &&
+            entry.ownerSessionId === currentSessionId
+          ) {
             resetOfflineEditor();
             shouldAutoReconnectRef.current = true;
             setMode({
@@ -113,7 +119,7 @@ export function OfflineAwareSyncedContainer({
     return () => {
       cancelled = true;
     };
-  }, [documentId, resetOfflineEditor]);
+  }, [currentSessionId, documentId, resetOfflineEditor]);
 
   // Listen for online event to trigger reconnection.
   const handleOnline = useCallback(async () => {
