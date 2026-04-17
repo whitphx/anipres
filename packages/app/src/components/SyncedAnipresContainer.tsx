@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef } from "react";
 import { useSync } from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
-import { setSyncCache } from "../documents/idb-sync-cache";
+import {
+  getSyncCacheSessionId,
+  setSyncCache,
+} from "../documents/idb-sync-cache";
+import {
+  createRecoveryState,
+  snapshotsEqual,
+  type ReconnectSnapshotState,
+} from "../documents/offline-recovery";
 
 interface SyncedAnipresContainerProps {
   documentId: string;
@@ -10,9 +18,7 @@ interface SyncedAnipresContainerProps {
   onSnapshotUpdate?: (snapshotState: {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
-    baselineSnapshot: TLStoreSnapshot;
-    reconnectSnapshot: TLStoreSnapshot;
-    hasPendingOfflineChanges: boolean;
+    recovery: ReconnectSnapshotState;
   }) => void;
 }
 
@@ -44,10 +50,6 @@ function createRemoteAssetStore(documentId: string): TLAssetStore {
   };
 }
 
-function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
@@ -69,6 +71,7 @@ export function SyncedAnipresContainer({
   colorScheme,
   onSnapshotUpdate,
 }: SyncedAnipresContainerProps) {
+  const currentSessionId = getSyncCacheSessionId();
   const remoteAssetStore = useMemo(
     () => createRemoteAssetStore(documentId),
     [documentId],
@@ -134,27 +137,42 @@ export function SyncedAnipresContainer({
 
     const publishSnapshot = () => {
       const snapshot = getSnapshot(store).document;
-      onSnapshotUpdate?.({
-        snapshot,
-        snapshotVersion: snapshotVersionRef.current,
+      const recovery = {
         baselineSnapshot:
           confirmedSnapshotRef.current ??
           baselineSnapshotRef.current ??
           snapshot,
         reconnectSnapshot: snapshot,
         hasPendingOfflineChanges: hasPendingOfflineChangesRef.current,
+      };
+      onSnapshotUpdate?.({
+        snapshot,
+        snapshotVersion: snapshotVersionRef.current,
+        recovery,
       });
     };
 
     const persistLocalSnapshot = async () => {
       const { document } = getSnapshot(store);
+      const baselineSnapshot =
+        confirmedSnapshotRef.current ?? baselineSnapshotRef.current ?? document;
       await setSyncCache(
         currentDocumentId,
-        document,
-        snapshotVersionRef.current,
-        hasPendingOfflineChangesRef.current,
-        confirmedSnapshotRef.current ?? baselineSnapshotRef.current ?? document,
-        document,
+        hasPendingOfflineChangesRef.current
+          ? {
+              snapshot: document,
+              snapshotVersion: snapshotVersionRef.current,
+              recovery: createRecoveryState({
+                baselineSnapshot,
+                reconnectSnapshot: document,
+                hasPendingOfflineChanges: true,
+                ownerSessionId: currentSessionId,
+              }),
+            }
+          : {
+              snapshot: document,
+              snapshotVersion: snapshotVersionRef.current,
+            },
       );
     };
 
@@ -230,18 +248,16 @@ export function SyncedAnipresContainer({
         onSnapshotUpdate?.({
           snapshot,
           snapshotVersion,
-          baselineSnapshot: snapshot,
-          reconnectSnapshot: snapshot,
-          hasPendingOfflineChanges: false,
+          recovery: {
+            baselineSnapshot: snapshot,
+            reconnectSnapshot: snapshot,
+            hasPendingOfflineChanges: false,
+          },
         });
-        await setSyncCache(
-          currentDocumentId,
+        await setSyncCache(currentDocumentId, {
           snapshot,
           snapshotVersion,
-          false,
-          snapshot,
-          snapshot,
-        );
+        });
       } catch (error) {
         console.error("Failed to initialize synced snapshot cache", error);
       }
@@ -274,7 +290,7 @@ export function SyncedAnipresContainer({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [documentId, onSnapshotUpdate, storeWithStatus]);
+  }, [currentSessionId, documentId, onSnapshotUpdate, storeWithStatus]);
 
   return (
     <Anipres

@@ -3,13 +3,17 @@ import type { TLStoreSnapshot } from "tldraw";
 
 const store = createStore("anipres-sync-cache", "snapshots");
 
-interface SyncCacheEntry {
+export interface SyncRecoveryState {
+  baselineSnapshot: TLStoreSnapshot;
+  reconnectSnapshot: TLStoreSnapshot;
+  hasPendingOfflineChanges: boolean;
+  ownerSessionId: string;
+}
+
+export interface SyncCacheEntry {
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
-  hasPendingOfflineChanges?: boolean;
-  baselineSnapshot?: TLStoreSnapshot;
-  reconnectSnapshot?: TLStoreSnapshot;
-  ownerSessionId?: string;
+  recovery?: SyncRecoveryState;
 }
 
 let tabSessionId: string | null = null;
@@ -46,25 +50,9 @@ export async function getSyncCache(
 
 export async function setSyncCache(
   documentId: string,
-  snapshot: TLStoreSnapshot,
-  snapshotVersion: number,
-  hasPendingOfflineChanges = false,
-  baselineSnapshot?: TLStoreSnapshot,
-  reconnectSnapshot?: TLStoreSnapshot,
-  ownerSessionId = getSyncCacheSessionId(),
+  entry: SyncCacheEntry,
 ): Promise<void> {
-  await set(
-    documentId,
-    {
-      snapshot,
-      snapshotVersion,
-      hasPendingOfflineChanges,
-      baselineSnapshot,
-      reconnectSnapshot,
-      ownerSessionId,
-    } satisfies SyncCacheEntry,
-    store,
-  );
+  await set(documentId, entry satisfies SyncCacheEntry, store);
 }
 
 export async function deleteSyncCache(documentId: string): Promise<void> {

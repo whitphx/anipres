@@ -1,7 +1,13 @@
 import type { TLStoreSnapshot } from "tldraw";
 import type { ApiDocumentRepository } from "./api-repository";
+import {
+  snapshotsEqual,
+  shouldSkipReconnect,
+  type ReconnectSnapshotState,
+} from "./offline-recovery";
 
 export type ReconnectResult =
+  | { action: "noop" }
   | { action: "pushed" }
   | { action: "forked"; forkedDocumentId: string }
   | {
@@ -9,15 +15,6 @@ export type ReconnectResult =
       reason: string;
       reasonCode?: "active-session" | "other";
     };
-
-/**
- * After an offline editing session, decide whether to push the local snapshot
- * to the server (if the server state hasn't changed) or fork the document
- * (if someone else edited it while we were offline).
- */
-function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
 
 async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
@@ -38,19 +35,16 @@ async function fetchOfflineCache(documentId: string): Promise<{
 export async function reconcileOfflineEdits(params: {
   documentId: string;
   localSnapshot: TLStoreSnapshot;
-  baselineSnapshot: TLStoreSnapshot;
-  reconnectSnapshot: TLStoreSnapshot;
+  recovery: ReconnectSnapshotState;
   snapshotVersion: number;
   repository: ApiDocumentRepository;
 }): Promise<ReconnectResult> {
-  const {
-    documentId,
-    localSnapshot,
-    baselineSnapshot,
-    reconnectSnapshot,
-    snapshotVersion,
-    repository,
-  } = params;
+  const { documentId, localSnapshot, recovery, snapshotVersion, repository } =
+    params;
+
+  if (shouldSkipReconnect({ snapshot: localSnapshot, recovery })) {
+    return { action: "noop" };
+  }
 
   // Fetch current server metadata before deciding whether to fork on conflict.
   const serverDoc = await repository.get(documentId);
@@ -112,8 +106,8 @@ export async function reconcileOfflineEdits(params: {
     // last known online baseline, reuse the current server revision instead of
     // forking a document that has not actually diverged.
     if (
-      snapshotsEqual(serverCache.snapshot, baselineSnapshot) ||
-      snapshotsEqual(serverCache.snapshot, reconnectSnapshot)
+      snapshotsEqual(serverCache.snapshot, recovery.baselineSnapshot) ||
+      snapshotsEqual(serverCache.snapshot, recovery.reconnectSnapshot)
     ) {
       const retryPushRes = await fetch(
         `/api/documents/${encodeURIComponent(documentId)}/snapshot`,

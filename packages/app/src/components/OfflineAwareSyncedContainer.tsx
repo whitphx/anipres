@@ -3,12 +3,20 @@ import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { Anipres } from "anipres";
 import { SyncedAnipresContainer } from "./SyncedAnipresContainer";
 import {
+  createRecoveryState,
+  resolveStartupState,
+  type ReconnectSnapshotState,
+} from "../documents/offline-recovery";
+import {
   getSyncCache,
   deleteSyncCache,
   setSyncCache,
   getSyncCacheSessionId,
 } from "../documents/idb-sync-cache";
-import { reconcileOfflineEdits } from "../documents/reconnect";
+import {
+  reconcileOfflineEdits,
+  type ReconnectResult,
+} from "../documents/reconnect";
 import { ApiDocumentRepository } from "../documents/api-repository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
@@ -18,9 +26,7 @@ type Mode =
   | {
       type: "offline";
       snapshot: TLStoreSnapshot;
-      baselineSnapshot: TLStoreSnapshot;
-      reconnectSnapshot: TLStoreSnapshot;
-      hasPendingOfflineChanges: boolean;
+      recovery: ReconnectSnapshotState;
     }
   | { type: "reconnecting" }
   | { type: "unavailable" };
@@ -31,10 +37,6 @@ interface OfflineAwareSyncedContainerProps {
 }
 
 const repository = new ApiDocumentRepository();
-
-function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
 
 export function OfflineAwareSyncedContainer({
   documentId,
@@ -52,9 +54,7 @@ export function OfflineAwareSyncedContainer({
   const liveSyncedSnapshotStateRef = useRef<{
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
-    baselineSnapshot: TLStoreSnapshot;
-    reconnectSnapshot: TLStoreSnapshot;
-    hasPendingOfflineChanges: boolean;
+    recovery: ReconnectSnapshotState;
   } | null>(null);
   const retryHandleOnlineRef = useRef<(() => void) | null>(null);
   const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -65,49 +65,33 @@ export function OfflineAwareSyncedContainer({
     setOfflineEditor(null);
   }, []);
 
-  // On mount, load any cached snapshot. If it contains pending offline edits,
-  // restore it even when the browser is back online so we can reconcile it
-  // before the synced container overwrites the cache with server state.
+  // On mount, load any cached snapshot. Online startup only restores a
+  // recovery session that belongs to this tab; otherwise the cache remains a
+  // plain offline fallback and normal sync starts immediately.
   useEffect(() => {
     let cancelled = false;
     getSyncCache(documentId)
       .then((entry) => {
         if (cancelled) return;
-        if (entry) {
-          snapshotVersionRef.current = entry.snapshotVersion;
-          const baselineSnapshot = entry.baselineSnapshot ?? entry.snapshot;
-          const reconnectSnapshot = entry.reconnectSnapshot ?? entry.snapshot;
-          if (
-            navigator.onLine &&
-            entry.hasPendingOfflineChanges &&
-            entry.ownerSessionId === currentSessionId
-          ) {
-            resetOfflineEditor();
-            shouldAutoReconnectRef.current = true;
-            setMode({
-              type: "offline",
-              snapshot: entry.snapshot,
-              baselineSnapshot,
-              reconnectSnapshot,
-              hasPendingOfflineChanges: true,
-            });
-          } else if (!navigator.onLine) {
-            resetOfflineEditor();
-            setMode({
-              type: "offline",
-              snapshot: entry.snapshot,
-              baselineSnapshot,
-              reconnectSnapshot,
-              hasPendingOfflineChanges: entry.hasPendingOfflineChanges ?? false,
-            });
-          } else {
-            setMode({ type: "synced" });
-          }
-        } else {
-          setMode(
-            navigator.onLine ? { type: "synced" } : { type: "unavailable" },
-          );
+        snapshotVersionRef.current = entry?.snapshotVersion ?? 0;
+        const startupState = resolveStartupState({
+          entry,
+          isOnline: navigator.onLine,
+          currentSessionId,
+        });
+
+        if (startupState.type === "offline") {
+          resetOfflineEditor();
+          shouldAutoReconnectRef.current = startupState.shouldAutoReconnect;
+          setMode({
+            type: "offline",
+            snapshot: startupState.snapshot,
+            recovery: startupState.recovery,
+          });
+          return;
         }
+
+        setMode(startupState);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -147,83 +131,74 @@ export function OfflineAwareSyncedContainer({
       snapshot = getSnapshot(editor.store).document;
     }
 
-    if (
-      snapshotsEqual(snapshot, mode.baselineSnapshot) ||
-      (!mode.hasPendingOfflineChanges &&
-        snapshotsEqual(snapshot, mode.reconnectSnapshot))
-    ) {
-      await deleteSyncCache(documentId);
-      setMode({ type: "synced" });
-      return;
-    }
-
+    let result: ReconnectResult;
     try {
-      const result = await reconcileOfflineEdits({
+      result = await reconcileOfflineEdits({
         documentId,
         localSnapshot: snapshot,
-        baselineSnapshot: mode.baselineSnapshot,
-        reconnectSnapshot: mode.reconnectSnapshot,
+        recovery: mode.recovery,
         snapshotVersion: snapshotVersionRef.current,
         repository,
       });
-
-      if (result.action === "pushed") {
-        const pushedSnapshotState = {
-          snapshot,
-          snapshotVersion: snapshotVersionRef.current,
-          baselineSnapshot: snapshot,
-          reconnectSnapshot: snapshot,
-          hasPendingOfflineChanges: false,
-        };
-
-        // Preserve the pushed snapshot locally until the synced room republishes
-        // its fresh state. A second disconnect in that handoff window should
-        // continue from the just-pushed document, not from the stale pre-
-        // offline snapshot that may still be sitting in the synced ref.
-        liveSyncedSnapshotStateRef.current = pushedSnapshotState;
-        await setSyncCache(
-          documentId,
-          snapshot,
-          snapshotVersionRef.current,
-          false,
-          snapshot,
-          snapshot,
-        );
-        setMode({ type: "synced" });
-      } else if (result.action === "forked") {
-        await deleteSyncCache(documentId);
-        await refreshDocuments();
-        await selectDocument(result.forkedDocumentId);
-        // selectDocument will cause a re-render with the new documentId, which
-        // will mount a fresh SyncedAnipresContainer for the forked document.
-      } else {
-        // Error during reconciliation — preserve the offline cache so the user
-        // can retry. Stay in offline mode so they can keep editing locally.
-        console.error("Offline reconciliation failed:", result.reason);
-        if (result.reasonCode === "active-session") {
-          if (reconnectRetryTimerRef.current) {
-            clearTimeout(reconnectRetryTimerRef.current);
-          }
-          reconnectRetryTimerRef.current = setTimeout(() => {
-            retryHandleOnlineRef.current?.();
-          }, 3000);
-        }
-        setMode({
-          type: "offline",
-          snapshot,
-          baselineSnapshot: mode.baselineSnapshot,
-          reconnectSnapshot: mode.reconnectSnapshot,
-          hasPendingOfflineChanges: mode.hasPendingOfflineChanges,
-        });
-      }
     } catch (error) {
       console.error("Offline reconciliation threw unexpectedly:", error);
       setMode({
         type: "offline",
         snapshot,
-        baselineSnapshot: mode.baselineSnapshot,
-        reconnectSnapshot: mode.reconnectSnapshot,
-        hasPendingOfflineChanges: mode.hasPendingOfflineChanges,
+        recovery: mode.recovery,
+      });
+      return;
+    }
+
+    if (result.action === "noop") {
+      await deleteSyncCache(documentId);
+      setMode({ type: "synced" });
+      return;
+    }
+
+    if (result.action === "pushed") {
+      const pushedSnapshotState = {
+        snapshot,
+        snapshotVersion: snapshotVersionRef.current,
+        recovery: {
+          baselineSnapshot: snapshot,
+          reconnectSnapshot: snapshot,
+          hasPendingOfflineChanges: false,
+        },
+      };
+
+      // Preserve the pushed snapshot locally until the synced room republishes
+      // its fresh state. A second disconnect in that handoff window should
+      // continue from the just-pushed document, not from the stale pre-
+      // offline snapshot that may still be sitting in the synced ref.
+      liveSyncedSnapshotStateRef.current = pushedSnapshotState;
+      await setSyncCache(documentId, {
+        snapshot,
+        snapshotVersion: snapshotVersionRef.current,
+      });
+      setMode({ type: "synced" });
+    } else if (result.action === "forked") {
+      await deleteSyncCache(documentId);
+      await refreshDocuments();
+      await selectDocument(result.forkedDocumentId);
+      // selectDocument will cause a re-render with the new documentId, which
+      // will mount a fresh SyncedAnipresContainer for the forked document.
+    } else {
+      // Error during reconciliation — preserve the offline cache so the user
+      // can retry. Stay in offline mode so they can keep editing locally.
+      console.error("Offline reconciliation failed:", result.reason);
+      if (result.reasonCode === "active-session") {
+        if (reconnectRetryTimerRef.current) {
+          clearTimeout(reconnectRetryTimerRef.current);
+        }
+        reconnectRetryTimerRef.current = setTimeout(() => {
+          retryHandleOnlineRef.current?.();
+        }, 3000);
+      }
+      setMode({
+        type: "offline",
+        snapshot,
+        recovery: mode.recovery,
       });
     }
   }, [mode, documentId, refreshDocuments, selectDocument]);
@@ -264,19 +239,17 @@ export function OfflineAwareSyncedContainer({
         setMode({
           type: "offline",
           snapshot: liveSnapshotState.snapshot,
-          baselineSnapshot: liveSnapshotState.baselineSnapshot,
-          reconnectSnapshot: liveSnapshotState.reconnectSnapshot,
-          hasPendingOfflineChanges: liveSnapshotState.hasPendingOfflineChanges,
+          recovery: liveSnapshotState.recovery,
         });
         snapshotVersionRef.current = liveSnapshotState.snapshotVersion;
-        void setSyncCache(
-          currentDocumentId,
-          liveSnapshotState.snapshot,
-          liveSnapshotState.snapshotVersion,
-          liveSnapshotState.hasPendingOfflineChanges,
-          liveSnapshotState.baselineSnapshot,
-          liveSnapshotState.reconnectSnapshot,
-        ).catch((error) => {
+        void setSyncCache(currentDocumentId, {
+          snapshot: liveSnapshotState.snapshot,
+          snapshotVersion: liveSnapshotState.snapshotVersion,
+          recovery: createRecoveryState({
+            ...liveSnapshotState.recovery,
+            ownerSessionId: currentSessionId,
+          }),
+        }).catch((error) => {
           console.error(
             "Failed to persist live snapshot after disconnect",
             error,
@@ -290,13 +263,19 @@ export function OfflineAwareSyncedContainer({
           if (entry) {
             snapshotVersionRef.current = entry.snapshotVersion;
             resetOfflineEditor();
-            setMode({
-              type: "offline",
-              snapshot: entry.snapshot,
-              baselineSnapshot: entry.baselineSnapshot ?? entry.snapshot,
-              reconnectSnapshot: entry.reconnectSnapshot ?? entry.snapshot,
-              hasPendingOfflineChanges: entry.hasPendingOfflineChanges ?? false,
+            const startupState = resolveStartupState({
+              entry,
+              isOnline: false,
+              currentSessionId,
             });
+            if (startupState.type === "offline") {
+              setMode({
+                type: "offline",
+                snapshot: startupState.snapshot,
+                recovery: startupState.recovery,
+              });
+              return;
+            }
             return;
           }
 
@@ -313,7 +292,7 @@ export function OfflineAwareSyncedContainer({
 
     window.addEventListener("offline", handleOffline);
     return () => window.removeEventListener("offline", handleOffline);
-  }, [documentId, mode.type, resetOfflineEditor]);
+  }, [currentSessionId, documentId, mode.type, resetOfflineEditor]);
 
   useEffect(() => {
     if (
@@ -349,14 +328,15 @@ export function OfflineAwareSyncedContainer({
 
     const flush = async () => {
       const snapshot = getSnapshot(offlineEditor.store).document;
-      await setSyncCache(
-        documentId,
+      await setSyncCache(documentId, {
         snapshot,
-        snapshotVersionRef.current,
-        true,
-        mode.baselineSnapshot,
-        mode.reconnectSnapshot,
-      );
+        snapshotVersion: snapshotVersionRef.current,
+        recovery: createRecoveryState({
+          ...mode.recovery,
+          hasPendingOfflineChanges: true,
+          ownerSessionId: currentSessionId,
+        }),
+      });
     };
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -394,9 +374,9 @@ export function OfflineAwareSyncedContainer({
       window.removeEventListener("pagehide", handlePageHide);
     };
   }, [
+    currentSessionId,
     documentId,
-    mode.type === "offline" ? mode.baselineSnapshot : undefined,
-    mode.type === "offline" ? mode.reconnectSnapshot : undefined,
+    mode.type === "offline" ? mode.recovery : undefined,
     mode.type,
     offlineEditor,
   ]);
