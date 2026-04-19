@@ -325,8 +325,7 @@ export function OfflineAwareSyncedContainer({
     if (
       !shouldAutoReconnectRef.current ||
       !navigator.onLine ||
-      mode.type !== "offline" ||
-      !offlineEditor
+      mode.type !== "offline"
     ) {
       return;
     }
@@ -337,7 +336,7 @@ export function OfflineAwareSyncedContainer({
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [handleOnline, mode.type, offlineEditor]);
+  }, [handleOnline, mode.type]);
 
   const handleOfflineMount = useCallback((editor: Editor) => {
     offlineEditorRef.current = editor;
