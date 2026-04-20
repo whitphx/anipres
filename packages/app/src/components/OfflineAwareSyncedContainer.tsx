@@ -30,7 +30,11 @@ type Mode =
       snapshot: TLStoreSnapshot;
       recovery: ReconnectSnapshotState;
     }
-  | { type: "reconnecting" }
+  | {
+      type: "reconnecting";
+      snapshot: TLStoreSnapshot;
+      recovery: ReconnectSnapshotState;
+    }
   | { type: "unavailable" };
 
 interface OfflineAwareSyncedContainerProps {
@@ -97,6 +101,13 @@ export function OfflineAwareSyncedContainer({
           return;
         }
 
+        if (startupState.type === "reconnecting") {
+          resetOfflineEditor();
+          shouldAutoReconnectRef.current = true;
+          setMode(startupState);
+          return;
+        }
+
         setMode(startupState);
       })
       .catch((error) => {
@@ -124,35 +135,37 @@ export function OfflineAwareSyncedContainer({
       setMode({ type: "synced" });
       return;
     }
-    if (mode.type !== "offline") return;
+    if (mode.type !== "offline" && mode.type !== "reconnecting") return;
 
-    setMode({ type: "reconnecting" });
+    const recovery = mode.recovery;
+    let snapshot: TLStoreSnapshot = mode.snapshot;
 
     // Prefer the live offline editor state, but fall back to the cached
     // snapshot restored into offline mode so a fast reconnect before mount
     // does not discard offline edits.
-    const editor = offlineEditorRef.current;
-    let snapshot: TLStoreSnapshot = mode.snapshot;
+    const editor = mode.type === "offline" ? offlineEditorRef.current : null;
     if (editor) {
       snapshot = getSnapshot(editor.store).document;
     }
+
+    setMode({
+      type: "reconnecting",
+      snapshot,
+      recovery,
+    });
 
     let result: ReconnectResult;
     try {
       result = await reconcileOfflineEdits({
         documentId,
         localSnapshot: snapshot,
-        recovery: mode.recovery,
+        recovery,
         snapshotVersion: snapshotVersionRef.current,
         repository,
       });
     } catch (error) {
       console.error("Offline reconciliation threw unexpectedly:", error);
-      setMode({
-        type: "offline",
-        snapshot,
-        recovery: mode.recovery,
-      });
+      setMode({ type: "offline", snapshot, recovery });
       return;
     }
 
@@ -201,11 +214,17 @@ export function OfflineAwareSyncedContainer({
         reconnectRetryTimerRef.current = setTimeout(() => {
           retryHandleOnlineRef.current?.();
         }, 3000);
+        setMode({
+          type: "reconnecting",
+          snapshot,
+          recovery,
+        });
+        return;
       }
       setMode({
         type: "offline",
         snapshot,
-        recovery: mode.recovery,
+        recovery,
       });
     }
   }, [mode, documentId, refreshDocuments, selectDocument]);
@@ -325,7 +344,7 @@ export function OfflineAwareSyncedContainer({
     if (
       !shouldAutoReconnectRef.current ||
       !navigator.onLine ||
-      mode.type !== "offline"
+      mode.type !== "reconnecting"
     ) {
       return;
     }

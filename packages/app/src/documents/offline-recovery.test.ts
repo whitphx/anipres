@@ -51,7 +51,7 @@ describe("resolveStartupState", () => {
     ).toEqual({ type: "synced" });
   });
 
-  it("restores a recovery entry while online", () => {
+  it("starts reconnecting from a recovery entry while online", () => {
     const snapshot = createSnapshot("doc");
     const reconnectSnapshot = createSnapshot("doc-next");
 
@@ -70,14 +70,13 @@ describe("resolveStartupState", () => {
         isOnline: true,
       }),
     ).toEqual({
-      type: "offline",
+      type: "reconnecting",
       snapshot,
       recovery: {
         baselineSnapshot: snapshot,
         reconnectSnapshot,
         hasPendingOfflineChanges: true,
       },
-      shouldAutoReconnect: true,
     });
   });
 
