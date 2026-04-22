@@ -28,10 +28,12 @@ describe("reconcileOfflineEdits", () => {
     vi.unstubAllGlobals();
   });
 
-  it("skips reconnect without touching the network when the local snapshot matches the baseline", async () => {
+  it("skips the push-or-fork network round-trips when the local snapshot matches the baseline", async () => {
     const snapshot = createSnapshot("doc");
     const repository = {
-      get: vi.fn(),
+      get: vi.fn().mockResolvedValue({
+        meta: { id: "doc-id", title: "Foo", order: 1 },
+      }),
       save: vi.fn(),
     } as const;
 
@@ -47,12 +49,13 @@ describe("reconcileOfflineEdits", () => {
       repository: repository as never,
     });
 
-    expect(repository.get).not.toHaveBeenCalled();
+    expect(repository.get).toHaveBeenCalledWith("doc-id");
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
     expect(result).toEqual({ action: "noop" });
   });
 
-  it("returns an error when the server document was deleted remotely", async () => {
+  it("returns an error when the server document was deleted remotely while offline edits are pending", async () => {
     const localSnapshot = createSnapshot("local");
     const repository = {
       get: vi.fn().mockResolvedValue(null),
@@ -65,6 +68,32 @@ describe("reconcileOfflineEdits", () => {
         baselineSnapshot: createSnapshot("baseline"),
         reconnectSnapshot: createSnapshot("reconnect"),
         hasPendingOfflineChanges: true,
+      },
+      snapshotVersion: 3,
+      repository: repository as never,
+    });
+
+    expect(repository.get).toHaveBeenCalledWith("doc-id");
+    expect(result).toEqual({
+      action: "error",
+      reason: "Document no longer exists on server",
+      reasonCode: "other",
+    });
+  });
+
+  it("returns an error when a remotely-deleted document has an unchanged local snapshot", async () => {
+    const snapshot = createSnapshot("doc");
+    const repository = {
+      get: vi.fn().mockResolvedValue(null),
+    } as const;
+
+    const result = await reconcileOfflineEdits({
+      documentId: "doc-id",
+      localSnapshot: snapshot,
+      recovery: {
+        baselineSnapshot: snapshot,
+        reconnectSnapshot: snapshot,
+        hasPendingOfflineChanges: false,
       },
       snapshotVersion: 3,
       repository: repository as never,

@@ -42,11 +42,9 @@ export async function reconcileOfflineEdits(params: {
   const { documentId, localSnapshot, recovery, snapshotVersion, repository } =
     params;
 
-  if (shouldSkipReconnect({ snapshot: localSnapshot, recovery })) {
-    return { action: "noop" };
-  }
-
   // Fetch current server metadata before deciding whether to fork on conflict.
+  // Running this before shouldSkipReconnect ensures a remotely-deleted document
+  // surfaces as an error instead of being silently treated as successful.
   const serverDoc = await repository.get(documentId);
   if (!serverDoc) {
     return {
@@ -54,6 +52,10 @@ export async function reconcileOfflineEdits(params: {
       reason: "Document no longer exists on server",
       reasonCode: "other",
     };
+  }
+
+  if (shouldSkipReconnect({ snapshot: localSnapshot, recovery })) {
+    return { action: "noop" };
   }
 
   // Try to push: the server endpoint rejects with 409 if the DO snapshot
