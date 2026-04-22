@@ -339,6 +339,9 @@ export function OfflineAwareSyncedContainer({
         });
     };
 
+    // This intentionally follows the browser's network state. Wider sync
+    // failures while the browser still reports online should be handled by a
+    // separate, debounced signal from SyncedAnipresContainer's useSync status.
     window.addEventListener("offline", handleOffline);
     return () => window.removeEventListener("offline", handleOffline);
   }, [currentSessionId, documentId, mode.type, resetOfflineEditor]);
