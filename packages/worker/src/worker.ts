@@ -198,11 +198,8 @@ app.put("/api/documents/:id/snapshot", async (c) => {
 
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const result = await room.replaceSnapshot(
-    id,
-    snapshot,
-    expectedSnapshotVersion,
-  );
+  await room.claimDocument(id);
+  const result = await room.replaceSnapshot(snapshot, expectedSnapshotVersion);
   if (!result.replaced) {
     return c.json(
       {
@@ -249,7 +246,8 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
 
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const cachedSnapshot = await room.getCachedSnapshot(id);
+  await room.claimDocument(id);
+  const cachedSnapshot = await room.getCachedSnapshot();
   return c.json(cachedSnapshot);
 });
 
@@ -277,7 +275,8 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
 
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const status = await room.getSnapshotStatus(id);
+  await room.claimDocument(id);
+  const status = await room.getSnapshotStatus();
   return c.json(status);
 });
 

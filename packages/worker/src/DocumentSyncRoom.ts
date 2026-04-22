@@ -132,38 +132,64 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         const flushTask = this.runRoomTask(() =>
           this.syncSnapshotAndReferencedAssets(),
         ).catch((error) => {
-          console.error("Failed to flush room snapshot after last disconnect", error);
+          console.error(
+            "Failed to flush room snapshot after last disconnect",
+            error,
+          );
         });
         this.ctx.waitUntil(flushTask);
       },
     });
   }
 
-  private setDocumentIdFromRequest(request: Request) {
+  private getDocumentIdFromRequest(request: Request) {
     try {
-      const documentId = decodeURIComponent(
+      return decodeURIComponent(
         new URL(request.url).pathname.split("/").pop() ?? "",
       );
-      if (!documentId || documentId === this.documentId) {
-        return;
-      }
-
-      this.documentId = documentId;
-      this.lastSyncedAssetNamesJson = null;
-      this.ctx.waitUntil(this.ctx.storage.put("documentId", documentId));
     } catch {
-      // Ignore malformed internal URLs; the route handler will reject them later.
+      return "";
     }
   }
 
-  private async setDocumentId(documentId: string) {
-    if (!documentId || documentId === this.documentId) {
+  private async ensureDocumentId(documentId: string) {
+    if (!documentId) {
+      throw new Error("DocumentSyncRoom requires a document id");
+    }
+
+    if (this.documentId) {
+      if (this.documentId !== documentId) {
+        throw new Error(
+          `DocumentSyncRoom documentId mismatch: expected ${this.documentId}, got ${documentId}`,
+        );
+      }
       return;
     }
 
+    const storedDocumentId = await this.ctx.storage.get<string>("documentId");
+    if (storedDocumentId) {
+      if (storedDocumentId !== documentId) {
+        throw new Error(
+          `DocumentSyncRoom documentId mismatch: expected ${storedDocumentId}, got ${documentId}`,
+        );
+      }
+      this.documentId = storedDocumentId;
+      return;
+    }
+
+    // A room is bound to exactly one document id. The Worker chooses the DO id
+    // with idFromName(documentId), then claims that document id here so later
+    // accidental calls for a different document fail instead of mutating state.
     this.documentId = documentId;
     this.lastSyncedAssetNamesJson = null;
     await this.ctx.storage.put("documentId", documentId);
+  }
+
+  private requireDocumentId() {
+    if (!this.documentId) {
+      throw new Error("DocumentSyncRoom has not claimed a document id");
+    }
+    return this.documentId;
   }
 
   private async scheduleAssetGcAlarm(nextGcAt: number | null) {
@@ -183,7 +209,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private async isDeleting() {
-    return this.documentId ? isDocumentDeleting(this.env, this.documentId) : false;
+    return this.documentId
+      ? isDocumentDeleting(this.env, this.documentId)
+      : false;
   }
 
   private runRoomTask<T>(task: () => Promise<T>) {
@@ -261,7 +289,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       const syncTask = this.runRoomTask(() =>
         this.syncSnapshotAndReferencedAssets(),
       ).catch((error) => {
-        console.error("Failed to sync room snapshot and document assets", error);
+        console.error(
+          "Failed to sync room snapshot and document assets",
+          error,
+        );
       });
       this.ctx.waitUntil(syncTask);
     }, 500);
@@ -279,7 +310,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     if (this.snapshotDirty) {
       this.flushSnapshot(snapshot, true);
     }
-    const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
+    const assetNames = getReferencedDocumentAssetNames(
+      snapshot,
+      this.documentId,
+    );
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
       return;
@@ -316,8 +350,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     try {
       const cursor =
-        (await this.ctx.storage.get<string>(DOCUMENT_DELETE_CURSOR_STORAGE_KEY)) ??
-        undefined;
+        (await this.ctx.storage.get<string>(
+          DOCUMENT_DELETE_CURSOR_STORAGE_KEY,
+        )) ?? undefined;
       const { completed, nextCursor } = await finalizeDeletingDocument(
         this.env,
         this.documentId,
@@ -339,9 +374,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       }
 
       if (!nextCursor) {
-        throw new Error("Expected a delete cursor for incomplete document deletion");
+        throw new Error(
+          "Expected a delete cursor for incomplete document deletion",
+        );
       }
-      await this.ctx.storage.put(DOCUMENT_DELETE_CURSOR_STORAGE_KEY, nextCursor);
+      await this.ctx.storage.put(
+        DOCUMENT_DELETE_CURSOR_STORAGE_KEY,
+        nextCursor,
+      );
       await this.ctx.storage.setAlarm(Date.now());
     } catch (error) {
       console.error("Failed to finalize document deletion", error);
@@ -349,8 +389,12 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     }
   }
 
-  async scheduleAssetGc(documentId: string): Promise<void> {
-    await this.setDocumentId(documentId);
+  async claimDocument(documentId: string): Promise<void> {
+    await this.ensureDocumentId(documentId);
+  }
+
+  async scheduleAssetGc(): Promise<void> {
+    this.requireDocumentId();
     await this.runRoomTask(() => this.runDocumentAssetGcCycle());
   }
 
@@ -380,7 +424,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * `TLStoreSnapshot` and will validate internally.
    */
   async replaceSnapshot(
-    documentId: string,
     snapshot: unknown,
     expectedSnapshotVersion: number,
   ): Promise<{
@@ -388,7 +431,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     snapshotVersion: number;
     reason?: "active-session" | "version-conflict";
   }> {
-    await this.setDocumentId(documentId);
+    this.requireDocumentId();
     return this.runRoomTask(async () => {
       this.flushSnapshotIfDirty();
       if (this.room.getNumActiveSessions() > 0) {
@@ -414,14 +457,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     });
   }
 
-  async getCachedSnapshot(documentId: string): Promise<{
+  async getCachedSnapshot(): Promise<{
     // This crosses the DO RPC boundary. Keeping it as `unknown` avoids
     // forcing the full nested TLStoreSnapshot type through the stub/provider
     // machinery, which otherwise triggers TS2589 at the worker call site.
     snapshot: unknown;
     snapshotVersion: number;
   }> {
-    await this.setDocumentId(documentId);
+    this.requireDocumentId();
     return this.runRoomTask(async () => {
       if (!(await this.isDeleting())) {
         this.flushSnapshotIfDirty();
@@ -433,16 +476,18 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     });
   }
 
-  async getSnapshotStatus(documentId: string): Promise<{
+  async getSnapshotStatus(): Promise<{
     snapshotVersion: number;
     snapshotFingerprint: string;
   }> {
-    await this.setDocumentId(documentId);
+    this.requireDocumentId();
     return this.runRoomTask(async () => {
       if (!(await this.isDeleting())) {
         this.flushSnapshotIfDirty();
       }
-      const snapshot = roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot());
+      const snapshot = roomSnapshotToStoreSnapshot(
+        this.room.getCurrentSnapshot(),
+      );
       return {
         snapshotVersion: this.snapshotVersion,
         snapshotFingerprint: getSnapshotFingerprint(snapshot),
@@ -450,8 +495,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     });
   }
 
-  async startDelete(documentId: string): Promise<void> {
-    await this.setDocumentId(documentId);
+  async startDelete(): Promise<void> {
+    this.requireDocumentId();
     await this.runRoomTask(async () => {
       // Delete owns the document lifecycle from here. Drop any pending asset
       // reconcile timer so it cannot do unnecessary snapshot/asset work while
@@ -470,7 +515,16 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    this.setDocumentIdFromRequest(request);
+    const documentId = this.getDocumentIdFromRequest(request);
+    try {
+      await this.ensureDocumentId(documentId);
+    } catch (error) {
+      return new Response(
+        error instanceof Error ? error.message : "Document id mismatch",
+        { status: 409 },
+      );
+    }
+
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) {
       return new Response("Missing sessionId", { status: 400 });
