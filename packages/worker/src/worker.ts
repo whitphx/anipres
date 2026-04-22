@@ -23,6 +23,11 @@ const documentMetadataSchema = v.object({
   updated_at: v.number(),
 });
 
+const snapshotPushBodySchema = v.object({
+  snapshot: v.record(v.string(), v.unknown()),
+  expectedSnapshotVersion: v.number(),
+});
+
 registerAuthRoutes(app);
 registerApiAuth(app);
 registerAssetRoutes(app);
@@ -171,13 +176,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const bodyResult = v.safeParse(
-    v.object({
-      snapshot: v.record(v.string(), v.unknown()),
-      expectedSnapshotVersion: v.number(),
-    }),
-    json,
-  );
+  const bodyResult = v.safeParse(snapshotPushBodySchema, json);
   if (!bodyResult.success) {
     return c.json(
       { error: "Invalid request body", details: bodyResult.issues },

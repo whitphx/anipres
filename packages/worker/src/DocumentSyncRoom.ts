@@ -94,9 +94,16 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       if (rows.length > 0) {
         try {
           initialSnapshot = JSON.parse(rows[0].data as string);
-          this.snapshotVersion = Number(rows[0].version ?? 0);
+          const snapshotVersion = Number(rows[0].version);
+          if (Number.isNaN(snapshotVersion)) {
+            throw new Error("Stored snapshot version is not a number");
+          }
+          this.snapshotVersion = snapshotVersion;
         } catch (error) {
-          console.error("Failed to parse stored snapshot; deleting corrupted row", error);
+          console.error(
+            "Failed to parse stored snapshot; deleting corrupted row",
+            error,
+          );
           ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
           this.snapshotVersion = 0;
         }
