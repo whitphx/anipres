@@ -196,13 +196,9 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const result = await room.replaceSnapshot(
-    id,
-    snapshot,
-    expectedSnapshotVersion,
-  );
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
+  const result = await room.replaceSnapshot(snapshot, expectedSnapshotVersion);
   if (!result.replaced) {
     return c.json(
       {
@@ -247,9 +243,9 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const cachedSnapshot = await room.getCachedSnapshot(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
+  const cachedSnapshot = await room.getCachedSnapshot();
   return c.json(cachedSnapshot);
 });
 
@@ -275,9 +271,9 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
-  const status = await room.getSnapshotStatus(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
+  const status = await room.getSnapshotStatus();
   return c.json(status);
 });
 
@@ -310,9 +306,11 @@ app.get("/api/connect/:documentId", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
 
+  // Unlike DO RPC calls above, WebSocket upgrades enter through
+  // DocumentSyncRoom.fetch(), which claims and validates the document id from
+  // the already-validated request path before accepting the socket.
   return room.fetch(c.req.raw);
 });
 

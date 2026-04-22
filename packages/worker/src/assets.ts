@@ -143,18 +143,18 @@ async function scheduleDocumentAssetGc(
   c: AppContext,
   documentId: string,
 ): Promise<void> {
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
-  await room.scheduleAssetGc(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
+  await room.claimDocument(documentId);
+  await room.scheduleAssetGc();
 }
 
 async function scheduleDocumentDeletion(
   c: AppContext,
   documentId: string,
 ): Promise<void> {
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
-  await room.startDelete(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
+  await room.claimDocument(documentId);
+  await room.startDelete();
 }
 
 async function readRequestBodyWithLimit(request: Request, limit: number) {
@@ -458,7 +458,12 @@ export async function reconcileDocumentAssets(
   // The live room snapshot is only safe to treat as "currently referenced".
   // We mark missing assets stale here, then delete them later after a grace
   // period so undo/redo can still restore older asset URLs.
-  await clearReferencedDocumentAssets(env, documentId, referencedAssetNames, now);
+  await clearReferencedDocumentAssets(
+    env,
+    documentId,
+    referencedAssetNames,
+    now,
+  );
   await markUnreferencedDocumentAssetsStale(
     env,
     documentId,
