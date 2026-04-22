@@ -398,7 +398,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     // Bind the app-level document id to this named DO instance. This is
     // separate from getByName(documentId): getByName chooses the DO, while the
     // claim persists the document id for in-instance D1/R2 work and rejects any
-    // future mismatch.
+    // future mismatch. On first use this initializes the storage value that the
+    // constructor later restores after eviction/restart.
     await this.ensureDocumentId(documentId);
   }
 
