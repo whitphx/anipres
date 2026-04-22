@@ -43,6 +43,8 @@ export async function reconcileOfflineEdits(params: {
     params;
 
   // Fetch current server metadata before deciding whether to fork on conflict.
+  // Running this before shouldSkipReconnect ensures a remotely-deleted document
+  // surfaces as an error instead of being silently treated as successful.
   const serverDoc = await repository.get(documentId);
   if (!serverDoc) {
     return {
@@ -148,6 +150,12 @@ export async function reconcileOfflineEdits(params: {
     }
   } catch (error) {
     console.error("Failed to compare server snapshot after conflict:", error);
+  }
+
+  // No pending offline edits: let live sync pick up the server state instead
+  // of creating a redundant "(offline copy)" fork.
+  if (!recovery.hasPendingOfflineChanges) {
+    return { action: "noop" };
   }
 
   // Server has diverged — fork the local version as a new document.
