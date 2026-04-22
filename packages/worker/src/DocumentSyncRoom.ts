@@ -38,6 +38,34 @@ function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
   };
 }
 
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalizeJsonValue(child)]),
+    );
+  }
+
+  return value;
+}
+
+function getSnapshotFingerprint(snapshot: TLStoreSnapshot) {
+  const canonicalJson = JSON.stringify(canonicalizeJsonValue(snapshot));
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < canonicalJson.length; index += 1) {
+    hash ^= BigInt(canonicalJson.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room!: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
@@ -394,6 +422,23 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return {
         snapshot: roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot()),
         snapshotVersion: this.snapshotVersion,
+      };
+    });
+  }
+
+  async getSnapshotStatus(documentId: string): Promise<{
+    snapshotVersion: number;
+    snapshotFingerprint: string;
+  }> {
+    await this.setDocumentId(documentId);
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      const snapshot = roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot());
+      return {
+        snapshotVersion: this.snapshotVersion,
+        snapshotFingerprint: getSnapshotFingerprint(snapshot),
       };
     });
   }

@@ -3,6 +3,7 @@ import type { TLStoreSnapshot } from "tldraw";
 import {
   createRecoveryState,
   resolveStartupState,
+  snapshotsEqual,
   shouldSkipReconnect,
 } from "./offline-recovery";
 
@@ -139,6 +140,23 @@ describe("resolveStartupState", () => {
 });
 
 describe("shouldSkipReconnect", () => {
+  it("treats snapshots with different key insertion order as equal", () => {
+    const left = {
+      store: {
+        shape: { id: "shape", props: { a: 1, b: 2 } },
+      },
+      schema: {},
+    } as unknown as TLStoreSnapshot;
+    const right = {
+      store: {
+        shape: { id: "shape", props: { b: 2, a: 1 } },
+      },
+      schema: {},
+    } as unknown as TLStoreSnapshot;
+
+    expect(snapshotsEqual(left, right)).toBe(true);
+  });
+
   it("skips when the offline snapshot still matches the baseline", () => {
     const snapshot = createSnapshot("doc");
 

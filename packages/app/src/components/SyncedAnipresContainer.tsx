@@ -10,6 +10,7 @@ import {
 } from "../documents/idb-sync-cache";
 import {
   createRecoveryState,
+  getSnapshotFingerprint,
   snapshotsEqual,
   type ReconnectSnapshotState,
 } from "../documents/offline-recovery";
@@ -68,6 +69,22 @@ async function fetchOfflineCache(documentId: string): Promise<{
   };
 }
 
+async function fetchSnapshotStatus(documentId: string): Promise<{
+  snapshotVersion: number;
+  snapshotFingerprint: string;
+}> {
+  const res = await fetch(
+    `/api/documents/${encodeURIComponent(documentId)}/snapshot-status`,
+  );
+  if (!res.ok) {
+    throw new Error(`Snapshot status fetch failed: ${res.status}`);
+  }
+  return (await res.json()) as {
+    snapshotVersion: number;
+    snapshotFingerprint: string;
+  };
+}
+
 export function SyncedAnipresContainer({
   documentId,
   colorScheme,
@@ -88,11 +105,13 @@ export function SyncedAnipresContainer({
   // Cache the synced store to IDB so it's available for offline fallback.
   const snapshotVersionRef = useRef(0);
   const confirmedSnapshotRef = useRef<TLStoreSnapshot | null>(null);
+  const confirmedSnapshotFingerprintRef = useRef<string | null>(null);
   const baselineSnapshotRef = useRef<TLStoreSnapshot | null>(null);
   const hasPendingOfflineChangesRef = useRef(false);
   useEffect(() => {
     snapshotVersionRef.current = 0;
     confirmedSnapshotRef.current = null;
+    confirmedSnapshotFingerprintRef.current = null;
     baselineSnapshotRef.current = null;
     hasPendingOfflineChangesRef.current = false;
   }, [documentId]);
@@ -105,18 +124,20 @@ export function SyncedAnipresContainer({
     let retryRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     const refreshSnapshotVersion = async () => {
-      const { snapshot, snapshotVersion } =
-        await fetchOfflineCache(currentDocumentId);
+      const { snapshotVersion, snapshotFingerprint } =
+        await fetchSnapshotStatus(currentDocumentId);
       const localSnapshot = getSnapshot(store).document;
+      const localSnapshotFingerprint = getSnapshotFingerprint(localSnapshot);
 
-      // Only mark the local cache as clean once the server snapshot matches
-      // the current local store. A slower offline-cache fetch can otherwise
-      // race behind a just-made local edit and incorrectly clear the pending
-      // flag before that edit is actually reflected by the server state.
-      if (snapshotsEqual(snapshot, localSnapshot)) {
+      // Only mark the local cache as clean once the server status confirms the
+      // current local store fingerprint. That avoids re-downloading the whole
+      // snapshot on every debounce while keeping the same "server caught up"
+      // check as the full offline-cache payload.
+      if (snapshotFingerprint === localSnapshotFingerprint) {
         snapshotVersionRef.current = snapshotVersion;
-        confirmedSnapshotRef.current = snapshot;
-        baselineSnapshotRef.current = snapshot;
+        confirmedSnapshotRef.current = localSnapshot;
+        confirmedSnapshotFingerprintRef.current = localSnapshotFingerprint;
+        baselineSnapshotRef.current = localSnapshot;
         hasPendingOfflineChangesRef.current = false;
         clearTimeout(retryRefreshTimer);
         return true;
@@ -250,6 +271,8 @@ export function SyncedAnipresContainer({
 
         snapshotVersionRef.current = snapshotVersion;
         confirmedSnapshotRef.current = snapshot;
+        confirmedSnapshotFingerprintRef.current =
+          getSnapshotFingerprint(snapshot);
         baselineSnapshotRef.current = snapshot;
         hasPendingOfflineChangesRef.current = false;
         onSnapshotUpdate?.({

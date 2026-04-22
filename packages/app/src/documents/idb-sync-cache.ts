@@ -1,7 +1,10 @@
-import { createStore, get, set, del } from "idb-keyval";
+import { createStore, del, delMany, entries, get, set } from "idb-keyval";
 import type { TLStoreSnapshot } from "tldraw";
 
 const store = createStore("anipres-sync-cache", "snapshots");
+const RECOVERY_KEY_MARKER = ":recovery:";
+const RECOVERY_ENTRY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const RECOVERY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 export interface SyncRecoveryState {
   baselineSnapshot: TLStoreSnapshot;
@@ -13,6 +16,7 @@ export interface SyncCacheEntry {
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
   recovery?: SyncRecoveryState;
+  updatedAt?: number;
 }
 
 function getSyncCacheKey(documentId: string) {
@@ -24,6 +28,46 @@ function getSyncRecoveryKey(documentId: string, sessionId: string) {
 }
 
 let tabSessionId: string | null = null;
+let lastRecoveryCleanupAt = 0;
+let recoveryCleanupPromise: Promise<void> | null = null;
+
+function isRecoveryKey(key: IDBValidKey): key is string {
+  return typeof key === "string" && key.includes(RECOVERY_KEY_MARKER);
+}
+
+export function isStaleRecoveryEntry(
+  entry: SyncCacheEntry | undefined,
+  now = Date.now(),
+) {
+  return !entry?.updatedAt || now - entry.updatedAt > RECOVERY_ENTRY_TTL_MS;
+}
+
+async function cleanupStaleRecoveryEntries(now = Date.now()) {
+  if (recoveryCleanupPromise) {
+    return recoveryCleanupPromise;
+  }
+  if (now - lastRecoveryCleanupAt < RECOVERY_CLEANUP_INTERVAL_MS) {
+    return;
+  }
+
+  lastRecoveryCleanupAt = now;
+  recoveryCleanupPromise = (async () => {
+    const staleKeys = (await entries<string, SyncCacheEntry>(store))
+      .filter(
+        ([key, entry]) =>
+          isRecoveryKey(key) && isStaleRecoveryEntry(entry, now),
+      )
+      .map(([key]) => key);
+
+    if (staleKeys.length > 0) {
+      await delMany(staleKeys, store);
+    }
+  })().finally(() => {
+    recoveryCleanupPromise = null;
+  });
+
+  await recoveryCleanupPromise;
+}
 
 export function getSyncCacheSessionId(): string {
   if (tabSessionId) {
@@ -59,14 +103,28 @@ export async function getSyncRecovery(
   documentId: string,
   sessionId = getSyncCacheSessionId(),
 ): Promise<SyncCacheEntry | undefined> {
-  return get<SyncCacheEntry>(getSyncRecoveryKey(documentId, sessionId), store);
+  void cleanupStaleRecoveryEntries().catch((error) => {
+    console.error("Failed to clean stale sync recovery entries", error);
+  });
+
+  const key = getSyncRecoveryKey(documentId, sessionId);
+  const entry = await get<SyncCacheEntry>(key, store);
+  if (isStaleRecoveryEntry(entry)) {
+    await del(key, store);
+    return undefined;
+  }
+  return entry;
 }
 
 export async function setSyncCache(
   documentId: string,
   entry: SyncCacheEntry,
 ): Promise<void> {
-  await set(getSyncCacheKey(documentId), entry satisfies SyncCacheEntry, store);
+  await set(
+    getSyncCacheKey(documentId),
+    { ...entry, updatedAt: Date.now() } satisfies SyncCacheEntry,
+    store,
+  );
 }
 
 export async function setSyncRecovery(
@@ -74,9 +132,12 @@ export async function setSyncRecovery(
   entry: SyncCacheEntry,
   sessionId = getSyncCacheSessionId(),
 ): Promise<void> {
+  void cleanupStaleRecoveryEntries().catch((error) => {
+    console.error("Failed to clean stale sync recovery entries", error);
+  });
   await set(
     getSyncRecoveryKey(documentId, sessionId),
-    entry satisfies SyncCacheEntry,
+    { ...entry, updatedAt: Date.now() } satisfies SyncCacheEntry,
     store,
   );
 }

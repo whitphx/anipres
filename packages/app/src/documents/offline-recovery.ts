@@ -42,21 +42,27 @@ function canonicalizeJsonValue(value: unknown): unknown {
   return value;
 }
 
-function hashString(value: string) {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+export function getCanonicalSnapshotJson(snapshot: TLStoreSnapshot) {
+  return JSON.stringify(canonicalizeJsonValue(snapshot));
 }
 
-export function getSnapshotHash(snapshot: TLStoreSnapshot) {
-  return hashString(JSON.stringify(canonicalizeJsonValue(snapshot)));
+function hashString64(value: string) {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+export function getSnapshotFingerprint(snapshot: TLStoreSnapshot) {
+  return hashString64(getCanonicalSnapshotJson(snapshot));
 }
 
 export function snapshotsEqual(a: TLStoreSnapshot, b: TLStoreSnapshot) {
-  return getSnapshotHash(a) === getSnapshotHash(b);
+  return getSnapshotFingerprint(a) === getSnapshotFingerprint(b);
 }
 
 export function getOfflineSnapshotState(

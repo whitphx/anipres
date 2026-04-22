@@ -251,7 +251,35 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
   const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
   const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
   const cachedSnapshot = await room.getCachedSnapshot(id);
-  return Response.json(cachedSnapshot);
+  return c.json(cachedSnapshot);
+});
+
+app.get("/api/documents/:id/snapshot-status", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  const status = await room.getSnapshotStatus(id);
+  return c.json(status);
 });
 
 // WebSocket upgrade for sync
