@@ -44,6 +44,9 @@ interface OfflineAwareSyncedContainerProps {
 
 const repository = new ApiDocumentRepository();
 
+// Owns the sync editor lifecycle: startup cache restore, offline fallback,
+// reconnect reconciliation, and switching to a forked document on conflict.
+// The live WebSocket-backed editor itself stays inside SyncedAnipresContainer.
 export function OfflineAwareSyncedContainer({
   documentId,
   colorScheme,

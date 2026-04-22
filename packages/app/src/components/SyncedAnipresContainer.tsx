@@ -90,6 +90,9 @@ export function SyncedAnipresContainer({
   colorScheme,
   onSnapshotUpdate,
 }: SyncedAnipresContainerProps) {
+  // Owns the normal online editor path: connect to the tldraw sync room,
+  // upload remote assets, and publish confirmed snapshots for offline fallback.
+  // Offline/reconnect mode transitions are handled by OfflineAwareSyncedContainer.
   const currentSessionId = getSyncCacheSessionId();
   const remoteAssetStore = useMemo(
     () => createRemoteAssetStore(documentId),
