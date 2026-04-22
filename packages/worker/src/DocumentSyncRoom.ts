@@ -1,6 +1,6 @@
 import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
-import type { TLRecord } from "tldraw";
+import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
 import {
   slideShapeProps,
@@ -29,9 +29,47 @@ const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
 const SNAPSHOT_SAVE_DELAY_MS = 3_000;
 
+function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
+  return {
+    store: Object.fromEntries(
+      snapshot.documents.map(({ state }) => [state.id, state as TLRecord]),
+    ) as TLStoreSnapshot["store"],
+    schema: snapshot.schema ?? schema.serialize(),
+  };
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalizeJsonValue(child)]),
+    );
+  }
+
+  return value;
+}
+
+function getSnapshotFingerprint(snapshot: TLStoreSnapshot) {
+  const canonicalJson = JSON.stringify(canonicalizeJsonValue(snapshot));
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < canonicalJson.length; index += 1) {
+    hash ^= BigInt(canonicalJson.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room!: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
+  private snapshotVersion = 0;
   private lastSyncedAssetNamesJson: string | null = null;
   private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -43,7 +81,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     ctx.blockConcurrencyWhile(async () => {
       // Ensure the SQLite snapshot table exists.
       ctx.storage.sql.exec(
-        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL)",
       );
 
       this.documentId =
@@ -51,14 +89,23 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
       let initialSnapshot: RoomSnapshot | undefined;
       const rows = ctx.storage.sql
-        .exec("SELECT data FROM snapshot WHERE id = 1")
+        .exec("SELECT data, version FROM snapshot WHERE id = 1")
         .toArray();
       if (rows.length > 0) {
         try {
           initialSnapshot = JSON.parse(rows[0].data as string);
+          const snapshotVersion = Number(rows[0].version);
+          if (Number.isNaN(snapshotVersion)) {
+            throw new Error("Stored snapshot version is not a number");
+          }
+          this.snapshotVersion = snapshotVersion;
         } catch (error) {
-          console.error("Failed to parse stored snapshot; deleting corrupted row", error);
+          console.error(
+            "Failed to parse stored snapshot; deleting corrupted row",
+            error,
+          );
           ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+          this.snapshotVersion = 0;
         }
       }
 
@@ -152,10 +199,14 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * Write a room snapshot to SQLite. Uses the given snapshot or falls back to
    * the current room state. `ctx.storage.sql` ops are synchronous in the DO.
    */
-  private flushSnapshot(snapshot?: RoomSnapshot) {
+  private flushSnapshot(snapshot?: RoomSnapshot, incrementVersion = false) {
+    if (incrementVersion) {
+      this.snapshotVersion += 1;
+    }
     this.ctx.storage.sql.exec(
-      "INSERT OR REPLACE INTO snapshot (id, data) VALUES (1, ?)",
+      "INSERT OR REPLACE INTO snapshot (id, data, version) VALUES (1, ?, ?)",
       JSON.stringify(snapshot ?? this.room.getCurrentSnapshot()),
+      this.snapshotVersion,
     );
     this.snapshotDirty = false;
     if (this.snapshotSaveTimer) {
@@ -166,7 +217,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   private flushSnapshotIfDirty() {
     if (this.snapshotDirty) {
-      this.flushSnapshot();
+      this.flushSnapshot(undefined, true);
     }
   }
 
@@ -226,7 +277,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     const snapshot = this.room.getCurrentSnapshot();
     if (this.snapshotDirty) {
-      this.flushSnapshot(snapshot);
+      this.flushSnapshot(snapshot, true);
     }
     const assetNames = getReferencedDocumentAssetNames(snapshot, this.documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
@@ -280,6 +331,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         // Reset in-memory state so a warm DO doesn't serve stale data if the
         // same document UUID is re-created.
         this.documentId = null;
+        this.snapshotVersion = 0;
         this.lastSyncedAssetNamesJson = null;
         this.snapshotDirty = false;
         this.room = this.createRoom();
@@ -315,6 +367,87 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       clearTimeout(this.assetSyncTimer);
       this.assetSyncTimer = null;
     }
+  }
+
+  /**
+   * Replace the room snapshot with a snapshot pushed by an offline client.
+   * Returns `true` on success, `false` if the room currently has active
+   * WebSocket sessions (which means live editing is in progress and overwriting
+   * could clobber unsaved changes).
+   *
+   * The snapshot arrives as a deserialized JSON object via DO RPC, so the
+   * concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
+   * `TLStoreSnapshot` and will validate internally.
+   */
+  async replaceSnapshot(
+    documentId: string,
+    snapshot: unknown,
+    expectedSnapshotVersion: number,
+  ): Promise<{
+    replaced: boolean;
+    snapshotVersion: number;
+    reason?: "active-session" | "version-conflict";
+  }> {
+    await this.setDocumentId(documentId);
+    return this.runRoomTask(async () => {
+      this.flushSnapshotIfDirty();
+      if (this.room.getNumActiveSessions() > 0) {
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "active-session",
+        };
+      }
+      if (this.snapshotVersion !== expectedSnapshotVersion) {
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "version-conflict",
+        };
+      }
+      this.room.loadSnapshot(snapshot as RoomSnapshot);
+      this.cancelPendingAssetSync();
+      this.cancelPendingSnapshotSave();
+      this.flushSnapshot(undefined, true);
+      await this.syncSnapshotAndReferencedAssets();
+      return { replaced: true, snapshotVersion: this.snapshotVersion };
+    });
+  }
+
+  async getCachedSnapshot(documentId: string): Promise<{
+    // This crosses the DO RPC boundary. Keeping it as `unknown` avoids
+    // forcing the full nested TLStoreSnapshot type through the stub/provider
+    // machinery, which otherwise triggers TS2589 at the worker call site.
+    snapshot: unknown;
+    snapshotVersion: number;
+  }> {
+    await this.setDocumentId(documentId);
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      return {
+        snapshot: roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot()),
+        snapshotVersion: this.snapshotVersion,
+      };
+    });
+  }
+
+  async getSnapshotStatus(documentId: string): Promise<{
+    snapshotVersion: number;
+    snapshotFingerprint: string;
+  }> {
+    await this.setDocumentId(documentId);
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      const snapshot = roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot());
+      return {
+        snapshotVersion: this.snapshotVersion,
+        snapshotFingerprint: getSnapshotFingerprint(snapshot),
+      };
+    });
   }
 
   async startDelete(documentId: string): Promise<void> {

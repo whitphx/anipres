@@ -23,6 +23,11 @@ const documentMetadataSchema = v.object({
   updated_at: v.number(),
 });
 
+const snapshotPushBodySchema = v.object({
+  snapshot: v.record(v.string(), v.unknown()),
+  expectedSnapshotVersion: v.number(),
+});
+
 registerAuthRoutes(app);
 registerApiAuth(app);
 registerAssetRoutes(app);
@@ -148,6 +153,132 @@ app.delete("/api/documents/:id", async (c) => {
 
   await startDocumentDeletion(c, userId, id);
   return c.json({ ok: true });
+});
+
+// Push a snapshot from an offline client into the Durable Object room.
+// Used by the push-or-fork reconnection flow after an offline editing session.
+app.put("/api/documents/:id/snapshot", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const bodyResult = v.safeParse(snapshotPushBodySchema, json);
+  if (!bodyResult.success) {
+    return c.json(
+      { error: "Invalid request body", details: bodyResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const { snapshot, expectedSnapshotVersion } = bodyResult.output;
+
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  const result = await room.replaceSnapshot(
+    id,
+    snapshot,
+    expectedSnapshotVersion,
+  );
+  if (!result.replaced) {
+    return c.json(
+      {
+        error: "Conflict",
+        snapshotVersion: result.snapshotVersion,
+        reason: result.reason,
+      },
+      409,
+    );
+  }
+
+  // Bump updated_at in D1.
+  const now = Date.now();
+  await c.env.DB.prepare(
+    "UPDATE documents SET updated_at = ? WHERE id = ? AND user_id = ?",
+  )
+    .bind(now, id, userId)
+    .run();
+
+  return c.json({ ok: true });
+});
+
+app.get("/api/documents/:id/offline-cache", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  const cachedSnapshot = await room.getCachedSnapshot(id);
+  return c.json(cachedSnapshot);
+});
+
+app.get("/api/documents/:id/snapshot-status", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+  )
+    .bind(id, userId)
+    .first();
+  if (!row) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const doId = c.env.DOCUMENT_SYNC_ROOM.idFromName(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.get(doId);
+  const status = await room.getSnapshotStatus(id);
+  return c.json(status);
 });
 
 // WebSocket upgrade for sync
