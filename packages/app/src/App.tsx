@@ -9,10 +9,10 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 
 function AuthenticatedApp() {
   const { user, loading: authLoading } = useAuth();
-  const synced = user !== null;
-  const repository = useMemo(
-    () => (synced ? new ApiDocumentRepository() : new IdbDocumentRepository()),
-    [synced],
+  const localRepository = useMemo(() => new IdbDocumentRepository(), []);
+  const syncedRepository = useMemo(
+    () => (user !== null ? new ApiDocumentRepository() : undefined),
+    [user],
   );
 
   if (authLoading) {
@@ -33,7 +33,10 @@ function AuthenticatedApp() {
           --tl-font-draw: Excalifont-Regular, '${xiaolai.css.family}', ${xiaolai.fontFamilyFallback}, 'tldraw_draw';
         }
       `}</style>
-      <DocumentManagerProvider repository={repository} synced={synced}>
+      <DocumentManagerProvider
+        localRepository={localRepository}
+        syncedRepository={syncedRepository}
+      >
         <AppContent />
       </DocumentManagerProvider>
     </>

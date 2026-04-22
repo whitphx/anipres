@@ -16,6 +16,7 @@ function rowToMeta(row: DocumentRow): DocumentMeta {
     order: row.order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    origin: "synced",
   };
 }
 

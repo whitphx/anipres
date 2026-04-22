@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta } from "./types";
+import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
 
-function createNewDocument(order: number): DocumentData {
+function createNewDocument(
+  order: number,
+  origin: DocumentOrigin,
+): DocumentData {
   return {
     meta: {
       id: crypto.randomUUID(),
@@ -11,6 +14,7 @@ function createNewDocument(order: number): DocumentData {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       order,
+      origin,
     },
     snapshot: null,
   };
@@ -18,12 +22,12 @@ function createNewDocument(order: number): DocumentData {
 
 export interface DocumentManager {
   documents: DocumentMeta[];
+  activeDocument: DocumentMeta | null;
   activeDocumentId: string | null;
   activeSnapshot: TLStoreSnapshot | null;
   loading: boolean;
-  synced: boolean;
   selectDocument: (id: string) => Promise<void>;
-  createDocument: () => Promise<void>;
+  createDocument: (options?: { origin?: DocumentOrigin }) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, title: string) => Promise<void>;
   reorderDocument: (id: string, newOrder: number) => Promise<void>;
@@ -31,11 +35,12 @@ export interface DocumentManager {
   refreshDocuments: () => Promise<void>;
 }
 
-export function useDocumentManager(
-  repository: DocumentRepository,
-  options?: { synced?: boolean },
-): DocumentManager {
-  const synced = options?.synced ?? false;
+export function useDocumentManager(params: {
+  localRepository: DocumentRepository;
+  syncedRepository?: DocumentRepository;
+}): DocumentManager {
+  const { localRepository, syncedRepository } = params;
+
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [activeSnapshot, setActiveSnapshot] = useState<TLStoreSnapshot | null>(
@@ -49,44 +54,96 @@ export function useDocumentManager(
     activeDocumentIdRef.current = activeDocumentId;
   }, [activeDocumentId]);
 
+  const documentsRef = useRef<DocumentMeta[]>(documents);
+  useEffect(() => {
+    documentsRef.current = documents;
+  }, [documents]);
+
+  const activeDocument = useMemo(
+    () => documents.find((d) => d.id === activeDocumentId) ?? null,
+    [documents, activeDocumentId],
+  );
+  const activeDocumentOriginRef = useRef<DocumentOrigin | null>(null);
+  useEffect(() => {
+    activeDocumentOriginRef.current = activeDocument?.origin ?? null;
+  }, [activeDocument]);
+
+  // Resolve which repository owns a given document id by consulting the
+  // latest merged list. Falls back to the implicit "local only" repo when
+  // called before the first load settles.
+  const getRepository = useCallback(
+    (origin: DocumentOrigin | undefined): DocumentRepository | null => {
+      if (origin === "synced") return syncedRepository ?? null;
+      return localRepository;
+    },
+    [localRepository, syncedRepository],
+  );
+  const findRepositoryForId = useCallback(
+    (id: string): DocumentRepository | null => {
+      const meta = documentsRef.current.find((d) => d.id === id);
+      return getRepository(meta?.origin);
+    },
+    [getRepository],
+  );
+
+  const listAllDocuments = useCallback(async (): Promise<DocumentMeta[]> => {
+    const syncedList = syncedRepository
+      ? await syncedRepository.list()
+      : ([] as DocumentMeta[]);
+    const localList = await localRepository.list();
+    // Synced first, then local. Each group is already ordered by `order`
+    // from its repository.
+    return [...syncedList, ...localList];
+  }, [localRepository, syncedRepository]);
+
   const saveCurrentEditor = useCallback(async () => {
-    if (synced) return;
+    // Only local-origin documents are persisted via this hook — synced
+    // documents are persisted by useSync over WebSocket.
+    if (activeDocumentOriginRef.current !== "local") return;
 
     const editor = editorRef.current;
     const docId = activeDocumentIdRef.current;
     if (!editor || !docId) return;
 
-    const existing = await repository.get(docId);
+    const existing = await localRepository.get(docId);
     if (!existing) return;
 
     const { document } = getSnapshot(editor.store);
-    await repository.save({
+    await localRepository.save({
       ...existing,
       meta: { ...existing.meta, updatedAt: Date.now() },
       snapshot: document,
     });
-  }, [repository, synced]);
+  }, [localRepository]);
 
   // Initialize: load documents or create first one
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const metas = await repository.list();
+      const metas = await listAllDocuments();
       if (cancelled) return;
 
       if (metas.length === 0) {
-        const doc = createNewDocument(1);
-        await repository.save(doc);
+        // Prefer creating the first document in the synced repo when the
+        // user is logged in; otherwise create it locally.
+        const defaultOrigin: DocumentOrigin = syncedRepository
+          ? "synced"
+          : "local";
+        const repo = getRepository(defaultOrigin);
+        if (!repo) return;
+        const doc = createNewDocument(1, defaultOrigin);
+        await repo.save(doc);
         if (cancelled) return;
         setDocuments([doc.meta]);
         setActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
       } else {
         setDocuments(metas);
-        const firstId = metas[0].id;
-        const data = await repository.get(firstId);
+        const firstMeta = metas[0];
+        const repo = getRepository(firstMeta.origin);
+        const data = repo ? await repo.get(firstMeta.id) : undefined;
         if (cancelled) return;
-        setActiveDocumentId(firstId);
+        setActiveDocumentId(firstMeta.id);
         setActiveSnapshot(data?.snapshot ?? null);
       }
       setLoading(false);
@@ -94,12 +151,12 @@ export function useDocumentManager(
     return () => {
       cancelled = true;
     };
-  }, [repository]);
+  }, [getRepository, listAllDocuments, syncedRepository]);
 
   const refreshDocuments = useCallback(async () => {
-    const metas = await repository.list();
+    const metas = await listAllDocuments();
     setDocuments(metas);
-  }, [repository]);
+  }, [listAllDocuments]);
 
   const selectDocument = useCallback(
     async (id: string) => {
@@ -108,39 +165,61 @@ export function useDocumentManager(
       // Save current before switching
       await saveCurrentEditor();
 
-      const data = await repository.get(id);
+      const repo = findRepositoryForId(id);
+      if (!repo) return;
+
+      const data = await repo.get(id);
       if (!data) return;
 
       editorRef.current = null;
       setActiveDocumentId(id);
       setActiveSnapshot(data.snapshot);
     },
-    [repository, saveCurrentEditor],
+    [findRepositoryForId, saveCurrentEditor],
   );
 
-  const createDocument = useCallback(async () => {
-    await saveCurrentEditor();
+  const createDocument = useCallback(
+    async (options?: { origin?: DocumentOrigin }) => {
+      await saveCurrentEditor();
 
-    const metas = await repository.list();
-    const maxOrder = metas.reduce((max, d) => Math.max(max, d.order), 0);
-    const doc = createNewDocument(maxOrder + 1);
-    await repository.save(doc);
+      const origin: DocumentOrigin =
+        options?.origin ?? (syncedRepository ? "synced" : "local");
+      const repo = getRepository(origin);
+      if (!repo) return;
 
-    editorRef.current = null;
-    setActiveDocumentId(doc.meta.id);
-    setActiveSnapshot(null);
-    await refreshDocuments();
-  }, [repository, saveCurrentEditor, refreshDocuments]);
+      // Compute order against just this repo's docs so each group stays
+      // independently ordered.
+      const existing = await repo.list();
+      const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), 0);
+      const doc = createNewDocument(maxOrder + 1, origin);
+      await repo.save(doc);
+
+      editorRef.current = null;
+      setActiveDocumentId(doc.meta.id);
+      setActiveSnapshot(null);
+      await refreshDocuments();
+    },
+    [getRepository, refreshDocuments, saveCurrentEditor, syncedRepository],
+  );
 
   const deleteDocument = useCallback(
     async (id: string) => {
-      await repository.delete(id);
-      const remaining = await repository.list();
+      const repo = findRepositoryForId(id);
+      if (!repo) return;
+
+      await repo.delete(id);
+      const remaining = await listAllDocuments();
 
       if (remaining.length === 0) {
-        // Create a new document if we deleted the last one
-        const doc = createNewDocument(1);
-        await repository.save(doc);
+        // Create a new document if we deleted the last one; use the
+        // current default origin.
+        const defaultOrigin: DocumentOrigin = syncedRepository
+          ? "synced"
+          : "local";
+        const defaultRepo = getRepository(defaultOrigin);
+        if (!defaultRepo) return;
+        const doc = createNewDocument(1, defaultOrigin);
+        await defaultRepo.save(doc);
         setDocuments([doc.meta]);
         editorRef.current = null;
         setActiveDocumentId(doc.meta.id);
@@ -152,14 +231,15 @@ export function useDocumentManager(
 
       if (id === activeDocumentIdRef.current) {
         // Switch to the first remaining document
-        const nextDoc = remaining[0];
-        const data = await repository.get(nextDoc.id);
+        const nextMeta = remaining[0];
+        const nextRepo = getRepository(nextMeta.origin);
+        const data = nextRepo ? await nextRepo.get(nextMeta.id) : undefined;
         editorRef.current = null;
-        setActiveDocumentId(nextDoc.id);
+        setActiveDocumentId(nextMeta.id);
         setActiveSnapshot(data?.snapshot ?? null);
       }
     },
-    [repository],
+    [findRepositoryForId, getRepository, listAllDocuments, syncedRepository],
   );
 
   const renameDocument = useCallback(
@@ -167,15 +247,17 @@ export function useDocumentManager(
       if (id === activeDocumentIdRef.current) {
         await saveCurrentEditor();
       }
-      const data = await repository.get(id);
+      const repo = findRepositoryForId(id);
+      if (!repo) return;
+      const data = await repo.get(id);
       if (!data) return;
-      await repository.save({
+      await repo.save({
         ...data,
         meta: { ...data.meta, title, updatedAt: Date.now() },
       });
       await refreshDocuments();
     },
-    [repository, refreshDocuments, saveCurrentEditor],
+    [findRepositoryForId, refreshDocuments, saveCurrentEditor],
   );
 
   const reorderDocument = useCallback(
@@ -183,31 +265,31 @@ export function useDocumentManager(
       if (id === activeDocumentIdRef.current) {
         await saveCurrentEditor();
       }
-      const data = await repository.get(id);
+      const repo = findRepositoryForId(id);
+      if (!repo) return;
+      const data = await repo.get(id);
       if (!data) return;
-      await repository.save({
+      await repo.save({
         ...data,
         meta: { ...data.meta, order: newOrder, updatedAt: Date.now() },
       });
       await refreshDocuments();
     },
-    [repository, refreshDocuments, saveCurrentEditor],
+    [findRepositoryForId, refreshDocuments, saveCurrentEditor],
   );
 
   const registerEditor = useCallback(
     (editor: Editor) => {
       editorRef.current = editor;
 
-      if (synced) {
-        return () => {
-          // No auto-save listener to clean up in synced mode
-        };
-      }
-
-      // Auto-save on user changes, debounced
+      // Synced documents are persisted by useSync; this auto-save path is
+      // only for local-origin docs. The check is re-evaluated on every
+      // store event below so switching the active doc takes effect without
+      // re-registering.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const stopListening = editor.store.listen(
         () => {
+          if (activeDocumentOriginRef.current !== "local") return;
           clearTimeout(timer);
           timer = setTimeout(() => {
             saveCurrentEditor();
@@ -221,7 +303,7 @@ export function useDocumentManager(
         stopListening();
       };
     },
-    [saveCurrentEditor, synced],
+    [saveCurrentEditor],
   );
 
   // Best-effort save when the user leaves the page.
@@ -230,20 +312,21 @@ export function useDocumentManager(
   // navigation/close. None of these can await the async save, but firing it
   // initiates the IndexedDB transaction which browsers typically allow to
   // complete during page teardown.
-  // Skipped in synced mode — content is persisted by useSync.
+  // No-op for synced docs — content is persisted by useSync.
   useEffect(() => {
-    if (synced) return;
-
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
+      if (
+        activeDocumentOriginRef.current === "local" &&
+        document.visibilityState === "hidden"
+      ) {
         saveCurrentEditor();
       }
     };
     const handlePageHide = () => {
-      saveCurrentEditor();
+      if (activeDocumentOriginRef.current === "local") saveCurrentEditor();
     };
     const handleBeforeUnload = () => {
-      saveCurrentEditor();
+      if (activeDocumentOriginRef.current === "local") saveCurrentEditor();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
@@ -253,14 +336,14 @@ export function useDocumentManager(
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [saveCurrentEditor, synced]);
+  }, [saveCurrentEditor]);
 
   return {
     documents,
+    activeDocument,
     activeDocumentId,
     activeSnapshot,
     loading,
-    synced,
     selectDocument,
     createDocument,
     deleteDocument,

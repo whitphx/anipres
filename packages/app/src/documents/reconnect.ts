@@ -172,6 +172,7 @@ export async function reconcileOfflineEdits(params: {
       createdAt: now,
       updatedAt: now,
       order: serverDoc.meta.order + 0.001,
+      origin: "synced",
     },
     snapshot: null,
   });

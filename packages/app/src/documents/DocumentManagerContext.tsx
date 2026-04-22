@@ -4,15 +4,15 @@ import { useDocumentManager } from "./useDocumentManager";
 import { DocumentManagerContext } from "./useDocumentManagerContext";
 
 export function DocumentManagerProvider({
-  repository,
-  synced,
+  localRepository,
+  syncedRepository,
   children,
 }: {
-  repository: DocumentRepository;
-  synced?: boolean;
+  localRepository: DocumentRepository;
+  syncedRepository?: DocumentRepository;
   children: ReactNode;
 }) {
-  const manager = useDocumentManager(repository, { synced });
+  const manager = useDocumentManager({ localRepository, syncedRepository });
   return (
     <DocumentManagerContext.Provider value={manager}>
       {children}

@@ -6,9 +6,10 @@ import {
   PanelLeftClose,
   Plus,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
+import type { DocumentMeta } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
 import { DocumentListItem } from "./DocumentListItem";
@@ -36,6 +37,17 @@ export function DocumentSidebar({
 
   const [collapsed, setCollapsed] = useState(false);
 
+  const { syncedDocs, localDocs } = useMemo(() => {
+    const synced: DocumentMeta[] = [];
+    const local: DocumentMeta[] = [];
+    for (const doc of documents) {
+      (doc.origin === "synced" ? synced : local).push(doc);
+    }
+    return { syncedDocs: synced, localDocs: local };
+  }, [documents]);
+
+  const showGroupHeaders = syncedDocs.length > 0 && localDocs.length > 0;
+
   if (collapsed) {
     return (
       <button
@@ -50,6 +62,18 @@ export function DocumentSidebar({
     );
   }
 
+  const renderGroup = (docs: DocumentMeta[]) =>
+    docs.map((doc) => (
+      <DocumentListItem
+        key={doc.id}
+        doc={doc}
+        isActive={doc.id === activeDocumentId}
+        onSelect={selectDocument}
+        onRename={renameDocument}
+        onDelete={deleteDocument}
+      />
+    ));
+
   return (
     <div className={styles.sidebar}>
       <div className={styles.header}>
@@ -58,7 +82,7 @@ export function DocumentSidebar({
           <button
             type="button"
             className={styles.newButton}
-            onClick={createDocument}
+            onClick={() => createDocument()}
           >
             <Plus size={14} /> New
           </button>
@@ -74,16 +98,14 @@ export function DocumentSidebar({
         </div>
       </div>
       <div className={styles.list}>
-        {documents.map((doc) => (
-          <DocumentListItem
-            key={doc.id}
-            doc={doc}
-            isActive={doc.id === activeDocumentId}
-            onSelect={selectDocument}
-            onRename={renameDocument}
-            onDelete={deleteDocument}
-          />
-        ))}
+        {showGroupHeaders && syncedDocs.length > 0 && (
+          <div className={styles.groupHeader}>Synced</div>
+        )}
+        {renderGroup(syncedDocs)}
+        {showGroupHeaders && localDocs.length > 0 && (
+          <div className={styles.groupHeader}>Local</div>
+        )}
+        {renderGroup(localDocs)}
       </div>
       <div className={styles.footer}>
         {user ? (
