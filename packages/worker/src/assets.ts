@@ -143,8 +143,7 @@ async function scheduleDocumentAssetGc(
   c: AppContext,
   documentId: string,
 ): Promise<void> {
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
   await room.claimDocument(documentId);
   await room.scheduleAssetGc();
 }
@@ -153,8 +152,7 @@ async function scheduleDocumentDeletion(
   c: AppContext,
   documentId: string,
 ): Promise<void> {
-  const id = c.env.DOCUMENT_SYNC_ROOM.idFromName(documentId);
-  const room = c.env.DOCUMENT_SYNC_ROOM.get(id);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
   await room.claimDocument(documentId);
   await room.startDelete();
 }

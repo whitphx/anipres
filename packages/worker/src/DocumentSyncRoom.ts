@@ -177,8 +177,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    // A room is bound to exactly one document id. The Worker chooses the DO id
-    // with idFromName(documentId), then claims that document id here so later
+    // A room is bound to exactly one document id. The Worker chooses the DO
+    // with getByName(documentId), then claims that document id here so later
     // accidental calls for a different document fail instead of mutating state.
     this.documentId = documentId;
     this.lastSyncedAssetNamesJson = null;
