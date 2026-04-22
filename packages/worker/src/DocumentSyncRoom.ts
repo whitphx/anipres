@@ -84,6 +84,11 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL)",
       );
 
+      // getByName(documentId) routes to this DO, but Cloudflare does not expose
+      // that name inside the instance. In-memory fields can be lost when the DO
+      // is evicted/restarted, so restore the previously claimed app document id
+      // from storage. Alarms then still know which D1/R2 document to operate on
+      // even though they run without a request path.
       this.documentId =
         (await this.ctx.storage.get<string>("documentId")) ?? null;
 
@@ -390,6 +395,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   async claimDocument(documentId: string): Promise<void> {
+    // Bind the app-level document id to this named DO instance. This is
+    // separate from getByName(documentId): getByName chooses the DO, while the
+    // claim persists the document id for in-instance D1/R2 work and rejects any
+    // future mismatch.
     await this.ensureDocumentId(documentId);
   }
 
