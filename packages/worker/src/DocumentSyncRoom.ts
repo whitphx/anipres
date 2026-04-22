@@ -148,13 +148,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   private getDocumentIdFromRequest(request: Request) {
-    try {
-      return decodeURIComponent(
-        new URL(request.url).pathname.split("/").pop() ?? "",
-      );
-    } catch {
-      return "";
-    }
+    return decodeURIComponent(
+      new URL(request.url).pathname.split("/").pop() ?? "",
+    );
   }
 
   private async ensureDocumentId(documentId: string) {
@@ -173,6 +169,9 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     const storedDocumentId = await this.ctx.storage.get<string>("documentId");
     if (storedDocumentId) {
+      // The constructor normally preloads this value before requests run. Keep
+      // this defensive branch so future call paths that bypass that preload
+      // still preserve the same mismatch check instead of re-claiming the room.
       if (storedDocumentId !== documentId) {
         throw new Error(
           `DocumentSyncRoom documentId mismatch: expected ${storedDocumentId}, got ${documentId}`,

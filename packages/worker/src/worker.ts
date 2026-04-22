@@ -308,6 +308,9 @@ app.get("/api/connect/:documentId", async (c) => {
 
   const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
 
+  // Unlike DO RPC calls above, WebSocket upgrades enter through
+  // DocumentSyncRoom.fetch(), which claims and validates the document id from
+  // the already-validated request path before accepting the socket.
   return room.fetch(c.req.raw);
 });
 
