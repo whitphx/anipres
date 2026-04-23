@@ -6,7 +6,7 @@ import { OfflineAwareSyncedContainer } from "./components/OfflineAwareSyncedCont
 import { useColorScheme } from "./hooks/useColorScheme";
 
 export function AppContent() {
-  const { activeDocumentId, activeSnapshot, loading, synced } =
+  const { activeDocument, activeSnapshot, loading } =
     useDocumentManagerContext();
 
   const { preference, changePreference } = useColorScheme();
@@ -24,17 +24,17 @@ export function AppContent() {
         />
       }
     >
-      {activeDocumentId &&
-        (synced ? (
+      {activeDocument &&
+        (activeDocument.origin === "synced" ? (
           <OfflineAwareSyncedContainer
-            key={activeDocumentId}
-            documentId={activeDocumentId}
+            key={activeDocument.id}
+            documentId={activeDocument.id}
             colorScheme={preference}
           />
         ) : (
           <AnipresContainer
-            key={activeDocumentId}
-            documentId={activeDocumentId}
+            key={activeDocument.id}
+            documentId={activeDocument.id}
             snapshot={activeSnapshot}
             colorScheme={preference}
           />
