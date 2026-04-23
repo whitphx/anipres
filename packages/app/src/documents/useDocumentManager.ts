@@ -54,10 +54,14 @@ export function useDocumentManager(params: {
     activeDocumentIdRef.current = activeDocumentId;
   }, [activeDocumentId]);
 
+  // Keep a ref in sync with documents state so actions that run immediately
+  // after a refresh (e.g. selecting a freshly-forked doc) can resolve its
+  // repository before React commits the next render.
   const documentsRef = useRef<DocumentMeta[]>(documents);
-  useEffect(() => {
-    documentsRef.current = documents;
-  }, [documents]);
+  const commitDocuments = useCallback((next: DocumentMeta[]) => {
+    documentsRef.current = next;
+    setDocuments(next);
+  }, []);
 
   const activeDocument = useMemo(
     () => documents.find((d) => d.id === activeDocumentId) ?? null,
@@ -134,11 +138,11 @@ export function useDocumentManager(params: {
         const doc = createNewDocument(1, defaultOrigin);
         await repo.save(doc);
         if (cancelled) return;
-        setDocuments([doc.meta]);
+        commitDocuments([doc.meta]);
         setActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
       } else {
-        setDocuments(metas);
+        commitDocuments(metas);
         const firstMeta = metas[0];
         const repo = getRepository(firstMeta.origin);
         const data = repo ? await repo.get(firstMeta.id) : undefined;
@@ -151,12 +155,12 @@ export function useDocumentManager(params: {
     return () => {
       cancelled = true;
     };
-  }, [getRepository, listAllDocuments, syncedRepository]);
+  }, [commitDocuments, getRepository, listAllDocuments, syncedRepository]);
 
   const refreshDocuments = useCallback(async () => {
     const metas = await listAllDocuments();
-    setDocuments(metas);
-  }, [listAllDocuments]);
+    commitDocuments(metas);
+  }, [commitDocuments, listAllDocuments]);
 
   const selectDocument = useCallback(
     async (id: string) => {
@@ -220,14 +224,14 @@ export function useDocumentManager(params: {
         if (!defaultRepo) return;
         const doc = createNewDocument(1, defaultOrigin);
         await defaultRepo.save(doc);
-        setDocuments([doc.meta]);
+        commitDocuments([doc.meta]);
         editorRef.current = null;
         setActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
         return;
       }
 
-      setDocuments(remaining);
+      commitDocuments(remaining);
 
       if (id === activeDocumentIdRef.current) {
         // Switch to the first remaining document
@@ -239,7 +243,13 @@ export function useDocumentManager(params: {
         setActiveSnapshot(data?.snapshot ?? null);
       }
     },
-    [findRepositoryForId, getRepository, listAllDocuments, syncedRepository],
+    [
+      commitDocuments,
+      findRepositoryForId,
+      getRepository,
+      listAllDocuments,
+      syncedRepository,
+    ],
   );
 
   const renameDocument = useCallback(
