@@ -91,15 +91,19 @@ export function useDocumentManager(params: {
   );
 
   const listAllDocuments = useCallback(async (): Promise<DocumentMeta[]> => {
-    // Load both lists in parallel and tolerate a synced-list failure (e.g.
-    // server unavailable, offline after auth) by falling back to an empty
-    // synced group. A local-list failure still propagates because it means
-    // IndexedDB itself is broken, which the caller needs to know about.
+    // Load both lists in parallel. On synced-list failure (server down,
+    // offline after auth) fall back to the last known synced docs from
+    // documentsRef, so a transient failure during a post-operation
+    // refresh does not silently drop synced documents from the sidebar
+    // and unmount the active synced editor. On initial load the ref is
+    // still empty, so that case degrades to an empty synced group as
+    // before. A local-list failure still propagates because it signals
+    // an IndexedDB-level problem that the caller needs to surface.
     const [syncedList, localList] = await Promise.all([
       syncedRepository
         ? syncedRepository.list().catch((error) => {
             console.error("Failed to list synced documents", error);
-            return [] as DocumentMeta[];
+            return documentsRef.current.filter((d) => d.origin === "synced");
           })
         : Promise.resolve([] as DocumentMeta[]),
       localRepository.list(),
