@@ -49,28 +49,41 @@ export function useDocumentManager(params: {
   const [loading, setLoading] = useState(true);
 
   const editorRef = useRef<Editor | null>(null);
-  const activeDocumentIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    activeDocumentIdRef.current = activeDocumentId;
-  }, [activeDocumentId]);
 
-  // Keep a ref in sync with documents state so actions that run immediately
-  // after a refresh (e.g. selecting a freshly-forked doc) can resolve its
-  // repository before React commits the next render.
+  // Keep refs in sync with state via a pair of commit helpers so actions
+  // that run immediately after a state change (e.g. selecting a
+  // freshly-forked doc after refreshDocuments, or reading the active
+  // doc's origin from a store listener right after a doc switch) can see
+  // the updated values before React commits the next render.
   const documentsRef = useRef<DocumentMeta[]>(documents);
+  const activeDocumentIdRef = useRef<string | null>(null);
+  const activeDocumentOriginRef = useRef<DocumentOrigin | null>(null);
+
+  const syncActiveOriginRef = (
+    nextDocs: DocumentMeta[],
+    activeId: string | null,
+  ) => {
+    activeDocumentOriginRef.current = activeId
+      ? (nextDocs.find((d) => d.id === activeId)?.origin ?? null)
+      : null;
+  };
+
   const commitDocuments = useCallback((next: DocumentMeta[]) => {
     documentsRef.current = next;
+    syncActiveOriginRef(next, activeDocumentIdRef.current);
     setDocuments(next);
+  }, []);
+
+  const commitActiveDocumentId = useCallback((next: string | null) => {
+    activeDocumentIdRef.current = next;
+    syncActiveOriginRef(documentsRef.current, next);
+    setActiveDocumentId(next);
   }, []);
 
   const activeDocument = useMemo(
     () => documents.find((d) => d.id === activeDocumentId) ?? null,
     [documents, activeDocumentId],
   );
-  const activeDocumentOriginRef = useRef<DocumentOrigin | null>(null);
-  useEffect(() => {
-    activeDocumentOriginRef.current = activeDocument?.origin ?? null;
-  }, [activeDocument]);
 
   // Resolve which repository owns a given document id by consulting the
   // latest merged list. Falls back to the implicit "local only" repo when
@@ -152,7 +165,7 @@ export function useDocumentManager(params: {
         await repo.save(doc);
         if (cancelled) return;
         commitDocuments([doc.meta]);
-        setActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
       } else {
         commitDocuments(metas);
@@ -160,7 +173,7 @@ export function useDocumentManager(params: {
         const repo = getRepository(firstMeta.origin);
         const data = repo ? await repo.get(firstMeta.id) : undefined;
         if (cancelled) return;
-        setActiveDocumentId(firstMeta.id);
+        commitActiveDocumentId(firstMeta.id);
         setActiveSnapshot(data?.snapshot ?? null);
       }
       setLoading(false);
@@ -168,7 +181,13 @@ export function useDocumentManager(params: {
     return () => {
       cancelled = true;
     };
-  }, [commitDocuments, getRepository, listAllDocuments, syncedRepository]);
+  }, [
+    commitActiveDocumentId,
+    commitDocuments,
+    getRepository,
+    listAllDocuments,
+    syncedRepository,
+  ]);
 
   const refreshDocuments = useCallback(async () => {
     const metas = await listAllDocuments();
@@ -189,10 +208,10 @@ export function useDocumentManager(params: {
       if (!data) return;
 
       editorRef.current = null;
-      setActiveDocumentId(id);
+      commitActiveDocumentId(id);
       setActiveSnapshot(data.snapshot);
     },
-    [findRepositoryForId, saveCurrentEditor],
+    [commitActiveDocumentId, findRepositoryForId, saveCurrentEditor],
   );
 
   const createDocument = useCallback(
@@ -205,18 +224,30 @@ export function useDocumentManager(params: {
       if (!repo) return;
 
       // Compute order against just this repo's docs so each group stays
-      // independently ordered.
-      const existing = await repo.list();
-      const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), 0);
-      const doc = createNewDocument(maxOrder + 1, origin);
-      await repo.save(doc);
+      // independently ordered. Catch repository failures (e.g. synced
+      // server unreachable) so the button click doesn't end in an
+      // unhandled rejection with no user-visible change.
+      try {
+        const existing = await repo.list();
+        const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), 0);
+        const doc = createNewDocument(maxOrder + 1, origin);
+        await repo.save(doc);
 
-      editorRef.current = null;
-      setActiveDocumentId(doc.meta.id);
-      setActiveSnapshot(null);
-      await refreshDocuments();
+        editorRef.current = null;
+        commitActiveDocumentId(doc.meta.id);
+        setActiveSnapshot(null);
+        await refreshDocuments();
+      } catch (error) {
+        console.error(`Failed to create ${origin} document`, error);
+      }
     },
-    [getRepository, refreshDocuments, saveCurrentEditor, syncedRepository],
+    [
+      commitActiveDocumentId,
+      getRepository,
+      refreshDocuments,
+      saveCurrentEditor,
+      syncedRepository,
+    ],
   );
 
   const deleteDocument = useCallback(
@@ -229,17 +260,41 @@ export function useDocumentManager(params: {
 
       if (remaining.length === 0) {
         // Create a new document if we deleted the last one; use the
-        // current default origin.
+        // current default origin. Fall back to local creation if the
+        // preferred (synced) save fails so the user is not left with an
+        // empty sidebar after a successful delete.
         const defaultOrigin: DocumentOrigin = syncedRepository
           ? "synced"
           : "local";
         const defaultRepo = getRepository(defaultOrigin);
         if (!defaultRepo) return;
         const doc = createNewDocument(1, defaultOrigin);
-        await defaultRepo.save(doc);
+        try {
+          await defaultRepo.save(doc);
+        } catch (error) {
+          console.error(
+            `Failed to create replacement ${defaultOrigin} document; falling back to local`,
+            error,
+          );
+          if (defaultOrigin === "synced") {
+            const localDoc = createNewDocument(1, "local");
+            try {
+              await localRepository.save(localDoc);
+              doc.meta = localDoc.meta;
+            } catch (localError) {
+              console.error(
+                "Failed to create replacement local document",
+                localError,
+              );
+              return;
+            }
+          } else {
+            return;
+          }
+        }
         commitDocuments([doc.meta]);
         editorRef.current = null;
-        setActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(doc.meta.id);
         setActiveSnapshot(null);
         return;
       }
@@ -252,15 +307,17 @@ export function useDocumentManager(params: {
         const nextRepo = getRepository(nextMeta.origin);
         const data = nextRepo ? await nextRepo.get(nextMeta.id) : undefined;
         editorRef.current = null;
-        setActiveDocumentId(nextMeta.id);
+        commitActiveDocumentId(nextMeta.id);
         setActiveSnapshot(data?.snapshot ?? null);
       }
     },
     [
+      commitActiveDocumentId,
       commitDocuments,
       findRepositoryForId,
       getRepository,
       listAllDocuments,
+      localRepository,
       syncedRepository,
     ],
   );
