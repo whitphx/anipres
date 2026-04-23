@@ -190,6 +190,9 @@ jobs:
       - name: Format check
         run: pnpm format --check
 
+      - name: Test
+        run: pnpm test
+
   build-app:
     needs: [build-anipres, lint-app]
 
