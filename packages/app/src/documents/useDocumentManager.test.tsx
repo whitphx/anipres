@@ -279,23 +279,170 @@ describe("useDocumentManager", () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.converting).toBe(null);
+    expect(result.current.converting.size).toBe(0);
 
     let convertPromise!: Promise<void>;
     act(() => {
       convertPromise = result.current.convertToSynced("doc-1");
     });
 
-    await waitFor(() => expect(result.current.converting).toBe("doc-1"));
-    expect(result.current.conversionError).toBe(null);
+    await waitFor(() =>
+      expect(result.current.converting.has("doc-1")).toBe(true),
+    );
+    expect(result.current.conversionErrors.size).toBe(0);
 
     await act(async () => {
       resolvePush();
       await convertPromise;
     });
 
-    expect(result.current.converting).toBe(null);
-    expect(result.current.conversionError).toBe(null);
+    expect(result.current.converting.size).toBe(0);
+    expect(result.current.conversionErrors.size).toBe(0);
+  });
+
+  it("runs convertToSynced on two docs in parallel and completes each independently", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+      makeLocalDocWithSnapshot("doc-2"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const resolvers: Record<string, () => void> = {};
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockImplementation(
+        (documentId) =>
+          new Promise<void>((resolve) => {
+            resolvers[documentId] = resolve;
+          }),
+      );
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let firstConvert!: Promise<void>;
+    let secondConvert!: Promise<void>;
+    act(() => {
+      firstConvert = result.current.convertToSynced("doc-1");
+      secondConvert = result.current.convertToSynced("doc-2");
+    });
+
+    await waitFor(() => {
+      expect(result.current.converting.has("doc-1")).toBe(true);
+      expect(result.current.converting.has("doc-2")).toBe(true);
+    });
+
+    // Resolve in reverse order to show the ids track their own completion.
+    await act(async () => {
+      resolvers["doc-2"]();
+      await secondConvert;
+    });
+
+    expect(result.current.converting.has("doc-1")).toBe(true);
+    expect(result.current.converting.has("doc-2")).toBe(false);
+
+    await act(async () => {
+      resolvers["doc-1"]();
+      await firstConvert;
+    });
+
+    expect(result.current.converting.size).toBe(0);
+    expect(result.current.conversionErrors.size).toBe(0);
+  });
+
+  it("no-ops a second convertToSynced on the same doc while the first is still in flight", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    let resolvePush!: () => void;
+    const pushPromise = new Promise<void>((resolve) => {
+      resolvePush = resolve;
+    });
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockReturnValue(pushPromise);
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let firstConvert!: Promise<void>;
+    act(() => {
+      firstConvert = result.current.convertToSynced("doc-1");
+    });
+
+    await waitFor(() =>
+      expect(result.current.converting.has("doc-1")).toBe(true),
+    );
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    // Second call did not double-fire the HTTP layer.
+    expect(pushSnapshot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolvePush();
+      await firstConvert;
+    });
+  });
+
+  it("surfaces only the failed id in conversionErrors when parallel migrations have mixed outcomes", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-ok"),
+      makeLocalDocWithSnapshot("doc-bad"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockImplementation(async (documentId) => {
+        if (documentId === "doc-bad") {
+          throw new Error("Snapshot push failed: 413");
+        }
+      });
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await Promise.all([
+        result.current.convertToSynced("doc-ok"),
+        result.current.convertToSynced("doc-bad"),
+      ]);
+    });
+
+    expect(result.current.converting.size).toBe(0);
+    expect(result.current.conversionErrors.has("doc-ok")).toBe(false);
+    expect(result.current.conversionErrors.get("doc-bad")?.message).toMatch(
+      /413/,
+    );
   });
 
   it("sets conversionError when the migration fails and keeps the local copy", async () => {
@@ -323,9 +470,10 @@ describe("useDocumentManager", () => {
       await result.current.convertToSynced("doc-1");
     });
 
-    expect(result.current.converting).toBe(null);
-    expect(result.current.conversionError?.id).toBe("doc-1");
-    expect(result.current.conversionError?.error.message).toMatch(/500/);
+    expect(result.current.converting.has("doc-1")).toBe(false);
+    expect(result.current.conversionErrors.get("doc-1")?.message).toMatch(
+      /500/,
+    );
     expect(localRepo.delete).not.toHaveBeenCalled();
   });
 
@@ -355,14 +503,14 @@ describe("useDocumentManager", () => {
       await result.current.convertToSynced("doc-1");
     });
 
-    expect(result.current.conversionError?.id).toBe("doc-1");
+    expect(result.current.conversionErrors.has("doc-1")).toBe(true);
 
     await act(async () => {
       await result.current.convertToSynced("doc-1");
     });
 
-    expect(result.current.converting).toBe(null);
-    expect(result.current.conversionError).toBe(null);
+    expect(result.current.converting.has("doc-1")).toBe(false);
+    expect(result.current.conversionErrors.has("doc-1")).toBe(false);
     expect(pushSnapshot).toHaveBeenCalledTimes(2);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     expect(result.current.activeDocument?.origin).toBe("synced");

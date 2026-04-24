@@ -24,21 +24,20 @@ function createNewDocument(
   };
 }
 
-export interface DocumentConversionError {
-  id: string;
-  error: Error;
-}
-
 export interface DocumentManager {
   documents: DocumentMeta[];
   activeDocument: DocumentMeta | null;
   activeDocumentId: string | null;
   activeSnapshot: TLStoreSnapshot | null;
   loading: boolean;
-  /** Document id currently being migrated via convertToSynced, or null. */
-  converting: string | null;
-  /** Error from the most recent convertToSynced attempt. Cleared on the next attempt. */
-  conversionError: DocumentConversionError | null;
+  /** Document ids currently being migrated via convertToSynced. */
+  converting: ReadonlySet<string>;
+  /**
+   * Errors from the most recent convertToSynced attempts, keyed by
+   * document id. An entry is present only after a failed attempt and
+   * cleared when the same id is retried.
+   */
+  conversionErrors: ReadonlyMap<string, Error>;
   selectDocument: (id: string) => Promise<void>;
   createDocument: (options?: { origin?: DocumentOrigin }) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
@@ -72,11 +71,18 @@ export function useDocumentManager(params: {
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [converting, setConverting] = useState<string | null>(null);
-  const [conversionError, setConversionError] =
-    useState<DocumentConversionError | null>(null);
+  const [converting, setConverting] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [conversionErrors, setConversionErrors] = useState<
+    ReadonlyMap<string, Error>
+  >(() => new Map());
 
   const editorRef = useRef<Editor | null>(null);
+  // Mirror of `converting` readable synchronously inside convertToSynced
+  // so a per-id gate can reject a second call on the same doc without the
+  // stale-closure trap of reading React state.
+  const convertingRef = useRef<ReadonlySet<string>>(converting);
 
   // Keep refs in sync with state via a pair of commit helpers so actions
   // that run immediately after a state change (e.g. selecting a
@@ -389,6 +395,10 @@ export function useDocumentManager(params: {
   const convertToSynced = useCallback(
     async (id: string) => {
       if (!syncedRepository) return;
+      // Per-id gate: a second call for the same doc while it is still in
+      // flight is a no-op. Migrations on different docs are allowed to
+      // run concurrently.
+      if (convertingRef.current.has(id)) return;
       // Filter to the local entry specifically. After a partial failure
       // (server save succeeded but snapshot push or asset upload failed)
       // both a local and a synced entry can briefly share the same id;
@@ -405,10 +415,26 @@ export function useDocumentManager(params: {
         await saveCurrentEditor();
       }
 
-      // Clear any prior error and mark this doc as in-flight before any
-      // async work so the UI flips to the spinner synchronously.
-      setConversionError(null);
-      setConverting(id);
+      // Mark this doc as in-flight and clear any prior error on it before
+      // any async work so the UI flips to the spinner synchronously.
+      // Other docs' in-flight / error state is left intact.
+      const nextConverting = new Set(convertingRef.current);
+      nextConverting.add(id);
+      convertingRef.current = nextConverting;
+      setConverting(nextConverting);
+      setConversionErrors((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      const clearInFlight = () => {
+        const next = new Set(convertingRef.current);
+        next.delete(id);
+        convertingRef.current = next;
+        setConverting(next);
+      };
 
       try {
         await convertLocalDocToSynced({
@@ -419,10 +445,14 @@ export function useDocumentManager(params: {
         });
       } catch (error) {
         console.error("Failed to convert document to synced", error);
-        setConverting(null);
-        setConversionError({
-          id,
-          error: error instanceof Error ? error : new Error(String(error)),
+        clearInFlight();
+        setConversionErrors((prev) => {
+          const next = new Map(prev);
+          next.set(
+            id,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return next;
         });
         // Refresh in case the server metadata was created before the
         // failure; the local copy is intentionally preserved by
@@ -431,7 +461,7 @@ export function useDocumentManager(params: {
         return;
       }
 
-      setConverting(null);
+      clearInFlight();
       await refreshDocuments();
 
       // The converted doc keeps its id; re-commit the active id so the
@@ -519,7 +549,7 @@ export function useDocumentManager(params: {
     activeSnapshot,
     loading,
     converting,
-    conversionError,
+    conversionErrors,
     selectDocument,
     createDocument,
     deleteDocument,
