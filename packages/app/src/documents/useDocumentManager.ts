@@ -228,6 +228,21 @@ export function useDocumentManager(params: {
     commitDocuments(metas);
   }, [commitDocuments, listAllDocuments]);
 
+  // When the syncedRepository identity changes — login, logout, or a
+  // logout-then-login cycle — any in-flight migration state is about to
+  // become meaningless. Reset so no row inherits a ghost spinner or
+  // stale error from the prior repository pair.
+  const prevSyncedRepoRef = useRef<DocumentRepository | undefined>(
+    syncedRepository,
+  );
+  useEffect(() => {
+    if (prevSyncedRepoRef.current === syncedRepository) return;
+    prevSyncedRepoRef.current = syncedRepository;
+    convertingRef.current = new Set();
+    setConverting(new Set());
+    setConversionErrors(new Map());
+  }, [syncedRepository]);
+
   const selectDocument = useCallback(
     async (id: string) => {
       if (id === activeDocumentIdRef.current) return;
@@ -290,6 +305,25 @@ export function useDocumentManager(params: {
       if (!repo) return;
 
       await repo.delete(id);
+
+      // Drop any stale convert-to-synced state for this id. An entry in
+      // conversionErrors would otherwise linger in memory with no row to
+      // render against; an in-flight converting entry (possible only if
+      // delete races a migration) is abandoned intentionally — the
+      // migration will still try to complete but its id is already gone.
+      setConversionErrors((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      if (convertingRef.current.has(id)) {
+        const next = new Set(convertingRef.current);
+        next.delete(id);
+        convertingRef.current = next;
+        setConverting(next);
+      }
+
       const remaining = await listAllDocuments();
 
       if (remaining.length === 0) {

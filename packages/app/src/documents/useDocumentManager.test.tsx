@@ -516,6 +516,78 @@ describe("useDocumentManager", () => {
     expect(result.current.activeDocument?.origin).toBe("synced");
   });
 
+  it("clears conversionErrors for a doc when it is deleted", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+      makeLocalDocWithSnapshot("doc-2"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockRejectedValue(new Error("Snapshot push failed: 500"));
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+    expect(result.current.conversionErrors.has("doc-1")).toBe(true);
+
+    await act(async () => {
+      await result.current.deleteDocument("doc-1");
+    });
+
+    expect(result.current.conversionErrors.has("doc-1")).toBe(false);
+  });
+
+  it("resets converting and conversionErrors when the synced repository identity changes (logout)", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockRejectedValue(new Error("Snapshot push failed: 500"));
+    const uploadAsset = vi.fn();
+
+    const initialProps: {
+      syncedRepository: DocumentRepository | undefined;
+    } = { syncedRepository: syncedRepo.repo };
+    const { result, rerender } = renderHook(
+      (props: { syncedRepository: DocumentRepository | undefined }) =>
+        useDocumentManager({
+          localRepository: localRepo.repo,
+          syncedRepository: props.syncedRepository,
+          migrationOverrides: { uploadAsset, pushSnapshot },
+        }),
+      { initialProps },
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+    expect(result.current.conversionErrors.has("doc-1")).toBe(true);
+
+    // Simulate a logout by swapping syncedRepository to undefined.
+    rerender({ syncedRepository: undefined });
+
+    await waitFor(() => expect(result.current.conversionErrors.size).toBe(0));
+    expect(result.current.converting.size).toBe(0);
+  });
+
   it("convertToSynced is a no-op when no synced repository is configured", async () => {
     const localRepo = makeFakeRepo("local", [makeDoc("doc-1", 1, "local")]);
 
