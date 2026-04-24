@@ -1,8 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { TLStoreSnapshot } from "tldraw";
 import { useDocumentManager } from "./useDocumentManager";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+
+const emptySnapshot = { store: {}, schema: {} } as unknown as TLStoreSnapshot;
+
+function makeLocalDocWithSnapshot(id: string): DocumentData {
+  return {
+    meta: {
+      id,
+      title: id,
+      order: 1,
+      origin: "local",
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    snapshot: emptySnapshot,
+  };
+}
 
 function makeDoc(
   id: string,
@@ -235,6 +252,119 @@ describe("useDocumentManager", () => {
     expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     expect(result.current.activeDocument?.id).toBe("doc-1");
+    expect(result.current.activeDocument?.origin).toBe("synced");
+  });
+
+  it("exposes converting while a migration is in flight and clears it on completion", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    let resolvePush!: () => void;
+    const pushPromise = new Promise<void>((resolve) => {
+      resolvePush = resolve;
+    });
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockReturnValue(pushPromise);
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.converting).toBe(null);
+
+    let convertPromise!: Promise<void>;
+    act(() => {
+      convertPromise = result.current.convertToSynced("doc-1");
+    });
+
+    await waitFor(() => expect(result.current.converting).toBe("doc-1"));
+    expect(result.current.conversionError).toBe(null);
+
+    await act(async () => {
+      resolvePush();
+      await convertPromise;
+    });
+
+    expect(result.current.converting).toBe(null);
+    expect(result.current.conversionError).toBe(null);
+  });
+
+  it("sets conversionError when the migration fails and keeps the local copy", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockRejectedValue(new Error("Snapshot push failed: 500"));
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    expect(result.current.converting).toBe(null);
+    expect(result.current.conversionError?.id).toBe("doc-1");
+    expect(result.current.conversionError?.error.message).toMatch(/500/);
+    expect(localRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it("clears prior conversionError on retry and completes the migration on success", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("Snapshot push failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    expect(result.current.conversionError?.id).toBe("doc-1");
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    expect(result.current.converting).toBe(null);
+    expect(result.current.conversionError).toBe(null);
+    expect(pushSnapshot).toHaveBeenCalledTimes(2);
+    expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     expect(result.current.activeDocument?.origin).toBe("synced");
   });
 

@@ -24,12 +24,21 @@ function createNewDocument(
   };
 }
 
+export interface DocumentConversionError {
+  id: string;
+  error: Error;
+}
+
 export interface DocumentManager {
   documents: DocumentMeta[];
   activeDocument: DocumentMeta | null;
   activeDocumentId: string | null;
   activeSnapshot: TLStoreSnapshot | null;
   loading: boolean;
+  /** Document id currently being migrated via convertToSynced, or null. */
+  converting: string | null;
+  /** Error from the most recent convertToSynced attempt. Cleared on the next attempt. */
+  conversionError: DocumentConversionError | null;
   selectDocument: (id: string) => Promise<void>;
   createDocument: (options?: { origin?: DocumentOrigin }) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
@@ -63,6 +72,9 @@ export function useDocumentManager(params: {
     null,
   );
   const [loading, setLoading] = useState(true);
+  const [converting, setConverting] = useState<string | null>(null);
+  const [conversionError, setConversionError] =
+    useState<DocumentConversionError | null>(null);
 
   const editorRef = useRef<Editor | null>(null);
 
@@ -377,14 +389,26 @@ export function useDocumentManager(params: {
   const convertToSynced = useCallback(
     async (id: string) => {
       if (!syncedRepository) return;
-      const meta = documentsRef.current.find((d) => d.id === id);
-      if (!meta || meta.origin !== "local") return;
+      // Filter to the local entry specifically. After a partial failure
+      // (server save succeeded but snapshot push or asset upload failed)
+      // both a local and a synced entry can briefly share the same id;
+      // returning the first match would otherwise pick the synced one
+      // and silently block the retry.
+      const meta = documentsRef.current.find(
+        (d) => d.id === id && d.origin === "local",
+      );
+      if (!meta) return;
 
       // Flush any pending editor state for this doc before migrating so
       // convertLocalDocToSynced picks up the latest snapshot from IDB.
       if (id === activeDocumentIdRef.current) {
         await saveCurrentEditor();
       }
+
+      // Clear any prior error and mark this doc as in-flight before any
+      // async work so the UI flips to the spinner synchronously.
+      setConversionError(null);
+      setConverting(id);
 
       try {
         await convertLocalDocToSynced({
@@ -395,6 +419,11 @@ export function useDocumentManager(params: {
         });
       } catch (error) {
         console.error("Failed to convert document to synced", error);
+        setConverting(null);
+        setConversionError({
+          id,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
         // Refresh in case the server metadata was created before the
         // failure; the local copy is intentionally preserved by
         // convertLocalDocToSynced so the user can retry.
@@ -402,6 +431,7 @@ export function useDocumentManager(params: {
         return;
       }
 
+      setConverting(null);
       await refreshDocuments();
 
       // The converted doc keeps its id; re-commit the active id so the
@@ -488,6 +518,8 @@ export function useDocumentManager(params: {
     activeDocumentId,
     activeSnapshot,
     loading,
+    converting,
+    conversionError,
     selectDocument,
     createDocument,
     deleteDocument,

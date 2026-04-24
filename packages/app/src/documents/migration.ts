@@ -114,6 +114,13 @@ export async function uploadAssetDataUrls(
   return rewriteAssetSrcs(snapshot, new Map(entries));
 }
 
+// Migration HTTP calls can stall on a dead connection without this; the
+// rest of the app hits websocket endpoints where RTT limits are
+// enforced differently. 60s is generous for the asset upload case
+// (a 10 MB payload on a slow network takes time) but short enough to
+// surface as a visible failure rather than an indefinite spinner.
+const MIGRATION_FETCH_TIMEOUT_MS = 60_000;
+
 async function defaultUploadAsset(
   documentId: string,
   file: File,
@@ -125,6 +132,7 @@ async function defaultUploadAsset(
     {
       method: "POST",
       body: formData,
+      signal: AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS),
     },
   );
   if (!res.ok) {
@@ -146,6 +154,7 @@ async function defaultPushSnapshot(
         snapshot,
         expectedSnapshotVersion: 0,
       }),
+      signal: AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS),
     },
   );
   if (!res.ok) {
