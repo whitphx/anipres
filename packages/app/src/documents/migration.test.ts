@@ -132,16 +132,8 @@ describe("findDataUrlAssets", () => {
     });
     const result = findDataUrlAssets(snapshot);
     expect(result).toEqual([
-      {
-        recordId: "asset:a",
-        dataUrl: "data:image/png;base64,AAAA",
-        mimeType: "image/png",
-      },
-      {
-        recordId: "asset:c",
-        dataUrl: "data:image/jpeg;base64,BBBB",
-        mimeType: "image/jpeg",
-      },
+      { recordId: "asset:a", dataUrl: "data:image/png;base64,AAAA" },
+      { recordId: "asset:c", dataUrl: "data:image/jpeg;base64,BBBB" },
     ]);
   });
 
@@ -212,9 +204,9 @@ describe("uploadAssetDataUrls", () => {
 
     expect(uploadFile).toHaveBeenCalledTimes(2);
     const uploaded = uploadFile.mock.calls.map((call) => call[0].name);
-    expect(uploaded).toContain("asset:a.png");
-    expect(uploaded).toContain("asset:b.jpg");
-    expect(getAssetSrc(result, "asset:a")).toBe("/uploaded/asset:a.png");
+    expect(uploaded).toContain("asset:a");
+    expect(uploaded).toContain("asset:b");
+    expect(getAssetSrc(result, "asset:a")).toBe("/uploaded/asset:a");
     expect(getAssetSrc(result, "asset:external")).toBe(
       "https://example.com/x.png",
     );
@@ -285,9 +277,7 @@ describe("convertLocalDocToSynced", () => {
 
     expect(pushSnapshot).toHaveBeenCalledTimes(1);
     const pushedSnapshot = pushSnapshot.mock.calls[0][1];
-    expect(getAssetSrc(pushedSnapshot, "asset:a")).toBe(
-      "/uploaded/asset:a.png",
-    );
+    expect(getAssetSrc(pushedSnapshot, "asset:a")).toBe("/uploaded/asset:a");
 
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     expect(localRepo.store.has("doc-1")).toBe(false);

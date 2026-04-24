@@ -1,19 +1,6 @@
 import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
 
-const MIME_TYPE_EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "image/apng": "apng",
-  "image/avif": "avif",
-  "image/svg+xml": "svg",
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-};
-
 export function isDataUrl(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");
 }
@@ -24,11 +11,13 @@ export function isDataUrl(value: unknown): value is string {
  * and similar text formats).
  */
 export function dataUrlToFile(dataUrl: string, filename: string): File {
-  const match = dataUrl.match(/^data:([^;,]+)((?:;[^,]*)*),(.*)$/s);
-  if (!match) {
+  const match = dataUrl.match(
+    /^data:(?<mimeType>[^;,]+)(?<params>(?:;[^,]*)*),(?<payload>.*)$/s,
+  );
+  if (!match?.groups) {
     throw new Error("Invalid data URL");
   }
-  const [, mimeType, params, payload] = match;
+  const { mimeType, params, payload } = match.groups;
   const isBase64 = params.split(";").some((p) => p === "base64");
   let bytes: Uint8Array;
   if (isBase64) {
@@ -56,7 +45,6 @@ function isAssetRecord(
 export interface DataUrlAsset {
   recordId: string;
   dataUrl: string;
-  mimeType: string;
 }
 
 export function findDataUrlAssets(snapshot: TLStoreSnapshot): DataUrlAsset[] {
@@ -65,9 +53,7 @@ export function findDataUrlAssets(snapshot: TLStoreSnapshot): DataUrlAsset[] {
     if (!isAssetRecord(record)) continue;
     const src = record.props.src;
     if (!isDataUrl(src)) continue;
-    const mimeType =
-      src.match(/^data:([^;,]+)/)?.[1] ?? "application/octet-stream";
-    results.push({ recordId: id, dataUrl: src, mimeType });
+    results.push({ recordId: id, dataUrl: src });
   }
   return results;
 }
@@ -114,11 +100,13 @@ export async function uploadAssetDataUrls(
   const assets = findDataUrlAssets(snapshot);
   if (assets.length === 0) return snapshot;
 
+  // The File constructor requires a non-empty name, but the server
+  // derives the final asset key's extension from the validated MIME
+  // type and ignores this filename entirely (see
+  // packages/worker/src/assets.ts). Passing the record id is enough.
   const entries = await Promise.all(
     assets.map(async (asset) => {
-      const ext = MIME_TYPE_EXTENSIONS[asset.mimeType] ?? "bin";
-      const filename = `${asset.recordId}.${ext}`;
-      const file = dataUrlToFile(asset.dataUrl, filename);
+      const file = dataUrlToFile(asset.dataUrl, asset.recordId);
       const { src } = await uploadFile(file);
       return [asset.recordId, src] as const;
     }),
