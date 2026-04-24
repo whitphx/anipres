@@ -80,7 +80,11 @@
   .deleteButton:focus-visible,
   .item:hover .convertButton,
   .item:focus-within .convertButton,
-  .convertButton:focus-visible {
+  .convertButton:focus-visible,
+  /* A busy or errored convert button must remain visible so the user
+     sees the state without hovering. */
+  .convertButtonBusy,
+  .convertButtonError {
     opacity: 1;
   }
 }
@@ -93,6 +97,26 @@
 .convertButton:hover {
   background: rgba(0, 0, 0, 0.08);
   color: #06c;
+}
+
+.convertButtonBusy {
+  cursor: progress;
+  color: #06c;
+}
+
+.convertButtonError,
+.convertButtonError:hover {
+  color: #e00;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 :global([data-color-scheme="dark"]) .item:hover {
@@ -130,4 +154,13 @@
 :global([data-color-scheme="dark"]) .convertButton:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #4d9aff;
+}
+
+:global([data-color-scheme="dark"]) .convertButtonBusy {
+  color: #4d9aff;
+}
+
+:global([data-color-scheme="dark"]) .convertButtonError,
+:global([data-color-scheme="dark"]) .convertButtonError:hover {
+  color: #f55;
 }

@@ -32,6 +32,8 @@ export function DocumentSidebar({
     deleteDocument,
     renameDocument,
     convertToSynced,
+    converting,
+    conversionErrors,
   } = useDocumentManagerContext();
 
   const { user, loginWithGitHub, loginWithGoogle, logout } = useAuth();
@@ -77,6 +79,8 @@ export function DocumentSidebar({
         onRename={renameDocument}
         onDelete={deleteDocument}
         onConvert={onConvert}
+        isConverting={converting.has(doc.id)}
+        conversionError={conversionErrors.get(doc.id)}
       />
     ));
 

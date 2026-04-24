@@ -1,4 +1,4 @@
-import { CloudUpload, X } from "lucide-react";
+import { CloudUpload, Loader2, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { DocumentMeta } from "../documents/types";
 import styles from "./DocumentListItem.module.css";
@@ -16,6 +16,13 @@ interface DocumentListItemProps {
    * destination) or when the doc is already synced.
    */
   onConvert?: (id: string) => void;
+  /** True while this specific doc is being migrated via onConvert. */
+  isConverting?: boolean;
+  /**
+   * Error from the most recent convert attempt on this doc. Absent when
+   * there is no prior error or the error belongs to a different doc.
+   */
+  conversionError?: Error;
 }
 
 export function DocumentListItem({
@@ -25,6 +32,8 @@ export function DocumentListItem({
   onRename,
   onDelete,
   onConvert,
+  isConverting = false,
+  conversionError,
 }: DocumentListItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(doc.title);
@@ -48,6 +57,16 @@ export function DocumentListItem({
   };
 
   const canConvert = onConvert !== undefined && doc.origin === "local";
+  const convertTitle = isConverting
+    ? "Uploading…"
+    : conversionError
+      ? `Upload failed: ${conversionError.message}. Click to retry.`
+      : "Upload to cloud";
+  const convertAriaLabel = isConverting
+    ? `Uploading ${doc.title} to cloud`
+    : conversionError
+      ? `Retry uploading ${doc.title} to cloud (previous attempt failed)`
+      : `Upload ${doc.title} to cloud`;
 
   return (
     <div
@@ -91,15 +110,23 @@ export function DocumentListItem({
       {canConvert && (
         <button
           type="button"
-          className={styles.convertButton}
+          className={`${styles.convertButton} ${
+            isConverting ? styles.convertButtonBusy : ""
+          } ${conversionError ? styles.convertButtonError : ""}`}
           onClick={(e) => {
             e.stopPropagation();
+            if (isConverting) return;
             onConvert?.(doc.id);
           }}
-          title="Upload to cloud"
-          aria-label={`Upload ${doc.title} to cloud`}
+          disabled={isConverting}
+          title={convertTitle}
+          aria-label={convertAriaLabel}
         >
-          <CloudUpload size={14} />
+          {isConverting ? (
+            <Loader2 size={14} className={styles.spinner} />
+          ) : (
+            <CloudUpload size={14} />
+          )}
         </button>
       )}
       <button
