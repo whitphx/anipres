@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { CloudUpload, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { DocumentMeta } from "../documents/types";
 import styles from "./DocumentListItem.module.css";
@@ -9,6 +9,13 @@ interface DocumentListItemProps {
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  /**
+   * When provided and `doc.origin === "local"`, the item renders a
+   * "Upload to cloud" affordance that triggers migration to the synced
+   * repository. Absent when the user is logged out (no synced
+   * destination) or when the doc is already synced.
+   */
+  onConvert?: (id: string) => void;
 }
 
 export function DocumentListItem({
@@ -17,6 +24,7 @@ export function DocumentListItem({
   onSelect,
   onRename,
   onDelete,
+  onConvert,
 }: DocumentListItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(doc.title);
@@ -38,6 +46,8 @@ export function DocumentListItem({
     }
     setEditing(false);
   };
+
+  const canConvert = onConvert !== undefined && doc.origin === "local";
 
   return (
     <div
@@ -77,6 +87,20 @@ export function DocumentListItem({
         />
       ) : (
         <span className={styles.title}>{doc.title}</span>
+      )}
+      {canConvert && (
+        <button
+          type="button"
+          className={styles.convertButton}
+          onClick={(e) => {
+            e.stopPropagation();
+            onConvert?.(doc.id);
+          }}
+          title="Upload to cloud"
+          aria-label={`Upload ${doc.title} to cloud`}
+        >
+          <CloudUpload size={14} />
+        </button>
       )}
       <button
         type="button"

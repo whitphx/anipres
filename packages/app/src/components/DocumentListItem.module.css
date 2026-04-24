@@ -50,7 +50,8 @@
   border-color: #0066ff;
 }
 
-.deleteButton {
+.deleteButton,
+.convertButton {
   flex-shrink: 0;
   width: 20px;
   height: 20px;
@@ -69,13 +70,17 @@
 }
 
 @media (hover: hover) {
-  .deleteButton {
+  .deleteButton,
+  .convertButton {
     opacity: 0;
   }
 
   .item:hover .deleteButton,
   .item:focus-within .deleteButton,
-  .deleteButton:focus-visible {
+  .deleteButton:focus-visible,
+  .item:hover .convertButton,
+  .item:focus-within .convertButton,
+  .convertButton:focus-visible {
     opacity: 1;
   }
 }
@@ -83,6 +88,11 @@
 .deleteButton:hover {
   background: rgba(0, 0, 0, 0.08);
   color: #e00;
+}
+
+.convertButton:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #06c;
 }
 
 :global([data-color-scheme="dark"]) .item:hover {
@@ -107,11 +117,17 @@
   border-color: #4d9aff;
 }
 
-:global([data-color-scheme="dark"]) .deleteButton {
+:global([data-color-scheme="dark"]) .deleteButton,
+:global([data-color-scheme="dark"]) .convertButton {
   color: #777;
 }
 
 :global([data-color-scheme="dark"]) .deleteButton:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #f55;
+}
+
+:global([data-color-scheme="dark"]) .convertButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #4d9aff;
 }

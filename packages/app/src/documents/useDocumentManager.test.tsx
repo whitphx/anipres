@@ -209,6 +209,52 @@ describe("useDocumentManager", () => {
     expect(vi.mocked(console.error)).toHaveBeenCalled();
   });
 
+  it("migrates a local doc to synced via convertToSynced and keeps it selected with the new origin", async () => {
+    const localRepo = makeFakeRepo("local", [makeDoc("doc-1", 1, "local")]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const uploadAsset = vi.fn();
+    const pushSnapshot = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.activeDocument?.id).toBe("doc-1");
+    expect(result.current.activeDocument?.origin).toBe("local");
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
+    expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
+    expect(result.current.activeDocument?.id).toBe("doc-1");
+    expect(result.current.activeDocument?.origin).toBe("synced");
+  });
+
+  it("convertToSynced is a no-op when no synced repository is configured", async () => {
+    const localRepo = makeFakeRepo("local", [makeDoc("doc-1", 1, "local")]);
+
+    const { result } = renderHook(() =>
+      useDocumentManager({ localRepository: localRepo.repo }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+
+    expect(localRepo.delete).not.toHaveBeenCalled();
+    expect(result.current.documents[0].origin).toBe("local");
+  });
+
   it("treats createDocument({origin: 'synced'}) as a no-op when no synced repository is configured", async () => {
     const localRepo = makeFakeRepo("local", [makeDoc("L1", 1, "local")]);
 
