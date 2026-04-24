@@ -240,7 +240,20 @@ describe("convertLocalDocToSynced", () => {
       "asset:a": assetRecord("asset:a", "data:image/png;base64,AAAA"),
     });
     const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
-    const syncedRepo = makeFakeRepo("synced");
+    // Pre-populate the synced repo with a doc at order 5 so the migrated
+    // doc should land at order 6 (maxOrder + 1) and not collide.
+    const existingSynced: DocumentData = {
+      meta: {
+        id: "existing",
+        title: "existing",
+        order: 5,
+        createdAt: 0,
+        updatedAt: 0,
+        origin: "synced",
+      },
+      snapshot: null,
+    };
+    const syncedRepo = makeFakeRepo("synced", [existingSynced]);
 
     const uploadAsset = vi
       .fn<(documentId: string, file: File) => Promise<{ src: string }>>()
@@ -264,6 +277,8 @@ describe("convertLocalDocToSynced", () => {
     const savedMeta = syncedRepo.save.mock.calls[0][0].meta;
     expect(savedMeta.id).toBe("doc-1");
     expect(savedMeta.origin).toBe("synced");
+    // Order is recomputed against the synced list's max (5) + 1.
+    expect(savedMeta.order).toBe(6);
 
     expect(uploadAsset).toHaveBeenCalledTimes(1);
     expect(uploadAsset.mock.calls[0][0]).toBe("doc-1");
@@ -297,6 +312,36 @@ describe("convertLocalDocToSynced", () => {
     expect(uploadAsset).not.toHaveBeenCalled();
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
+  });
+
+  it("propagates the error and leaves the local copy intact when an asset upload fails", async () => {
+    const snapshot = snapshotWith({
+      "asset:a": assetRecord("asset:a", "data:image/png;base64,AAAA"),
+      "asset:b": assetRecord("asset:b", "data:image/png;base64,BBBB"),
+    });
+    const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
+    const syncedRepo = makeFakeRepo("synced");
+    const uploadAsset = vi
+      .fn<(documentId: string, file: File) => Promise<{ src: string }>>()
+      .mockResolvedValueOnce({ src: "/uploaded/first" })
+      .mockRejectedValueOnce(new Error("Asset upload failed: 413"));
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockResolvedValue(undefined);
+
+    await expect(
+      convertLocalDocToSynced({
+        documentId: "doc-1",
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        uploadAsset,
+        pushSnapshot,
+      }),
+    ).rejects.toThrow(/413/);
+
+    expect(pushSnapshot).not.toHaveBeenCalled();
+    expect(localRepo.delete).not.toHaveBeenCalled();
+    expect(localRepo.store.has("doc-1")).toBe(true);
   });
 
   it("throws and leaves the local copy intact when the snapshot push fails", async () => {

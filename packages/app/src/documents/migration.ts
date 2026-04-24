@@ -102,6 +102,10 @@ export function rewriteAssetSrcs(
  * injected `uploadFile` callback, and return a new snapshot with the
  * asset srcs rewritten to the uploaded URLs. Snapshots with no data-URL
  * assets are returned unchanged.
+ *
+ * Uploads run in parallel. On partial failure some assets may still
+ * reach R2 even though the promise rejects; the worker's asset GC
+ * reconciles orphans against the live snapshot and cleans them up.
  */
 export async function uploadAssetDataUrls(
   snapshot: TLStoreSnapshot,
@@ -110,15 +114,16 @@ export async function uploadAssetDataUrls(
   const assets = findDataUrlAssets(snapshot);
   if (assets.length === 0) return snapshot;
 
-  const rewrites = new Map<string, string>();
-  for (const asset of assets) {
-    const ext = MIME_TYPE_EXTENSIONS[asset.mimeType] ?? "bin";
-    const filename = `${asset.recordId}.${ext}`;
-    const file = dataUrlToFile(asset.dataUrl, filename);
-    const { src } = await uploadFile(file);
-    rewrites.set(asset.recordId, src);
-  }
-  return rewriteAssetSrcs(snapshot, rewrites);
+  const entries = await Promise.all(
+    assets.map(async (asset) => {
+      const ext = MIME_TYPE_EXTENSIONS[asset.mimeType] ?? "bin";
+      const filename = `${asset.recordId}.${ext}`;
+      const file = dataUrlToFile(asset.dataUrl, filename);
+      const { src } = await uploadFile(file);
+      return [asset.recordId, src] as const;
+    }),
+  );
+  return rewriteAssetSrcs(snapshot, new Map(entries));
 }
 
 async function defaultUploadAsset(
@@ -215,14 +220,15 @@ export async function convertLocalDocToSynced(
   // does not collide with an existing server doc's order.
   const syncedList = await syncedRepository.list();
   const maxOrder = syncedList.reduce((max, d) => Math.max(max, d.order), 0);
-  const now = Date.now();
 
+  // createdAt is preserved from the local doc so migrated docs keep
+  // their original creation time; only updatedAt advances.
   await syncedRepository.save({
     meta: {
       ...local.meta,
       origin: "synced",
       order: maxOrder + 1,
-      updatedAt: now,
+      updatedAt: Date.now(),
     },
     snapshot: null,
   });

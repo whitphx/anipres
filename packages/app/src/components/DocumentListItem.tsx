@@ -94,7 +94,7 @@ export function DocumentListItem({
           className={styles.convertButton}
           onClick={(e) => {
             e.stopPropagation();
-            onConvert(doc.id);
+            onConvert?.(doc.id);
           }}
           title="Upload to cloud"
           aria-label={`Upload ${doc.title} to cloud`}

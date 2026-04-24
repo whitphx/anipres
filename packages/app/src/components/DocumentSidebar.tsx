@@ -65,7 +65,7 @@ export function DocumentSidebar({
 
   // The convert action only makes sense when the user is logged in,
   // i.e. when there is a synced destination to migrate the doc into.
-  const onConvert = user ? convertToSynced : undefined;
+  const onConvert = user !== null ? convertToSynced : undefined;
 
   const renderGroup = (docs: DocumentMeta[]) =>
     docs.map((doc) => (
