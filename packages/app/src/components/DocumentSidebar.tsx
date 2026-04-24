@@ -31,6 +31,7 @@ export function DocumentSidebar({
     createDocument,
     deleteDocument,
     renameDocument,
+    convertToSynced,
   } = useDocumentManagerContext();
 
   const { user, loginWithGitHub, loginWithGoogle, logout } = useAuth();
@@ -62,6 +63,10 @@ export function DocumentSidebar({
     );
   }
 
+  // The convert action only makes sense when the user is logged in,
+  // i.e. when there is a synced destination to migrate the doc into.
+  const onConvert = user ? convertToSynced : undefined;
+
   const renderGroup = (docs: DocumentMeta[]) =>
     docs.map((doc) => (
       <DocumentListItem
@@ -71,6 +76,7 @@ export function DocumentSidebar({
         onSelect={selectDocument}
         onRename={renameDocument}
         onDelete={deleteDocument}
+        onConvert={onConvert}
       />
     ));
 

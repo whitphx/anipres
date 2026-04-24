@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+import {
+  convertLocalDocToSynced,
+  type ConvertLocalDocToSyncedParams,
+} from "./migration";
 
 function createNewDocument(
   order: number,
@@ -31,15 +35,27 @@ export interface DocumentManager {
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, title: string) => Promise<void>;
   reorderDocument: (id: string, newOrder: number) => Promise<void>;
+  convertToSynced: (id: string) => Promise<void>;
   registerEditor: (editor: Editor) => () => void;
   refreshDocuments: () => Promise<void>;
 }
 
+export type MigrationOverrides = Pick<
+  ConvertLocalDocToSyncedParams,
+  "uploadAsset" | "pushSnapshot"
+>;
+
 export function useDocumentManager(params: {
   localRepository: DocumentRepository;
   syncedRepository?: DocumentRepository;
+  /**
+   * Optional test/dev injection point for the HTTP calls that
+   * convertLocalDocToSynced performs. Production callers leave this
+   * undefined and the default fetch-based implementations are used.
+   */
+  migrationOverrides?: MigrationOverrides;
 }): DocumentManager {
-  const { localRepository, syncedRepository } = params;
+  const { localRepository, syncedRepository, migrationOverrides } = params;
 
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
@@ -358,6 +374,54 @@ export function useDocumentManager(params: {
     [findRepositoryForId, refreshDocuments, saveCurrentEditor],
   );
 
+  const convertToSynced = useCallback(
+    async (id: string) => {
+      if (!syncedRepository) return;
+      const meta = documentsRef.current.find((d) => d.id === id);
+      if (!meta || meta.origin !== "local") return;
+
+      // Flush any pending editor state for this doc before migrating so
+      // convertLocalDocToSynced picks up the latest snapshot from IDB.
+      if (id === activeDocumentIdRef.current) {
+        await saveCurrentEditor();
+      }
+
+      try {
+        await convertLocalDocToSynced({
+          documentId: id,
+          localRepository,
+          syncedRepository,
+          ...migrationOverrides,
+        });
+      } catch (error) {
+        console.error("Failed to convert document to synced", error);
+        // Refresh in case the server metadata was created before the
+        // failure; the local copy is intentionally preserved by
+        // convertLocalDocToSynced so the user can retry.
+        await refreshDocuments();
+        return;
+      }
+
+      await refreshDocuments();
+
+      // The converted doc keeps its id; re-commit the active id so the
+      // active-origin ref flips from "local" to "synced" and the
+      // correct editor container renders on the next tick.
+      if (id === activeDocumentIdRef.current) {
+        editorRef.current = null;
+        commitActiveDocumentId(id);
+      }
+    },
+    [
+      commitActiveDocumentId,
+      localRepository,
+      migrationOverrides,
+      refreshDocuments,
+      saveCurrentEditor,
+      syncedRepository,
+    ],
+  );
+
   const registerEditor = useCallback(
     (editor: Editor) => {
       editorRef.current = editor;
@@ -429,6 +493,7 @@ export function useDocumentManager(params: {
     deleteDocument,
     renameDocument,
     reorderDocument,
+    convertToSynced,
     registerEditor,
     refreshDocuments,
   };
