@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import Font from "vite-plugin-font";
 
@@ -15,5 +15,8 @@ export default defineConfig({
         target: "http://localhost:8787",
       },
     },
+  },
+  test: {
+    environment: "happy-dom",
   },
 });
