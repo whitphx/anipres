@@ -35,6 +35,7 @@ import type {
 } from "tldraw";
 import "tldraw/tldraw.css";
 
+import { MAX_ASSET_SIZE } from "./schema";
 import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
@@ -530,6 +531,7 @@ const Inner = (props: InnerProps) => {
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
+      maxAssetSize={MAX_ASSET_SIZE}
       options={{
         maxPages: 1,
       }}

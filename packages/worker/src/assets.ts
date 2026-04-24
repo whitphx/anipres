@@ -1,5 +1,9 @@
 import type { Hono } from "hono";
 import * as v from "valibot";
+// Single source of truth for the per-asset size cap, shared with the
+// client (passed into tldraw's `maxAssetSize` prop via the Anipres
+// component) so the two sides cannot drift.
+import { MAX_ASSET_SIZE } from "anipres/schema";
 import type { AppBindings, AppContext } from "./types";
 
 const SUPPORTED_ASSET_CONTENT_TYPES = [
@@ -31,7 +35,6 @@ const ASSET_EXTENSION_BY_CONTENT_TYPE = {
   string
 >;
 
-const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
   MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
