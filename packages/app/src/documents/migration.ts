@@ -215,6 +215,15 @@ export async function convertLocalDocToSynced(
 
   // Compute an order value against the synced repo so the migrated doc
   // does not collide with an existing server doc's order.
+  //
+  // Known limitation: when multiple convertLocalDocToSynced calls run
+  // in parallel they can each read the same maxOrder and write the
+  // same order+1 to their respective new docs. The sidebar's stable
+  // sort still shows both, just in a non-deterministic order between
+  // them, and any user reorder heals the collision. Fixing this cleanly
+  // would require threading an atomic allocator through this function
+  // — deliberately deferred until convert-to-synced is commonly used
+  // with enough docs for the cosmetic ambiguity to matter.
   const syncedList = await syncedRepository.list();
   const maxOrder = syncedList.reduce((max, d) => Math.max(max, d.order), 0);
 
