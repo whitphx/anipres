@@ -550,6 +550,82 @@ describe("useDocumentManager", () => {
     expect(result.current.conversionErrors.has("doc-1")).toBe(false);
   });
 
+  it("aborts an in-flight migration and cleans up synced metadata when the doc is deleted", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+      makeLocalDocWithSnapshot("doc-2"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    let resolvePush!: () => void;
+    const pushPromise = new Promise<void>((resolve) => {
+      resolvePush = resolve;
+    });
+    const pushSnapshot = vi
+      .fn<
+        (
+          documentId: string,
+          snapshot: TLStoreSnapshot,
+          abortSignal?: AbortSignal,
+        ) => Promise<void>
+      >()
+      .mockImplementation(
+        (_docId, _snap, abortSignal) =>
+          new Promise<void>((resolve, reject) => {
+            // Reject with an AbortError if/when the signal fires.
+            abortSignal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted via test signal", "AbortError")),
+            );
+            // Otherwise wait for the explicit resolve.
+            pushPromise.then(resolve, reject);
+          }),
+      );
+    const uploadAsset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDocumentManager({
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        migrationOverrides: { uploadAsset, pushSnapshot },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let convertPromise!: Promise<void>;
+    act(() => {
+      convertPromise = result.current.convertToSynced("doc-1");
+    });
+
+    // Wait until the synced metadata save has landed so we know the
+    // deletion has something to clean up.
+    await waitFor(() => {
+      expect(result.current.converting.has("doc-1")).toBe(true);
+      expect(syncedRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.deleteDocument("doc-1");
+      await convertPromise;
+    });
+
+    // The aborted migration should not have surfaced as an error and
+    // the in-flight state is gone.
+    expect(result.current.converting.has("doc-1")).toBe(false);
+    expect(result.current.conversionErrors.has("doc-1")).toBe(false);
+
+    // The orphan synced metadata that the aborted migration left behind
+    // was cleaned up by deleteDocument.
+    expect(syncedRepo.delete).toHaveBeenCalledWith("doc-1");
+    expect(syncedRepo.store.has("doc-1")).toBe(false);
+
+    // doc-1 is gone, doc-2 remains active.
+    expect(result.current.documents.map((d) => d.id)).toEqual(["doc-2"]);
+
+    // Drain the mocked push so no pending promise leaks between tests.
+    resolvePush();
+  });
+
   it("resets converting and conversionErrors when the synced repository identity changes (logout)", async () => {
     const localRepo = makeFakeRepo("local", [
       makeLocalDocWithSnapshot("doc-1"),
@@ -561,6 +637,11 @@ describe("useDocumentManager", () => {
       .mockRejectedValue(new Error("Snapshot push failed: 500"));
     const uploadAsset = vi.fn();
 
+    // The explicit type annotation widens `initialProps.syncedRepository`
+    // to `DocumentRepository | undefined`; without it, renderHook's
+    // generic inference narrows Props to `DocumentRepository` based on
+    // the concrete initial value and the later `rerender(undefined)`
+    // call would be a TS error.
     const initialProps: {
       syncedRepository: DocumentRepository | undefined;
     } = { syncedRepository: syncedRepo.repo };
@@ -586,6 +667,51 @@ describe("useDocumentManager", () => {
 
     await waitFor(() => expect(result.current.conversionErrors.size).toBe(0));
     expect(result.current.converting.size).toBe(0);
+  });
+
+  it("resets migration state across a logout → login cycle", async () => {
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("doc-1"),
+    ]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const pushSnapshot = vi
+      .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
+      .mockRejectedValue(new Error("Snapshot push failed: 500"));
+    const uploadAsset = vi.fn();
+
+    const initialProps: {
+      syncedRepository: DocumentRepository | undefined;
+    } = { syncedRepository: syncedRepo.repo };
+    const { result, rerender } = renderHook(
+      (props: { syncedRepository: DocumentRepository | undefined }) =>
+        useDocumentManager({
+          localRepository: localRepo.repo,
+          syncedRepository: props.syncedRepository,
+          migrationOverrides: { uploadAsset, pushSnapshot },
+        }),
+      { initialProps },
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Seed an error while logged in.
+    await act(async () => {
+      await result.current.convertToSynced("doc-1");
+    });
+    expect(result.current.conversionErrors.has("doc-1")).toBe(true);
+
+    // Logout clears state.
+    rerender({ syncedRepository: undefined });
+    await waitFor(() => expect(result.current.conversionErrors.size).toBe(0));
+
+    // Login again with the same repo identity — the reset effect fires
+    // on every repo change, so the state must stay clean. This is the
+    // symmetric counterpart to the logout test above.
+    rerender({ syncedRepository: syncedRepo.repo });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.converting.size).toBe(0);
+    expect(result.current.conversionErrors.size).toBe(0);
   });
 
   it("convertToSynced is a no-op when no synced repository is configured", async () => {

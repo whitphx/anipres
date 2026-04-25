@@ -121,9 +121,17 @@ export async function uploadAssetDataUrls(
 // surface as a visible failure rather than an indefinite spinner.
 const MIGRATION_FETCH_TIMEOUT_MS = 60_000;
 
+function composeWithTimeout(userSignal?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS);
+  return userSignal
+    ? AbortSignal.any([userSignal, timeoutSignal])
+    : timeoutSignal;
+}
+
 async function defaultUploadAsset(
   documentId: string,
   file: File,
+  abortSignal?: AbortSignal,
 ): Promise<{ src: string }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -132,7 +140,7 @@ async function defaultUploadAsset(
     {
       method: "POST",
       body: formData,
-      signal: AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS),
+      signal: composeWithTimeout(abortSignal),
     },
   );
   if (!res.ok) {
@@ -144,6 +152,7 @@ async function defaultUploadAsset(
 async function defaultPushSnapshot(
   documentId: string,
   snapshot: TLStoreSnapshot,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(
     `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
@@ -154,7 +163,7 @@ async function defaultPushSnapshot(
         snapshot,
         expectedSnapshotVersion: 0,
       }),
-      signal: AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS),
+      signal: composeWithTimeout(abortSignal),
     },
   );
   if (!res.ok) {
@@ -166,11 +175,23 @@ export interface ConvertLocalDocToSyncedParams {
   documentId: string;
   localRepository: DocumentRepository;
   syncedRepository: DocumentRepository;
-  uploadAsset?: (documentId: string, file: File) => Promise<{ src: string }>;
+  uploadAsset?: (
+    documentId: string,
+    file: File,
+    abortSignal?: AbortSignal,
+  ) => Promise<{ src: string }>;
   pushSnapshot?: (
     documentId: string,
     snapshot: TLStoreSnapshot,
+    abortSignal?: AbortSignal,
   ) => Promise<void>;
+  /**
+   * When provided, the migration checks the signal's aborted state at
+   * each between-step boundary and throws its `reason` (an AbortError
+   * by default). Fetch-backed steps also pass the signal through to
+   * the HTTP layer so in-flight requests cancel eagerly.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -201,7 +222,10 @@ export async function convertLocalDocToSynced(
     syncedRepository,
     uploadAsset = defaultUploadAsset,
     pushSnapshot = defaultPushSnapshot,
+    abortSignal,
   } = params;
+
+  abortSignal?.throwIfAborted();
 
   const local = await localRepository.get(documentId);
   if (!local) {
@@ -212,6 +236,8 @@ export async function convertLocalDocToSynced(
       `Document ${documentId} is not a local document (origin: ${local.meta.origin})`,
     );
   }
+
+  abortSignal?.throwIfAborted();
 
   // Compute an order value against the synced repo so the migrated doc
   // does not collide with an existing server doc's order.
@@ -227,6 +253,8 @@ export async function convertLocalDocToSynced(
   const syncedList = await syncedRepository.list();
   const maxOrder = syncedList.reduce((max, d) => Math.max(max, d.order), 0);
 
+  abortSignal?.throwIfAborted();
+
   // createdAt is preserved from the local doc so migrated docs keep
   // their original creation time; only updatedAt advances.
   await syncedRepository.save({
@@ -240,11 +268,15 @@ export async function convertLocalDocToSynced(
   });
 
   if (local.snapshot) {
+    abortSignal?.throwIfAborted();
     const rewritten = await uploadAssetDataUrls(local.snapshot, (file) =>
-      uploadAsset(documentId, file),
+      uploadAsset(documentId, file, abortSignal),
     );
-    await pushSnapshot(documentId, rewritten);
+    abortSignal?.throwIfAborted();
+    await pushSnapshot(documentId, rewritten, abortSignal);
   }
+
+  abortSignal?.throwIfAborted();
 
   await localRepository.delete(documentId);
 }
