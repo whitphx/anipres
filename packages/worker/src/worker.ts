@@ -2,31 +2,18 @@ import { Hono } from "hono";
 import * as v from "valibot";
 import { registerAssetRoutes, startDocumentDeletion } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
+import {
+  documentConnectParamSchema,
+  documentIdParamSchema,
+  documentMetadataSchema,
+  MAX_SNAPSHOT_BODY_BYTES,
+  snapshotPushBodySchema,
+} from "./schemas";
 import type { AppBindings } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
-
-const documentIdParamSchema = v.object({
-  id: v.pipe(v.string(), v.uuid()),
-});
-
-const documentConnectParamSchema = v.object({
-  documentId: v.pipe(v.string(), v.uuid()),
-});
-
-const documentMetadataSchema = v.object({
-  title: v.string(),
-  order: v.number(),
-  created_at: v.number(),
-  updated_at: v.number(),
-});
-
-const snapshotPushBodySchema = v.object({
-  snapshot: v.record(v.string(), v.unknown()),
-  expectedSnapshotVersion: v.number(),
-});
 
 registerAuthRoutes(app);
 registerApiAuth(app);
@@ -167,6 +154,17 @@ app.put("/api/documents/:id/snapshot", async (c) => {
       { error: "Invalid document id", details: paramsResult.issues },
       400,
     );
+  }
+
+  // Cap the body size before reading. Cloudflare's default request
+  // limit is generous; this stops a runaway client from streaming
+  // arbitrary blobs at the DO snapshot store.
+  const declaredLength = Number(c.req.header("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_SNAPSHOT_BODY_BYTES
+  ) {
+    return c.json({ error: "Snapshot body too large" }, 413);
   }
 
   let json: unknown;
