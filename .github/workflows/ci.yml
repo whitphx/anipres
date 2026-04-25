@@ -220,9 +220,6 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Test
-        run: pnpm test
-
   build-app:
     needs: [build-anipres, lint-app]
 
