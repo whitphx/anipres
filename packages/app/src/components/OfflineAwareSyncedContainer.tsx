@@ -443,43 +443,15 @@ export function OfflineAwareSyncedContainer({
     );
   }
 
-  if (mode.type === "offline") {
-    return (
-      <>
-        <div
-          role="status"
-          style={{
-            position: "fixed",
-            top: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 1000,
-            background: "#f59e0b",
-            color: "#000",
-            padding: "4px 16px",
-            borderRadius: "0 0 6px 6px",
-            fontSize: 13,
-            fontWeight: 500,
-          }}
-        >
-          Offline — changes saved locally
-        </div>
-        <Anipres
-          key={`offline-${documentId}`}
-          snapshot={mode.snapshot}
-          onMount={handleOfflineMount}
-          colorScheme={colorScheme}
-        />
-      </>
-    );
-  }
-
-  if (mode.type === "reconnecting") {
-    // Keep the snapshot-backed editor visible so the user does not
-    // stare at a blank "Reconnecting..." screen. The editor is mounted
-    // with the pre-reconnect snapshot; any interaction during the
-    // reconnect window is ephemeral (the store is not connected), which
-    // matches the banner's intent of "hold tight, we're re-syncing".
+  if (mode.type === "offline" || mode.type === "reconnecting") {
+    const isReconnecting = mode.type === "reconnecting";
+    // Use the document id alone as the React key so the same Anipres /
+    // tldraw instance persists across offline ↔ reconnecting transitions.
+    // Without this the editor would unmount/remount on every transition,
+    // discarding camera position, selection, and any open dropdowns.
+    // handleOfflineMount stays attached in both modes so the offline
+    // editor ref is populated regardless of which mode mounted first
+    // (e.g., the startup branch can land directly in "reconnecting").
     return (
       <>
         <div
@@ -491,19 +463,20 @@ export function OfflineAwareSyncedContainer({
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 1000,
-            background: "#3b82f6",
-            color: "#fff",
+            background: isReconnecting ? "#3b82f6" : "#f59e0b",
+            color: isReconnecting ? "#fff" : "#000",
             padding: "4px 16px",
             borderRadius: "0 0 6px 6px",
             fontSize: 13,
             fontWeight: 500,
           }}
         >
-          Reconnecting…
+          {isReconnecting ? "Reconnecting…" : "Offline — changes saved locally"}
         </div>
         <Anipres
-          key={`reconnecting-${documentId}`}
+          key={documentId}
           snapshot={mode.snapshot}
+          onMount={handleOfflineMount}
           colorScheme={colorScheme}
         />
       </>

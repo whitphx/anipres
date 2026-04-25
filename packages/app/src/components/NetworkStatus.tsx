@@ -1,6 +1,26 @@
 import { WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import styles from "./NetworkStatus.module.css";
+
+function subscribeToNetworkStatus(notify: () => void) {
+  window.addEventListener("online", notify);
+  window.addEventListener("offline", notify);
+  return () => {
+    window.removeEventListener("online", notify);
+    window.removeEventListener("offline", notify);
+  };
+}
+
+function getNetworkStatusSnapshot() {
+  return navigator.onLine;
+}
+
+// Server snapshot: assume online when there is no navigator (SSR or
+// pre-hydration). The app is currently a Vite SPA so this branch is
+// effectively unreachable, but useSyncExternalStore requires it.
+function getNetworkStatusServerSnapshot() {
+  return true;
+}
 
 /**
  * Shows an "Offline" pill when the browser reports no network connection.
@@ -8,25 +28,20 @@ import styles from "./NetworkStatus.module.css";
  * of the indicator rather than a persistent green dot, to keep the sidebar
  * footer quiet when nothing is wrong.
  *
+ * Uses useSyncExternalStore to avoid a stale-state race between the
+ * initial render and the listener subscription that would otherwise
+ * affect the manual useState/useEffect pattern.
+ *
  * This reflects the browser's `navigator.onLine` state, not sync-room
  * connectivity. The sync-room reconnect banner lives inside
  * OfflineAwareSyncedContainer because it is per-document state.
  */
 export function NetworkStatus() {
-  const [online, setOnline] = useState(() =>
-    typeof navigator !== "undefined" ? navigator.onLine : true,
+  const online = useSyncExternalStore(
+    subscribeToNetworkStatus,
+    getNetworkStatusSnapshot,
+    getNetworkStatusServerSnapshot,
   );
-
-  useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
 
   if (online) return null;
 
