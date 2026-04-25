@@ -83,6 +83,12 @@ export function useDocumentManager(params: {
   // so a per-id gate can reject a second call on the same doc without the
   // stale-closure trap of reading React state.
   const convertingRef = useRef<ReadonlySet<string>>(converting);
+  // AbortController per in-flight convert-to-synced migration. Populated
+  // in convertToSynced, consumed by deleteDocument to cancel a migration
+  // when the local doc it is operating on is deleted mid-flight.
+  const migrationAbortControllersRef = useRef<Map<string, AbortController>>(
+    new Map(),
+  );
 
   // Keep refs in sync with state via a pair of commit helpers so actions
   // that run immediately after a state change (e.g. selecting a
@@ -304,13 +310,40 @@ export function useDocumentManager(params: {
       const repo = findRepositoryForId(id);
       if (!repo) return;
 
+      // Cancel any in-flight convert-to-synced migration for this id
+      // before touching storage. The migration's catch handler will see
+      // controller.signal.aborted and exit silently; its half-done state
+      // is cleaned up below.
+      const migrationController = migrationAbortControllersRef.current.get(id);
+      const wasMigrating = migrationController !== undefined;
+      if (migrationController) {
+        migrationController.abort();
+        migrationAbortControllersRef.current.delete(id);
+      }
+
       await repo.delete(id);
+
+      // If the migration had already persisted metadata to the synced
+      // repo before we aborted (step 2 of convertLocalDocToSynced), a
+      // ghost synced copy of the deleted doc would otherwise appear on
+      // the next refresh. Best-effort cleanup — a 404 is fine, it just
+      // means the migration hadn't reached that step yet.
+      if (wasMigrating && syncedRepository) {
+        try {
+          await syncedRepository.delete(id);
+        } catch (error) {
+          console.error(
+            `Failed to clean up synced metadata after aborting migration of ${id}`,
+            error,
+          );
+        }
+      }
 
       // Drop any stale convert-to-synced state for this id. An entry in
       // conversionErrors would otherwise linger in memory with no row to
-      // render against; an in-flight converting entry (possible only if
-      // delete races a migration) is abandoned intentionally — the
-      // migration will still try to complete but its id is already gone.
+      // render against; an in-flight converting entry is also removed
+      // immediately so the spinner disappears without waiting for the
+      // migration to respond to the abort.
       setConversionErrors((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Map(prev);
@@ -463,7 +496,13 @@ export function useDocumentManager(params: {
         return next;
       });
 
+      // Register an AbortController for this migration so deleteDocument
+      // can cancel it if the user deletes the doc mid-flight.
+      const controller = new AbortController();
+      migrationAbortControllersRef.current.set(id, controller);
+
       const clearInFlight = () => {
+        migrationAbortControllersRef.current.delete(id);
         const next = new Set(convertingRef.current);
         next.delete(id);
         convertingRef.current = next;
@@ -476,10 +515,18 @@ export function useDocumentManager(params: {
           localRepository,
           syncedRepository,
           ...migrationOverrides,
+          abortSignal: controller.signal,
         });
       } catch (error) {
-        console.error("Failed to convert document to synced", error);
         clearInFlight();
+        if (controller.signal.aborted) {
+          // The migration was cancelled from deleteDocument. That path
+          // has already run its own cleanup (local delete, synced
+          // metadata cleanup, listAllDocuments), so don't double-log,
+          // surface an error, or refresh again.
+          return;
+        }
+        console.error("Failed to convert document to synced", error);
         setConversionErrors((prev) => {
           const next = new Map(prev);
           next.set(

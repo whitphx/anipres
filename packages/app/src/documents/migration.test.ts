@@ -370,6 +370,66 @@ describe("convertLocalDocToSynced", () => {
     expect(syncedRepo.save).not.toHaveBeenCalled();
   });
 
+  it("throws immediately without touching the repos when the abortSignal is already aborted", async () => {
+    const snapshot = snapshotWith({});
+    const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
+    const syncedRepo = makeFakeRepo("synced");
+    const uploadAsset = vi.fn();
+    const pushSnapshot = vi.fn();
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      convertLocalDocToSynced({
+        documentId: "doc-1",
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        uploadAsset,
+        pushSnapshot,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow();
+
+    expect(localRepo.get).not.toHaveBeenCalled();
+    expect(syncedRepo.save).not.toHaveBeenCalled();
+    expect(uploadAsset).not.toHaveBeenCalled();
+    expect(pushSnapshot).not.toHaveBeenCalled();
+    expect(localRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it("aborts mid-migration when the abortSignal fires after the synced save", async () => {
+    const snapshot = snapshotWith({});
+    const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
+    const syncedRepo = makeFakeRepo("synced");
+
+    const controller = new AbortController();
+    // Abort mid-migration, right after syncedRepository.save runs.
+    syncedRepo.repo.save = vi.fn(async (d: DocumentData) => {
+      syncedRepo.store.set(d.meta.id, d);
+      controller.abort();
+    });
+
+    const pushSnapshot = vi.fn();
+
+    await expect(
+      convertLocalDocToSynced({
+        documentId: "doc-1",
+        localRepository: localRepo.repo,
+        syncedRepository: syncedRepo.repo,
+        uploadAsset: vi.fn(),
+        pushSnapshot,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow();
+
+    // Metadata save completed before the abort; the later snapshot push
+    // was skipped and local copy was not deleted.
+    expect(syncedRepo.repo.save).toHaveBeenCalledTimes(1);
+    expect(pushSnapshot).not.toHaveBeenCalled();
+    expect(localRepo.delete).not.toHaveBeenCalled();
+  });
+
   it("throws when the document is already synced", async () => {
     const syncedDoc: DocumentData = {
       ...makeLocalDoc("doc-1"),
