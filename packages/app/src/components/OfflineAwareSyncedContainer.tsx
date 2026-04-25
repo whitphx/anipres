@@ -230,7 +230,7 @@ export function OfflineAwareSyncedContainer({
         recovery,
       });
     }
-  }, [mode, documentId, refreshDocuments, selectDocument]);
+  }, [mode, documentId, currentSessionId, refreshDocuments, selectDocument]);
 
   useEffect(() => {
     retryHandleOnlineRef.current = () => {
@@ -368,12 +368,13 @@ export function OfflineAwareSyncedContainer({
     setOfflineEditor(editor);
   }, []);
 
-  useEffect(() => {
-    if (mode.type !== "offline") {
-      return;
-    }
+  // Extract the offline recovery state so the effect's dep array can
+  // reference a flat variable instead of a conditional expression —
+  // required by react-hooks/exhaustive-deps.
+  const offlineRecovery = mode.type === "offline" ? mode.recovery : undefined;
 
-    if (!offlineEditor) {
+  useEffect(() => {
+    if (!offlineEditor || !offlineRecovery) {
       return;
     }
 
@@ -385,7 +386,7 @@ export function OfflineAwareSyncedContainer({
           snapshot,
           snapshotVersion: snapshotVersionRef.current,
           recovery: createRecoveryState({
-            ...mode.recovery,
+            ...offlineRecovery,
             hasPendingOfflineChanges: true,
           }),
         },
@@ -427,13 +428,7 @@ export function OfflineAwareSyncedContainer({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [
-    currentSessionId,
-    documentId,
-    mode.type === "offline" ? mode.recovery : undefined,
-    mode.type,
-    offlineEditor,
-  ]);
+  }, [currentSessionId, documentId, offlineRecovery, offlineEditor]);
 
   if (mode.type === "synced") {
     return (

@@ -5,7 +5,8 @@ import { IdbDocumentRepository } from "./documents/idb-repository";
 import { ApiDocumentRepository } from "./documents/api-repository";
 import { DocumentManagerProvider } from "./documents/DocumentManagerContext";
 import { AppContent } from "./AppContent";
-import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AuthProvider } from "./auth/AuthContext";
+import { useAuth } from "./auth/useAuth";
 
 function AuthenticatedApp() {
   const { user, loading: authLoading } = useAuth();
