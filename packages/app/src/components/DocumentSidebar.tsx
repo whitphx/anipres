@@ -13,6 +13,7 @@ import type { DocumentMeta } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
 import { DocumentListItem } from "./DocumentListItem";
+import { NetworkStatus } from "./NetworkStatus";
 import styles from "./DocumentSidebar.module.css";
 
 interface DocumentSidebarProps {
@@ -118,6 +119,7 @@ export function DocumentSidebar({
         {renderGroup(localDocs)}
       </div>
       <div className={styles.footer}>
+        <NetworkStatus />
         {user ? (
           <button type="button" className={styles.authButton} onClick={logout}>
             <LogOut size={14} /> Log out

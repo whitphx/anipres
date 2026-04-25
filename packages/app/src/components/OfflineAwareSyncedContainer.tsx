@@ -475,20 +475,38 @@ export function OfflineAwareSyncedContainer({
   }
 
   if (mode.type === "reconnecting") {
+    // Keep the snapshot-backed editor visible so the user does not
+    // stare at a blank "Reconnecting..." screen. The editor is mounted
+    // with the pre-reconnect snapshot; any interaction during the
+    // reconnect window is ephemeral (the store is not connected), which
+    // matches the banner's intent of "hold tight, we're re-syncing".
     return (
-      <div
-        role="status"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-          fontSize: 14,
-          color: "#666",
-        }}
-      >
-        Reconnecting...
-      </div>
+      <>
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1000,
+            background: "#3b82f6",
+            color: "#fff",
+            padding: "4px 16px",
+            borderRadius: "0 0 6px 6px",
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          Reconnecting…
+        </div>
+        <Anipres
+          key={`reconnecting-${documentId}`}
+          snapshot={mode.snapshot}
+          colorScheme={colorScheme}
+        />
+      </>
     );
   }
 
