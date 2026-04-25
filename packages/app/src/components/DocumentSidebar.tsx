@@ -7,7 +7,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import type { DocumentMeta } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
