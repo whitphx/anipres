@@ -21,3 +21,53 @@ new_sqlite_classes = ["DocumentSyncRoom"]
 binding = "ASSETS"
 bucket_name = "anipres-assets"
 preview_bucket_name = "anipres-assets-preview"
+
+# --- Preview environment ---
+# Shared preview worker for testing the full auth + sync stack against
+# the latest PR's worker code, with D1 / R2 / DO instances isolated from
+# prod. The per-PR Pages preview is for UI smoke checks only; this env
+# is where login and sync flows are exercised end-to-end. All PRs deploy
+# to the same preview worker URL — last push wins.
+#
+# See docs/TODO.md "Preview architecture" for a note on a potential
+# future change (A4) — wiring the per-PR Pages frontend to talk to
+# this shared preview backend cross-origin. The backend stays shared.
+[env.preview]
+name = "anipres-worker-preview"
+workers_dev = true
+
+# Bundle the latest PR's frontend so the preview URL is browsable
+# end-to-end without a separate deploy. `run_worker_first` carves the
+# Worker out of the static-asset path: only `/api/*` and `/auth/*` go
+# through the Worker, everything else (and the SPA fallback for
+# unknown routes) is served directly by the assets handler at the
+# edge — no Worker invocation, no programmatic asset-binding needed.
+[env.preview.assets]
+directory = "../app/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/auth/*"]
+
+[env.preview.durable_objects]
+bindings = [
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
+]
+
+# DO migrations apply to the script's class definitions, but wrangler
+# tracks them per-env, so the preview env needs its own copy of the v1
+# tag.
+[[env.preview.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DocumentSyncRoom"]
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "anipres-db-preview"
+# TODO: replace with the real id from `wrangler d1 create anipres-db-preview`
+# (or `wrangler d1 list`) before the first preview deploy. The literal
+# "preview-todo" makes wrangler fail loudly instead of silently
+# targeting the wrong database.
+database_id = "preview-todo"
+
+[[env.preview.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "anipres-assets-preview"

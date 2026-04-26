@@ -12,6 +12,10 @@ Tasks deferred during development that should be addressed before production rel
 
 - **Phase 6 — Anonymous mode + polish**: User profile/settings (the current minimal "logged in as X / logout" surface in the sidebar footer is sufficient for now). Online/offline indicator, reconnection UX, and input validation are done.
 
+## Preview architecture
+
+- **Try migrating from A5-ii to A4 once preview has live miles**. Today: per-PR Pages preview (UI smoke check, no backend) plus a shared preview Worker that bundles the latest PR's `app/dist`. A4 keeps the same shape — per-PR frontend, single shared backend — but wires the per-PR Pages frontend to talk to the shared preview Worker cross-origin instead of having the preview Worker carry its own bundled frontend. So each PR's frontend gets a working backend (auth + sync exercisable), and the latest-push-wins UI swap on the preview Worker goes away. The reason we're not on A4 today is the assumed cross-origin friction — third-party-cookie deprecation in browsers, CORS, OAuth callback proliferation, `SameSite=None` cookie footguns. Once preview is in real use, audit whether those frictions actually show up. If not, A4 is strictly cleaner.
+
 ## Post-launch hardening
 
 See [Post-Launch Hardening](./design-server-sync.md#post-launch-hardening) in the design doc for context.

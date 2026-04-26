@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
     "deploy": "pnpm run migrate:remote && wrangler deploy",
+    "deploy:preview": "pnpm run migrate:remote:preview && wrangler deploy --env preview",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest"
   },
