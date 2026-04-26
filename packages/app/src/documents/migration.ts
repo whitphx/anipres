@@ -11,14 +11,24 @@ export function isDataUrl(value: unknown): value is string {
  * and similar text formats).
  */
 export function dataUrlToFile(dataUrl: string, filename: string): File {
-  const match = dataUrl.match(
-    /^data:(?<mimeType>[^;,]+)(?<params>(?:;[^,]*)*),(?<payload>.*)$/s,
-  );
-  if (!match?.groups) {
+  // Hand-parse instead of regex: the natural pattern
+  // /^data:([^;,]+)((?:;[^,]*)*),(.*)$/ has a catastrophic-backtracking
+  // shape on inputs like "data:+;;;;..." (CodeQL js/redos), and asset
+  // payloads here can be attacker-shaped.
+  if (!dataUrl.startsWith("data:")) {
     throw new Error("Invalid data URL");
   }
-  const { mimeType, params, payload } = match.groups;
-  const isBase64 = params.split(";").some((p) => p === "base64");
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) {
+    throw new Error("Invalid data URL");
+  }
+  const header = dataUrl.slice("data:".length, commaIndex);
+  const payload = dataUrl.slice(commaIndex + 1);
+  const [mimeType, ...params] = header.split(";");
+  if (!mimeType) {
+    throw new Error("Invalid data URL");
+  }
+  const isBase64 = params.some((p) => p === "base64");
   let bytes: Uint8Array;
   if (isBase64) {
     const binary = atob(payload);

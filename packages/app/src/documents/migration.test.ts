@@ -120,6 +120,22 @@ describe("dataUrlToFile", () => {
   it("throws on invalid input", () => {
     expect(() => dataUrlToFile("not-a-data-url", "x.bin")).toThrow();
   });
+
+  it("throws on a header without a comma", () => {
+    expect(() => dataUrlToFile("data:image/png;base64", "x.bin")).toThrow();
+  });
+
+  it("returns promptly on adversarial inputs (no catastrophic backtracking)", () => {
+    // CodeQL js/redos shape on the previous regex
+    // /^data:([^;,]+)((?:;[^,]*)*),(.*)$/ — strings starting with
+    // "data:+" and many ";" cause exponential backtracking. We now
+    // hand-parse, so this should resolve in microseconds even at 100k
+    // semicolons. Keep the bound generous to absorb CI jitter.
+    const adversarial = "data:+" + ";".repeat(100_000);
+    const start = Date.now();
+    expect(() => dataUrlToFile(adversarial, "x.bin")).toThrow();
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
 });
 
 describe("findDataUrlAssets", () => {
