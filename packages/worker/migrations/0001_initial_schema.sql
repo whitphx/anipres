@@ -45,7 +45,7 @@ CREATE INDEX idx_oauth_identities_user ON oauth_identities (user_id);
 
 CREATE TABLE workspaces (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  name            TEXT NOT NULL CHECK (length(name) > 0),
+  name            TEXT NOT NULL CHECK (length(trim(name)) > 0),
   owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
   updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
@@ -109,9 +109,14 @@ CREATE TABLE documents (
   -- Every document has a slug from creation. The slug is the URL
   -- handle for both authorized access (the owner navigating to their
   -- own draft) and any future public access. UNIQUE+CHECK enforced
-  -- on the column directly; SQLite auto-creates the unique index.
+  -- on the column directly; SQLite auto-creates the unique index
+  -- (named `sqlite_autoindex_documents_1`).
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
-  title               TEXT    NOT NULL DEFAULT 'Untitled' CHECK (length(title) > 0),
+  -- title and `workspaces.name` use `length(trim(...)) > 0` (vs the
+  -- plain length CHECK on slug/sort_order) because they're user-
+  -- typed: whitespace-only inputs are a real hazard. valibot rejects
+  -- these at the API layer too; this is the schema-layer backstop.
+  title               TEXT    NOT NULL DEFAULT 'Untitled' CHECK (length(trim(title)) > 0),
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
   -- npm package). Non-empty by construction; the CHECK enforces the
   -- contract at the schema layer.
@@ -120,14 +125,32 @@ CREATE TABLE documents (
   -- treating the document as active before the final row removal
   -- happens (R2 asset GC needs a coordinated grace period).
   deleting_at         INTEGER,
-  created_at          INTEGER NOT NULL,
-  updated_at          INTEGER NOT NULL
+  -- Defaulted to server time, but the convertLocalDocToSynced flow
+  -- passes the original local creation timestamp explicitly so the
+  -- doc list can sort by "actual creation date" rather than "synced
+  -- date". Pure synced-creation (POST /api/documents) omits these
+  -- and gets server time, matching `users` and `workspaces`.
+  created_at          INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+  updated_at          INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
 -- Dominant query: "list active documents in a workspace, in sort
 -- order." `WHERE deleting_at IS NULL` keeps the index lean — soft-
 -- deleted rows are skipped instead of taking up B-tree pages until
 -- the asset-GC grace period expires.
+-- See `trg_users_updated_at` for the design notes; same shape applies.
+-- Callers who pass `updated_at` explicitly (snapshot push, the
+-- convertLocalDocToSynced flow that preserves local timestamps) keep
+-- their value because the WHEN guard fails. Callers who forget get
+-- the auto-refresh.
+CREATE TRIGGER trg_documents_updated_at AFTER UPDATE ON documents
+  FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
+  BEGIN
+    UPDATE documents
+      SET updated_at = CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)
+      WHERE id = OLD.id;
+  END;
+
 CREATE INDEX idx_documents_workspace_sort
   ON documents (workspace_id, sort_order)
   WHERE deleting_at IS NULL;
@@ -146,92 +169,45 @@ CREATE INDEX idx_documents_workspace ON documents (workspace_id);
 -- =============================================================
 -- PHASE 2: Organizations (not yet implemented)
 -- =============================================================
--- New tables (additive):
 --
--- CREATE TABLE organizations (
---   id          INTEGER PRIMARY KEY AUTOINCREMENT,
---   name        TEXT NOT NULL,
---   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
---   updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
--- );
+-- Add `organizations` and `org_memberships` (members + roles) as
+-- new tables. Rebuild `workspaces` so it can be owned by either a
+-- user OR an org — nullable `owner_user_id`, new nullable
+-- `owner_org_id`, and a CHECK enforcing exactly one. The data copy
+-- during the rebuild is safe: every Phase 1 row has a non-null
+-- `owner_user_id`, which satisfies the new CHECK with
+-- `owner_org_id = NULL`.
 --
--- CREATE TABLE org_memberships (
---   org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
---   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
---   role        TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
---   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
---   PRIMARY KEY (org_id, user_id)
--- );
+-- Deletion semantics: deleting an org should cascade to its
+-- workspaces, which will then trip the Phase 1
+-- `documents.workspace_id ON DELETE RESTRICT`. Same orchestration
+-- as Phase 1 user deletion — drive documents through the proper
+-- soft-delete + asset-GC + hard-delete pipeline before the
+-- org/workspace can be removed.
 --
--- CREATE INDEX idx_memberships_user ON org_memberships (user_id);
---
--- Rebuild workspaces to support org ownership (SQLite requires full table rebuild
--- to modify constraints):
---
--- CREATE TABLE workspaces_new (
---   id              INTEGER PRIMARY KEY AUTOINCREMENT,
---   name            TEXT NOT NULL,
---   owner_user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
---   owner_org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
---   created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
---   updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
---   CHECK (
---     (owner_user_id IS NOT NULL AND owner_org_id IS NULL) OR
---     (owner_user_id IS NULL     AND owner_org_id IS NOT NULL)
---   )
--- );
---
--- INSERT INTO workspaces_new
---   SELECT id, name, owner_user_id, NULL, created_at, updated_at FROM workspaces;
---
--- DROP TABLE workspaces;
--- ALTER TABLE workspaces_new RENAME TO workspaces;
---
--- -- Recreate the owner-lookup indexes after the rename. The Phase 1
--- -- `idx_workspaces_owner_user` index was dropped along with the old
--- -- table, and the new owner_org_id column needs its own.
--- CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id)
---   WHERE owner_user_id IS NOT NULL;
--- CREATE INDEX idx_workspaces_owner_org ON workspaces (owner_org_id)
---   WHERE owner_org_id IS NOT NULL;
---
--- The data copy is safe: all Phase 1 rows have non-null owner_user_id,
--- which satisfies the new CHECK constraint with owner_org_id = NULL.
---
--- Note on deletion semantics: deleting an org will cascade to its
--- workspaces (`owner_org_id ON DELETE CASCADE`), which then trips
--- the Phase 1 `documents.workspace_id ON DELETE RESTRICT` if any
--- document still references those workspaces. Same orchestration
--- as Phase 1 user deletion: the application must drive each
--- document through the proper soft-delete + asset-GC + hard-delete
--- pipeline before the org/workspace can be removed.
+-- Concrete table definitions intentionally omitted: SQLite syntax
+-- and our own conventions evolve, and a literal-SQL skeleton here
+-- is more likely to bit-rot than to help. Implement against the
+-- shape of Phase 1 (INTEGER PKs, INTEGER ms timestamps with the
+-- standard default expression, `updated_at` triggers, length CHECKs
+-- where appropriate, named indexes for FK lookups, the SQLite
+-- table-rebuild dance for constraint changes) and the design
+-- intent above.
 
 -- =============================================================
 -- PHASE 3: Document grants (not yet implemented)
 -- =============================================================
--- Fully additive. No existing tables are modified.
 --
--- CREATE TABLE document_grants (
---   id                INTEGER PRIMARY KEY AUTOINCREMENT,
---   document_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
---   grantee_user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
---   grantee_org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
---   permission        TEXT NOT NULL CHECK (permission IN ('view', 'comment', 'edit', 'manage')),
---   -- share_token is not an id; it's a security token. Mint as a
---   -- 24-byte URL-safe random string (~192 bits of entropy), not a
---   -- UUID. UUIDs aren't designed as unguessable secrets.
---   share_token       TEXT UNIQUE,   -- non-null = shareable link, no specific grantee
---   expires_at        INTEGER,       -- null = never expires
---   created_at        INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
---   CHECK (
---     (grantee_user_id IS NOT NULL AND grantee_org_id IS NULL) OR
---     (grantee_user_id IS NULL     AND grantee_org_id IS NOT NULL) OR
---     (grantee_user_id IS NULL     AND grantee_org_id IS NULL AND share_token IS NOT NULL)
---   )
--- );
+-- Add `document_grants` — fully additive, no existing tables
+-- modified. Each row grants a permission (`view` / `comment` /
+-- `edit` / `manage`) on one document, scoped to either a specific
+-- user, a specific org, or "anyone with the share link." The
+-- share-link case is implemented as a `share_token` column whose
+-- value is a 24-byte URL-safe random string; treat it as a
+-- security secret, not an id (UUIDs aren't designed as
+-- unguessable tokens). A row-level CHECK enforces "exactly one of
+-- (grantee_user, grantee_org, share_token) is set."
 --
--- CREATE INDEX idx_grants_document ON document_grants (document_id);
--- CREATE INDEX idx_grants_user ON document_grants (grantee_user_id)
---   WHERE grantee_user_id IS NOT NULL;
--- CREATE INDEX idx_grants_token ON document_grants (share_token)
---   WHERE share_token IS NOT NULL;
+-- Indexes the grants table will need: by `document_id` (resolve
+-- "who has access to this doc?"), partial-by-grantee, partial-by-
+-- token (lookups via share-link). Same Phase 1 conventions apply.
