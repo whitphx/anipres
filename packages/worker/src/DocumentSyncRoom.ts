@@ -214,7 +214,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   private async isDeleting() {
     return this.documentId
-      ? isDocumentDeleting(this.env, this.documentId)
+      ? isDocumentDeleting(this.env, Number(this.documentId))
       : false;
   }
 
@@ -314,10 +314,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     if (this.snapshotDirty) {
       this.flushSnapshot(snapshot, true);
     }
-    const assetNames = getReferencedDocumentAssetNames(
-      snapshot,
-      this.documentId,
-    );
+    const documentId = Number(this.documentId);
+    const assetNames = getReferencedDocumentAssetNames(snapshot, documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
       return;
@@ -325,7 +323,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     const nextGcAt = await reconcileDocumentAssets(
       this.env,
-      this.documentId,
+      documentId,
       assetNames,
     );
     this.lastSyncedAssetNamesJson = nextAssetNamesJson;
@@ -343,7 +341,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     // window where a referenced asset could otherwise stay stale forever.
     await this.syncSnapshotAndReferencedAssets();
 
-    const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
+    const nextGcAt = await runDocumentAssetGc(
+      this.env,
+      Number(this.documentId),
+    );
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
@@ -359,7 +360,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         )) ?? undefined;
       const { completed, nextCursor } = await finalizeDeletingDocument(
         this.env,
-        this.documentId,
+        Number(this.documentId),
         cursor,
       );
       if (completed) {
@@ -556,7 +557,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    if (await isDocumentDeleting(this.env, this.documentId)) {
+    if (await isDocumentDeleting(this.env, Number(this.documentId))) {
       await this.runRoomTask(() => this.runDocumentDeleteCycle());
       return;
     }

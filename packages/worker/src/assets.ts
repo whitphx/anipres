@@ -88,19 +88,19 @@ function getDeclaredContentLength(contentLength: string | undefined) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function getDocumentAssetPrefix(documentId: string) {
+function getDocumentAssetPrefix(documentId: number) {
   return `${DOCUMENT_ASSET_PREFIX}/${documentId}/`;
 }
 
-function getDocumentAssetKey(documentId: string, assetName: string) {
+function getDocumentAssetKey(documentId: number, assetName: string) {
   return `${getDocumentAssetPrefix(documentId)}${assetName}`;
 }
 
-function getDocumentAssetSrc(documentId: string, assetName: string) {
+function getDocumentAssetSrc(documentId: number, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
 }
 
-function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
+function getAssetNameFromDocumentAssetSrc(src: string, documentId: number) {
   try {
     const url = new URL(src, "https://anipres.invalid");
     const prefix = `/api/documents/${encodeURIComponent(documentId)}/assets/`;
@@ -118,19 +118,19 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
 
 async function scheduleDocumentAssetGc(
   c: AppContext,
-  documentId: string,
+  documentId: number,
 ): Promise<void> {
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
-  await room.claimDocument(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(String(documentId));
+  await room.claimDocument(String(documentId));
   await room.scheduleAssetGc();
 }
 
 async function scheduleDocumentDeletion(
   c: AppContext,
-  documentId: string,
+  documentId: number,
 ): Promise<void> {
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
-  await room.claimDocument(documentId);
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(String(documentId));
+  await room.claimDocument(String(documentId));
   await room.startDelete();
 }
 
@@ -190,13 +190,16 @@ async function parseAssetUploadFormData(request: Request) {
 async function documentExistsForUser(
   c: AppContext,
   userId: number,
-  documentId: string,
+  documentId: number,
 ) {
   // Upload and asset-read paths only operate on active documents. Once a
   // delete starts, `deleting_at` closes the race where an in-flight upload
   // could otherwise recreate a blob after the delete sweep has already run.
   const document = await c.env.DB.prepare(
-    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+    `SELECT 1
+     FROM documents d
+     JOIN workspaces w ON w.id = d.workspace_id
+     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
   )
     .bind(documentId, userId)
     .first();
@@ -319,7 +322,7 @@ function buildUnsatisfiableRangeHeaders(size: number) {
 
 async function deleteDocumentAssetPrefixBatch(
   bucket: R2Bucket,
-  documentId: string,
+  documentId: number,
   cursor?: string,
 ) {
   const prefix = getDocumentAssetPrefix(documentId);
@@ -341,7 +344,7 @@ function getInClausePlaceholders(length: number) {
 
 async function insertDocumentAsset(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
   assetName: string,
   contentType: string,
 ) {
@@ -365,7 +368,7 @@ async function insertDocumentAsset(
 
 async function clearReferencedDocumentAssets(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
   assetNames: readonly string[],
   now: number,
 ) {
@@ -385,7 +388,7 @@ async function clearReferencedDocumentAssets(
 
 async function markUnreferencedDocumentAssetsStale(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
   referencedAssetNames: readonly string[],
   now: number,
 ) {
@@ -412,7 +415,7 @@ async function markUnreferencedDocumentAssetsStale(
 
 async function getNextDocumentAssetGcAt(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
 ) {
   const row = await env.DB.prepare(
     `SELECT MIN(stale_at) AS stale_at
@@ -428,7 +431,7 @@ async function getNextDocumentAssetGcAt(
 
 export async function reconcileDocumentAssets(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
   referencedAssetNames: readonly string[],
 ) {
   const now = Date.now();
@@ -452,7 +455,7 @@ export async function reconcileDocumentAssets(
 
 export async function runDocumentAssetGc(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
 ) {
   const cutoff = Date.now() - STALE_ASSET_RETENTION_MS;
   const expiredAssets = await env.DB.prepare(
@@ -511,7 +514,7 @@ export async function runDocumentAssetGc(
 
 export async function isDocumentDeleting(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
 ) {
   const row = await env.DB.prepare(
     "SELECT deleting_at FROM documents WHERE id = ?",
@@ -525,7 +528,7 @@ export function getReferencedDocumentAssetNames(
   snapshot: {
     documents: Array<{ state: SnapshotRecord }>;
   },
-  documentId: string,
+  documentId: number,
 ) {
   const records = snapshot.documents.map((document) => document.state);
   const assetsById = new Map<string, SnapshotRecord>();
@@ -575,7 +578,7 @@ export function getReferencedDocumentAssetNames(
 
 export async function finalizeDeletingDocument(
   env: AppContext["env"],
-  documentId: string,
+  documentId: number,
   cursor?: string,
 ) {
   const document = await env.DB.prepare(
@@ -607,12 +610,14 @@ export async function finalizeDeletingDocument(
 export async function startDocumentDeletion(
   c: AppContext,
   userId: number,
-  documentId: string,
+  documentId: number,
 ) {
   const { meta } = await c.env.DB.prepare(
     `UPDATE documents
      SET deleting_at = ?
-     WHERE id = ? AND user_id = ? AND deleting_at IS NULL`,
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(Date.now(), documentId, userId)
     .run();
@@ -630,7 +635,11 @@ export async function startDocumentDeletion(
     // document into deletion. Existing delete retries must stay hidden from
     // active routes so uploads/connects cannot race against unfinished cleanup.
     await c.env.DB.prepare(
-      "UPDATE documents SET deleting_at = NULL WHERE id = ? AND user_id = ? AND deleting_at IS NOT NULL",
+      `UPDATE documents
+       SET deleting_at = NULL
+       WHERE id = ?
+         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+         AND deleting_at IS NOT NULL`,
     )
       .bind(documentId, userId)
       .run();

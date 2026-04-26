@@ -4,21 +4,50 @@ import {
   assetNameSchema,
   documentAssetUploadFieldsSchema,
   documentAssetUploadFileSchema,
+  documentCreateSchema,
   documentIdParamSchema,
-  documentMetadataSchema,
+  documentUpdateSchema,
   snapshotPushBodySchema,
 } from "./schemas";
 
 describe("documentIdParamSchema", () => {
-  it("accepts a UUID id", () => {
-    const result = v.safeParse(documentIdParamSchema, {
-      id: "8d6f4d3e-3c8f-4a8a-9c9d-1e2f3a4b5c6d",
-    });
+  it("accepts a positive integer id", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "42" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.output.id).toBe(42);
+    }
+  });
+
+  it("accepts id 1", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "1" });
     expect(result.success).toBe(true);
   });
 
-  it("rejects a non-UUID id", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "not-a-uuid" });
+  it("rejects zero", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "0" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects leading zeros (non-canonical)", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "01" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a negative integer", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "-1" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-numeric string", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "not-a-number" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a UUID (the previous shape)", () => {
+    const result = v.safeParse(documentIdParamSchema, {
+      id: "8d6f4d3e-3c8f-4a8a-9c9d-1e2f3a4b5c6d",
+    });
     expect(result.success).toBe(false);
   });
 
@@ -28,143 +57,129 @@ describe("documentIdParamSchema", () => {
   });
 });
 
-describe("documentMetadataSchema", () => {
-  const validMetadata = {
-    title: "My Document",
-    order: 1,
-    created_at: 1700000000000,
-    updated_at: 1700000000001,
-  };
+describe("documentCreateSchema", () => {
+  const validMinimal = { sort_order: "a0" };
 
-  it("accepts well-formed metadata", () => {
-    const result = v.safeParse(documentMetadataSchema, validMetadata);
+  it("accepts the minimal body (sort_order only)", () => {
+    const result = v.safeParse(documentCreateSchema, validMinimal);
     expect(result.success).toBe(true);
   });
 
+  it("accepts a fully-populated body", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      title: "My Document",
+      sort_order: "Z9z",
+      created_at: 1700000000000,
+      updated_at: 1700000000001,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty sort_order", () => {
+    const result = v.safeParse(documentCreateSchema, { sort_order: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing sort_order", () => {
+    const result = v.safeParse(documentCreateSchema, {});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a sort_order longer than 256 characters", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      sort_order: "a".repeat(257),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-string sort_order", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      sort_order: 1.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects a title longer than 256 characters", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
       title: "x".repeat(257),
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts a title at the 256-character limit", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: "x".repeat(256),
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects a title with a null byte", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: "hello\u0000world",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an empty title", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
   it("rejects a whitespace-only title", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
       title: "   \t\n",
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts a single non-whitespace character title", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: "a",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects a 256-char whitespace-only title (regex wins over maxLength)", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: " ".repeat(256),
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts a title with leading and trailing whitespace", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      title: "  hello  ",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects a non-finite order (NaN)", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      order: Number.NaN,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a non-finite order (Infinity)", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      order: Number.POSITIVE_INFINITY,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an order below the lower bound", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      order: -1e10,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an order above the upper bound", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      order: 1e10,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts a fractional order (used by reorder logic)", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      order: 1.5,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects a negative timestamp", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      created_at: -1,
+  it("rejects a title with a null byte", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
+      title: "hello\u0000world",
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects a non-integer timestamp", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      updated_at: 1700000000000.5,
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
+      created_at: 1700000000000.5,
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects NaN timestamps", () => {
-    const result = v.safeParse(documentMetadataSchema, {
-      ...validMetadata,
-      created_at: Number.NaN,
+  it("rejects a negative timestamp", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
+      updated_at: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("documentUpdateSchema", () => {
+  const validUpdate = {
+    title: "Renamed",
+    sort_order: "a0",
+    updated_at: 1700000000000,
+  };
+
+  it("accepts well-formed update body", () => {
+    const result = v.safeParse(documentUpdateSchema, validUpdate);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a missing field", () => {
+    const result = v.safeParse(documentUpdateSchema, {
+      title: "x",
+      sort_order: "a0",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty title", () => {
+    const result = v.safeParse(documentUpdateSchema, {
+      ...validUpdate,
+      title: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty sort_order", () => {
+    const result = v.safeParse(documentUpdateSchema, {
+      ...validUpdate,
+      sort_order: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a NaN timestamp", () => {
+    const result = v.safeParse(documentUpdateSchema, {
+      ...validUpdate,
+      updated_at: Number.NaN,
     });
     expect(result.success).toBe(false);
   });

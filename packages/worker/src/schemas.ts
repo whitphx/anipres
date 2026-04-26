@@ -7,20 +7,16 @@ import { MAX_ASSET_SIZE } from "anipres/schema";
 // a user-facing label.
 const DOCUMENT_TITLE_MAX_LENGTH = 256;
 
-// Order is stored as REAL in D1 for fractional reordering. Bound it to
-// a sane range so a malicious or confused client cannot push values that
-// would clutter the sidebar's display formatter (and reject NaN /
-// Infinity which JSON would otherwise pass through as `null`).
-const DOCUMENT_ORDER_MIN = -1e9;
-const DOCUMENT_ORDER_MAX = 1e9;
+// Sort-order is a fractional-indexing key. The package emits printable-
+// ASCII strings; this bound is a sanity cap to reject pathological
+// inputs. Real keys are typically <20 chars even after many reorders.
+const SORT_ORDER_MAX_LENGTH = 256;
 
 // Maximum snapshot push body size. tldraw snapshots are usually well
 // under 1 MB; even the largest realistic doc with embedded references
 // rarely exceeds a few MB. 5 MB gives plenty of headroom while
 // preventing a runaway client from streaming arbitrary blobs at the DO.
 export const MAX_SNAPSHOT_BODY_BYTES = 5 * 1024 * 1024;
-
-const finiteNumber = v.pipe(v.number(), v.finite());
 
 const nonNegativeFiniteInteger = v.pipe(
   v.number(),
@@ -41,24 +37,47 @@ const documentTitleSchema = v.pipe(
   v.regex(/^[^\u0000]*$/u, "Title contains a null byte"),
 );
 
-const documentOrderSchema = v.pipe(
-  finiteNumber,
-  v.minValue(DOCUMENT_ORDER_MIN),
-  v.maxValue(DOCUMENT_ORDER_MAX),
+const sortOrderSchema = v.pipe(
+  v.string(),
+  v.minLength(1, "sort_order cannot be empty"),
+  v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
+);
+
+// Document ids are server-allocated INTEGER autoincrement values; the
+// client passes them as decimal strings in URL params. Coerce to a JS
+// number after validation so handlers can pass it straight to D1
+// `.bind()` (which is happy with either type for INTEGER columns).
+// Reject leading zeros to keep the wire form canonical.
+const documentIdSchema = v.pipe(
+  v.string(),
+  v.regex(/^[1-9]\d*$/u, "Invalid document id"),
+  v.transform(Number),
 );
 
 export const documentIdParamSchema = v.object({
-  id: v.pipe(v.string(), v.uuid()),
+  id: documentIdSchema,
 });
 
 export const documentConnectParamSchema = v.object({
-  documentId: v.pipe(v.string(), v.uuid()),
+  documentId: documentIdSchema,
 });
 
-export const documentMetadataSchema = v.object({
+// Body for POST /api/documents (create). title and timestamps optional —
+// server defaults `title` to 'Untitled' (column default) and timestamps
+// to now (column default). `sort_order` is required because the client
+// chooses where to position the new row.
+export const documentCreateSchema = v.object({
+  title: v.optional(documentTitleSchema),
+  sort_order: sortOrderSchema,
+  created_at: v.optional(nonNegativeFiniteInteger),
+  updated_at: v.optional(nonNegativeFiniteInteger),
+});
+
+// Body for PUT /api/documents/:id (update). Caller passes the full
+// post-update metadata.
+export const documentUpdateSchema = v.object({
   title: documentTitleSchema,
-  order: documentOrderSchema,
-  created_at: nonNegativeFiniteInteger,
+  sort_order: sortOrderSchema,
   updated_at: nonNegativeFiniteInteger,
 });
 
