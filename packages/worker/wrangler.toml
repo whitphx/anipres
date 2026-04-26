@@ -3,6 +3,24 @@ main = "src/worker.ts"
 compatibility_date = "2025-05-08"
 compatibility_flags = ["nodejs_compat"]
 
+# anipres.app routes entirely through this worker via Cloudflare's
+# Custom Domain feature. The worker is the origin: Hono dispatches
+# /api/* and /auth/*; everything else is served directly by the
+# static-assets handler below — no Pages production deploy for the apex.
+[[routes]]
+pattern = "anipres.app"
+custom_domain = true
+
+# Bundle the React app's dist into the worker so anipres.app/ serves
+# the SPA. Same shape as `[env.preview.assets]` further down — prod
+# and preview are architecturally symmetric. `run_worker_first` carves
+# the Worker out of the static path: only the listed prefixes invoke
+# the Worker; static files and SPA fallback skip it entirely.
+[assets]
+directory = "../app/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/auth/*"]
+
 [durable_objects]
 bindings = [
   { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
@@ -11,6 +29,10 @@ bindings = [
 [[d1_databases]]
 binding = "DB"
 database_name = "anipres-db"
+# TODO: replace with the real id from `wrangler d1 list` (or
+# `wrangler d1 create anipres-db`) before the first prod deploy. The
+# literal "local" is the convention for `wrangler dev`; `wrangler deploy`
+# (and `pnpm migrate:remote`) need the real production id.
 database_id = "local"
 
 [[migrations]]
