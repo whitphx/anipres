@@ -69,7 +69,14 @@ CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id);
 -- architecture before copying this choice.
 CREATE TABLE documents (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  -- ON DELETE RESTRICT (not CASCADE) on workspace_id: documents have
+  -- a soft-delete + asset-GC lifecycle (see `deleting_at` below). A
+  -- cascade from `workspaces` would hard-delete document rows
+  -- directly, leaving R2 blobs orphaned and `DocumentSyncRoom` DOs
+  -- with stale state. RESTRICT forces the application to drive each
+  -- document through the proper deletion flow before its workspace
+  -- can be removed.
+  workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
   created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
   -- Every document has a slug from creation. The slug is the URL
   -- handle for both authorized access (the owner navigating to their
