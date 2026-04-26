@@ -6,11 +6,11 @@
 CREATE TABLE users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
-  -- updated_at is unused in Phase 1 (no mutable user-level fields
-  -- yet) but kept proactively. Backfilling timestamps into an
-  -- existing table later is lossy — every existing row gets the
-  -- migration time, erasing real "last touched" history. The cost
-  -- of carrying the column from day one is trivial.
+  -- updated_at is unused today (no mutable user-level fields yet)
+  -- but kept proactively. Backfilling timestamps into an existing
+  -- table later is lossy — every existing row gets the migration
+  -- time, erasing real "last touched" history. The cost of
+  -- carrying the column from day one is trivial.
   updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
@@ -60,9 +60,9 @@ CREATE TRIGGER trg_workspaces_updated_at AFTER UPDATE ON workspaces
       WHERE id = OLD.id;
   END;
 
--- "List my workspaces" lookups via owner_user_id. Phase 1 is 1:1 so a
+-- "List my workspaces" lookups via owner_user_id. Currently 1:1 so a
 -- full scan would also be fine, but the index is cheap and pre-positions
--- us for Phase 2 (users owning multiple workspaces).
+-- us for Extension A (users owning multiple workspaces).
 CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id);
 
 -- documents.id design note:
@@ -167,47 +167,69 @@ CREATE INDEX idx_documents_workspace_sort
 CREATE INDEX idx_documents_workspace ON documents (workspace_id);
 
 -- =============================================================
--- PHASE 2: Organizations (not yet implemented)
+-- Future extensions (not yet implemented)
 -- =============================================================
+-- Two independent extensions are anticipated; either can ship
+-- before the other. There is one interaction point — see
+-- Extension B's note on grantee_org_id — but the schemas don't
+-- otherwise depend on each other.
+
+-- -------------------------------------------------------------
+-- Extension A: Organizations
+-- -------------------------------------------------------------
 --
 -- Add `organizations` and `org_memberships` (members + roles) as
 -- new tables. Rebuild `workspaces` so it can be owned by either a
 -- user OR an org — nullable `owner_user_id`, new nullable
 -- `owner_org_id`, and a CHECK enforcing exactly one. The data copy
--- during the rebuild is safe: every Phase 1 row has a non-null
+-- during the rebuild is safe: every existing row has a non-null
 -- `owner_user_id`, which satisfies the new CHECK with
 -- `owner_org_id = NULL`.
 --
 -- Deletion semantics: deleting an org should cascade to its
--- workspaces, which will then trip the Phase 1
+-- workspaces, which will then trip the existing
 -- `documents.workspace_id ON DELETE RESTRICT`. Same orchestration
--- as Phase 1 user deletion — drive documents through the proper
--- soft-delete + asset-GC + hard-delete pipeline before the
--- org/workspace can be removed.
---
--- Concrete table definitions intentionally omitted: SQLite syntax
--- and our own conventions evolve, and a literal-SQL skeleton here
--- is more likely to bit-rot than to help. Implement against the
--- shape of Phase 1 (INTEGER PKs, INTEGER ms timestamps with the
--- standard default expression, `updated_at` triggers, length CHECKs
--- where appropriate, named indexes for FK lookups, the SQLite
--- table-rebuild dance for constraint changes) and the design
--- intent above.
+-- as user deletion in the current schema — drive documents
+-- through the proper soft-delete + asset-GC + hard-delete pipeline
+-- before the org/workspace can be removed.
 
--- =============================================================
--- PHASE 3: Document grants (not yet implemented)
--- =============================================================
+-- -------------------------------------------------------------
+-- Extension B: Document sharing
+-- -------------------------------------------------------------
 --
 -- Add `document_grants` — fully additive, no existing tables
 -- modified. Each row grants a permission (`view` / `comment` /
 -- `edit` / `manage`) on one document, scoped to either a specific
--- user, a specific org, or "anyone with the share link." The
--- share-link case is implemented as a `share_token` column whose
--- value is a 24-byte URL-safe random string; treat it as a
--- security secret, not an id (UUIDs aren't designed as
--- unguessable tokens). A row-level CHECK enforces "exactly one of
--- (grantee_user, grantee_org, share_token) is set."
+-- user, a specific org (only relevant if Extension A also lands),
+-- or "anyone with the share link." The share-link case is
+-- implemented as a `share_token` column whose value is a 24-byte
+-- URL-safe random string; treat it as a security secret, not an
+-- id (UUIDs aren't designed as unguessable tokens). A row-level
+-- CHECK enforces "exactly one of (grantee_user, grantee_org,
+-- share_token) is set."
+--
+-- Without Extension A: omit the grantee_org_id column and its
+-- CHECK branch. With Extension A: include both. Either way, the
+-- user-grant and share-link branches stand on their own.
 --
 -- Indexes the grants table will need: by `document_id` (resolve
 -- "who has access to this doc?"), partial-by-grantee, partial-by-
--- token (lookups via share-link). Same Phase 1 conventions apply.
+-- token (lookups via share-link).
+
+-- -------------------------------------------------------------
+-- Conventions both extensions follow
+-- -------------------------------------------------------------
+--
+-- Concrete table definitions are intentionally omitted: SQLite
+-- syntax and our own conventions evolve, and a literal-SQL
+-- skeleton here is more likely to bit-rot than to help. Implement
+-- against the shape of the current schema:
+--   * INTEGER PKs (rowid-aliased AUTOINCREMENT)
+--   * INTEGER ms timestamps with the standard default expression
+--     `CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)`
+--   * `updated_at` triggers with the WHEN guard pattern
+--   * `length(...) > 0` CHECKs (or `length(trim(...))` for
+--     user-typed text)
+--   * named indexes for FK lookups
+--   * the SQLite `PRAGMA foreign_keys=OFF` rebuild dance for any
+--     constraint change that requires a table rebuild
