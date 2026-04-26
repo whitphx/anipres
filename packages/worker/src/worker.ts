@@ -158,7 +158,9 @@ app.put("/api/documents/:id/snapshot", async (c) => {
 
   // Cap the body size before reading. Cloudflare's default request
   // limit is generous; this stops a runaway client from streaming
-  // arbitrary blobs at the DO snapshot store.
+  // arbitrary blobs at the DO snapshot store. Note: bypassable via
+  // chunked transfer encoding or an omitted Content-Length header —
+  // defense in depth, not a hard cap.
   const declaredLength = Number(c.req.header("content-length"));
   if (
     Number.isFinite(declaredLength) &&

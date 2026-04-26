@@ -10,7 +10,14 @@ Tasks deferred during development that should be addressed before production rel
 
 ## Phases Not Yet Implemented
 
-- **Phase 6 — Anonymous mode + polish**: Online/offline indicator, reconnection UX, user profile/settings, rate limiting, input validation.
+- **Phase 6 — Anonymous mode + polish**: User profile/settings (the current minimal "logged in as X / logout" surface in the sidebar footer is sufficient for now). Online/offline indicator, reconnection UX, and input validation are done; rate limiting deferred to post-launch (see below).
+
+## Post-launch hardening
+
+Items deliberately deferred from Phase 6 because the cost of skipping them is bounded at the current alpha-internal scale. Revisit before opening to a real user base.
+
+- **Rate limiting**: every authenticated endpoint is currently unbounded per user. Worst-case abuse from a single authenticated user is bounded by Cloudflare Workers' daily request quota (100K/day on free tier; 10M/day on paid) and an estimated $50–100/month of R2/D1 overage in a sustained-attack scenario — both visible in the Cloudflare billing dashboard before they become painful. Anonymous endpoints (auth callbacks) sit behind Cloudflare's free edge DDoS protection. When this is implemented, the design notes from the earlier discussion still apply: per-user via the Workers Rate Limiting API, separate namespace per top-cost endpoint (asset upload, snapshot push, doc create), 429 response with `Retry-After`, friendly client-side surfacing through the existing `conversionErrors` channel.
+- **Billing & usage alerts** (do this before going public, even if rate limiting stays deferred): Cloudflare billing alerts at 50/80/100% of paid-tier-trigger spend; R2 storage growth alarm; Workers analytics review for unusual per-route request volume.
 
 ## Convert-to-synced polish
 
