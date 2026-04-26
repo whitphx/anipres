@@ -81,6 +81,30 @@ describe("documentMetadataSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts a single non-whitespace character title", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "a",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a 256-char whitespace-only title (regex wins over maxLength)", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: " ".repeat(256),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a title with leading and trailing whitespace", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "  hello  ",
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects a non-finite order (NaN)", () => {
     const result = v.safeParse(documentMetadataSchema, {
       ...validMetadata,
