@@ -71,18 +71,16 @@ CREATE TABLE documents (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  -- Every document has a slug from creation. `is_published` is the
-  -- visibility toggle; the slug is the URL handle for both authorized
-  -- access (the owner navigating to their own draft) and public
-  -- access (a published document). UNIQUE+CHECK enforced on the
-  -- column directly; SQLite auto-creates the unique index.
+  -- Every document has a slug from creation. The slug is the URL
+  -- handle for both authorized access (the owner navigating to their
+  -- own draft) and any future public access. UNIQUE+CHECK enforced
+  -- on the column directly; SQLite auto-creates the unique index.
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
   title               TEXT    NOT NULL DEFAULT 'Untitled',
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
   -- npm package). Non-empty by construction; the CHECK enforces the
   -- contract at the schema layer.
   sort_order          TEXT    NOT NULL CHECK (length(sort_order) > 0),
-  is_published        INTEGER NOT NULL DEFAULT 0 CHECK (is_published IN (0, 1)),
   -- Non-null while deletion is in progress so uploads/connects stop
   -- treating the document as active before the final row removal
   -- happens (R2 asset GC needs a coordinated grace period).
