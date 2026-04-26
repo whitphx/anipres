@@ -1,5 +1,5 @@
 CREATE TABLE users (
-  id          TEXT PRIMARY KEY,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -10,7 +10,7 @@ CREATE TABLE users (
 -- uniqueness across the OAuth space; idx_oauth_identities_user is for
 -- "list this user's linked providers" lookups.
 CREATE TABLE oauth_identities (
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider    TEXT NOT NULL,
   provider_id TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -20,17 +20,47 @@ CREATE TABLE oauth_identities (
 CREATE INDEX idx_oauth_identities_user ON oauth_identities (user_id);
 
 CREATE TABLE workspaces (
-  id              TEXT PRIMARY KEY,
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name            TEXT NOT NULL,
-  owner_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+-- documents.id design note:
+--
+-- This file picks INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated).
+-- That choice is *not* universally correct for a document-management
+-- schema; it depends on the sync architecture of the implementing
+-- system. Two viable shapes:
+--
+-- (A) INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated) — chosen here
+--     - Smaller indexes, sequential B-tree inserts, and the PK is the
+--       SQLite rowid (no separate PK index, every secondary index
+--       stores rowid implicitly). Materially better on D1.
+--     - Easier debugging in support tooling ("doc 42" vs a UUID).
+--     - Trade: clients cannot create a synced document without a
+--       round-trip to the server to allocate the id, *or* must use
+--       an explicit local→synced migration that remaps the locally
+--       generated id to the server-allocated one.
+--     - Right choice when the local→synced migration path is already
+--       a first-class operation. anipres has this today as
+--       `convertLocalDocToSynced` (packages/app/src/documents/migration.ts),
+--       which can perform the id remap as part of the existing flow.
+--
+-- (B) TEXT UUID v7 (client-allocated)
+--     - Documents can be created offline with their final id baked in.
+--       No round-trip, no remap.
+--     - Larger indexes (4–9× per FK reference), no rowid alias.
+--     - Right choice when the sync contract is upsert-by-id and the
+--       client owns the id lifecycle from creation onward.
+--
+-- Implementors of similar schemas should evaluate their own sync
+-- architecture before copying this choice.
 CREATE TABLE documents (
-  id                  TEXT    PRIMARY KEY,
-  workspace_id        TEXT    NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  created_by_user_id  TEXT    REFERENCES users(id) ON DELETE SET NULL,
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
   slug                TEXT    UNIQUE,
   title               TEXT    NOT NULL DEFAULT 'Untitled',
   content             TEXT    NOT NULL DEFAULT '',
@@ -53,15 +83,15 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 -- New tables (additive):
 --
 -- CREATE TABLE organizations (
---   id          TEXT PRIMARY KEY,
+--   id          INTEGER PRIMARY KEY AUTOINCREMENT,
 --   name        TEXT NOT NULL,
 --   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 --   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 -- );
 --
 -- CREATE TABLE org_memberships (
---   org_id      TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
---   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+--   org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+--   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 --   role        TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
 --   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 --   PRIMARY KEY (org_id, user_id)
@@ -73,10 +103,10 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 -- to modify constraints):
 --
 -- CREATE TABLE workspaces_new (
---   id              TEXT PRIMARY KEY,
+--   id              INTEGER PRIMARY KEY AUTOINCREMENT,
 --   name            TEXT NOT NULL,
---   owner_user_id   TEXT REFERENCES users(id) ON DELETE CASCADE,
---   owner_org_id    TEXT REFERENCES organizations(id) ON DELETE CASCADE,
+--   owner_user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
+--   owner_org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
 --   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 --   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 --   CHECK (
@@ -100,11 +130,14 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 -- Fully additive. No existing tables are modified.
 --
 -- CREATE TABLE document_grants (
---   id                TEXT PRIMARY KEY,
---   document_id       TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
---   grantee_user_id   TEXT REFERENCES users(id) ON DELETE CASCADE,
---   grantee_org_id    TEXT REFERENCES organizations(id) ON DELETE CASCADE,
+--   id                INTEGER PRIMARY KEY AUTOINCREMENT,
+--   document_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+--   grantee_user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
+--   grantee_org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
 --   permission        TEXT NOT NULL CHECK (permission IN ('view', 'comment', 'edit', 'manage')),
+--   -- share_token is not an id; it's a security token. Mint as a
+--   -- 24-byte URL-safe random string (~192 bits of entropy), not a
+--   -- UUID. UUIDs aren't designed as unguessable secrets.
 --   share_token       TEXT UNIQUE,   -- non-null = shareable link, no specific grantee
 --   expires_at        TEXT,          -- null = never expires
 --   created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
