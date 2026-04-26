@@ -1,9 +1,23 @@
 CREATE TABLE users (
   id          TEXT PRIMARY KEY,
-  email       TEXT NOT NULL UNIQUE,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- OAuth identities. One user can have multiple identities (account
+-- linking) — each row is one (provider, provider_id) pair owned by a
+-- single user. PRIMARY KEY (provider, provider_id) enforces global
+-- uniqueness across the OAuth space; idx_oauth_identities_user is for
+-- "list this user's linked providers" lookups.
+CREATE TABLE oauth_identities (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider    TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (provider, provider_id)
+);
+
+CREATE INDEX idx_oauth_identities_user ON oauth_identities (user_id);
 
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
@@ -18,10 +32,14 @@ CREATE TABLE documents (
   workspace_id        TEXT    NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id  TEXT    REFERENCES users(id) ON DELETE SET NULL,
   slug                TEXT    UNIQUE,
-  title               TEXT    NOT NULL DEFAULT '',
+  title               TEXT    NOT NULL DEFAULT 'Untitled',
   content             TEXT    NOT NULL DEFAULT '',
   sort_order          TEXT    NOT NULL,
   is_published        INTEGER NOT NULL DEFAULT 0 CHECK (is_published IN (0, 1)),
+  -- Non-null while deletion is in progress so uploads/connects stop
+  -- treating the document as active before the final row removal
+  -- happens (R2 asset GC needs a coordinated grace period).
+  deleting_at         TEXT,
   created_at          TEXT    NOT NULL,
   updated_at          TEXT    NOT NULL
 );
