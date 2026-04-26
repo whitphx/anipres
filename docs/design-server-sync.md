@@ -375,7 +375,39 @@ The `packages/anipres` library should export these schema definitions so the wor
 - Ensure anonymous mode (current IndexedDB path) stays intact alongside synced mode
 - Online/offline indicator, reconnection UX
 - User profile, account settings
-- Rate limiting, input validation
+- Input validation
+
+(Rate limiting was originally listed under Phase 6; see [Post-Launch Hardening](#post-launch-hardening) below for why it moved.)
+
+---
+
+## Post-Launch Hardening
+
+Items intentionally deferred from the pre-launch phases. The cost of skipping each is bounded at the current alpha-internal scale; revisit before opening to a real user base.
+
+### Rate limiting
+
+Every authenticated endpoint is currently unbounded per user. Worst-case abuse is bounded by:
+
+- Cloudflare Workers' daily request quota (100K/day on free tier; 10M/day on paid).
+- An estimated $50–100/month of R2/D1 overage in a sustained-attack scenario.
+
+Both are visible in the Cloudflare billing dashboard before they become painful. Anonymous endpoints (auth callbacks) sit behind Cloudflare's free edge DDoS protection.
+
+When this gets implemented:
+
+- Per-user keyed via the Workers Rate Limiting API binding.
+- Separate namespace per top-cost endpoint (asset upload, snapshot push, document create).
+- 429 response with `Retry-After`.
+- Client-side surfacing through the existing `conversionErrors` channel for the convert-to-synced flow; similar treatment for other write paths.
+
+### Operational alerting
+
+Independent of rate limiting and worth doing before any public open:
+
+- Cloudflare billing alerts at 50 / 80 / 100% of paid-tier-trigger spend.
+- R2 storage growth alarm.
+- Workers analytics dashboard review for unusual per-route request volume.
 
 ---
 

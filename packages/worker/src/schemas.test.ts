@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
+  assetNameSchema,
+  documentAssetUploadFieldsSchema,
+  documentAssetUploadFileSchema,
   documentIdParamSchema,
   documentMetadataSchema,
   snapshotPushBodySchema,
@@ -60,6 +63,46 @@ describe("documentMetadataSchema", () => {
       title: "hello\u0000world",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty title", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a whitespace-only title", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "   \t\n",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a single non-whitespace character title", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "a",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a 256-char whitespace-only title (regex wins over maxLength)", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: " ".repeat(256),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a title with leading and trailing whitespace", () => {
+    const result = v.safeParse(documentMetadataSchema, {
+      ...validMetadata,
+      title: "  hello  ",
+    });
+    expect(result.success).toBe(true);
   });
 
   it("rejects a non-finite order (NaN)", () => {
@@ -175,6 +218,80 @@ describe("snapshotPushBodySchema", () => {
       snapshot: "not an object",
       expectedSnapshotVersion: 0,
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("assetNameSchema", () => {
+  it("accepts a UUID with no extension", () => {
+    const result = v.safeParse(
+      assetNameSchema,
+      "8d6f4d3e-3c8f-4a8a-9c9d-1e2f3a4b5c6d",
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a UUID with an extension", () => {
+    const result = v.safeParse(
+      assetNameSchema,
+      "8d6f4d3e-3c8f-4a8a-9c9d-1e2f3a4b5c6d.png",
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a path-traversal attempt", () => {
+    const result = v.safeParse(assetNameSchema, "../etc/passwd");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an arbitrary string", () => {
+    const result = v.safeParse(assetNameSchema, "not-a-uuid.png");
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("documentAssetUploadFieldsSchema", () => {
+  it("accepts a body with a File field", () => {
+    const result = v.safeParse(documentAssetUploadFieldsSchema, {
+      file: new File(["hello"], "x.txt", { type: "text/plain" }),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a missing file field", () => {
+    const result = v.safeParse(documentAssetUploadFieldsSchema, {});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-File value in the file field", () => {
+    const result = v.safeParse(documentAssetUploadFieldsSchema, {
+      file: "not a file",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("documentAssetUploadFileSchema", () => {
+  it("accepts a small image with an allowed MIME type", () => {
+    const file = new File(["x"], "tiny.png", { type: "image/png" });
+    const result = v.safeParse(documentAssetUploadFileSchema, file);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an unsupported MIME type", () => {
+    const file = new File(["x"], "evil.exe", {
+      type: "application/octet-stream",
+    });
+    const result = v.safeParse(documentAssetUploadFileSchema, file);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a file exceeding MAX_ASSET_SIZE", () => {
+    // Construct a file that reports size > 10 MB without actually
+    // allocating the bytes by passing a typed-array view.
+    const oversized = new Uint8Array(10 * 1024 * 1024 + 1);
+    const file = new File([oversized], "big.png", { type: "image/png" });
+    const result = v.safeParse(documentAssetUploadFileSchema, file);
     expect(result.success).toBe(false);
   });
 });

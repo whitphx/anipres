@@ -10,7 +10,16 @@ Tasks deferred during development that should be addressed before production rel
 
 ## Phases Not Yet Implemented
 
-- **Phase 6 — Anonymous mode + polish**: Online/offline indicator, reconnection UX, user profile/settings, rate limiting, input validation.
+- **Phase 6 — Anonymous mode + polish**: User profile/settings (the current minimal "logged in as X / logout" surface in the sidebar footer is sufficient for now). Online/offline indicator, reconnection UX, and input validation are done.
+
+## Post-launch hardening
+
+See [Post-Launch Hardening](./design-server-sync.md#post-launch-hardening) in the design doc for context.
+
+- **Cloudflare billing alerts** at 50 / 80 / 100% of paid-tier-trigger spend.
+- **R2 storage growth alarm**.
+- **Workers analytics dashboard review** for unusual per-route request volume.
+- **Rate limiting** (Workers Rate Limiting API, per-user, applied to asset upload / snapshot push / doc create with 429 + `Retry-After`).
 
 ## Convert-to-synced polish
 

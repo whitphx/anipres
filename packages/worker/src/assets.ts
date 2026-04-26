@@ -4,20 +4,15 @@ import * as v from "valibot";
 // client (passed into tldraw's `maxAssetSize` prop via the Anipres
 // component) so the two sides cannot drift.
 import { MAX_ASSET_SIZE } from "anipres/schema";
+import {
+  ASSET_NAME_PATTERN,
+  SUPPORTED_ASSET_CONTENT_TYPES,
+  assetNameSchema,
+  documentAssetUploadFieldsSchema,
+  documentAssetUploadFileSchema,
+  documentIdParamSchema,
+} from "./schemas";
 import type { AppBindings, AppContext } from "./types";
-
-const SUPPORTED_ASSET_CONTENT_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/apng",
-  "image/avif",
-  "image/svg+xml",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-] as const;
 
 const ASSET_EXTENSION_BY_CONTENT_TYPE = {
   "image/jpeg": ".jpg",
@@ -42,8 +37,6 @@ const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOCUMENT_DELETE_BATCH_SIZE = 128;
 
 const DOCUMENT_ASSET_PREFIX = "documents";
-const ASSET_NAME_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -58,25 +51,6 @@ class InvalidMultipartFormDataError extends Error {
     this.name = "InvalidMultipartFormDataError";
   }
 }
-
-const documentAssetUploadFieldsSchema = v.object({
-  file: v.file("Missing file field"),
-});
-
-const documentAssetUploadFileSchema = v.pipe(
-  v.file(),
-  v.mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
-  v.maxSize(MAX_ASSET_SIZE),
-);
-
-const documentIdParamSchema = v.object({
-  id: v.pipe(v.string(), v.uuid()),
-});
-
-const assetNameSchema = v.pipe(
-  v.string(),
-  v.regex(ASSET_NAME_PATTERN, "Invalid asset name"),
-);
 
 type SnapshotRecord = {
   id: string;
