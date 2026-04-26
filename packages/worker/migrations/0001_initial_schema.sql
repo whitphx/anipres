@@ -32,6 +32,11 @@ CREATE TABLE workspaces (
   updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
+-- "List my workspaces" lookups via owner_user_id. Phase 1 is 1:1 so a
+-- full scan would also be fine, but the index is cheap and pre-positions
+-- us for Phase 2 (users owning multiple workspaces).
+CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id);
+
 -- documents.id design note:
 --
 -- This file picks INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated).
@@ -66,10 +71,17 @@ CREATE TABLE documents (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  slug                TEXT    UNIQUE,
+  -- Slug uniqueness lives on `idx_documents_slug` below (a partial
+  -- unique index on non-null rows). Don't add a column-level UNIQUE
+  -- here; it would create a redundant full-column index alongside
+  -- the partial one.
+  slug                TEXT,
   title               TEXT    NOT NULL DEFAULT 'Untitled',
   content             TEXT    NOT NULL DEFAULT '',
-  sort_order          TEXT    NOT NULL,
+  -- sort_order is a fractional-indexing key (the `fractional-indexing`
+  -- npm package). Non-empty by construction; the CHECK enforces the
+  -- contract at the schema layer.
+  sort_order          TEXT    NOT NULL CHECK (length(sort_order) > 0),
   is_published        INTEGER NOT NULL DEFAULT 0 CHECK (is_published IN (0, 1)),
   -- Non-null while deletion is in progress so uploads/connects stop
   -- treating the document as active before the final row removal
@@ -79,8 +91,20 @@ CREATE TABLE documents (
   updated_at          INTEGER NOT NULL
 );
 
-CREATE INDEX idx_documents_workspace_sort ON documents (workspace_id, sort_order);
-CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
+-- Dominant query: "list active documents in a workspace, in sort
+-- order." `WHERE deleting_at IS NULL` keeps the index lean — soft-
+-- deleted rows are skipped instead of taking up B-tree pages until
+-- the asset-GC grace period expires.
+CREATE INDEX idx_documents_workspace_sort
+  ON documents (workspace_id, sort_order)
+  WHERE deleting_at IS NULL;
+
+-- Partial UNIQUE index on slug. Enforces uniqueness only across
+-- published (non-null-slug) documents, and avoids the redundant
+-- full-column index that a column-level `UNIQUE` would create.
+CREATE UNIQUE INDEX idx_documents_slug
+  ON documents (slug)
+  WHERE slug IS NOT NULL;
 
 -- =============================================================
 -- PHASE 2: Organizations (not yet implemented)
@@ -125,6 +149,14 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 --
 -- DROP TABLE workspaces;
 -- ALTER TABLE workspaces_new RENAME TO workspaces;
+--
+-- -- Recreate the owner-lookup indexes after the rename. The Phase 1
+-- -- `idx_workspaces_owner_user` index was dropped along with the old
+-- -- table, and the new owner_org_id column needs its own.
+-- CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id)
+--   WHERE owner_user_id IS NOT NULL;
+-- CREATE INDEX idx_workspaces_owner_org ON workspaces (owner_org_id)
+--   WHERE owner_org_id IS NOT NULL;
 --
 -- The data copy is safe: all Phase 1 rows have non-null owner_user_id,
 -- which satisfies the new CHECK constraint with owner_org_id = NULL.
