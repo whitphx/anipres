@@ -101,7 +101,10 @@ describe("dataUrlToFile", () => {
     // 1x1 transparent PNG
     const b64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-    const file = dataUrlToFile(`data:image/png;base64,${b64}`, "pixel.png");
+    const file = await dataUrlToFile(
+      `data:image/png;base64,${b64}`,
+      "pixel.png",
+    );
     expect(file.name).toBe("pixel.png");
     expect(file.type).toBe("image/png");
     const buffer = new Uint8Array(await file.arrayBuffer());
@@ -112,13 +115,34 @@ describe("dataUrlToFile", () => {
   });
 
   it("decodes a URL-encoded text data URL", async () => {
-    const file = dataUrlToFile("data:image/svg+xml,%3Csvg%2F%3E", "icon.svg");
+    const file = await dataUrlToFile(
+      "data:image/svg+xml,%3Csvg%2F%3E",
+      "icon.svg",
+    );
     expect(file.type).toBe("image/svg+xml");
     expect(await file.text()).toBe("<svg/>");
   });
 
-  it("throws on invalid input", () => {
-    expect(() => dataUrlToFile("not-a-data-url", "x.bin")).toThrow();
+  it("rejects on invalid input", async () => {
+    await expect(dataUrlToFile("not-a-data-url", "x.bin")).rejects.toThrow();
+  });
+
+  it("rejects on a header without a comma", async () => {
+    await expect(
+      dataUrlToFile("data:image/png;base64", "x.bin"),
+    ).rejects.toThrow();
+  });
+
+  it("returns promptly on adversarial inputs (no catastrophic backtracking)", async () => {
+    // CodeQL js/redos shape on the previous regex
+    // /^data:([^;,]+)((?:;[^,]*)*),(.*)$/ — strings starting with
+    // "data:+" and many ";" caused exponential backtracking. The
+    // platform fetch parser is C-level and immune; budget is generous
+    // to absorb CI jitter.
+    const adversarial = "data:+" + ";".repeat(100_000);
+    const start = Date.now();
+    await expect(dataUrlToFile(adversarial, "x.bin")).rejects.toThrow();
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 });
 
