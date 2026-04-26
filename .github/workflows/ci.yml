@@ -296,68 +296,17 @@ jobs:
           command: pages deploy packages/app/dist --project-name=anipres --branch=${{ github.head_ref || github.ref_name }} --commit-hash=${{ github.sha }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
-  # Shared preview worker — every PR push redeploys it, last push wins.
-  # Bundles the latest PR's `app/dist` via the `[env.preview.assets]`
-  # binding so the preview URL is browsable end-to-end. The per-PR Pages
-  # preview (`deploy-app` above) handles UI smoke checks; this is for
-  # exercising auth + sync.
-  deploy-worker-preview:
-    needs: [build-anipres, build-app, lint-app, test-worker]
-
-    if: ${{ github.event_name == 'pull_request' }}
-
-    permissions:
-      contents: read
-      deployments: write
-
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/worker
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-        with:
-          version: latest
-          run_install: false
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: app-dist
-          path: packages/app/dist
-
-      - name: Deploy preview worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm deploy:preview
-
-  # Production worker. Runs only on push to the default branch (after
-  # PR merge). Serves the unified app at anipres.app — bundles
-  # `app/dist` via the top-level `[assets]` binding, and handles
-  # `/api/*` and `/auth/*` directly. The custom_domain route in
-  # `wrangler.toml` makes this worker the origin for the apex.
+  # Worker deploy — same code, two targets:
+  # - on PR: shared preview worker (*.workers.dev, isolated D1/R2/DO,
+  #   last push wins, see [env.preview] in wrangler.toml).
+  # - on push to main: prod worker at anipres.app, bundles app/dist via
+  #   the top-level [assets] binding and handles /api/* and /auth/*.
+  # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
+  # the preview worker is for exercising auth + sync end-to-end.
   deploy-worker:
     needs: [build-anipres, build-app, lint-app, test-worker]
 
-    if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
 
     permissions:
       contents: read
@@ -400,7 +349,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm deploy
+        run: pnpm ${{ github.event_name == 'pull_request' && 'deploy:preview' || 'deploy' }}
 
   release:
     needs: [build-anipres, test-slidev-addon-anipres, build-slidev-addon-anipres-preview]
