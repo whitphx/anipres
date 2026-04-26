@@ -78,7 +78,6 @@ CREATE TABLE documents (
   -- column directly; SQLite auto-creates the unique index.
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
   title               TEXT    NOT NULL DEFAULT 'Untitled',
-  content             TEXT    NOT NULL DEFAULT '',
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
   -- npm package). Non-empty by construction; the CHECK enforces the
   -- contract at the schema layer.
