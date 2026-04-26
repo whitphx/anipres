@@ -97,6 +97,12 @@ CREATE INDEX idx_documents_workspace_sort
   ON documents (workspace_id, sort_order)
   WHERE deleting_at IS NULL;
 
+-- FK lookup index. The composite above only sees active rows, so the
+-- `ON DELETE CASCADE` from `workspaces.id` (and any future query that
+-- needs to find soft-deleted documents by workspace) would otherwise
+-- fall back to a full table scan.
+CREATE INDEX idx_documents_workspace ON documents (workspace_id);
+
 -- =============================================================
 -- PHASE 2: Organizations (not yet implemented)
 -- =============================================================
