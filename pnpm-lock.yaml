@@ -205,7 +205,7 @@ importers:
     dependencies:
       '@hono/oauth-providers':
         specifier: ^0.8.5
-        version: 0.8.5(hono@4.12.7)
+        version: 0.8.5(hono@4.12.15)
       '@tldraw/sync-core':
         specifier: 3.15.5
         version: 3.15.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -213,8 +213,8 @@ importers:
         specifier: workspace:*
         version: link:../anipres
       hono:
-        specifier: ^4.7.0
-        version: 4.12.7
+        specifier: ^4.12.15
+        version: 4.12.15
       tldraw:
         specifier: 3.15.5
         version: 3.15.5(@types/react-dom@18.3.5(@types/react@18.3.18))(@types/react@18.3.18)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4789,8 +4789,8 @@ packages:
   hey-listen@1.0.8:
     resolution: {integrity: sha512-COpmrF2NOg4TBWUJ5UVyaCU2A88wEMkUPK4hNqyCkqHbxT92BbvfjoSozkAIIm6XhicGlJHhFdullInrdhwU8Q==, tarball: https://registry.npmjs.org/hey-listen/-/hey-listen-1.0.8.tgz}
 
-  hono@4.12.7:
-    resolution: {integrity: sha512-jq9l1DM0zVIvsm3lv9Nw9nlJnMNPOcAtsbsgiUhWcFzPE99Gvo6yRTlszSLLYacMeQ6quHD6hMfId8crVHvexw==, tarball: https://registry.npmjs.org/hono/-/hono-4.12.7.tgz}
+  hono@4.12.15:
+    resolution: {integrity: sha512-qM0jDhFEaCBb4TxoW7f53Qrpv9RBiayUHo0S52JudprkhvpjIrGoU1mnnr29Fvd1U335ZFPZQY1wlkqgfGXyLg==, tarball: https://registry.npmjs.org/hono/-/hono-4.12.15.tgz}
     engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
@@ -8243,9 +8243,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.9': {}
 
-  '@hono/oauth-providers@0.8.5(hono@4.12.7)':
+  '@hono/oauth-providers@0.8.5(hono@4.12.15)':
     dependencies:
-      hono: 4.12.7
+      hono: 4.12.15
 
   '@humanfs/core@0.19.1': {}
 
@@ -13000,7 +13000,7 @@ snapshots:
 
   hey-listen@1.0.8: {}
 
-  hono@4.12.7: {}
+  hono@4.12.15: {}
 
   hookable@5.5.3: {}
 
