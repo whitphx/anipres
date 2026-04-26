@@ -1,3 +1,4 @@
+import { generateKeyBetween } from "fractional-indexing";
 import type { TLStoreSnapshot } from "tldraw";
 import type { ApiDocumentRepository } from "./api-repository";
 import {
@@ -161,21 +162,32 @@ export async function reconcileOfflineEdits(params: {
   // Server has diverged — fork the local version as a new document.
   const originalTitle = serverDoc.meta.title;
   const forkTitle = `${originalTitle} (offline copy)`;
-  const forkId = crypto.randomUUID();
   const now = Date.now();
 
-  // Create the fork document metadata on the server.
-  await repository.save({
+  // Create the fork on the server. The fork is a distinct document
+  // with its own id — we know that id only after the POST response
+  // (the API repo ignores any client-supplied id and the server
+  // allocates an INTEGER). Place the fork's sort_order right after
+  // the original via fractional-indexing — the result is strictly
+  // > the original key, which is enough to sit "after" it even if
+  // other docs sit further along.
+  const forkSortOrder = generateKeyBetween(serverDoc.meta.sortOrder, null);
+  const created = await repository.create({
     meta: {
-      id: forkId,
+      // Placeholder — the API repo ignores this and the server
+      // allocates the real id. Kept as a fresh UUID rather than
+      // reusing `documentId` so it doesn't read as "saving the fork
+      // under the original's id."
+      id: crypto.randomUUID(),
       title: forkTitle,
       createdAt: now,
       updatedAt: now,
-      order: serverDoc.meta.order + 0.001,
+      sortOrder: forkSortOrder,
       origin: "synced",
     },
     snapshot: null,
   });
+  const forkId = created.meta.id;
 
   // Push the local snapshot into the fork's Durable Object room.
   let forkPushRes: Response;

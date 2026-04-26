@@ -1,3 +1,4 @@
+import { generateKeyBetween } from "fractional-indexing";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
@@ -8,7 +9,7 @@ import {
 } from "./migration";
 
 function createNewDocument(
-  order: number,
+  sortOrder: string,
   origin: DocumentOrigin,
 ): DocumentData {
   return {
@@ -17,11 +18,27 @@ function createNewDocument(
       title: "Untitled",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      order,
+      sortOrder,
       origin,
     },
     snapshot: null,
   };
+}
+
+/**
+ * Compute the fractional-indexing key that places a new doc at the
+ * end of `existing`. `existing` may include local and synced rows
+ * mixed; we sort their keys lexicographically and bump past the tail.
+ * If there are no existing keys, falls back to the package's "first"
+ * key via `generateKeyBetween(null, null)` (typically `"a0"`).
+ */
+function nextTailSortOrder(existing: ReadonlyArray<DocumentMeta>): string {
+  const keys = existing
+    .map((d) => d.sortOrder)
+    .filter((key): key is string => typeof key === "string")
+    .sort();
+  const tail = keys[keys.length - 1] ?? null;
+  return generateKeyBetween(tail, null);
 }
 
 export interface DocumentManager {
@@ -42,7 +59,7 @@ export interface DocumentManager {
   createDocument: (options?: { origin?: DocumentOrigin }) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, title: string) => Promise<void>;
-  reorderDocument: (id: string, newOrder: number) => Promise<void>;
+  reorderDocument: (id: string, newSortOrder: string) => Promise<void>;
   convertToSynced: (id: string) => Promise<void>;
   registerEditor: (editor: Editor) => () => void;
   refreshDocuments: () => Promise<void>;
@@ -179,7 +196,7 @@ export function useDocumentManager(params: {
     if (!existing) return;
 
     const { document } = getSnapshot(editor.store);
-    await localRepository.save({
+    await localRepository.update({
       ...existing,
       meta: { ...existing.meta, updatedAt: Date.now() },
       snapshot: document,
@@ -201,11 +218,13 @@ export function useDocumentManager(params: {
           : "local";
         const repo = getRepository(defaultOrigin);
         if (!repo) return;
-        const doc = createNewDocument(1, defaultOrigin);
-        await repo.save(doc);
+        const draft = createNewDocument(nextTailSortOrder([]), defaultOrigin);
+        // The synced repo allocates a server-side id at create; use the
+        // returned doc's id rather than the draft's UUID.
+        const saved = await repo.create(draft);
         if (cancelled) return;
-        commitDocuments([doc.meta]);
-        commitActiveDocumentId(doc.meta.id);
+        commitDocuments([saved.meta]);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
       } else {
         commitDocuments(metas);
@@ -278,18 +297,18 @@ export function useDocumentManager(params: {
       const repo = getRepository(origin);
       if (!repo) return;
 
-      // Compute order against just this repo's docs so each group stays
-      // independently ordered. Catch repository failures (e.g. synced
-      // server unreachable) so the button click doesn't end in an
-      // unhandled rejection with no user-visible change.
+      // Compute the next sort_order key against just this repo's docs
+      // so each group stays independently ordered. Catch repository
+      // failures (e.g. synced server unreachable) so the button click
+      // doesn't end in an unhandled rejection with no user-visible
+      // change.
       try {
         const existing = await repo.list();
-        const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), 0);
-        const doc = createNewDocument(maxOrder + 1, origin);
-        await repo.save(doc);
+        const draft = createNewDocument(nextTailSortOrder(existing), origin);
+        const saved = await repo.create(draft);
 
         editorRef.current = null;
-        commitActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
         await refreshDocuments();
       } catch (error) {
@@ -323,21 +342,15 @@ export function useDocumentManager(params: {
 
       await repo.delete(id);
 
-      // If the migration had already persisted metadata to the synced
-      // repo before we aborted (step 2 of convertLocalDocToSynced), a
-      // ghost synced copy of the deleted doc would otherwise appear on
-      // the next refresh. Best-effort cleanup — a 404 is fine, it just
-      // means the migration hadn't reached that step yet.
-      if (wasMigrating && syncedRepository) {
-        try {
-          await syncedRepository.delete(id);
-        } catch (error) {
-          console.error(
-            `Failed to clean up synced metadata after aborting migration of ${id}`,
-            error,
-          );
-        }
-      }
+      // With server-allocated ids, the local id we have here doesn't
+      // match the server-side row's id (the server allocated its own
+      // INTEGER at POST time). Cleaning up a half-migrated server doc
+      // would require tracking the server-allocated id from inside
+      // the migration — deliberately deferred. If the user deletes
+      // mid-migration *and* the server doc was already created, the
+      // user will see a leftover row on the next refresh and can
+      // delete it manually. Acceptable for the rare race window.
+      void wasMigrating;
 
       // Drop any stale convert-to-synced state for this id. An entry in
       // conversionErrors would otherwise linger in memory with no row to
@@ -369,19 +382,22 @@ export function useDocumentManager(params: {
           : "local";
         const defaultRepo = getRepository(defaultOrigin);
         if (!defaultRepo) return;
-        const doc = createNewDocument(1, defaultOrigin);
+        const draft = createNewDocument(nextTailSortOrder([]), defaultOrigin);
+        let saved: DocumentData;
         try {
-          await defaultRepo.save(doc);
+          saved = await defaultRepo.create(draft);
         } catch (error) {
           console.error(
             `Failed to create replacement ${defaultOrigin} document; falling back to local`,
             error,
           );
           if (defaultOrigin === "synced") {
-            const localDoc = createNewDocument(1, "local");
+            const localDraft = createNewDocument(
+              nextTailSortOrder([]),
+              "local",
+            );
             try {
-              await localRepository.save(localDoc);
-              doc.meta = localDoc.meta;
+              saved = await localRepository.create(localDraft);
             } catch (localError) {
               console.error(
                 "Failed to create replacement local document",
@@ -393,9 +409,9 @@ export function useDocumentManager(params: {
             return;
           }
         }
-        commitDocuments([doc.meta]);
+        commitDocuments([saved.meta]);
         editorRef.current = null;
-        commitActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
         return;
       }
@@ -432,7 +448,7 @@ export function useDocumentManager(params: {
       if (!repo) return;
       const data = await repo.get(id);
       if (!data) return;
-      await repo.save({
+      await repo.update({
         ...data,
         meta: { ...data.meta, title, updatedAt: Date.now() },
       });
@@ -442,7 +458,7 @@ export function useDocumentManager(params: {
   );
 
   const reorderDocument = useCallback(
-    async (id: string, newOrder: number) => {
+    async (id: string, newSortOrder: string) => {
       if (id === activeDocumentIdRef.current) {
         await saveCurrentEditor();
       }
@@ -450,9 +466,9 @@ export function useDocumentManager(params: {
       if (!repo) return;
       const data = await repo.get(id);
       if (!data) return;
-      await repo.save({
+      await repo.update({
         ...data,
-        meta: { ...data.meta, order: newOrder, updatedAt: Date.now() },
+        meta: { ...data.meta, sortOrder: newSortOrder, updatedAt: Date.now() },
       });
       await refreshDocuments();
     },
@@ -509,8 +525,9 @@ export function useDocumentManager(params: {
         setConverting(next);
       };
 
+      let migrated: DocumentData;
       try {
-        await convertLocalDocToSynced({
+        migrated = await convertLocalDocToSynced({
           documentId: id,
           localRepository,
           syncedRepository,
@@ -545,12 +562,13 @@ export function useDocumentManager(params: {
       clearInFlight();
       await refreshDocuments();
 
-      // The converted doc keeps its id; re-commit the active id so the
-      // active-origin ref flips from "local" to "synced" and the
-      // correct editor container renders on the next tick.
+      // The converted doc gets a server-allocated id (different from
+      // the local UUID). If the active doc is the one we just
+      // migrated, swap to the new id so the editor key updates and
+      // the synced container takes over.
       if (id === activeDocumentIdRef.current) {
         editorRef.current = null;
-        commitActiveDocumentId(id);
+        commitActiveDocumentId(migrated.meta.id);
       }
     },
     [

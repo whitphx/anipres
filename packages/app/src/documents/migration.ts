@@ -1,5 +1,7 @@
+import { generateKeyBetween } from "fractional-indexing";
 import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
+import type { DocumentData } from "./types";
 
 export function isDataUrl(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");
@@ -166,6 +168,7 @@ async function defaultPushSnapshot(
 }
 
 export interface ConvertLocalDocToSyncedParams {
+  /** The local doc's id (the UUID generated when it was created). */
   documentId: string;
   localRepository: DocumentRepository;
   syncedRepository: DocumentRepository;
@@ -189,27 +192,34 @@ export interface ConvertLocalDocToSyncedParams {
 }
 
 /**
- * Move a local IDB-backed document to the server under the same id.
+ * Move a local IDB-backed document to the server. The server allocates
+ * a new id (and slug) at creation time; the local id is discarded once
+ * the migration completes.
  *
  * Steps:
  *   1. Load the local document.
- *   2. Create server-side metadata via PUT /api/documents/:id
- *      (with the synced repository's save).
- *   3. Upload any inline `data:` URL assets to R2 and rewrite the
- *      snapshot's asset srcs to point at the uploaded URLs.
- *   4. Push the rewritten snapshot into the document's Durable Object
- *      room via PUT /api/documents/:id/snapshot.
- *   5. Delete the local IDB entry.
+ *   2. Compute a fractional-indexing key after the synced list's
+ *      current tail so the migrated doc lands at the end.
+ *   3. POST /api/documents to create the server-side row. Server
+ *      returns the canonical id+slug.
+ *   4. Upload any inline `data:` URL assets to R2 under the *new*
+ *      server id and rewrite the snapshot's asset srcs accordingly.
+ *   5. Push the rewritten snapshot into the document's Durable Object
+ *      room via PUT /api/documents/:id/snapshot (with the new id).
+ *   6. Delete the local IDB entry under the original local id.
  *
- * On failure after step 2 the local copy is intentionally preserved so
- * the user can retry. Server-side metadata left over from a partial run
- * is harmless: the next attempt is an upsert and the snapshot push with
- * `expectedSnapshotVersion: 0` will either succeed (fresh DO room) or
- * no-op (409) if the prior attempt got that far.
+ * Returns the new doc data so callers can swap their `activeDocumentId`
+ * to the server-allocated value.
+ *
+ * On failure after step 3 the local copy is intentionally preserved so
+ * the user can retry. The half-created server row is left for the same
+ * reason — the user can manually delete it, or a retry will create
+ * another one (the local→synced relationship is identified only by
+ * what the user converts, not by id).
  */
 export async function convertLocalDocToSynced(
   params: ConvertLocalDocToSyncedParams,
-): Promise<void> {
+): Promise<DocumentData> {
   const {
     documentId,
     localRepository,
@@ -233,44 +243,56 @@ export async function convertLocalDocToSynced(
 
   abortSignal?.throwIfAborted();
 
-  // Compute an order value against the synced repo so the migrated doc
-  // does not collide with an existing server doc's order.
+  // Append the migrated doc to the end of the synced list. Using the
+  // synced repo's current tail as the "previous key" keeps each
+  // migrated doc strictly after every existing synced doc.
   //
   // Known limitation: when multiple convertLocalDocToSynced calls run
-  // in parallel they can each read the same maxOrder and write the
-  // same order+1 to their respective new docs. The sidebar's stable
-  // sort still shows both, just in a non-deterministic order between
-  // them, and any user reorder heals the collision. Fixing this cleanly
-  // would require threading an atomic allocator through this function
-  // — deliberately deferred until convert-to-synced is commonly used
-  // with enough docs for the cosmetic ambiguity to matter.
+  // in parallel they can each read the same tail and compute keys that
+  // happen to collide on the lex level. Fractional indexing's
+  // `generateKeyBetween` is deterministic per (prev, next) pair, and
+  // both calls would pick the same key. The sidebar's stable sort
+  // still shows both, just in a non-deterministic order between them,
+  // and any user reorder heals the collision.
   const syncedList = await syncedRepository.list();
-  const maxOrder = syncedList.reduce((max, d) => Math.max(max, d.order), 0);
+  const sortedKeys = syncedList
+    .map((d) => d.sortOrder)
+    .filter((key): key is string => typeof key === "string")
+    .sort();
+  const tailKey = sortedKeys[sortedKeys.length - 1] ?? null;
+  const newSortOrder = generateKeyBetween(tailKey, null);
 
   abortSignal?.throwIfAborted();
 
+  // POST /api/documents allocates the server id and slug. The local
+  // id and slug-less metadata are passed-through fields; the server
+  // ignores `id` and stamps its own `slug`.
+  //
   // createdAt is preserved from the local doc so migrated docs keep
-  // their original creation time; only updatedAt advances.
-  await syncedRepository.save({
+  // their original creation time; updatedAt advances to "now."
+  const synced = await syncedRepository.create({
     meta: {
       ...local.meta,
       origin: "synced",
-      order: maxOrder + 1,
+      sortOrder: newSortOrder,
       updatedAt: Date.now(),
     },
     snapshot: null,
   });
+  const serverId = synced.meta.id;
 
   if (local.snapshot) {
     abortSignal?.throwIfAborted();
     const rewritten = await uploadAssetDataUrls(local.snapshot, (file) =>
-      uploadAsset(documentId, file, abortSignal),
+      uploadAsset(serverId, file, abortSignal),
     );
     abortSignal?.throwIfAborted();
-    await pushSnapshot(documentId, rewritten, abortSignal);
+    await pushSnapshot(serverId, rewritten, abortSignal);
   }
 
   abortSignal?.throwIfAborted();
 
   await localRepository.delete(documentId);
+
+  return synced;
 }

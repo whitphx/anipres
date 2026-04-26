@@ -13,7 +13,7 @@ export class IdbDocumentRepository implements DocumentRepository {
     const all = await entries<string, DocumentData>(store);
     return all
       .map(([, data]) => stampLocal(data.meta))
-      .sort((a, b) => a.order - b.order);
+      .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder));
   }
 
   async get(id: string): Promise<DocumentData | undefined> {
@@ -22,7 +22,15 @@ export class IdbDocumentRepository implements DocumentRepository {
     return { ...data, meta: stampLocal(data.meta) };
   }
 
-  async save(data: DocumentData): Promise<void> {
+  // Create and update collapse to the same `set()` call here — IDB
+  // doesn't distinguish — but the interface keeps them separate so
+  // the API repo can split POST (create) from PUT (update).
+  async create(data: DocumentData): Promise<DocumentData> {
+    await set(data.meta.id, data, store);
+    return { ...data, meta: stampLocal(data.meta) };
+  }
+
+  async update(data: DocumentData): Promise<void> {
     await set(data.meta.id, data, store);
   }
 

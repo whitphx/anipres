@@ -43,7 +43,7 @@ function makeLocalDoc(
     meta: {
       id,
       title: id,
-      order: 1,
+      sortOrder: "a0",
       createdAt: 0,
       updatedAt: 0,
       origin: "local",
@@ -56,24 +56,48 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   const store = new Map<string, DocumentData>();
   for (const d of initial) store.set(d.meta.id, d);
 
+  // For the API repo, the server allocates an INTEGER id. Tests that
+  // exercise the synced path can override this by providing their own
+  // create mock; the default below preserves the caller's id so
+  // assertions on specific ids stay simple.
+  let serverIdCounter = 1000;
+
   const list = vi.fn(
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
         .map((d) => ({ ...d.meta, origin }))
-        .sort((a, b) => a.order - b.order),
+        .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder)),
   );
   const get = vi.fn(async (id: string): Promise<DocumentData | undefined> => {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
-  const save = vi.fn(async (d: DocumentData): Promise<void> => {
+  const create = vi.fn(async (d: DocumentData): Promise<DocumentData> => {
+    // Synced repo allocates a server id; local repo keeps the caller's
+    // id. Mirror that policy so tests can exercise both.
+    const allocatedId =
+      origin === "synced" ? String(++serverIdCounter) : d.meta.id;
+    const stored: DocumentData = {
+      ...d,
+      meta: { ...d.meta, id: allocatedId, origin },
+    };
+    store.set(allocatedId, stored);
+    return stored;
+  });
+  const update = vi.fn(async (d: DocumentData): Promise<void> => {
     store.set(d.meta.id, d);
   });
   const del = vi.fn(async (id: string): Promise<void> => {
     store.delete(id);
   });
-  const repo: DocumentRepository = { list, get, save, delete: del };
-  return { repo, store, list, get, save, delete: del };
+  const repo: DocumentRepository = {
+    list,
+    get,
+    create,
+    update,
+    delete: del,
+  };
+  return { repo, store, list, get, create, update, delete: del };
 }
 
 describe("isDataUrl", () => {
@@ -256,13 +280,13 @@ describe("convertLocalDocToSynced", () => {
       "asset:a": assetRecord("asset:a", "data:image/png;base64,AAAA"),
     });
     const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
-    // Pre-populate the synced repo with a doc at order 5 so the migrated
-    // doc should land at order 6 (maxOrder + 1) and not collide.
+    // Pre-populate the synced repo with a doc at sortOrder "a0"; the
+    // migrated doc should land strictly after it.
     const existingSynced: DocumentData = {
       meta: {
         id: "existing",
         title: "existing",
-        order: 5,
+        sortOrder: "a0",
         createdAt: 0,
         updatedAt: 0,
         origin: "synced",
@@ -281,7 +305,7 @@ describe("convertLocalDocToSynced", () => {
       .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
       .mockResolvedValue(undefined);
 
-    await convertLocalDocToSynced({
+    const result = await convertLocalDocToSynced({
       documentId: "doc-1",
       localRepository: localRepo.repo,
       syncedRepository: syncedRepo.repo,
@@ -289,17 +313,21 @@ describe("convertLocalDocToSynced", () => {
       pushSnapshot,
     });
 
-    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
-    const savedMeta = syncedRepo.save.mock.calls[0][0].meta;
-    expect(savedMeta.id).toBe("doc-1");
-    expect(savedMeta.origin).toBe("synced");
-    // Order is recomputed against the synced list's max (5) + 1.
-    expect(savedMeta.order).toBe(6);
+    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
+    // The synced repo allocates a server-side id; the migrated doc
+    // does NOT keep the local "doc-1" id.
+    expect(result.meta.id).not.toBe("doc-1");
+    expect(result.meta.origin).toBe("synced");
+    // Sort-order is computed past the existing tail.
+    expect(result.meta.sortOrder > "a0").toBe(true);
 
+    // Asset upload and snapshot push both target the new server id,
+    // not the local UUID.
     expect(uploadAsset).toHaveBeenCalledTimes(1);
-    expect(uploadAsset.mock.calls[0][0]).toBe("doc-1");
+    expect(uploadAsset.mock.calls[0][0]).toBe(result.meta.id);
 
     expect(pushSnapshot).toHaveBeenCalledTimes(1);
+    expect(pushSnapshot.mock.calls[0][0]).toBe(result.meta.id);
     const pushedSnapshot = pushSnapshot.mock.calls[0][1];
     expect(getAssetSrc(pushedSnapshot, "asset:a")).toBe("/uploaded/asset:a");
 
@@ -322,7 +350,7 @@ describe("convertLocalDocToSynced", () => {
       pushSnapshot,
     });
 
-    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
+    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
     expect(uploadAsset).not.toHaveBeenCalled();
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
@@ -391,7 +419,7 @@ describe("convertLocalDocToSynced", () => {
         syncedRepository: syncedRepo.repo,
       }),
     ).rejects.toThrow(/not found/);
-    expect(syncedRepo.save).not.toHaveBeenCalled();
+    expect(syncedRepo.create).not.toHaveBeenCalled();
   });
 
   it("throws immediately without touching the repos when the abortSignal is already aborted", async () => {
@@ -416,22 +444,27 @@ describe("convertLocalDocToSynced", () => {
     ).rejects.toThrow();
 
     expect(localRepo.get).not.toHaveBeenCalled();
-    expect(syncedRepo.save).not.toHaveBeenCalled();
+    expect(syncedRepo.create).not.toHaveBeenCalled();
     expect(uploadAsset).not.toHaveBeenCalled();
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).not.toHaveBeenCalled();
   });
 
-  it("aborts mid-migration when the abortSignal fires after the synced save", async () => {
+  it("aborts mid-migration when the abortSignal fires after the synced create", async () => {
     const snapshot = snapshotWith({});
     const localRepo = makeFakeRepo("local", [makeLocalDoc("doc-1", snapshot)]);
     const syncedRepo = makeFakeRepo("synced");
 
     const controller = new AbortController();
-    // Abort mid-migration, right after syncedRepository.save runs.
-    syncedRepo.repo.save = vi.fn(async (d: DocumentData) => {
-      syncedRepo.store.set(d.meta.id, d);
+    // Abort mid-migration, right after syncedRepository.create runs.
+    syncedRepo.repo.create = vi.fn(async (d: DocumentData) => {
+      const allocated: DocumentData = {
+        ...d,
+        meta: { ...d.meta, id: "server-1", origin: "synced" },
+      };
+      syncedRepo.store.set("server-1", allocated);
       controller.abort();
+      return allocated;
     });
 
     const pushSnapshot = vi.fn();
@@ -447,9 +480,9 @@ describe("convertLocalDocToSynced", () => {
       }),
     ).rejects.toThrow();
 
-    // Metadata save completed before the abort; the later snapshot push
-    // was skipped and local copy was not deleted.
-    expect(syncedRepo.repo.save).toHaveBeenCalledTimes(1);
+    // Server doc was created before the abort; the later snapshot
+    // push was skipped and the local copy was not deleted.
+    expect(syncedRepo.repo.create).toHaveBeenCalledTimes(1);
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).not.toHaveBeenCalled();
   });
@@ -472,6 +505,6 @@ describe("convertLocalDocToSynced", () => {
         syncedRepository: syncedRepo.repo,
       }),
     ).rejects.toThrow(/not a local document/);
-    expect(syncedRepo.save).not.toHaveBeenCalled();
+    expect(syncedRepo.create).not.toHaveBeenCalled();
   });
 });

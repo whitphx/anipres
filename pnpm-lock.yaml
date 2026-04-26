@@ -114,6 +114,9 @@ importers:
       anipres:
         specifier: workspace:*
         version: link:../anipres
+      fractional-indexing:
+        specifier: ^3.2.0
+        version: 3.2.0
       idb-keyval:
         specifier: ^6.2.1
         version: 6.2.2
@@ -4585,6 +4588,10 @@ packages:
 
   fractional-indexing-jittered@1.0.0:
     resolution: {integrity: sha512-0tLU0FOedVY7lrvN4LK0DVj6FTuYM0pWDpN97/8UTZE2lx1+OwX8+2uL7IOWc2PmktYTHQjMT6FvZZ3SGCdZdg==, tarball: https://registry.npmjs.org/fractional-indexing-jittered/-/fractional-indexing-jittered-1.0.0.tgz}
+
+  fractional-indexing@3.2.0:
+    resolution: {integrity: sha512-PcOxmqwYCW7O2ovKRU8OoQQj2yqTfEB/yeTYk4gPid6dN5ODRfU1hXd9tTVZzax/0NkO7AxpHykvZnT1aYp/BQ==, tarball: https://registry.npmjs.org/fractional-indexing/-/fractional-indexing-3.2.0.tgz}
+    engines: {node: ^14.13.1 || >=16.0.0}
 
   framesync@6.1.2:
     resolution: {integrity: sha512-jBTqhX6KaQVDyus8muwZbBeGGP0XgujBRbQ7gM7BRdS3CadCZIHiawyzYLnafYcvZIh5j8WE7cxZKFn7dXhu9g==, tarball: https://registry.npmjs.org/framesync/-/framesync-6.1.2.tgz}
@@ -11013,14 +11020,6 @@ snapshots:
     optionalDependencies:
       vite: 7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
 
-  '@vitest/mocker@4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))':
-    dependencies:
-      '@vitest/spy': 4.0.6
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
-
   '@vitest/pretty-format@4.0.6':
     dependencies:
       tinyrainbow: 3.0.3
@@ -12771,6 +12770,8 @@ snapshots:
     optional: true
 
   fractional-indexing-jittered@1.0.0: {}
+
+  fractional-indexing@3.2.0: {}
 
   framesync@6.1.2:
     dependencies:
@@ -15837,7 +15838,7 @@ snapshots:
   vitest@4.0.6(@types/debug@4.1.12)(@types/node@24.10.0)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@25.0.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.6
-      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.6
       '@vitest/runner': 4.0.6
       '@vitest/snapshot': 4.0.6

@@ -32,9 +32,10 @@ describe("reconcileOfflineEdits", () => {
     const snapshot = createSnapshot("doc");
     const repository = {
       get: vi.fn().mockResolvedValue({
-        meta: { id: "doc-id", title: "Foo", order: 1 },
+        meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      save: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     } as const;
 
     const result = await reconcileOfflineEdits({
@@ -51,7 +52,7 @@ describe("reconcileOfflineEdits", () => {
 
     expect(repository.get).toHaveBeenCalledWith("doc-id");
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
     expect(result).toEqual({ action: "noop" });
   });
 
@@ -114,9 +115,10 @@ describe("reconcileOfflineEdits", () => {
 
     const repository = {
       get: vi.fn().mockResolvedValue({
-        meta: { id: "doc-id", title: "Foo", order: 1 },
+        meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      save: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     } as const;
 
     vi.mocked(fetch)
@@ -140,7 +142,7 @@ describe("reconcileOfflineEdits", () => {
     });
 
     expect(result).toEqual({ action: "noop" });
-    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
   });
 
   it("forks when pending offline changes exist and the server has diverged", async () => {
@@ -150,9 +152,23 @@ describe("reconcileOfflineEdits", () => {
 
     const repository = {
       get: vi.fn().mockResolvedValue({
-        meta: { id: "doc-id", title: "Foo", order: 1 },
+        meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      save: vi.fn().mockResolvedValue(undefined),
+      // The fork flow calls create() and uses the returned doc's id
+      // for the snapshot push. Return a fake server-allocated row.
+      create: vi.fn().mockResolvedValue({
+        meta: {
+          id: "fork-server-id",
+          slug: "fork-slug",
+          title: "Foo (offline copy)",
+          sortOrder: "a0V",
+          createdAt: 0,
+          updatedAt: 0,
+          origin: "synced",
+        },
+        snapshot: null,
+      }),
+      update: vi.fn(),
       delete: vi.fn(),
     } as const;
 
@@ -177,8 +193,11 @@ describe("reconcileOfflineEdits", () => {
       repository: repository as never,
     });
 
-    expect(result).toMatchObject({ action: "forked" });
-    expect(repository.save).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      action: "forked",
+      forkedDocumentId: "fork-server-id",
+    });
+    expect(repository.create).toHaveBeenCalledTimes(1);
   });
 
   it("retries a stale-revision push without forking when the server still matches the baseline", async () => {
@@ -187,9 +206,10 @@ describe("reconcileOfflineEdits", () => {
 
     const repository = {
       get: vi.fn().mockResolvedValue({
-        meta: { id: "doc-id", title: "Foo", order: 1 },
+        meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      save: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     } as const;
 
     vi.mocked(fetch)
@@ -214,6 +234,6 @@ describe("reconcileOfflineEdits", () => {
     });
 
     expect(result).toEqual({ action: "pushed" });
-    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
   });
 });
