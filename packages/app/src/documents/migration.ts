@@ -6,40 +6,24 @@ export function isDataUrl(value: unknown): value is string {
 }
 
 /**
- * Parse a `data:` URL into a File. Supports base64 payloads (the common
- * case for images) and URL-encoded text payloads (the fallback for SVG
- * and similar text formats).
+ * Parse a `data:` URL into a File. Delegates to the platform's fetch,
+ * which implements the WHATWG data-URL processor — handles base64 and
+ * url-encoded payloads, rejects malformed inputs, and has no JS-level
+ * regex that could backtrack on attacker-shaped payloads.
  */
-export function dataUrlToFile(dataUrl: string, filename: string): File {
-  // Hand-parse instead of regex: the natural pattern
-  // /^data:([^;,]+)((?:;[^,]*)*),(.*)$/ has a catastrophic-backtracking
-  // shape on inputs like "data:+;;;;..." (CodeQL js/redos), and asset
-  // payloads here can be attacker-shaped.
+export async function dataUrlToFile(
+  dataUrl: string,
+  filename: string,
+): Promise<File> {
+  // Defensive early reject. fetch() would also reject a non-data URL by
+  // attempting (and failing) the network request, but that produces
+  // confusing errors and burns a request slot in node fetch.
   if (!dataUrl.startsWith("data:")) {
     throw new Error("Invalid data URL");
   }
-  const commaIndex = dataUrl.indexOf(",");
-  if (commaIndex < 0) {
-    throw new Error("Invalid data URL");
-  }
-  const header = dataUrl.slice("data:".length, commaIndex);
-  const payload = dataUrl.slice(commaIndex + 1);
-  const [mimeType, ...params] = header.split(";");
-  if (!mimeType) {
-    throw new Error("Invalid data URL");
-  }
-  const isBase64 = params.some((p) => p === "base64");
-  let bytes: Uint8Array;
-  if (isBase64) {
-    const binary = atob(payload);
-    bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-  } else {
-    bytes = new TextEncoder().encode(decodeURIComponent(payload));
-  }
-  return new File([bytes], filename, { type: mimeType });
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], filename, { type: blob.type });
 }
 
 function isAssetRecord(
@@ -116,7 +100,7 @@ export async function uploadAssetDataUrls(
   // packages/worker/src/assets.ts). Passing the record id is enough.
   const entries = await Promise.all(
     assets.map(async (asset) => {
-      const file = dataUrlToFile(asset.dataUrl, asset.recordId);
+      const file = await dataUrlToFile(asset.dataUrl, asset.recordId);
       const { src } = await uploadFile(file);
       return [asset.recordId, src] as const;
     }),
