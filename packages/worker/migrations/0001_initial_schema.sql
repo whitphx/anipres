@@ -6,8 +6,27 @@
 CREATE TABLE users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+  -- updated_at is unused in Phase 1 (no mutable user-level fields
+  -- yet) but kept proactively. Backfilling timestamps into an
+  -- existing table later is lossy — every existing row gets the
+  -- migration time, erasing real "last touched" history. The cost
+  -- of carrying the column from day one is trivial.
   updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
+
+-- Refresh updated_at on every UPDATE that doesn't set it explicitly.
+-- The WHEN guard means callers who *do* pass updated_at are honored;
+-- everyone else gets a defensive auto-refresh. Recursion is a non-
+-- issue: SQLite disables recursive triggers by default, and even
+-- with recursive_triggers=ON the trigger's own UPDATE lands a fresh
+-- timestamp so the WHEN guard fails on the second pass.
+CREATE TRIGGER trg_users_updated_at AFTER UPDATE ON users
+  FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
+  BEGIN
+    UPDATE users
+      SET updated_at = CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)
+      WHERE id = OLD.id;
+  END;
 
 -- OAuth identities. One user can have multiple identities (account
 -- linking) — each row is one (provider, provider_id) pair owned by a
@@ -26,11 +45,20 @@ CREATE INDEX idx_oauth_identities_user ON oauth_identities (user_id);
 
 CREATE TABLE workspaces (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  name            TEXT NOT NULL,
+  name            TEXT NOT NULL CHECK (length(name) > 0),
   owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
   updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
+
+-- See `trg_users_updated_at` for the design notes; same shape applies.
+CREATE TRIGGER trg_workspaces_updated_at AFTER UPDATE ON workspaces
+  FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
+  BEGIN
+    UPDATE workspaces
+      SET updated_at = CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)
+      WHERE id = OLD.id;
+  END;
 
 -- "List my workspaces" lookups via owner_user_id. Phase 1 is 1:1 so a
 -- full scan would also be fine, but the index is cheap and pre-positions
@@ -83,7 +111,7 @@ CREATE TABLE documents (
   -- own draft) and any future public access. UNIQUE+CHECK enforced
   -- on the column directly; SQLite auto-creates the unique index.
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
-  title               TEXT    NOT NULL DEFAULT 'Untitled',
+  title               TEXT    NOT NULL DEFAULT 'Untitled' CHECK (length(title) > 0),
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
   -- npm package). Non-empty by construction; the CHECK enforces the
   -- contract at the schema layer.
@@ -104,10 +132,15 @@ CREATE INDEX idx_documents_workspace_sort
   ON documents (workspace_id, sort_order)
   WHERE deleting_at IS NULL;
 
--- FK lookup index. The composite above only sees active rows, so the
--- `ON DELETE CASCADE` from `workspaces.id` (and any future query that
--- needs to find soft-deleted documents by workspace) would otherwise
--- fall back to a full table scan.
+-- FK lookup index. The composite above is partial on
+-- `deleting_at IS NULL`, so it doesn't cover queries that need to
+-- find documents regardless of soft-delete state. Two paths benefit:
+-- (a) the `ON DELETE RESTRICT` check fired when a workspace is
+-- being deleted — SQLite has to confirm "no documents reference
+-- this workspace_id" against *all* documents (active + soft-deleted);
+-- (b) any future query that intentionally looks at soft-deleted rows
+-- (trash bin, GC sweep). Without this index, both fall back to a
+-- full table scan.
 CREATE INDEX idx_documents_workspace ON documents (workspace_id);
 
 -- =============================================================
@@ -164,6 +197,14 @@ CREATE INDEX idx_documents_workspace ON documents (workspace_id);
 --
 -- The data copy is safe: all Phase 1 rows have non-null owner_user_id,
 -- which satisfies the new CHECK constraint with owner_org_id = NULL.
+--
+-- Note on deletion semantics: deleting an org will cascade to its
+-- workspaces (`owner_org_id ON DELETE CASCADE`), which then trips
+-- the Phase 1 `documents.workspace_id ON DELETE RESTRICT` if any
+-- document still references those workspaces. Same orchestration
+-- as Phase 1 user deletion: the application must drive each
+-- document through the proper soft-delete + asset-GC + hard-delete
+-- pipeline before the org/workspace can be removed.
 
 -- =============================================================
 -- PHASE 3: Document grants (not yet implemented)
