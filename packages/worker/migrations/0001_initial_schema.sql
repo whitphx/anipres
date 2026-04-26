@@ -1,7 +1,12 @@
+-- All timestamp columns are INTEGER Unix milliseconds. The default
+-- expression `CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)`
+-- gives sub-second precision and stays compact in indexes; aligns
+-- with `0002_create_assets.sql` which uses the same convention.
+
 CREATE TABLE users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+  updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
 -- OAuth identities. One user can have multiple identities (account
@@ -13,7 +18,7 @@ CREATE TABLE oauth_identities (
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider    TEXT NOT NULL,
   provider_id TEXT NOT NULL,
-  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
   PRIMARY KEY (provider, provider_id)
 );
 
@@ -23,8 +28,8 @@ CREATE TABLE workspaces (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name            TEXT NOT NULL,
   owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+  updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
 -- documents.id design note:
@@ -69,9 +74,9 @@ CREATE TABLE documents (
   -- Non-null while deletion is in progress so uploads/connects stop
   -- treating the document as active before the final row removal
   -- happens (R2 asset GC needs a coordinated grace period).
-  deleting_at         TEXT,
-  created_at          TEXT    NOT NULL,
-  updated_at          TEXT    NOT NULL
+  deleting_at         INTEGER,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL
 );
 
 CREATE INDEX idx_documents_workspace_sort ON documents (workspace_id, sort_order);
@@ -85,15 +90,15 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 -- CREATE TABLE organizations (
 --   id          INTEGER PRIMARY KEY AUTOINCREMENT,
 --   name        TEXT NOT NULL,
---   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
---   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+--   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+--   updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 -- );
 --
 -- CREATE TABLE org_memberships (
 --   org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
 --   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 --   role        TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
---   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+--   created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
 --   PRIMARY KEY (org_id, user_id)
 -- );
 --
@@ -107,8 +112,8 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 --   name            TEXT NOT NULL,
 --   owner_user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
 --   owner_org_id    INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
---   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
---   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+--   created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
+--   updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
 --   CHECK (
 --     (owner_user_id IS NOT NULL AND owner_org_id IS NULL) OR
 --     (owner_user_id IS NULL     AND owner_org_id IS NOT NULL)
@@ -139,8 +144,8 @@ CREATE INDEX idx_documents_slug ON documents (slug) WHERE slug IS NOT NULL;
 --   -- 24-byte URL-safe random string (~192 bits of entropy), not a
 --   -- UUID. UUIDs aren't designed as unguessable secrets.
 --   share_token       TEXT UNIQUE,   -- non-null = shareable link, no specific grantee
---   expires_at        TEXT,          -- null = never expires
---   created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+--   expires_at        INTEGER,       -- null = never expires
+--   created_at        INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)),
 --   CHECK (
 --     (grantee_user_id IS NOT NULL AND grantee_org_id IS NULL) OR
 --     (grantee_user_id IS NULL     AND grantee_org_id IS NOT NULL) OR
