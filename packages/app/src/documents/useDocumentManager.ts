@@ -1,4 +1,3 @@
-import { generateKeyBetween } from "fractional-indexing";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
@@ -7,6 +6,7 @@ import {
   convertLocalDocToSynced,
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
+import { nextTailSortOrder } from "./sort-order";
 
 function createNewDocument(
   sortOrder: string,
@@ -23,22 +23,6 @@ function createNewDocument(
     },
     snapshot: null,
   };
-}
-
-/**
- * Compute the fractional-indexing key that places a new doc at the
- * end of `existing`. `existing` may include local and synced rows
- * mixed; we sort their keys lexicographically and bump past the tail.
- * If there are no existing keys, falls back to the package's "first"
- * key via `generateKeyBetween(null, null)` (typically `"a0"`).
- */
-function nextTailSortOrder(existing: ReadonlyArray<DocumentMeta>): string {
-  const keys = existing
-    .map((d) => d.sortOrder)
-    .filter((key): key is string => typeof key === "string")
-    .sort();
-  const tail = keys[keys.length - 1] ?? null;
-  return generateKeyBetween(tail, null);
 }
 
 export interface DocumentManager {
@@ -331,17 +315,8 @@ export function useDocumentManager(params: {
 
       // Cancel any in-flight convert-to-synced migration for this id
       // before touching storage. The migration's catch handler will see
-      // controller.signal.aborted and exit silently; its half-done state
-      // is cleaned up below.
-      const migrationController = migrationAbortControllersRef.current.get(id);
-      const wasMigrating = migrationController !== undefined;
-      if (migrationController) {
-        migrationController.abort();
-        migrationAbortControllersRef.current.delete(id);
-      }
-
-      await repo.delete(id);
-
+      // controller.signal.aborted and exit silently.
+      //
       // With server-allocated ids, the local id we have here doesn't
       // match the server-side row's id (the server allocated its own
       // INTEGER at POST time). Cleaning up a half-migrated server doc
@@ -350,7 +325,13 @@ export function useDocumentManager(params: {
       // mid-migration *and* the server doc was already created, the
       // user will see a leftover row on the next refresh and can
       // delete it manually. Acceptable for the rare race window.
-      void wasMigrating;
+      const migrationController = migrationAbortControllersRef.current.get(id);
+      if (migrationController) {
+        migrationController.abort();
+        migrationAbortControllersRef.current.delete(id);
+      }
+
+      await repo.delete(id);
 
       // Drop any stale convert-to-synced state for this id. An entry in
       // conversionErrors would otherwise linger in memory with no row to

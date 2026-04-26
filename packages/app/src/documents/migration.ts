@@ -1,7 +1,7 @@
-import { generateKeyBetween } from "fractional-indexing";
 import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData } from "./types";
+import { nextTailSortOrder } from "./sort-order";
 
 export function isDataUrl(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");
@@ -246,21 +246,8 @@ export async function convertLocalDocToSynced(
   // Append the migrated doc to the end of the synced list. Using the
   // synced repo's current tail as the "previous key" keeps each
   // migrated doc strictly after every existing synced doc.
-  //
-  // Known limitation: when multiple convertLocalDocToSynced calls run
-  // in parallel they can each read the same tail and compute keys that
-  // happen to collide on the lex level. Fractional indexing's
-  // `generateKeyBetween` is deterministic per (prev, next) pair, and
-  // both calls would pick the same key. The sidebar's stable sort
-  // still shows both, just in a non-deterministic order between them,
-  // and any user reorder heals the collision.
   const syncedList = await syncedRepository.list();
-  const sortedKeys = syncedList
-    .map((d) => d.sortOrder)
-    .filter((key): key is string => typeof key === "string")
-    .sort();
-  const tailKey = sortedKeys[sortedKeys.length - 1] ?? null;
-  const newSortOrder = generateKeyBetween(tailKey, null);
+  const newSortOrder = nextTailSortOrder(syncedList);
 
   abortSignal?.throwIfAborted();
 

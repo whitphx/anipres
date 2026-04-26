@@ -1,4 +1,3 @@
-import { generateKeyBetween } from "fractional-indexing";
 import type { TLStoreSnapshot } from "tldraw";
 import type { ApiDocumentRepository } from "./api-repository";
 import {
@@ -6,6 +5,7 @@ import {
   shouldSkipReconnect,
   type ReconnectSnapshotState,
 } from "./offline-recovery";
+import { nextTailSortOrder } from "./sort-order";
 
 export type ReconnectResult =
   | { action: "noop" }
@@ -167,11 +167,12 @@ export async function reconcileOfflineEdits(params: {
   // Create the fork on the server. The fork is a distinct document
   // with its own id — we know that id only after the POST response
   // (the API repo ignores any client-supplied id and the server
-  // allocates an INTEGER). Place the fork's sort_order right after
-  // the original via fractional-indexing — the result is strictly
-  // > the original key, which is enough to sit "after" it even if
-  // other docs sit further along.
-  const forkSortOrder = generateKeyBetween(serverDoc.meta.sortOrder, null);
+  // allocates an INTEGER). Place the fork past the synced list's
+  // current tail so the new key is strictly greater than every
+  // existing key — generating off the original's key alone would
+  // collide with whatever doc sits immediately after it.
+  const syncedList = await repository.list();
+  const forkSortOrder = nextTailSortOrder(syncedList);
   const created = await repository.create({
     meta: {
       // Placeholder — the API repo ignores this and the server
