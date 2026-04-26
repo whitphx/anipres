@@ -71,11 +71,12 @@ CREATE TABLE documents (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   workspace_id        INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  -- Slug uniqueness lives on `idx_documents_slug` below (a partial
-  -- unique index on non-null rows). Don't add a column-level UNIQUE
-  -- here; it would create a redundant full-column index alongside
-  -- the partial one.
-  slug                TEXT,
+  -- Every document has a slug from creation. `is_published` is the
+  -- visibility toggle; the slug is the URL handle for both authorized
+  -- access (the owner navigating to their own draft) and public
+  -- access (a published document). UNIQUE+CHECK enforced on the
+  -- column directly; SQLite auto-creates the unique index.
+  slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
   title               TEXT    NOT NULL DEFAULT 'Untitled',
   content             TEXT    NOT NULL DEFAULT '',
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
@@ -98,13 +99,6 @@ CREATE TABLE documents (
 CREATE INDEX idx_documents_workspace_sort
   ON documents (workspace_id, sort_order)
   WHERE deleting_at IS NULL;
-
--- Partial UNIQUE index on slug. Enforces uniqueness only across
--- published (non-null-slug) documents, and avoids the redundant
--- full-column index that a column-level `UNIQUE` would create.
-CREATE UNIQUE INDEX idx_documents_slug
-  ON documents (slug)
-  WHERE slug IS NOT NULL;
 
 -- =============================================================
 -- PHASE 2: Organizations (not yet implemented)
