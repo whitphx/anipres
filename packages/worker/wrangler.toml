@@ -8,9 +8,24 @@ bindings = [
   { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
 ]
 
+# Frontend is served from anipres.app, so the worker handles same-origin
+# /api/* (data routes) and /auth/* (OAuth start/callback, /auth/me,
+# /auth/logout) under the same zone. Both are required — splitting them
+# would break the OAuth round-trip.
+[[routes]]
+pattern = "anipres.app/api/*"
+zone_name = "anipres.app"
+
+[[routes]]
+pattern = "anipres.app/auth/*"
+zone_name = "anipres.app"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "anipres-db"
+# TODO: replace with the production D1 id from `wrangler d1 list`
+# (or the result of `wrangler d1 create anipres-db`) before the first
+# `wrangler deploy`. The literal "local" only works under `wrangler dev`.
 database_id = "local"
 
 [[migrations]]
