@@ -12,16 +12,7 @@ import {
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
 import { nextTailSortOrder } from "./sort-order";
-import { EMPTY_SNAPSHOT, pushSnapshot } from "./snapshot-push";
-
-// Synced creation is a two-step server protocol: the POST inserts a
-// row marked `initializing_at`, and a finalizing snapshot push clears
-// it. Without the second step the server's sweep would reap the row
-// after its grace window — so every synced create here pushes an
-// empty initial snapshot to immediately complete the contract.
-async function finalizeSyncedDocument(documentId: string): Promise<void> {
-  await pushSnapshot(documentId, EMPTY_SNAPSHOT, 0);
-}
+import { finalizeSyncedDocument } from "./snapshot-push";
 
 function createNewDocumentDraft(
   sortOrder: string,

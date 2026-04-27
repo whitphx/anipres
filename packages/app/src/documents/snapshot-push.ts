@@ -1,22 +1,17 @@
 import type { TLStoreSnapshot } from "tldraw";
 
 /**
- * Push a snapshot to a document's Durable Object room. Used as the
- * finalizing step of a multi-step doc creation:
+ * Push a snapshot to a document's Durable Object room. Used by the
+ * migration and reconnect-fork flows, both of which have a real
+ * snapshot to land. A successful push also clears the server-side
+ * `initializing_at` flag, finalizing the doc.
  *
- *   POST /api/documents             → row inserted (initializing_at = now)
- *   (assets, optional)
- *   PUT /api/documents/:id/snapshot → DO seeded, initializing_at cleared
- *
- * For a freshly-created synced doc with no content yet, callers pass
- * an empty snapshot. Migration and reconnect-fork flows push their own
- * real snapshots via their own logic; this helper exists for callers
- * who only need the contract-completing push.
- *
- * `expectedSnapshotVersion: 0` is the canonical "this is the first
- * snapshot for the doc" value — the server's snapshot push handler
- * rejects with 409 if the DO room already has a snapshot at a
- * different version.
+ * The fresh-create flow does NOT use this — it finalizes via
+ * `finalizeSyncedDocument` instead, since synthesizing a valid empty
+ * TLStoreSnapshot client-side requires reconstructing tldraw's
+ * schema descriptor and would also pre-seed the DO room with empty
+ * state, pre-empting useSync's natural "populate on first connect"
+ * path.
  */
 export async function pushSnapshot(
   documentId: string,
@@ -36,10 +31,21 @@ export async function pushSnapshot(
   }
 }
 
-// An empty TLStoreSnapshot used as the initial push for synced docs
-// created via `createDocument`. The DO room is seeded with no records;
-// useSync will populate it once the user starts editing.
-export const EMPTY_SNAPSHOT = {
-  store: {},
-  schema: {},
-} as unknown as TLStoreSnapshot;
+/**
+ * Finalize a fresh synced document so it becomes visible to the user.
+ * After `POST /api/documents` the row is marked `initializing_at` on
+ * the server; this endpoint clears the flag without touching the DO.
+ * The room stays un-seeded until the user opens the doc, at which
+ * point useSync populates it on first connect.
+ */
+export async function finalizeSyncedDocument(
+  documentId: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/documents/${encodeURIComponent(documentId)}/finalize`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    throw new Error(`Document finalize failed: ${res.status}`);
+  }
+}
