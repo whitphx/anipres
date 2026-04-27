@@ -11,10 +11,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe("ApiDocumentRepository", () => {
   let repo: ApiDocumentRepository;
+  const TEST_WORKSPACE_ID = "5";
 
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
-    repo = new ApiDocumentRepository();
+    repo = new ApiDocumentRepository(TEST_WORKSPACE_ID);
   });
 
   afterEach(() => {
@@ -48,7 +49,9 @@ describe("ApiDocumentRepository", () => {
         origin: "synced",
       },
     ]);
-    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/documents");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      `/api/documents?workspace_id=${TEST_WORKSPACE_ID}`,
+    );
   });
 
   it("get returns the document shape with slug propagated", async () => {
@@ -106,15 +109,18 @@ describe("ApiDocumentRepository", () => {
     expect(result.meta.sortOrder).toBe("a0");
     expect(result.meta.updatedAt).toBe(20);
 
-    // The wire body sends only the fields the caller actually supplied:
-    // title, sort_order, and (because the caller set it explicitly here
-    // for the migration use case) created_at. updated_at and id never
-    // appear — the server stamps the former and allocates the latter.
+    // The wire body sends:
+    //   - workspace_id: from the repo's binding
+    //   - title, sort_order: from the draft
+    //   - created_at: only when the caller set it (migration use case)
+    // updated_at and id never appear — the server stamps the former
+    // and allocates the latter.
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/documents");
     expect(init?.method).toBe("POST");
     const sent = JSON.parse((init?.body as string) ?? "{}");
     expect(sent).toEqual({
+      workspace_id: TEST_WORKSPACE_ID,
       title: "Title",
       sort_order: "a0",
       created_at: 10,
@@ -147,7 +153,11 @@ describe("ApiDocumentRepository", () => {
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const sent = JSON.parse((init?.body as string) ?? "{}");
-    expect(sent).toEqual({ title: "Fresh", sort_order: "a0" });
+    expect(sent).toEqual({
+      workspace_id: TEST_WORKSPACE_ID,
+      title: "Fresh",
+      sort_order: "a0",
+    });
     expect(sent).not.toHaveProperty("created_at");
   });
 

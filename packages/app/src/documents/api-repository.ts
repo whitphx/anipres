@@ -25,9 +25,25 @@ function rowToMeta(row: DocumentRow): DocumentMeta {
   };
 }
 
+/**
+ * Documents are workspace-owned on the server. Every list/create call
+ * has to name the workspace it's targeting; an `ApiDocumentRepository`
+ * instance is bound to one workspace for its lifetime. App-level code
+ * is responsible for resolving the user's workspace_id (via
+ * `GET /api/workspaces`) and constructing the repo with it.
+ *
+ * Per-document operations (`get`, `update`, `delete`) take a doc id
+ * which already implicitly identifies a workspace, so they don't need
+ * the workspace_id at the wire layer — the server still verifies that
+ * the doc lives in a workspace the requesting user owns.
+ */
 export class ApiDocumentRepository implements DocumentRepository {
+  constructor(private readonly workspaceId: string) {}
+
   async list(): Promise<DocumentMeta[]> {
-    const res = await fetch("/api/documents");
+    const res = await fetch(
+      `/api/documents?workspace_id=${encodeURIComponent(this.workspaceId)}`,
+    );
     if (!res.ok) throw new Error(`Failed to list documents: ${res.status}`);
     const rows: DocumentRow[] = await res.json();
     return rows.map(rowToMeta);
@@ -46,18 +62,22 @@ export class ApiDocumentRepository implements DocumentRepository {
 
   /**
    * POST /api/documents — server allocates id, slug, and `updated_at`.
-   * `created_at` is sent only when the caller explicitly supplies it
-   * (the local→synced migration uses this to preserve the on-device
-   * creation time); otherwise the server stamps it. Any caller-
-   * supplied `id` on the draft is silently dropped — the returned
-   * doc carries the canonical id (a stringified INTEGER from the server).
+   * The body carries the workspace_id (server enforces ownership) and
+   * the user-meaningful fields. `created_at` is sent only when the
+   * caller explicitly supplies it (the local→synced migration uses
+   * this to preserve the on-device creation time); otherwise the
+   * server stamps it. Any caller-supplied `id` on the draft is
+   * silently dropped — the returned doc carries the canonical id (a
+   * stringified INTEGER from the server).
    */
   async create(draft: DocumentDraft): Promise<DocumentData> {
     const body: {
+      workspace_id: string;
       title: string;
       sort_order: string;
       created_at?: number;
     } = {
+      workspace_id: this.workspaceId,
       title: draft.meta.title,
       sort_order: draft.meta.sortOrder,
     };
