@@ -90,29 +90,31 @@ export const documentListQuerySchema = v.object({
   workspace_id: workspaceIdSchema,
 });
 
-// Body for POST /api/documents (create). The server stamps timestamps
-// itself (column DEFAULT or handler-side `Date.now()`). `created_at`
-// is accepted as an optional override so the local→synced migration
-// can preserve a doc's original on-device creation time. `title` is
-// optional too — the column default is 'Untitled'. `sort_order` is
-// required because the client chooses where to position the new row.
-// `workspace_id` is required: documents belong to workspaces, and the
-// caller must say which one. `id` is required and client-allocated:
-// see the documents.id design note in 0001_initial_schema.sql.
-export const documentCreateSchema = v.object({
-  id: documentIdSchema,
+// Body for PUT /api/documents/:id — a single upsert endpoint that
+// covers both create (when no row with this id exists) and update
+// (when one does). The wire shape is uniform so the client doesn't
+// have to track which case it's in:
+//
+// - `workspace_id` is always required. On insert the server places
+//   the row in this workspace; on update the server validates the
+//   existing row is in this workspace (rejects cross-workspace moves
+//   as 404). Idempotent: replaying the same body is a no-op on the
+//   second call.
+// - `title` and `sort_order` are always required — the body
+//   describes the post-state, so the client sends the current
+//   values even on a re-save.
+// - `created_at` is an optional override used only on insert (the
+//   local→synced migration uses it to preserve the on-device creation
+//   time). The server ignores it on update; `updated_at` is always
+//   server-stamped via the documents.updated_at trigger.
+//
+// `id` lives in the URL path, not the body — see
+// `documentIdParamSchema`.
+export const documentUpsertSchema = v.object({
   workspace_id: workspaceIdSchema,
-  title: v.optional(documentTitleSchema),
-  sort_order: sortOrderSchema,
-  created_at: v.optional(nonNegativeFiniteInteger),
-});
-
-// Body for PUT /api/documents/:id (update). Timestamps are not in
-// the contract — the schema's updated_at trigger refreshes the row's
-// `updated_at` automatically on any UPDATE that doesn't already set it.
-export const documentUpdateSchema = v.object({
   title: documentTitleSchema,
   sort_order: sortOrderSchema,
+  created_at: v.optional(nonNegativeFiniteInteger),
 });
 
 export const snapshotPushBodySchema = v.object({

@@ -5,10 +5,9 @@ import { registerApiAuth, registerAuthRoutes } from "./auth";
 import { sweepInitializingDocuments } from "./cleanup";
 import {
   documentConnectParamSchema,
-  documentCreateSchema,
   documentIdParamSchema,
   documentListQuerySchema,
-  documentUpdateSchema,
+  documentUpsertSchema,
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "./schemas";
@@ -156,91 +155,6 @@ app.get("/api/documents", async (c) => {
   return c.json(results);
 });
 
-// Create a document in a workspace the caller owns. The caller supplies
-// the document id (UUID v7); the server allocates the slug. Caller
-// chooses the sort_order position; title and `created_at` are optional
-// and fall back to server defaults.
-app.post("/api/documents", async (c) => {
-  const userId = c.get("userId");
-
-  let json: unknown;
-  try {
-    json = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const bodyResult = v.safeParse(documentCreateSchema, json);
-  if (!bodyResult.success) {
-    return c.json(
-      { error: "Invalid document metadata", details: bodyResult.issues },
-      400,
-    );
-  }
-
-  const body = bodyResult.output;
-  const workspaceId = body.workspace_id;
-
-  if (!(await userOwnsWorkspace(c, userId, workspaceId))) {
-    return c.json({ error: "Not found" }, 404);
-  }
-
-  const slug = generateDocumentSlug();
-  const now = Date.now();
-
-  // `created_at` honors the optional client override (used by the
-  // local→synced migration to preserve a doc's on-device creation
-  // time); otherwise we stamp now. `updated_at` is always now —
-  // there is no migration use case for backdating it.
-  //
-  // `initializing_at` is stamped to mark the row as "not yet finalized"
-  // until the client completes the multi-step create flow (asset uploads
-  // and the initial snapshot push). The snapshot push handler clears it
-  // on success; the scheduled sweep cleans up rows that never get
-  // there. Until cleared, this row is invisible to list/get/update/delete.
-  //
-  // The INSERT will fail with a unique-constraint error if the client
-  // reuses an id (either by accident — UUID v7 collisions are
-  // astronomically unlikely — or by submitting an id that's already
-  // owned). Surface that as 409 so the client can retry with a fresh id.
-  let row: DocumentRow | null;
-  try {
-    row = await c.env.DB.prepare(
-      `INSERT INTO documents (id, workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at, initializing_at)
-       VALUES (?, ?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?, ?)
-       RETURNING id, slug, title, sort_order, created_at, updated_at`,
-    )
-      .bind(
-        body.id,
-        workspaceId,
-        userId,
-        slug,
-        body.title ?? null,
-        body.sort_order,
-        body.created_at ?? now,
-        now,
-        now,
-      )
-      .first<DocumentRow>();
-  } catch (error) {
-    // SQLite UNIQUE constraint on the PK trips when the supplied id
-    // is already taken. Distinguish by message — D1's error reporting
-    // is text-based; the substring is stable across the SQLite
-    // versions Cloudflare ships.
-    const message = error instanceof Error ? error.message : String(error);
-    if (/UNIQUE constraint/i.test(message)) {
-      return c.json({ error: "Document id already exists" }, 409);
-    }
-    throw error;
-  }
-
-  if (!row) {
-    return c.json({ error: "Failed to create document" }, 500);
-  }
-
-  return c.json(row, 201);
-});
-
 // Get a single document's metadata (snapshot is null; the live state
 // lives in the Durable Object).
 app.get("/api/documents/:id", async (c) => {
@@ -276,8 +190,13 @@ app.get("/api/documents/:id", async (c) => {
   return c.json({ meta: row, snapshot: null });
 });
 
-// Update document metadata. The doc must already exist — there is no
-// upsert path; document creation goes through POST /api/documents.
+// Upsert a document by id. PUT-as-upsert is the canonical pattern
+// for client-allocated ids: the client supplies the doc id (UUID v7)
+// and the body describes the post-state. The handler branches on
+// row existence: insert with initializing_at on first call, update
+// title/sort_order on subsequent calls. workspace_id is always in
+// the body — on insert it places the row, on update it has to match
+// the existing row (cross-workspace moves return 404).
 app.put("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
   const paramsResult = v.safeParse(documentIdParamSchema, {
@@ -297,7 +216,7 @@ app.put("/api/documents/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const bodyResult = v.safeParse(documentUpdateSchema, json);
+  const bodyResult = v.safeParse(documentUpsertSchema, json);
   if (!bodyResult.success) {
     return c.json(
       { error: "Invalid document metadata", details: bodyResult.issues },
@@ -307,28 +226,109 @@ app.put("/api/documents/:id", async (c) => {
 
   const { id } = paramsResult.output;
   const body = bodyResult.output;
+  const workspaceId = body.workspace_id;
 
-  // `updated_at` is intentionally not in the SET clause: the schema's
-  // updated_at trigger refreshes it automatically when the UPDATE
-  // doesn't already set it (`WHEN NEW.updated_at IS OLD.updated_at`).
-  // Initializing rows are off-limits to metadata updates — the doc
-  // isn't fully realized until the snapshot push completes.
-  const row = await c.env.DB.prepare(
-    `UPDATE documents
-     SET title = ?, sort_order = ?
-     WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-       AND deleting_at IS NULL
-       AND initializing_at IS NULL
-     RETURNING id, slug, title, sort_order, created_at, updated_at`,
-  )
-    .bind(body.title, body.sort_order, id, userId)
-    .first<DocumentRow>();
-
-  if (!row) {
+  if (!(await userOwnsWorkspace(c, userId, workspaceId))) {
     return c.json({ error: "Not found" }, 404);
   }
-  return c.json(row);
+
+  // Branch on existence with a SELECT first. The alternative is a
+  // single SQL upsert (`ON CONFLICT DO UPDATE`), but two queries here
+  // make the insert-vs-update distinction visible to the handler
+  // (different status codes, different state checks) without piling
+  // CASE expressions into the SQL. Two parallel PUTs for the same id
+  // race on the INSERT below; the UNIQUE-constraint trip surfaces as
+  // 409 so the client can retry.
+  const existing = await c.env.DB.prepare(
+    `SELECT workspace_id, deleting_at, initializing_at
+     FROM documents
+     WHERE id = ?`,
+  )
+    .bind(id)
+    .first<{
+      workspace_id: number;
+      deleting_at: number | null;
+      initializing_at: number | null;
+    }>();
+
+  if (existing) {
+    // Update path. Reject any state that means "this row isn't a
+    // user-visible doc right now":
+    //   - soft-deleting: row is on its way out
+    //   - initializing:  row is mid-create, finalizing snapshot push
+    //                    pending. Updating metadata would race with
+    //                    the multi-step finalization.
+    //   - workspace_id mismatch: doc lives in another workspace
+    //                            (we don't allow cross-workspace moves).
+    // All three collapse to 404 from the client's perspective.
+    if (
+      existing.deleting_at !== null ||
+      existing.initializing_at !== null ||
+      existing.workspace_id !== workspaceId
+    ) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    // updated_at is left to the trigger — see the documents
+    // updated_at trigger in 0001_initial_schema.sql. created_at on
+    // the body is ignored: backdating is only meaningful at insert.
+    const row = await c.env.DB.prepare(
+      `UPDATE documents
+       SET title = ?, sort_order = ?
+       WHERE id = ?
+       RETURNING id, slug, title, sort_order, created_at, updated_at`,
+    )
+      .bind(body.title, body.sort_order, id)
+      .first<DocumentRow>();
+    if (!row) {
+      // Should be unreachable — we just confirmed the row exists in
+      // a state that allows the update. Treat as a transient anomaly.
+      return c.json({ error: "Failed to update document" }, 500);
+    }
+    return c.json(row);
+  }
+
+  // Insert path. The row will be invisible to list/get/update until
+  // the client's finalizing snapshot push (or /finalize call) clears
+  // initializing_at. The scheduled sweep cleans up rows that never
+  // get finalized.
+  const slug = generateDocumentSlug();
+  const now = Date.now();
+
+  let row: DocumentRow | null;
+  try {
+    row = await c.env.DB.prepare(
+      `INSERT INTO documents (id, workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at, initializing_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id, slug, title, sort_order, created_at, updated_at`,
+    )
+      .bind(
+        id,
+        workspaceId,
+        userId,
+        slug,
+        body.title,
+        body.sort_order,
+        body.created_at ?? now,
+        now,
+        now,
+      )
+      .first<DocumentRow>();
+  } catch (error) {
+    // Two PUTs for the same id raced — the loser trips the PK
+    // UNIQUE constraint. Surface as 409 so the client can decide
+    // whether to retry or surface the error.
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint/i.test(message)) {
+      return c.json({ error: "Document id already exists" }, 409);
+    }
+    throw error;
+  }
+
+  if (!row) {
+    return c.json({ error: "Failed to create document" }, 500);
+  }
+  return c.json(row, 201);
 });
 
 // Soft-delete a document. The DO takes over R2 sweep + final row
