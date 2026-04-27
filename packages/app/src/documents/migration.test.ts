@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TLStoreSnapshot } from "tldraw";
-import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+import type {
+  DocumentData,
+  DocumentDraft,
+  DocumentMeta,
+  DocumentOrigin,
+} from "./types";
 import type { DocumentRepository } from "./repository";
 import {
   convertLocalDocToSynced,
@@ -72,11 +77,14 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
-  const create = vi.fn(async (d: DocumentData): Promise<DocumentData> => {
-    // Synced repo allocates a server id; local repo keeps the caller's
-    // id. Mirror that policy so tests can exercise both.
+  const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+    // Synced repo allocates a server id; local repo honors any
+    // caller-supplied id and falls back to a fresh UUID otherwise.
+    // Mirror that policy so tests can exercise both.
     const allocatedId =
-      origin === "synced" ? String(++serverIdCounter) : d.meta.id;
+      origin === "synced"
+        ? String(++serverIdCounter)
+        : (d.meta.id ?? crypto.randomUUID());
     const stored: DocumentData = {
       ...d,
       meta: { ...d.meta, id: allocatedId, origin },
@@ -457,7 +465,7 @@ describe("convertLocalDocToSynced", () => {
 
     const controller = new AbortController();
     // Abort mid-migration, right after syncedRepository.create runs.
-    syncedRepo.repo.create = vi.fn(async (d: DocumentData) => {
+    syncedRepo.repo.create = vi.fn(async (d: DocumentDraft) => {
       const allocated: DocumentData = {
         ...d,
         meta: { ...d.meta, id: "server-1", origin: "synced" },

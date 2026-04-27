@@ -1,6 +1,6 @@
 import { createStore, get, set, del, entries } from "idb-keyval";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta } from "./types";
+import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
 
 const store = createStore("anipres-documents", "documents");
 
@@ -25,8 +25,10 @@ export class IdbDocumentRepository implements DocumentRepository {
   // Create and update collapse to the same `set()` call here — IDB
   // doesn't distinguish — but the interface keeps them separate so
   // the API repo can split POST (create) from PUT (update).
-  async create(data: DocumentData): Promise<DocumentData> {
-    await set(data.meta.id, data, store);
+  async create(draft: DocumentDraft): Promise<DocumentData> {
+    const id = draft.meta.id ?? crypto.randomUUID();
+    const data: DocumentData = { ...draft, meta: { ...draft.meta, id } };
+    await set(id, data, store);
     return { ...data, meta: stampLocal(data.meta) };
   }
 

@@ -1,5 +1,5 @@
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta } from "./types";
+import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
 
 // Server serializes documents.id as a string (decimal-of-INTEGER) so
 // the client can keep an opaque-string id type without worrying about
@@ -45,19 +45,19 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   /**
-   * POST /api/documents — server allocates id and slug. Caller's
-   * `data.meta.id` is ignored; the returned doc carries the
-   * canonical id (a stringified INTEGER from the server).
+   * POST /api/documents — server allocates id and slug. Any caller-
+   * supplied `id` on the draft is silently dropped; the returned doc
+   * carries the canonical id (a stringified INTEGER from the server).
    */
-  async create(data: DocumentData): Promise<DocumentData> {
+  async create(draft: DocumentDraft): Promise<DocumentData> {
     const res = await fetch("/api/documents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title: data.meta.title,
-        sort_order: data.meta.sortOrder,
-        created_at: data.meta.createdAt,
-        updated_at: data.meta.updatedAt,
+        title: draft.meta.title,
+        sort_order: draft.meta.sortOrder,
+        created_at: draft.meta.createdAt,
+        updated_at: draft.meta.updatedAt,
       }),
     });
     if (!res.ok) {
@@ -68,7 +68,7 @@ export class ApiDocumentRepository implements DocumentRepository {
       meta: rowToMeta(row),
       // Snapshot is uploaded separately (PUT /api/documents/:id/snapshot);
       // the create response only carries metadata.
-      snapshot: data.snapshot,
+      snapshot: draft.snapshot,
     };
   }
 

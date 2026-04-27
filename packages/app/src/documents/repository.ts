@@ -1,24 +1,18 @@
-import type { DocumentData, DocumentMeta } from "./types";
+import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
 
 export interface DocumentRepository {
   list(): Promise<DocumentMeta[]>;
   get(id: string): Promise<DocumentData | undefined>;
   /**
-   * Create a new document. Each repository owns its own id-allocation
-   * policy:
+   * Create a new document. The input `id` is optional: the local IDB
+   * repo allocates a UUID when missing (or honors a caller-supplied
+   * one); the API (synced) repo always ignores it and lets the server
+   * allocate the canonical id+slug at INSERT time.
    *
-   * - The local IDB repo uses the caller-provided `data.meta.id`
-   *   verbatim (callers generate a UUID up front so a fresh local
-   *   doc has a stable identity even before any sync).
-   * - The API (synced) repo ignores `data.meta.id` and the slug;
-   *   the server allocates both at INSERT time and the returned
-   *   doc carries the canonical id+slug.
-   *
-   * Always returns the saved doc — callers must use its `meta.id`
-   * for any subsequent operations rather than the value they
-   * passed in.
+   * Always returns the saved doc with the canonical id — callers must
+   * use the returned `meta.id` for any subsequent operations.
    */
-  create(data: DocumentData): Promise<DocumentData>;
+  create(draft: DocumentDraft): Promise<DocumentData>;
   update(data: DocumentData): Promise<void>;
   delete(id: string): Promise<void>;
 }

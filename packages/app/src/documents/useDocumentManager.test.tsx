@@ -3,7 +3,12 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { TLStoreSnapshot } from "tldraw";
 import { useDocumentManager } from "./useDocumentManager";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+import type {
+  DocumentData,
+  DocumentDraft,
+  DocumentMeta,
+  DocumentOrigin,
+} from "./types";
 
 const emptySnapshot = { store: {}, schema: {} } as unknown as TLStoreSnapshot;
 
@@ -53,9 +58,11 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   // here we derive a deterministic "synced-<localId>" so tests that
   // need to correlate a migration with its server-side row (e.g. the
   // pushSnapshot mock keyed by documentId) have a predictable mapping.
-  // The local repo keeps the caller's id verbatim, mimicking IDB.
-  const create = vi.fn(async (d: DocumentData): Promise<DocumentData> => {
-    const allocatedId = origin === "synced" ? `synced-${d.meta.id}` : d.meta.id;
+  // The local repo keeps the caller's id verbatim, mimicking IDB; if
+  // the caller didn't supply one, mint a UUID like the real repo does.
+  const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+    const localId = d.meta.id ?? crypto.randomUUID();
+    const allocatedId = origin === "synced" ? `synced-${localId}` : localId;
     const stored: DocumentData = {
       ...d,
       meta: { ...d.meta, id: allocatedId, origin },
