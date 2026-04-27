@@ -272,18 +272,35 @@ app.put("/api/documents/:id", async (c) => {
     // updated_at is left to the trigger — see the documents
     // updated_at trigger in 0001_initial_schema.sql. created_at on
     // the body is ignored: backdating is only meaningful at insert.
+    //
+    // The WHERE clause re-asserts every condition the pre-SELECT
+    // checked (workspace match, not deleting, not initializing). The
+    // SELECT alone isn't enough — between it and this UPDATE another
+    // request could soft-delete the row, finalize-then-delete it, or
+    // (in some future Extension B world) move it across workspaces.
+    // With these guards on the UPDATE itself, a state transition in
+    // that window safely flips the result to 0 changes → 404 instead
+    // of writing title/sort_order onto a row in a state we just
+    // rejected. The pre-SELECT now serves only to pre-distinguish
+    // 404 reasons (not-found vs cross-workspace vs initializing) for
+    // a clean status code, not as the safety contract.
     const row = await c.env.DB.prepare(
       `UPDATE documents
        SET title = ?, sort_order = ?
        WHERE id = ?
+         AND workspace_id = ?
+         AND deleting_at IS NULL
+         AND initializing_at IS NULL
        RETURNING id, slug, title, sort_order, created_at, updated_at`,
     )
-      .bind(body.title, body.sort_order, id)
+      .bind(body.title, body.sort_order, id, workspaceId)
       .first<DocumentRow>();
     if (!row) {
-      // Should be unreachable — we just confirmed the row exists in
-      // a state that allows the update. Treat as a transient anomaly.
-      return c.json({ error: "Failed to update document" }, 500);
+      // The row's state changed between the SELECT and the UPDATE
+      // (delete, finalize-then-delete, etc.). 404 is the right code
+      // — from the client's point of view the doc is no longer
+      // updatable in the workspace it asked for.
+      return c.json({ error: "Not found" }, 404);
     }
     return c.json(row);
   }
