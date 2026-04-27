@@ -11,6 +11,7 @@ import {
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "./schemas";
+import { OWNED_WORKSPACE_FILTER } from "./sql";
 import type { AppBindings, AppContext, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
@@ -178,7 +179,7 @@ app.get("/api/documents/:id", async (c) => {
     `SELECT id, slug, title, sort_order, created_at, updated_at
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -281,9 +282,8 @@ app.put("/api/documents/:id", async (c) => {
     // With these guards on the UPDATE itself, a state transition in
     // that window safely flips the result to 0 changes → 404 instead
     // of writing title/sort_order onto a row in a state we just
-    // rejected. The pre-SELECT now serves only to pre-distinguish
-    // 404 reasons (not-found vs cross-workspace vs initializing) for
-    // a clean status code, not as the safety contract.
+    // rejected. The pre-SELECT still drives the insert-vs-update
+    // branch decision; it just no longer carries the safety contract.
     const row = await c.env.DB.prepare(
       `UPDATE documents
        SET title = ?, sort_order = ?
@@ -332,12 +332,22 @@ app.put("/api/documents/:id", async (c) => {
       )
       .first<DocumentRow>();
   } catch (error) {
-    // Two PUTs for the same id raced — the loser trips the PK
-    // UNIQUE constraint. Surface as 409 so the client can decide
-    // whether to retry or surface the error.
+    // SQLite reports UNIQUE-constraint trips as
+    // "UNIQUE constraint failed: <table>.<column>", so distinguish
+    // by the column name. Two unique columns on documents:
+    //   - id    : two PUTs for the same id raced (UUID v7 collision
+    //             is astronomically unlikely; the realistic case is a
+    //             buggy client reusing an id).
+    //   - slug  : crypto.randomUUID() collision — even more unlikely
+    //             (one in 2^61 odds with a million docs). Surface
+    //             distinctly so the operator notices if it ever fires.
     const message = error instanceof Error ? error.message : String(error);
-    if (/UNIQUE constraint/i.test(message)) {
+    if (/UNIQUE constraint failed: documents\.id/i.test(message)) {
       return c.json({ error: "Document id already exists" }, 409);
+    }
+    if (/UNIQUE constraint failed: documents\.slug/i.test(message)) {
+      console.error("Slug collision on document insert:", message);
+      return c.json({ error: "Slug collision; retry the request" }, 409);
     }
     throw error;
   }
@@ -367,7 +377,7 @@ app.delete("/api/documents/:id", async (c) => {
     `SELECT deleting_at, initializing_at
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
+       AND ${OWNED_WORKSPACE_FILTER}`,
   )
     .bind(id, userId)
     .first<{ deleting_at: number | null; initializing_at: number | null }>();
@@ -419,7 +429,7 @@ app.post("/api/documents/:id/finalize", async (c) => {
     `UPDATE documents
         SET initializing_at = NULL
       WHERE id = ?
-        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+        AND ${OWNED_WORKSPACE_FILTER}
         AND deleting_at IS NULL
         AND initializing_at IS NOT NULL`,
   )
@@ -436,7 +446,7 @@ app.post("/api/documents/:id/finalize", async (c) => {
       `SELECT 1
        FROM documents
        WHERE id = ?
-         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+         AND ${OWNED_WORKSPACE_FILTER}
          AND deleting_at IS NULL`,
     )
       .bind(id, userId)
@@ -507,7 +517,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL`,
   )
     .bind(id, userId)
@@ -516,7 +526,6 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  
   const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
   await room.claimDocument(id);
   const result = await room.replaceSnapshot(snapshot, expectedSnapshotVersion);
@@ -547,7 +556,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     `UPDATE documents
      SET updated_at = ?, initializing_at = NULL
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL`,
   )
     .bind(now, id, userId)
@@ -577,7 +586,7 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -587,7 +596,6 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  
   const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
   await room.claimDocument(id);
   const cachedSnapshot = await room.getCachedSnapshot();
@@ -611,7 +619,7 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -621,7 +629,6 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  
   const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
   await room.claimDocument(id);
   const status = await room.getSnapshotStatus();
@@ -655,7 +662,7 @@ app.get("/api/connect/:documentId", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND ${OWNED_WORKSPACE_FILTER}
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )

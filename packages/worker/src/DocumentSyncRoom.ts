@@ -341,10 +341,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     // window where a referenced asset could otherwise stay stale forever.
     await this.syncSnapshotAndReferencedAssets();
 
-    const nextGcAt = await runDocumentAssetGc(
-      this.env,
-      this.documentId,
-    );
+    const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
 
