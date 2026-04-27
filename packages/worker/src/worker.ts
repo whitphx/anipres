@@ -291,7 +291,6 @@ app.delete("/api/documents/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// Push a snapshot from an offline client into the Durable Object room.
 // Finalize a fresh synced document without pushing a snapshot. Fresh
 // creates have no content yet and the DO room can stay un-seeded
 // until the user actually opens the doc — so this just clears
@@ -350,7 +349,12 @@ app.post("/api/documents/:id/finalize", async (c) => {
   return c.json({ ok: true });
 });
 
-// Used by the push-or-fork reconnection flow after an offline editing session.
+// Push a snapshot into the Durable Object room. Used by the
+// local→synced migration to land a converted doc's content, and by
+// the push-or-fork reconnect flow to land a returning client's
+// offline edits. A successful push also clears `initializing_at` if
+// it was set, finalizing the doc — so a doc whose creation flow
+// pushes a real snapshot doesn't need to also call /finalize.
 app.put("/api/documents/:id/snapshot", async (c) => {
   const userId = c.get("userId");
   const paramsResult = v.safeParse(documentIdParamSchema, {
