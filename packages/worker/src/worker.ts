@@ -292,6 +292,64 @@ app.delete("/api/documents/:id", async (c) => {
 });
 
 // Push a snapshot from an offline client into the Durable Object room.
+// Finalize a fresh synced document without pushing a snapshot. Fresh
+// creates have no content yet and the DO room can stay un-seeded
+// until the user actually opens the doc — so this just clears
+// `initializing_at` to make the row visible. Migration and
+// reconnect-fork flows have a real snapshot to push and finalize via
+// the snapshot push handler below; this endpoint is for the empty-doc
+// case where a snapshot push would just need to be synthesized.
+app.post("/api/documents/:id/finalize", async (c) => {
+  const userId = c.get("userId");
+  const paramsResult = v.safeParse(documentIdParamSchema, {
+    id: c.req.param("id"),
+  });
+  if (!paramsResult.success) {
+    return c.json(
+      { error: "Invalid document id", details: paramsResult.issues },
+      400,
+    );
+  }
+
+  const { id } = paramsResult.output;
+  // The IS NOT NULL guard makes finalize idempotent — calling it on
+  // an already-finalized doc is a no-op rather than an error. The
+  // ownership/deleting filters are the same as the regular update path:
+  // we don't want a finalize call to revive a soft-deleted doc, and
+  // we want a clean 404 for foreign / non-existent ids.
+  const result = await c.env.DB.prepare(
+    `UPDATE documents
+        SET initializing_at = NULL
+      WHERE id = ?
+        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+        AND deleting_at IS NULL
+        AND initializing_at IS NOT NULL`,
+  )
+    .bind(id, userId)
+    .run();
+
+  if ((result.meta.changes ?? 0) === 0) {
+    // Either the doc doesn't exist for this user, or it's already
+    // finalized. Both cases respond with 200 — the caller's intent
+    // ("make sure this doc is finalized") is satisfied either way.
+    // Distinguish the not-found case so the client can surface a
+    // genuine error if the row really doesn't exist.
+    const exists = await c.env.DB.prepare(
+      `SELECT 1
+       FROM documents d
+       JOIN workspaces w ON w.id = d.workspace_id
+       WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+    )
+      .bind(id, userId)
+      .first();
+    if (!exists) {
+      return c.json({ error: "Not found" }, 404);
+    }
+  }
+
+  return c.json({ ok: true });
+});
+
 // Used by the push-or-fork reconnection flow after an offline editing session.
 app.put("/api/documents/:id/snapshot", async (c) => {
   const userId = c.get("userId");
