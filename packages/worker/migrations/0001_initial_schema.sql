@@ -125,6 +125,21 @@ CREATE TABLE documents (
   -- treating the document as active before the final row removal
   -- happens (R2 asset GC needs a coordinated grace period).
   deleting_at         INTEGER,
+  -- Non-null between the initial INSERT and the first successful
+  -- snapshot push that finalizes the document. A document creation
+  -- is a multi-step client flow:
+  --
+  --   1. POST /api/documents  → row inserted (this column = now)
+  --   2. (optional) asset uploads to R2 under /:id/assets/...
+  --   3. PUT /api/documents/:id/snapshot → DO room initialized
+  --      and this column cleared
+  --
+  -- Initializing rows are excluded from list/get/update/delete so the
+  -- client never sees a "half-built" document. A scheduled sweep
+  -- hard-deletes rows whose `initializing_at` is older than the grace
+  -- window — covers tab close, browser crash, hung network, and
+  -- delete-mid-migration without any client cooperation.
+  initializing_at     INTEGER,
   -- Defaulted to server time, but the convertLocalDocToSynced flow
   -- passes the original local creation timestamp explicitly so the
   -- doc list can sort by "actual creation date" rather than "synced
@@ -151,20 +166,38 @@ CREATE TRIGGER trg_documents_updated_at AFTER UPDATE ON documents
       WHERE id = OLD.id;
   END;
 
+-- Dominant query: "list active documents in a workspace, in sort
+-- order." Active = neither deleting nor initializing — soft-deleted
+-- rows wait out the asset-GC grace period; initializing rows wait
+-- for the snapshot push (or the cleanup sweep). Both states are
+-- excluded so the client only ever sees fully-realized documents.
 CREATE INDEX idx_documents_workspace_sort
   ON documents (workspace_id, sort_order)
-  WHERE deleting_at IS NULL;
+  WHERE deleting_at IS NULL AND initializing_at IS NULL;
 
--- FK lookup index. The composite above is partial on
--- `deleting_at IS NULL`, so it doesn't cover queries that need to
--- find documents regardless of soft-delete state. Two paths benefit:
+-- FK lookup index. The composite above is partial, so it doesn't
+-- cover queries that need to find documents regardless of lifecycle
+-- state. Three paths benefit:
 -- (a) the `ON DELETE RESTRICT` check fired when a workspace is
 -- being deleted — SQLite has to confirm "no documents reference
--- this workspace_id" against *all* documents (active + soft-deleted);
+-- this workspace_id" against *all* documents (active +
+-- soft-deleted + initializing);
 -- (b) any future query that intentionally looks at soft-deleted rows
--- (trash bin, GC sweep). Without this index, both fall back to a
--- full table scan.
+-- (trash bin, GC sweep). Without this index, those fall back to a
+-- full table scan;
+-- (c) the initializing-row sweep (see `idx_documents_initializing`
+-- below) only narrows by `initializing_at`; per-workspace sweeps
+-- would still need the FK index.
 CREATE INDEX idx_documents_workspace ON documents (workspace_id);
+
+-- Sweep index: the scheduled cleanup query lists rows whose
+-- `initializing_at` is older than the grace window. Partial on
+-- `initializing_at IS NOT NULL` so the index stays empty in steady
+-- state — the vast majority of rows have completed initialization
+-- and contribute nothing to this index.
+CREATE INDEX idx_documents_initializing
+  ON documents (initializing_at)
+  WHERE initializing_at IS NOT NULL;
 
 -- =============================================================
 -- Future extensions (not yet implemented)

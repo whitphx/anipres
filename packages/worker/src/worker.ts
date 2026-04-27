@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import * as v from "valibot";
 import { registerAssetRoutes, startDocumentDeletion } from "./assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
+import { sweepInitializingDocuments } from "./cleanup";
 import {
   documentConnectParamSchema,
   documentCreateSchema,
@@ -10,7 +11,7 @@ import {
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "./schemas";
-import type { AppBindings } from "./types";
+import type { AppBindings, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
@@ -68,13 +69,21 @@ function generateDocumentSlug() {
 }
 
 // List the user's active documents in sort order.
+//
+// "Active" means neither soft-deleted nor still initializing. Rows in
+// either of those states are an implementation detail of a multi-step
+// lifecycle the user shouldn't see: deleting rows are mid-asset-GC,
+// initializing rows are mid-create. The partial index
+// `idx_documents_workspace_sort` matches this exact predicate.
 app.get("/api/documents", async (c) => {
   const userId = c.get("userId");
   const { results } = await c.env.DB.prepare(
     `SELECT d.id, d.slug, d.title, d.sort_order, d.created_at, d.updated_at
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
-     WHERE w.owner_user_id = ? AND d.deleting_at IS NULL
+     WHERE w.owner_user_id = ?
+       AND d.deleting_at IS NULL
+       AND d.initializing_at IS NULL
      ORDER BY d.sort_order ASC`,
   )
     .bind(userId)
@@ -123,9 +132,15 @@ app.post("/api/documents", async (c) => {
   // local→synced migration to preserve a doc's on-device creation
   // time); otherwise we stamp now. `updated_at` is always now —
   // there is no migration use case for backdating it.
+  //
+  // `initializing_at` is stamped to mark the row as "not yet finalized"
+  // until the client completes the multi-step create flow (asset uploads
+  // and the initial snapshot push). The snapshot push handler clears it
+  // on success; the scheduled sweep cleans up rows that never get
+  // there. Until cleared, this row is invisible to list/get/update/delete.
   const row = await c.env.DB.prepare(
-    `INSERT INTO documents (workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at)
-     VALUES (?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?)
+    `INSERT INTO documents (workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at, initializing_at)
+     VALUES (?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?, ?)
      RETURNING id, slug, title, sort_order, created_at, updated_at`,
   )
     .bind(
@@ -135,6 +150,7 @@ app.post("/api/documents", async (c) => {
       body.title ?? null,
       body.sort_order,
       body.created_at ?? now,
+      now,
       now,
     )
     .first<DocumentRow>();
@@ -165,7 +181,10 @@ app.get("/api/documents/:id", async (c) => {
     `SELECT d.id, d.slug, d.title, d.sort_order, d.created_at, d.updated_at
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     WHERE d.id = ?
+       AND w.owner_user_id = ?
+       AND d.deleting_at IS NULL
+       AND d.initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first<DocumentRow>();
@@ -210,12 +229,15 @@ app.put("/api/documents/:id", async (c) => {
   // `updated_at` is intentionally not in the SET clause: the schema's
   // updated_at trigger refreshes it automatically when the UPDATE
   // doesn't already set it (`WHEN NEW.updated_at IS OLD.updated_at`).
+  // Initializing rows are off-limits to metadata updates — the doc
+  // isn't fully realized until the snapshot push completes.
   const row = await c.env.DB.prepare(
     `UPDATE documents
      SET title = ?, sort_order = ?
      WHERE id = ?
        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
+       AND initializing_at IS NULL
      RETURNING id, slug, title, sort_order, created_at, updated_at`,
   )
     .bind(body.title, body.sort_order, id, userId)
@@ -243,14 +265,21 @@ app.delete("/api/documents/:id", async (c) => {
 
   const { id } = paramsResult.output;
   const document = await c.env.DB.prepare(
-    `SELECT d.deleting_at
+    `SELECT d.deleting_at, d.initializing_at
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
      WHERE d.id = ? AND w.owner_user_id = ?`,
   )
     .bind(id, userId)
-    .first<{ deleting_at: number | null }>();
+    .first<{ deleting_at: number | null; initializing_at: number | null }>();
   if (!document) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  // Initializing rows are invisible to the client and cleaned up by
+  // the scheduled sweep. Treat a delete request against one as a 404
+  // — the user couldn't have seen it in any list.
+  if (document.initializing_at !== null && document.initializing_at !== undefined) {
     return c.json({ error: "Not found" }, 404);
   }
 
@@ -307,6 +336,11 @@ app.put("/api/documents/:id/snapshot", async (c) => {
   const { id } = paramsResult.output;
   const { snapshot, expectedSnapshotVersion } = bodyResult.output;
 
+  // Snapshot push reaches both regular and still-initializing rows.
+  // Initializing rows are the *expected* target right after POST: the
+  // client has just created the doc and is now finalizing it. Only
+  // soft-deleting rows are off-limits (their DO state is being torn
+  // down).
   const row = await c.env.DB.prepare(
     `SELECT 1
      FROM documents d
@@ -334,13 +368,19 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     );
   }
 
-  // Bump updated_at in D1. The trigger would refresh it for any UPDATE,
-  // but we want to record the snapshot push time deterministically and
-  // not race with whatever else might be happening in this transaction.
+  // Finalize the document: bump updated_at and clear initializing_at if
+  // it was set. Clearing is idempotent (UPDATE ... = NULL is a no-op
+  // when already NULL, and the WHERE conditions still match), so a
+  // doc that was never in the initializing state — or that already
+  // had its first push — is updated normally.
+  //
+  // updated_at: the trigger would refresh it for any UPDATE, but we
+  // want to record the snapshot push time deterministically and not
+  // race with whatever else might be happening in this transaction.
   const now = Date.now();
   await c.env.DB.prepare(
     `UPDATE documents
-     SET updated_at = ?
+     SET updated_at = ?, initializing_at = NULL
      WHERE id = ?
        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
   )
@@ -363,11 +403,18 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
   }
 
   const { id } = paramsResult.output;
+  // The offline cache only makes sense for fully-finalized docs. An
+  // initializing row has no DO state worth fetching — the cache fetch
+  // is part of the reconnect flow which only runs against docs the
+  // client already saw in a list.
   const row = await c.env.DB.prepare(
     `SELECT 1
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     WHERE d.id = ?
+       AND w.owner_user_id = ?
+       AND d.deleting_at IS NULL
+       AND d.initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first();
@@ -399,7 +446,10 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     `SELECT 1
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     WHERE d.id = ?
+       AND w.owner_user_id = ?
+       AND d.deleting_at IS NULL
+       AND d.initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first();
@@ -433,11 +483,18 @@ app.get("/api/connect/:documentId", async (c) => {
 
   const { documentId } = paramsResult.output;
 
+  // Sync sessions only open against finalized documents. An
+  // initializing row's DO room hasn't been seeded with a snapshot yet,
+  // so opening a sync session would have nothing to replicate against
+  // and would race with the create flow's own snapshot push.
   const document = await c.env.DB.prepare(
     `SELECT 1
      FROM documents d
      JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     WHERE d.id = ?
+       AND w.owner_user_id = ?
+       AND d.deleting_at IS NULL
+       AND d.initializing_at IS NULL`,
   )
     .bind(documentId, userId)
     .first();
@@ -454,4 +511,26 @@ app.get("/api/connect/:documentId", async (c) => {
   return room.fetch(c.req.raw);
 });
 
-export default app;
+// Worker entry. Uses the explicit handler shape (rather than
+// `export default app`) so a `scheduled` handler can run alongside
+// the HTTP fetch handler. The cron trigger is configured in
+// wrangler.toml; the handler runs the initializing-doc sweep.
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const { deletedCount } = await sweepInitializingDocuments(env);
+          if (deletedCount > 0) {
+            console.log(
+              `[scheduled] Swept ${deletedCount} abandoned initializing document(s).`,
+            );
+          }
+        } catch (error) {
+          console.error("[scheduled] Sweep failed:", error);
+        }
+      })(),
+    );
+  },
+} satisfies ExportedHandler<Env>;

@@ -3,6 +3,17 @@ main = "src/worker.ts"
 compatibility_date = "2025-05-08"
 compatibility_flags = ["nodejs_compat"]
 
+# Scheduled trigger for the initializing-doc sweep. A doc creation is
+# a multi-step client flow (POST → asset upload → snapshot push); the
+# server marks rows `initializing_at = now()` on POST and clears it
+# on the finalizing snapshot push. Rows that linger past the grace
+# window (10 min, see cleanup.ts) are abandoned creates from a tab
+# close, crash, or delete-mid-migration; this cron sweeps them out.
+# Five-minute cadence so the worst-case visibility for an abandoned
+# row is ~15 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # anipres.app routes entirely through this worker via Cloudflare's
 # Custom Domain feature. The worker is the origin: Hono dispatches
 # /api/* and /auth/*; everything else is served directly by the
@@ -57,6 +68,11 @@ preview_bucket_name = "anipres-assets-preview"
 [env.preview]
 name = "anipres-worker-preview"
 workers_dev = true
+
+# Same sweep cadence as prod — preview should exercise the cleanup
+# path so any regression surfaces before deploy.
+[env.preview.triggers]
+crons = ["*/5 * * * *"]
 
 # Bundle the latest PR's frontend so the preview URL is browsable
 # end-to-end without a separate deploy. `run_worker_first` carves the
