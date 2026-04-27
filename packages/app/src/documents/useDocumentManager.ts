@@ -189,7 +189,7 @@ export function useDocumentManager(params: {
     if (!existing) return;
 
     const { document } = getSnapshot(editor.store);
-    await localRepository.update({
+    await localRepository.save({
       ...existing,
       snapshot: document,
     });
@@ -216,7 +216,7 @@ export function useDocumentManager(params: {
         );
         // The synced repo allocates a server-side id at create; use the
         // returned doc's id rather than the draft's UUID.
-        const saved = await repo.create(draft);
+        const saved = await repo.save(draft);
         if (cancelled) return;
         if (defaultOrigin === "synced") {
           await finalizeSyncedDocument(saved.meta.id);
@@ -307,7 +307,7 @@ export function useDocumentManager(params: {
           nextTailSortOrder(existing),
           origin,
         );
-        const saved = await repo.create(draft);
+        const saved = await repo.save(draft);
         if (origin === "synced") {
           await finalizeSyncedDocument(saved.meta.id);
         }
@@ -401,7 +401,7 @@ export function useDocumentManager(params: {
         );
         let saved: DocumentData;
         try {
-          saved = await defaultRepo.create(draft);
+          saved = await defaultRepo.save(draft);
           if (defaultOrigin === "synced") {
             await finalizeSyncedDocument(saved.meta.id);
           }
@@ -416,7 +416,7 @@ export function useDocumentManager(params: {
               "local",
             );
             try {
-              saved = await localRepository.create(localDraft);
+              saved = await localRepository.save(localDraft);
             } catch (localError) {
               console.error(
                 "Failed to create replacement local document",
@@ -467,7 +467,7 @@ export function useDocumentManager(params: {
       if (!repo) return;
       const data = await repo.get(id);
       if (!data) return;
-      await repo.update({
+      await repo.save({
         ...data,
         meta: { ...data.meta, title },
       });
@@ -485,7 +485,7 @@ export function useDocumentManager(params: {
       if (!repo) return;
       const data = await repo.get(id);
       if (!data) return;
-      await repo.update({
+      await repo.save({
         ...data,
         meta: { ...data.meta, sortOrder: newSortOrder },
       });

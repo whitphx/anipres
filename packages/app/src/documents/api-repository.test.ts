@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiDocumentRepository } from "./api-repository";
+import type { DocumentData } from "./types";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -94,7 +95,7 @@ describe("ApiDocumentRepository", () => {
       }),
     );
 
-    const result = await repo.create({
+    const result = await repo.save({
       meta: {
         id: docId,
         title: "Title",
@@ -105,35 +106,35 @@ describe("ApiDocumentRepository", () => {
       snapshot: null,
     });
 
-    // The id is the same one the caller minted; slug and updated_at
-    // come from the server.
+    // The id is the same one the caller minted; slug, created_at,
+    // and updated_at come from the server response.
     expect(result.meta.id).toBe(docId);
     expect(result.meta.slug).toBe("server-slug");
     expect(result.meta.sortOrder).toBe("a0");
     expect(result.meta.updatedAt).toBe(20);
 
-    // The wire body sends:
-    //   - id: from the draft (client-allocated UUID v7)
+    // PUT goes to /api/documents/:id (id in URL, not body). The body
+    // sends:
     //   - workspace_id: from the repo's binding
     //   - title, sort_order: from the draft
     //   - created_at: only when the caller set it (migration use case)
     // updated_at and slug never appear — the server stamps both.
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("/api/documents");
-    expect(init?.method).toBe("POST");
+    expect(url).toBe(`/api/documents/${docId}`);
+    expect(init?.method).toBe("PUT");
     const sent = JSON.parse((init?.body as string) ?? "{}");
     expect(sent).toEqual({
-      id: docId,
       workspace_id: TEST_WORKSPACE_ID,
       title: "Title",
       sort_order: "a0",
       created_at: 10,
     });
+    expect(sent).not.toHaveProperty("id");
     expect(sent).not.toHaveProperty("slug");
     expect(sent).not.toHaveProperty("updated_at");
   });
 
-  it("create omits created_at when the caller doesn't supply one", async () => {
+  it("save omits created_at when the caller doesn't supply one", async () => {
     const docId = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({
@@ -146,7 +147,7 @@ describe("ApiDocumentRepository", () => {
       }),
     );
 
-    await repo.create({
+    await repo.save({
       meta: {
         id: docId,
         title: "Fresh",
@@ -159,7 +160,6 @@ describe("ApiDocumentRepository", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const sent = JSON.parse((init?.body as string) ?? "{}");
     expect(sent).toEqual({
-      id: docId,
       workspace_id: TEST_WORKSPACE_ID,
       title: "Fresh",
       sort_order: "a0",
@@ -167,33 +167,55 @@ describe("ApiDocumentRepository", () => {
     expect(sent).not.toHaveProperty("created_at");
   });
 
-  it("update PUTs to /api/documents/:id with snake_case body", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true }));
+  it("save accepts a full DocumentData (re-save / update path)", async () => {
+    const docId = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: docId,
+        slug: "doc-slug",
+        title: "Renamed",
+        sort_order: "a1",
+        created_at: 1,
+        updated_at: 999,
+      }),
+    );
 
-    await repo.update({
+    // Pass a full DocumentData (with all timestamps and slug). The
+    // repo only forwards the meaningful fields to the wire; extras
+    // are dropped. DocumentData is structurally a superset of
+    // DocumentDraft, so the call is valid; the local-variable typing
+    // hop avoids TS's excess-property check on object literals.
+    const data: DocumentData = {
       meta: {
-        id: "42",
-        slug: "ignored-on-update",
-        title: "New Title",
+        id: docId,
+        slug: "ignored",
+        title: "Renamed",
         sortOrder: "a1",
-        createdAt: 0,
+        createdAt: 1,
         updatedAt: 99,
         origin: "synced",
       },
       snapshot: null,
-    });
+    };
+    await repo.save(data);
 
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("/api/documents/42");
+    expect(url).toBe(`/api/documents/${docId}`);
     expect(init?.method).toBe("PUT");
     const sent = JSON.parse((init?.body as string) ?? "{}");
-    // updated_at is not sent: the server's updated_at trigger refreshes
-    // the row's timestamp on any UPDATE that doesn't already set it.
+    // The wire body has no updated_at (server's trigger handles it),
+    // no slug (server-allocated on insert; ignored on update), and no
+    // id (it's in the URL). created_at is forwarded because the
+    // caller's draft had it set.
     expect(sent).toEqual({
-      title: "New Title",
+      workspace_id: TEST_WORKSPACE_ID,
+      title: "Renamed",
       sort_order: "a1",
+      created_at: 1,
     });
     expect(sent).not.toHaveProperty("updated_at");
+    expect(sent).not.toHaveProperty("slug");
+    expect(sent).not.toHaveProperty("id");
   });
 
   it("delete sends DELETE to /api/documents/:id", async () => {

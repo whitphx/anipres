@@ -71,24 +71,23 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
-  // Both local and synced repos honor the caller's id verbatim — UUID
-  // v7 is client-allocated, so the same id flows through every layer.
-  const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+  // Single upsert method matching the production repo. Both local and
+  // synced repos honor the caller's id verbatim — UUID v7 is
+  // client-allocated, so the same id flows through every layer.
+  const save = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
     const now = Date.now();
+    const existing = store.get(d.meta.id);
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
         origin,
-        createdAt: d.meta.createdAt ?? now,
+        createdAt: existing?.meta.createdAt ?? d.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
     store.set(d.meta.id, stored);
     return stored;
-  });
-  const update = vi.fn(async (d: DocumentData): Promise<void> => {
-    store.set(d.meta.id, d);
   });
   const del = vi.fn(async (id: string): Promise<void> => {
     store.delete(id);
@@ -96,11 +95,10 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   const repo: DocumentRepository = {
     list,
     get,
-    create,
-    update,
+    save,
     delete: del,
   };
-  return { repo, store, list, get, create, update, delete: del };
+  return { repo, store, list, get, save, delete: del };
 }
 
 describe("isDataUrl", () => {
@@ -316,7 +314,7 @@ describe("convertLocalDocToSynced", () => {
       pushSnapshot,
     });
 
-    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
+    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     // With UUID v7 ids minted client-side, the synced doc keeps
     // the same id as the local doc — no remap.
     const synced = syncedRepo.store.get("doc-1");
@@ -355,7 +353,7 @@ describe("convertLocalDocToSynced", () => {
       pushSnapshot,
     });
 
-    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
+    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     expect(uploadAsset).not.toHaveBeenCalled();
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
@@ -424,7 +422,7 @@ describe("convertLocalDocToSynced", () => {
         syncedRepository: syncedRepo.repo,
       }),
     ).rejects.toThrow(/not found/);
-    expect(syncedRepo.create).not.toHaveBeenCalled();
+    expect(syncedRepo.save).not.toHaveBeenCalled();
   });
 
   it("throws immediately without touching the repos when the abortSignal is already aborted", async () => {
@@ -449,7 +447,7 @@ describe("convertLocalDocToSynced", () => {
     ).rejects.toThrow();
 
     expect(localRepo.get).not.toHaveBeenCalled();
-    expect(syncedRepo.create).not.toHaveBeenCalled();
+    expect(syncedRepo.save).not.toHaveBeenCalled();
     expect(uploadAsset).not.toHaveBeenCalled();
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).not.toHaveBeenCalled();
@@ -464,7 +462,7 @@ describe("convertLocalDocToSynced", () => {
     // Abort mid-migration, right after syncedRepository.create runs.
     // The synced doc is stored under the same id as the local doc
     // (UUID v7 client-allocated, no remap).
-    syncedRepo.repo.create = vi.fn(async (d: DocumentDraft) => {
+    syncedRepo.repo.save = vi.fn(async (d: DocumentDraft) => {
       const now = Date.now();
       const allocated: DocumentData = {
         ...d,
@@ -495,7 +493,7 @@ describe("convertLocalDocToSynced", () => {
 
     // Server doc was created before the abort; the later snapshot
     // push was skipped and the local copy was not deleted.
-    expect(syncedRepo.repo.create).toHaveBeenCalledTimes(1);
+    expect(syncedRepo.repo.save).toHaveBeenCalledTimes(1);
     expect(pushSnapshot).not.toHaveBeenCalled();
     expect(localRepo.delete).not.toHaveBeenCalled();
   });
@@ -518,6 +516,6 @@ describe("convertLocalDocToSynced", () => {
         syncedRepository: syncedRepo.repo,
       }),
     ).rejects.toThrow(/not a local document/);
-    expect(syncedRepo.create).not.toHaveBeenCalled();
+    expect(syncedRepo.save).not.toHaveBeenCalled();
   });
 });

@@ -22,29 +22,27 @@ export class IdbDocumentRepository implements DocumentRepository {
     return { ...data, meta: stampLocal(data.meta) };
   }
 
-  // Create and update collapse to the same `set()` call here — IDB
-  // doesn't distinguish — but the interface keeps them separate so
-  // the API repo can split POST (create) from PUT (update).
-  async create(draft: DocumentDraft): Promise<DocumentData> {
+  /**
+   * Insert or update the row at `draft.meta.id`. On insert, stamps
+   * `createdAt` (honoring the optional override) and `updatedAt`. On
+   * update, bumps `updatedAt` and preserves the existing `createdAt`
+   * — even if a different value is in `draft.meta.createdAt`, the
+   * stored row's createdAt wins, since it represents the actual
+   * on-device creation moment.
+   */
+  async save(draft: DocumentDraft): Promise<DocumentData> {
     const now = Date.now();
+    const existing = await get<DocumentData>(draft.meta.id, store);
     const data: DocumentData = {
       snapshot: draft.snapshot,
       meta: {
         ...draft.meta,
-        createdAt: draft.meta.createdAt ?? now,
+        createdAt: existing?.meta.createdAt ?? draft.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
     await set(data.meta.id, data, store);
     return { ...data, meta: stampLocal(data.meta) };
-  }
-
-  async update(data: DocumentData): Promise<void> {
-    const stamped: DocumentData = {
-      ...data,
-      meta: { ...data.meta, updatedAt: Date.now() },
-    };
-    await set(stamped.meta.id, stamped, store);
   }
 
   async delete(id: string): Promise<void> {

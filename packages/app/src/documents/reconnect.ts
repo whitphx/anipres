@@ -172,7 +172,7 @@ export async function reconcileOfflineEdits(params: {
   const forkId = uuidv7();
   const syncedList = await repository.list();
   const forkSortOrder = nextTailSortOrder(syncedList);
-  await repository.create({
+  await repository.save({
     meta: {
       id: forkId,
       title: forkTitle,

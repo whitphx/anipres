@@ -54,25 +54,24 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
-  // Both local and synced repos honor the caller's id verbatim — UUID
-  // v7 is client-allocated, so the same id flows through every layer
-  // and tests can assert on the original id everywhere.
-  const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+  // Single upsert method matching the production repo. Both local and
+  // synced repos honor the caller's id verbatim — UUID v7 is
+  // client-allocated, so the same id flows through every layer and
+  // tests can assert on the original id everywhere.
+  const save = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
     const now = Date.now();
+    const existing = store.get(d.meta.id);
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
         origin,
-        createdAt: d.meta.createdAt ?? now,
+        createdAt: existing?.meta.createdAt ?? d.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
     store.set(d.meta.id, stored);
     return stored;
-  });
-  const update = vi.fn(async (d: DocumentData): Promise<void> => {
-    store.set(d.meta.id, d);
   });
   const del = vi.fn(async (id: string): Promise<void> => {
     store.delete(id);
@@ -81,11 +80,10 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   const repo: DocumentRepository = {
     list,
     get,
-    create,
-    update,
+    save,
     delete: del,
   };
-  return { repo, store, list, get, create, update, delete: del };
+  return { repo, store, list, get, save, delete: del };
 }
 
 describe("useDocumentManager", () => {
@@ -158,8 +156,8 @@ describe("useDocumentManager", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
-    expect(localRepo.create).not.toHaveBeenCalled();
+    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
+    expect(localRepo.save).not.toHaveBeenCalled();
     expect(result.current.documents).toHaveLength(1);
     expect(result.current.documents[0].origin).toBe("synced");
   });
@@ -254,15 +252,13 @@ describe("useDocumentManager", () => {
     expect(result.current.documents).toHaveLength(1);
 
     // Synced create fails — the replacement should still land, but as local.
-    syncedRepo.repo.create = vi
-      .fn()
-      .mockRejectedValue(new Error("server down"));
+    syncedRepo.repo.save = vi.fn().mockRejectedValue(new Error("server down"));
 
     await act(async () => {
       await result.current.deleteDocument("S1");
     });
 
-    expect(localRepo.create).toHaveBeenCalledTimes(1);
+    expect(localRepo.save).toHaveBeenCalledTimes(1);
     expect(result.current.documents).toHaveLength(1);
     expect(result.current.documents[0].origin).toBe("local");
     expect(vi.mocked(console.error)).toHaveBeenCalled();
@@ -291,7 +287,7 @@ describe("useDocumentManager", () => {
       await result.current.convertToSynced("doc-1");
     });
 
-    expect(syncedRepo.create).toHaveBeenCalledTimes(1);
+    expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     // The migrated doc keeps its UUID v7 id across the local→synced
     // transition; only the origin flips.
@@ -648,7 +644,7 @@ describe("useDocumentManager", () => {
     // deletion has something to clean up.
     await waitFor(() => {
       expect(result.current.converting.has("doc-1")).toBe(true);
-      expect(syncedRepo.create).toHaveBeenCalledTimes(1);
+      expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     });
 
     await act(async () => {
@@ -797,7 +793,7 @@ describe("useDocumentManager", () => {
     // exists from the fixture, and the synced-origin create should not fall
     // through to local here (that fallback is only for the last-doc-delete
     // replacement path).
-    expect(localRepo.create).not.toHaveBeenCalled();
+    expect(localRepo.save).not.toHaveBeenCalled();
     expect(result.current.documents.map((d) => d.id)).toEqual(["L1"]);
   });
 });

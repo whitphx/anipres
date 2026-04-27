@@ -27,15 +27,15 @@ function rowToMeta(row: DocumentRow): DocumentMeta {
 }
 
 /**
- * Documents are workspace-owned on the server. Every list/create call
+ * Documents are workspace-owned on the server. Every list/save call
  * has to name the workspace it's targeting; an `ApiDocumentRepository`
  * instance is bound to one workspace for its lifetime. App-level code
  * is responsible for resolving the user's workspace_id (via
  * `GET /api/workspaces`) and constructing the repo with it.
  *
- * Per-document operations (`get`, `update`, `delete`) take a doc id
- * which already implicitly identifies a workspace, so they don't need
- * the workspace_id at the wire layer — the server still verifies that
+ * Per-document operations (`get`, `delete`) take a doc id which
+ * already implicitly identifies a workspace, so they don't need the
+ * workspace_id at the wire layer — the server still verifies that
  * the doc lives in a workspace the requesting user owns.
  */
 export class ApiDocumentRepository implements DocumentRepository {
@@ -62,23 +62,22 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   /**
-   * POST /api/documents — caller supplies the document id (UUID v7);
-   * the server validates it, allocates the slug, and stamps
-   * `updated_at`. The body carries the workspace_id (server enforces
-   * ownership) and the user-meaningful fields. `created_at` is sent
+   * PUT /api/documents/:id — server-side upsert. The body always
+   * carries workspace_id, title, and sort_order; `created_at` is sent
    * only when the caller explicitly supplies it (the local→synced
-   * migration uses this to preserve the on-device creation time);
-   * otherwise the server stamps it.
+   * migration uses this to preserve the on-device creation time).
+   * The server stamps `updated_at` (via trigger) and the slug (on
+   * insert only) and returns the canonical row.
+   *
+   * The id is in the URL path; it's not duplicated in the body.
    */
-  async create(draft: DocumentDraft): Promise<DocumentData> {
+  async save(draft: DocumentDraft): Promise<DocumentData> {
     const body: {
-      id: string;
       workspace_id: string;
       title: string;
       sort_order: string;
       created_at?: number;
     } = {
-      id: draft.meta.id,
       workspace_id: this.workspaceId,
       title: draft.meta.title,
       sort_order: draft.meta.sortOrder,
@@ -86,38 +85,24 @@ export class ApiDocumentRepository implements DocumentRepository {
     if (draft.meta.createdAt !== undefined) {
       body.created_at = draft.meta.createdAt;
     }
-    const res = await fetch("/api/documents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(
+      `/api/documents/${encodeURIComponent(draft.meta.id)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
     if (!res.ok) {
-      throw new Error(`Failed to create document: ${res.status}`);
+      throw new Error(`Failed to save document: ${res.status}`);
     }
     const row: DocumentRow = await res.json();
     return {
       meta: rowToMeta(row),
       // Snapshot is uploaded separately (PUT /api/documents/:id/snapshot);
-      // the create response only carries metadata.
+      // the save response only carries metadata.
       snapshot: draft.snapshot,
     };
-  }
-
-  // PUT /api/documents/:id — caller's `updatedAt` is not sent; the
-  // server's updated_at trigger refreshes the row's timestamp.
-  async update(data: DocumentData): Promise<void> {
-    const res = await fetch(
-      `/api/documents/${encodeURIComponent(data.meta.id)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: data.meta.title,
-          sort_order: data.meta.sortOrder,
-        }),
-      },
-    );
-    if (!res.ok) throw new Error(`Failed to update document: ${res.status}`);
   }
 
   async delete(id: string): Promise<void> {

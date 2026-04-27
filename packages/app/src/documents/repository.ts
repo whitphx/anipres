@@ -4,15 +4,20 @@ export interface DocumentRepository {
   list(): Promise<DocumentMeta[]>;
   get(id: string): Promise<DocumentData | undefined>;
   /**
-   * Create a new document. The input `id` is optional: the local IDB
-   * repo allocates a UUID when missing (or honors a caller-supplied
-   * one); the API (synced) repo always ignores it and lets the server
-   * allocate the canonical id+slug at INSERT time.
+   * Save a document — insert if new, update if existing. The single
+   * upsert shape is consistent across both repos: the IDB repo
+   * collapses insert and update into the same `set()` call by id, and
+   * the API repo's `PUT /api/documents/:id` is server-side upsert.
    *
-   * Always returns the saved doc with the canonical id — callers must
-   * use the returned `meta.id` for any subsequent operations.
+   * The caller-supplied `id` is the canonical id everywhere — UUID v7
+   * is client-allocated, see the documents.id design note in the
+   * worker schema. The repo stamps timestamps; on insert it sets
+   * `createdAt` (or honors the optional override) and `updatedAt`,
+   * on update it bumps `updatedAt` and preserves `createdAt`.
+   *
+   * Returns the saved doc with all server-side stamps (slug, current
+   * timestamps) populated.
    */
-  create(draft: DocumentDraft): Promise<DocumentData>;
-  update(data: DocumentData): Promise<void>;
+  save(draft: DocumentDraft): Promise<DocumentData>;
   delete(id: string): Promise<void>;
 }

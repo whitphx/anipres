@@ -34,8 +34,7 @@ describe("reconcileOfflineEdits", () => {
       get: vi.fn().mockResolvedValue({
         meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      create: vi.fn(),
-      update: vi.fn(),
+      save: vi.fn(),
     } as const;
 
     const result = await reconcileOfflineEdits({
@@ -52,7 +51,7 @@ describe("reconcileOfflineEdits", () => {
 
     expect(repository.get).toHaveBeenCalledWith("doc-id");
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
     expect(result).toEqual({ action: "noop" });
   });
 
@@ -117,8 +116,7 @@ describe("reconcileOfflineEdits", () => {
       get: vi.fn().mockResolvedValue({
         meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      create: vi.fn(),
-      update: vi.fn(),
+      save: vi.fn(),
     } as const;
 
     vi.mocked(fetch)
@@ -142,7 +140,7 @@ describe("reconcileOfflineEdits", () => {
     });
 
     expect(result).toEqual({ action: "noop" });
-    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
   });
 
   it("forks when pending offline changes exist and the server has diverged", async () => {
@@ -162,7 +160,7 @@ describe("reconcileOfflineEdits", () => {
       // The fork flow mints its own UUID v7 client-side, then calls
       // create(). The fake repo echoes the supplied draft so the
       // returned row carries that same id.
-      create: vi.fn().mockImplementation(async (data) => ({
+      save: vi.fn().mockImplementation(async (data) => ({
         meta: {
           ...data.meta,
           slug: "fork-slug",
@@ -172,7 +170,6 @@ describe("reconcileOfflineEdits", () => {
         },
         snapshot: null,
       })),
-      update: vi.fn(),
       delete: vi.fn(),
     } as const;
 
@@ -204,12 +201,12 @@ describe("reconcileOfflineEdits", () => {
       expect(result.forkedDocumentId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );
-      const sentDraft = repository.create.mock.calls[0][0] as {
+      const sentDraft = repository.save.mock.calls[0][0] as {
         meta: { id: string };
       };
       expect(sentDraft.meta.id).toBe(result.forkedDocumentId);
     }
-    expect(repository.create).toHaveBeenCalledTimes(1);
+    expect(repository.save).toHaveBeenCalledTimes(1);
   });
 
   it("places the fork past the synced list's tail, not just past the original key", async () => {
@@ -234,7 +231,7 @@ describe("reconcileOfflineEdits", () => {
           origin: "synced",
         },
       ]),
-      create: vi.fn().mockImplementation(async (data) => ({
+      save: vi.fn().mockImplementation(async (data) => ({
         meta: {
           ...data.meta,
           id: "fork-server-id",
@@ -245,7 +242,6 @@ describe("reconcileOfflineEdits", () => {
         },
         snapshot: null,
       })),
-      update: vi.fn(),
       delete: vi.fn(),
     } as const;
 
@@ -270,7 +266,7 @@ describe("reconcileOfflineEdits", () => {
       repository: repository as never,
     });
 
-    const sentToCreate = repository.create.mock.calls[0][0] as {
+    const sentToCreate = repository.save.mock.calls[0][0] as {
       meta: { sortOrder: string };
     };
     expect(sentToCreate.meta.sortOrder > "a1").toBe(true);
@@ -284,8 +280,7 @@ describe("reconcileOfflineEdits", () => {
       get: vi.fn().mockResolvedValue({
         meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
-      create: vi.fn(),
-      update: vi.fn(),
+      save: vi.fn(),
     } as const;
 
     vi.mocked(fetch)
@@ -310,6 +305,6 @@ describe("reconcileOfflineEdits", () => {
     });
 
     expect(result).toEqual({ action: "pushed" });
-    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
   });
 });

@@ -251,7 +251,7 @@ export async function convertLocalDocToSynced(
   // `createdAt` is forwarded so the migrated doc keeps its original
   // on-device creation time; without that override the server would
   // stamp "now" and the timeline would reset.
-  await syncedRepository.create({
+  await syncedRepository.save({
     meta: {
       ...local.meta,
       sortOrder: newSortOrder,
