@@ -505,6 +505,28 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     });
   }
 
+  /**
+   * Read-only "did this room ever receive a snapshot?" probe used by the
+   * initializing-doc cleanup sweep to detect divergence between D1 and DO
+   * state.
+   *
+   * Why a separate method from getSnapshotStatus:
+   * - getSnapshotStatus requires `documentId` to have been claimed (it
+   *   may flush a dirty snapshot, run a room task, etc.). The sweep
+   *   asks about rows where the client may never have completed its
+   *   create flow; the DO instance might have no documentId bound.
+   * - The constructor restores `snapshotVersion` from `snapshot` table
+   *   storage during `blockConcurrencyWhile`, so any caller invoking
+   *   methods on the DO sees the fully-initialized value. Wrapping in
+   *   runRoomTask serializes against concurrent replaceSnapshot calls.
+   *
+   * Returns 0 when the DO has no stored snapshot yet — the canonical
+   * "this doc was never finalized" signal.
+   */
+  async peekSnapshotVersion(): Promise<number> {
+    return this.runRoomTask(async () => this.snapshotVersion);
+  }
+
   async startDelete(): Promise<void> {
     this.requireDocumentId();
     await this.runRoomTask(async () => {

@@ -521,10 +521,11 @@ export default {
     ctx.waitUntil(
       (async () => {
         try {
-          const { deletedCount } = await sweepInitializingDocuments(env);
-          if (deletedCount > 0) {
+          const { reconciledCount, deletedCount } =
+            await sweepInitializingDocuments(env);
+          if (reconciledCount > 0 || deletedCount > 0) {
             console.log(
-              `[scheduled] Swept ${deletedCount} abandoned initializing document(s).`,
+              `[scheduled] Initializing-doc sweep: reconciled ${reconciledCount}, deleted ${deletedCount}.`,
             );
           }
         } catch (error) {
