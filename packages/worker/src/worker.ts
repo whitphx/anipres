@@ -430,11 +430,13 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     );
   }
 
-  // Finalize the document: bump updated_at and clear initializing_at if
-  // it was set. Clearing is idempotent (UPDATE ... = NULL is a no-op
-  // when already NULL, and the WHERE conditions still match), so a
-  // doc that was never in the initializing state — or that already
-  // had its first push — is updated normally.
+  // Finalize the document: bump updated_at and clear initializing_at
+  // (whether or not it was set). Repeating this UPDATE is harmless —
+  // the second UPDATE rewrites the same value to the column. The
+  // `deleting_at IS NULL` guard mirrors the pre-DO check above and
+  // closes the race where a DELETE landed between that check and
+  // here; without it the UPDATE would briefly clear initializing_at
+  // on a row already on its way out.
   //
   // updated_at: the trigger would refresh it for any UPDATE, but we
   // want to record the snapshot push time deterministically and not
@@ -444,7 +446,8 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     `UPDATE documents
      SET updated_at = ?, initializing_at = NULL
      WHERE id = ?
-       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(now, id, userId)
     .run();

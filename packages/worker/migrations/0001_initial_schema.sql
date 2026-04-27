@@ -149,10 +149,6 @@ CREATE TABLE documents (
   updated_at          INTEGER NOT NULL DEFAULT (CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER))
 );
 
--- Dominant query: "list active documents in a workspace, in sort
--- order." `WHERE deleting_at IS NULL` keeps the index lean — soft-
--- deleted rows are skipped instead of taking up B-tree pages until
--- the asset-GC grace period expires.
 -- See `trg_users_updated_at` for the design notes; same shape applies.
 -- Callers who pass `updated_at` explicitly (snapshot push, the
 -- convertLocalDocToSynced flow that preserves local timestamps) keep
