@@ -70,7 +70,6 @@ describe("documentCreateSchema", () => {
       title: "My Document",
       sort_order: "Z9z",
       created_at: 1700000000000,
-      updated_at: 1700000000001,
     });
     expect(result.success).toBe(true);
   });
@@ -134,7 +133,7 @@ describe("documentCreateSchema", () => {
   it("rejects a negative timestamp", () => {
     const result = v.safeParse(documentCreateSchema, {
       ...validMinimal,
-      updated_at: -1,
+      created_at: -1,
     });
     expect(result.success).toBe(false);
   });
@@ -144,7 +143,6 @@ describe("documentUpdateSchema", () => {
   const validUpdate = {
     title: "Renamed",
     sort_order: "a0",
-    updated_at: 1700000000000,
   };
 
   it("accepts well-formed update body", () => {
@@ -152,10 +150,16 @@ describe("documentUpdateSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a missing field", () => {
+  it("rejects a missing title", () => {
+    const result = v.safeParse(documentUpdateSchema, {
+      sort_order: "a0",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing sort_order", () => {
     const result = v.safeParse(documentUpdateSchema, {
       title: "x",
-      sort_order: "a0",
     });
     expect(result.success).toBe(false);
   });
@@ -172,14 +176,6 @@ describe("documentUpdateSchema", () => {
     const result = v.safeParse(documentUpdateSchema, {
       ...validUpdate,
       sort_order: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a NaN timestamp", () => {
-    const result = v.safeParse(documentUpdateSchema, {
-      ...validUpdate,
-      updated_at: Number.NaN,
     });
     expect(result.success).toBe(false);
   });

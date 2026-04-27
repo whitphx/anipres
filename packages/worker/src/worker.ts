@@ -119,9 +119,13 @@ app.post("/api/documents", async (c) => {
   const slug = generateDocumentSlug();
   const now = Date.now();
 
+  // `created_at` honors the optional client override (used by the
+  // local→synced migration to preserve a doc's on-device creation
+  // time); otherwise we stamp now. `updated_at` is always now —
+  // there is no migration use case for backdating it.
   const row = await c.env.DB.prepare(
     `INSERT INTO documents (workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at)
-     VALUES (?, ?, ?, COALESCE(?, 'Untitled'), ?, COALESCE(?, ?), COALESCE(?, ?))
+     VALUES (?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?)
      RETURNING id, slug, title, sort_order, created_at, updated_at`,
   )
     .bind(
@@ -130,9 +134,7 @@ app.post("/api/documents", async (c) => {
       slug,
       body.title ?? null,
       body.sort_order,
-      body.created_at ?? null,
-      now,
-      body.updated_at ?? null,
+      body.created_at ?? now,
       now,
     )
     .first<DocumentRow>();
@@ -205,15 +207,18 @@ app.put("/api/documents/:id", async (c) => {
   const { id } = paramsResult.output;
   const body = bodyResult.output;
 
+  // `updated_at` is intentionally not in the SET clause: the schema's
+  // updated_at trigger refreshes it automatically when the UPDATE
+  // doesn't already set it (`WHEN NEW.updated_at IS OLD.updated_at`).
   const row = await c.env.DB.prepare(
     `UPDATE documents
-     SET title = ?, sort_order = ?, updated_at = ?
+     SET title = ?, sort_order = ?
      WHERE id = ?
        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
      RETURNING id, slug, title, sort_order, created_at, updated_at`,
   )
-    .bind(body.title, body.sort_order, body.updated_at, id, userId)
+    .bind(body.title, body.sort_order, id, userId)
     .first<DocumentRow>();
 
   if (!row) {

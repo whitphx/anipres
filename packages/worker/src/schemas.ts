@@ -62,23 +62,24 @@ export const documentConnectParamSchema = v.object({
   documentId: documentIdSchema,
 });
 
-// Body for POST /api/documents (create). title and timestamps optional —
-// server defaults `title` to 'Untitled' (column default) and timestamps
-// to now (column default). `sort_order` is required because the client
-// chooses where to position the new row.
+// Body for POST /api/documents (create). The server stamps timestamps
+// itself (column DEFAULT or handler-side `Date.now()`). `created_at`
+// is accepted as an optional override so the local→synced migration
+// can preserve a doc's original on-device creation time. `title` is
+// optional too — the column default is 'Untitled'. `sort_order` is
+// required because the client chooses where to position the new row.
 export const documentCreateSchema = v.object({
   title: v.optional(documentTitleSchema),
   sort_order: sortOrderSchema,
   created_at: v.optional(nonNegativeFiniteInteger),
-  updated_at: v.optional(nonNegativeFiniteInteger),
 });
 
-// Body for PUT /api/documents/:id (update). Caller passes the full
-// post-update metadata.
+// Body for PUT /api/documents/:id (update). Timestamps are not in
+// the contract — the schema's updated_at trigger refreshes the row's
+// `updated_at` automatically on any UPDATE that doesn't already set it.
 export const documentUpdateSchema = v.object({
   title: documentTitleSchema,
   sort_order: sortOrderSchema,
-  updated_at: nonNegativeFiniteInteger,
 });
 
 export const snapshotPushBodySchema = v.object({
