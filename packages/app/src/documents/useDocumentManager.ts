@@ -1,23 +1,25 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+import type {
+  DocumentData,
+  DocumentDraft,
+  DocumentMeta,
+  DocumentOrigin,
+} from "./types";
 import {
   convertLocalDocToSynced,
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
 import { nextTailSortOrder } from "./sort-order";
 
-function createNewDocument(
+function createNewDocumentDraft(
   sortOrder: string,
   origin: DocumentOrigin,
-): DocumentData {
+): DocumentDraft {
   return {
     meta: {
-      id: crypto.randomUUID(),
       title: "Untitled",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
       sortOrder,
       origin,
     },
@@ -182,7 +184,6 @@ export function useDocumentManager(params: {
     const { document } = getSnapshot(editor.store);
     await localRepository.update({
       ...existing,
-      meta: { ...existing.meta, updatedAt: Date.now() },
       snapshot: document,
     });
   }, [localRepository]);
@@ -202,7 +203,10 @@ export function useDocumentManager(params: {
           : "local";
         const repo = getRepository(defaultOrigin);
         if (!repo) return;
-        const draft = createNewDocument(nextTailSortOrder([]), defaultOrigin);
+        const draft = createNewDocumentDraft(
+          nextTailSortOrder([]),
+          defaultOrigin,
+        );
         // The synced repo allocates a server-side id at create; use the
         // returned doc's id rather than the draft's UUID.
         const saved = await repo.create(draft);
@@ -288,7 +292,10 @@ export function useDocumentManager(params: {
       // change.
       try {
         const existing = await repo.list();
-        const draft = createNewDocument(nextTailSortOrder(existing), origin);
+        const draft = createNewDocumentDraft(
+          nextTailSortOrder(existing),
+          origin,
+        );
         const saved = await repo.create(draft);
 
         editorRef.current = null;
@@ -363,7 +370,10 @@ export function useDocumentManager(params: {
           : "local";
         const defaultRepo = getRepository(defaultOrigin);
         if (!defaultRepo) return;
-        const draft = createNewDocument(nextTailSortOrder([]), defaultOrigin);
+        const draft = createNewDocumentDraft(
+          nextTailSortOrder([]),
+          defaultOrigin,
+        );
         let saved: DocumentData;
         try {
           saved = await defaultRepo.create(draft);
@@ -373,7 +383,7 @@ export function useDocumentManager(params: {
             error,
           );
           if (defaultOrigin === "synced") {
-            const localDraft = createNewDocument(
+            const localDraft = createNewDocumentDraft(
               nextTailSortOrder([]),
               "local",
             );
@@ -431,7 +441,7 @@ export function useDocumentManager(params: {
       if (!data) return;
       await repo.update({
         ...data,
-        meta: { ...data.meta, title, updatedAt: Date.now() },
+        meta: { ...data.meta, title },
       });
       await refreshDocuments();
     },
@@ -449,7 +459,7 @@ export function useDocumentManager(params: {
       if (!data) return;
       await repo.update({
         ...data,
-        meta: { ...data.meta, sortOrder: newSortOrder, updatedAt: Date.now() },
+        meta: { ...data.meta, sortOrder: newSortOrder },
       });
       await refreshDocuments();
     },

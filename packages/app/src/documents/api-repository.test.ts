@@ -92,24 +92,24 @@ describe("ApiDocumentRepository", () => {
 
     const result = await repo.create({
       meta: {
-        // The client-provided id is ignored by the server. We pass a
-        // placeholder UUID; the returned doc carries the canonical id.
-        id: "client-placeholder",
         title: "Title",
         sortOrder: "a0",
         createdAt: 10,
-        updatedAt: 20,
         origin: "synced",
       },
       snapshot: null,
     });
 
-    // Server-allocated id and slug surface in the result.
+    // Server-allocated id, slug, and updated_at surface in the result.
     expect(result.meta.id).toBe("100");
     expect(result.meta.slug).toBe("server-slug");
     expect(result.meta.sortOrder).toBe("a0");
+    expect(result.meta.updatedAt).toBe(20);
 
-    // The wire body uses snake_case field names and excludes the id.
+    // The wire body sends only the fields the caller actually supplied:
+    // title, sort_order, and (because the caller set it explicitly here
+    // for the migration use case) created_at. updated_at and id never
+    // appear — the server stamps the former and allocates the latter.
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/documents");
     expect(init?.method).toBe("POST");
@@ -118,10 +118,37 @@ describe("ApiDocumentRepository", () => {
       title: "Title",
       sort_order: "a0",
       created_at: 10,
-      updated_at: 20,
     });
     expect(sent).not.toHaveProperty("id");
     expect(sent).not.toHaveProperty("slug");
+    expect(sent).not.toHaveProperty("updated_at");
+  });
+
+  it("create omits created_at when the caller doesn't supply one", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "101",
+        slug: "fresh-doc",
+        title: "Fresh",
+        sort_order: "a0",
+        created_at: 50,
+        updated_at: 50,
+      }),
+    );
+
+    await repo.create({
+      meta: {
+        title: "Fresh",
+        sortOrder: "a0",
+        origin: "synced",
+      },
+      snapshot: null,
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const sent = JSON.parse((init?.body as string) ?? "{}");
+    expect(sent).toEqual({ title: "Fresh", sort_order: "a0" });
+    expect(sent).not.toHaveProperty("created_at");
   });
 
   it("update PUTs to /api/documents/:id with snake_case body", async () => {
@@ -144,11 +171,13 @@ describe("ApiDocumentRepository", () => {
     expect(url).toBe("/api/documents/42");
     expect(init?.method).toBe("PUT");
     const sent = JSON.parse((init?.body as string) ?? "{}");
+    // updated_at is not sent: the server's updated_at trigger refreshes
+    // the row's timestamp on any UPDATE that doesn't already set it.
     expect(sent).toEqual({
       title: "New Title",
       sort_order: "a1",
-      updated_at: 99,
     });
+    expect(sent).not.toHaveProperty("updated_at");
   });
 
   it("delete sends DELETE to /api/documents/:id", async () => {

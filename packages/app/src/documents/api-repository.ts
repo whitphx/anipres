@@ -45,20 +45,29 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   /**
-   * POST /api/documents — server allocates id and slug. Any caller-
-   * supplied `id` on the draft is silently dropped; the returned doc
-   * carries the canonical id (a stringified INTEGER from the server).
+   * POST /api/documents — server allocates id, slug, and `updated_at`.
+   * `created_at` is sent only when the caller explicitly supplies it
+   * (the local→synced migration uses this to preserve the on-device
+   * creation time); otherwise the server stamps it. Any caller-
+   * supplied `id` on the draft is silently dropped — the returned
+   * doc carries the canonical id (a stringified INTEGER from the server).
    */
   async create(draft: DocumentDraft): Promise<DocumentData> {
+    const body: {
+      title: string;
+      sort_order: string;
+      created_at?: number;
+    } = {
+      title: draft.meta.title,
+      sort_order: draft.meta.sortOrder,
+    };
+    if (draft.meta.createdAt !== undefined) {
+      body.created_at = draft.meta.createdAt;
+    }
     const res = await fetch("/api/documents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: draft.meta.title,
-        sort_order: draft.meta.sortOrder,
-        created_at: draft.meta.createdAt,
-        updated_at: draft.meta.updatedAt,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       throw new Error(`Failed to create document: ${res.status}`);
@@ -72,6 +81,8 @@ export class ApiDocumentRepository implements DocumentRepository {
     };
   }
 
+  // PUT /api/documents/:id — caller's `updatedAt` is not sent; the
+  // server's updated_at trigger refreshes the row's timestamp.
   async update(data: DocumentData): Promise<void> {
     const res = await fetch(
       `/api/documents/${encodeURIComponent(data.meta.id)}`,
@@ -81,7 +92,6 @@ export class ApiDocumentRepository implements DocumentRepository {
         body: JSON.stringify({
           title: data.meta.title,
           sort_order: data.meta.sortOrder,
-          updated_at: data.meta.updatedAt,
         }),
       },
     );

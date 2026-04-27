@@ -251,18 +251,19 @@ export async function convertLocalDocToSynced(
 
   abortSignal?.throwIfAborted();
 
-  // POST /api/documents allocates the server id and slug. The local
-  // id and slug-less metadata are passed-through fields; the server
-  // ignores `id` and stamps its own `slug`.
-  //
-  // createdAt is preserved from the local doc so migrated docs keep
-  // their original creation time; updatedAt advances to "now."
+  // POST /api/documents allocates the server id, slug, and updated_at.
+  // The local doc's `createdAt` is forwarded so the migrated doc keeps
+  // its original on-device creation time; without that override the
+  // server would stamp "now" and the timeline would reset. Spreading
+  // the rest of `local.meta` carries fields like `id` and `updatedAt`
+  // through the draft — the API repo discards them at the wire — but
+  // keeps the local id visible to test fakes that derive a
+  // deterministic "synced-<localId>" mapping for assertions.
   const synced = await syncedRepository.create({
     meta: {
       ...local.meta,
-      origin: "synced",
       sortOrder: newSortOrder,
-      updatedAt: Date.now(),
+      origin: "synced",
     },
     snapshot: null,
   });

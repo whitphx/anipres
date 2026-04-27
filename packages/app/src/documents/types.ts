@@ -27,20 +27,30 @@ export interface DocumentData {
 }
 
 /**
- * Input shape for creating a new document. The id is optional because
- * each repository owns its own id-allocation policy:
+ * Input shape for creating a new document.
  *
- * - The local IDB repo allocates a fresh UUID when `id` is omitted,
- *   or uses the caller-provided id when supplied (callers may want
- *   to mint the id upfront so they can reference it before the
- *   create resolves).
- * - The API (synced) repo always ignores `id`; the server allocates
- *   the canonical INTEGER id at INSERT time. Caller-supplied values
- *   are silently dropped.
+ * The repository owns id allocation and timestamp stamping; callers
+ * supply only the user-meaningful fields:
  *
- * `create()` always returns a `DocumentData` with the canonical id.
+ * - `id` is optional. The local IDB repo mints a fresh UUID when
+ *   omitted (or honors a caller-supplied one for stable identity-
+ *   from-creation); the API repo always ignores it and the server
+ *   allocates the canonical INTEGER id at INSERT time.
+ * - `createdAt` is optional. It exists only as an escape hatch for
+ *   the local→synced migration to preserve a doc's on-device
+ *   creation time. In every other call site the repo (or the
+ *   server, via column DEFAULT) stamps it.
+ * - `updatedAt` is not on the draft at all — repos always stamp it
+ *   themselves on create; on update, the IDB repo bumps it and the
+ *   server's updated_at trigger handles it.
+ *
+ * `create()` always returns a `DocumentData` with the canonical id
+ * and timestamps.
  */
 export interface DocumentDraft {
-  meta: Omit<DocumentMeta, "id"> & { id?: string };
+  meta: Pick<DocumentMeta, "title" | "sortOrder" | "origin"> & {
+    id?: string;
+    createdAt?: number;
+  };
   snapshot: TLStoreSnapshot | null;
 }

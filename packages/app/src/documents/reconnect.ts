@@ -162,7 +162,6 @@ export async function reconcileOfflineEdits(params: {
   // Server has diverged — fork the local version as a new document.
   const originalTitle = serverDoc.meta.title;
   const forkTitle = `${originalTitle} (offline copy)`;
-  const now = Date.now();
 
   // Create the fork on the server. The fork is a distinct document
   // with its own id — we know that id only after the POST response
@@ -176,8 +175,6 @@ export async function reconcileOfflineEdits(params: {
   const created = await repository.create({
     meta: {
       title: forkTitle,
-      createdAt: now,
-      updatedAt: now,
       sortOrder: forkSortOrder,
       origin: "synced",
     },

@@ -85,9 +85,16 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
       origin === "synced"
         ? String(++serverIdCounter)
         : (d.meta.id ?? crypto.randomUUID());
+    const now = Date.now();
     const stored: DocumentData = {
       ...d,
-      meta: { ...d.meta, id: allocatedId, origin },
+      meta: {
+        ...d.meta,
+        id: allocatedId,
+        origin,
+        createdAt: d.meta.createdAt ?? now,
+        updatedAt: now,
+      },
     };
     store.set(allocatedId, stored);
     return stored;
@@ -466,9 +473,16 @@ describe("convertLocalDocToSynced", () => {
     const controller = new AbortController();
     // Abort mid-migration, right after syncedRepository.create runs.
     syncedRepo.repo.create = vi.fn(async (d: DocumentDraft) => {
+      const now = Date.now();
       const allocated: DocumentData = {
         ...d,
-        meta: { ...d.meta, id: "server-1", origin: "synced" },
+        meta: {
+          ...d.meta,
+          id: "server-1",
+          origin: "synced",
+          createdAt: d.meta.createdAt ?? now,
+          updatedAt: now,
+        },
       };
       syncedRepo.store.set("server-1", allocated);
       controller.abort();

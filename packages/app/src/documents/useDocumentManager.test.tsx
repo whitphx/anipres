@@ -61,11 +61,18 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   // The local repo keeps the caller's id verbatim, mimicking IDB; if
   // the caller didn't supply one, mint a UUID like the real repo does.
   const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+    const now = Date.now();
     const localId = d.meta.id ?? crypto.randomUUID();
     const allocatedId = origin === "synced" ? `synced-${localId}` : localId;
     const stored: DocumentData = {
       ...d,
-      meta: { ...d.meta, id: allocatedId, origin },
+      meta: {
+        ...d.meta,
+        id: allocatedId,
+        origin,
+        createdAt: d.meta.createdAt ?? now,
+        updatedAt: now,
+      },
     };
     store.set(allocatedId, stored);
     return stored;
