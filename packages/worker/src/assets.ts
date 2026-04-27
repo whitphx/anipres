@@ -197,9 +197,10 @@ async function documentExistsForUser(
   // could otherwise recreate a blob after the delete sweep has already run.
   const document = await c.env.DB.prepare(
     `SELECT 1
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(documentId, userId)
     .first();

@@ -6,6 +6,7 @@ import {
   documentAssetUploadFileSchema,
   documentCreateSchema,
   documentIdParamSchema,
+  documentListQuerySchema,
   documentUpdateSchema,
   snapshotPushBodySchema,
 } from "./schemas";
@@ -57,16 +58,46 @@ describe("documentIdParamSchema", () => {
   });
 });
 
-describe("documentCreateSchema", () => {
-  const validMinimal = { sort_order: "a0" };
+describe("documentListQuerySchema", () => {
+  it("accepts a positive integer workspace_id", () => {
+    const result = v.safeParse(documentListQuerySchema, {
+      workspace_id: "7",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.output.workspace_id).toBe(7);
+    }
+  });
 
-  it("accepts the minimal body (sort_order only)", () => {
+  it("rejects a missing workspace_id", () => {
+    const result = v.safeParse(documentListQuerySchema, {});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects zero", () => {
+    const result = v.safeParse(documentListQuerySchema, { workspace_id: "0" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-numeric workspace_id", () => {
+    const result = v.safeParse(documentListQuerySchema, {
+      workspace_id: "personal",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("documentCreateSchema", () => {
+  const validMinimal = { workspace_id: "1", sort_order: "a0" };
+
+  it("accepts the minimal body (workspace_id + sort_order)", () => {
     const result = v.safeParse(documentCreateSchema, validMinimal);
     expect(result.success).toBe(true);
   });
 
   it("accepts a fully-populated body", () => {
     const result = v.safeParse(documentCreateSchema, {
+      workspace_id: "42",
       title: "My Document",
       sort_order: "Z9z",
       created_at: 1700000000000,
@@ -74,13 +105,29 @@ describe("documentCreateSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("rejects a missing workspace_id", () => {
+    const result = v.safeParse(documentCreateSchema, { sort_order: "a0" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-numeric workspace_id", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      workspace_id: "default",
+      sort_order: "a0",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects an empty sort_order", () => {
-    const result = v.safeParse(documentCreateSchema, { sort_order: "" });
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
+      sort_order: "",
+    });
     expect(result.success).toBe(false);
   });
 
   it("rejects a missing sort_order", () => {
-    const result = v.safeParse(documentCreateSchema, {});
+    const result = v.safeParse(documentCreateSchema, { workspace_id: "1" });
     expect(result.success).toBe(false);
   });
 
@@ -93,6 +140,7 @@ describe("documentCreateSchema", () => {
 
   it("rejects a non-string sort_order", () => {
     const result = v.safeParse(documentCreateSchema, {
+      workspace_id: "1",
       sort_order: 1.5,
     });
     expect(result.success).toBe(false);

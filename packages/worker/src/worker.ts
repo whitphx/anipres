@@ -7,11 +7,12 @@ import {
   documentConnectParamSchema,
   documentCreateSchema,
   documentIdParamSchema,
+  documentListQuerySchema,
   documentUpdateSchema,
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "./schemas";
-import type { AppBindings, Env } from "./types";
+import type { AppBindings, AppContext, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
@@ -68,32 +69,104 @@ function generateDocumentSlug() {
   return crypto.randomUUID();
 }
 
-// List the user's active documents in sort order.
+// Centralized ownership check for workspace-scoped routes. Returns true
+// iff the workspace exists and is owned by `userId`. Phase 1 has 1:1
+// user:workspace, so this is a presence check; Extension A will replace
+// this with a membership query against `workspaces` ∪ `org_memberships`.
+async function userOwnsWorkspace(
+  c: AppContext,
+  userId: number,
+  workspaceId: number,
+): Promise<boolean> {
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM workspaces WHERE id = ? AND owner_user_id = ?",
+  )
+    .bind(workspaceId, userId)
+    .first();
+  return Boolean(row);
+}
+
+// List the workspaces the user owns. Phase 1: always exactly one row
+// (the user's personal workspace, created at signup). Extension A will
+// expand this to include workspaces the user belongs to via
+// `org_memberships` — at which point this endpoint becomes the
+// canonical "what can I see?" discovery API for the client.
+app.get("/api/workspaces", async (c) => {
+  const userId = c.get("userId");
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, name, created_at, updated_at
+     FROM workspaces
+     WHERE owner_user_id = ?
+     ORDER BY id ASC`,
+  )
+    .bind(userId)
+    .all<{
+      id: number;
+      name: string;
+      created_at: number;
+      updated_at: number;
+    }>();
+  return c.json(
+    results.map((row) => ({
+      id: String(row.id),
+      name: row.name,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    })),
+  );
+});
+
+// List active documents in a workspace, in sort order.
 //
 // "Active" means neither soft-deleted nor still initializing. Rows in
 // either of those states are an implementation detail of a multi-step
 // lifecycle the user shouldn't see: deleting rows are mid-asset-GC,
 // initializing rows are mid-create. The partial index
 // `idx_documents_workspace_sort` matches this exact predicate.
+//
+// Why a query param instead of a path segment: `/api/documents/:id` is
+// already the per-doc route; making the list-route `/api/documents`
+// keeps the surface flat and pairs naturally with the per-doc routes.
+// Extension A will likely add `/api/workspaces/:wsid/documents` as a
+// secondary form for org-scoped enumeration.
 app.get("/api/documents", async (c) => {
   const userId = c.get("userId");
+
+  const queryResult = v.safeParse(documentListQuerySchema, {
+    workspace_id: c.req.query("workspace_id"),
+  });
+  if (!queryResult.success) {
+    return c.json(
+      { error: "Invalid workspace_id", details: queryResult.issues },
+      400,
+    );
+  }
+  const { workspace_id: workspaceId } = queryResult.output;
+
+  if (!(await userOwnsWorkspace(c, userId, workspaceId))) {
+    // 404 rather than 403: don't reveal whether the workspace exists
+    // for some other user. Indistinguishable from "workspace doesn't
+    // exist at all" from the client's perspective.
+    return c.json({ error: "Not found" }, 404);
+  }
+
   const { results } = await c.env.DB.prepare(
-    `SELECT d.id, d.slug, d.title, d.sort_order, d.created_at, d.updated_at
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE w.owner_user_id = ?
-       AND d.deleting_at IS NULL
-       AND d.initializing_at IS NULL
-     ORDER BY d.sort_order ASC`,
+    `SELECT id, slug, title, sort_order, created_at, updated_at
+     FROM documents
+     WHERE workspace_id = ?
+       AND deleting_at IS NULL
+       AND initializing_at IS NULL
+     ORDER BY sort_order ASC`,
   )
-    .bind(userId)
+    .bind(workspaceId)
     .all<DocumentRow>();
   return c.json(results.map(serializeDocumentRow));
 });
 
-// Create a document. Server allocates the id (INTEGER) and the slug.
-// Caller chooses the sort_order position; title and timestamps are
-// optional and fall back to the column defaults.
+// Create a document in a workspace the caller owns. Server allocates
+// the document id (INTEGER) and the slug. Caller chooses the
+// sort_order position; title and `created_at` are optional and fall
+// back to server defaults.
 app.post("/api/documents", async (c) => {
   const userId = c.get("userId");
 
@@ -112,19 +185,13 @@ app.post("/api/documents", async (c) => {
     );
   }
 
-  const workspace = await c.env.DB.prepare(
-    "SELECT id FROM workspaces WHERE owner_user_id = ? LIMIT 1",
-  )
-    .bind(userId)
-    .first<{ id: number }>();
-  if (!workspace) {
-    // The auth flow creates the user's personal workspace at signup, so
-    // this should never happen for a valid session. Surface as 500 so we
-    // notice if the invariant breaks.
-    return c.json({ error: "No workspace for this user" }, 500);
+  const body = bodyResult.output;
+  const workspaceId = body.workspace_id;
+
+  if (!(await userOwnsWorkspace(c, userId, workspaceId))) {
+    return c.json({ error: "Not found" }, 404);
   }
 
-  const body = bodyResult.output;
   const slug = generateDocumentSlug();
   const now = Date.now();
 
@@ -144,7 +211,7 @@ app.post("/api/documents", async (c) => {
      RETURNING id, slug, title, sort_order, created_at, updated_at`,
   )
     .bind(
-      workspace.id,
+      workspaceId,
       userId,
       slug,
       body.title ?? null,
@@ -177,14 +244,17 @@ app.get("/api/documents/:id", async (c) => {
   }
 
   const { id } = paramsResult.output;
+  // Ownership scoping is expressed by filtering on the doc's
+  // `workspace_id` against the set of workspaces owned by the user.
+  // The IN-subquery form is consistent with the other per-doc handlers
+  // and reads as "this doc, in one of my workspaces."
   const row = await c.env.DB.prepare(
-    `SELECT d.id, d.slug, d.title, d.sort_order, d.created_at, d.updated_at
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ?
-       AND w.owner_user_id = ?
-       AND d.deleting_at IS NULL
-       AND d.initializing_at IS NULL`,
+    `SELECT id, slug, title, sort_order, created_at, updated_at
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL
+       AND initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first<DocumentRow>();
@@ -265,10 +335,10 @@ app.delete("/api/documents/:id", async (c) => {
 
   const { id } = paramsResult.output;
   const document = await c.env.DB.prepare(
-    `SELECT d.deleting_at, d.initializing_at
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ?`,
+    `SELECT deleting_at, initializing_at
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
   )
     .bind(id, userId)
     .first<{ deleting_at: number | null; initializing_at: number | null }>();
@@ -335,9 +405,10 @@ app.post("/api/documents/:id/finalize", async (c) => {
     // genuine error if the row really doesn't exist.
     const exists = await c.env.DB.prepare(
       `SELECT 1
-       FROM documents d
-       JOIN workspaces w ON w.id = d.workspace_id
-       WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+       FROM documents
+       WHERE id = ?
+         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+         AND deleting_at IS NULL`,
     )
       .bind(id, userId)
       .first();
@@ -405,9 +476,10 @@ app.put("/api/documents/:id/snapshot", async (c) => {
   // down).
   const row = await c.env.DB.prepare(
     `SELECT 1
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ? AND w.owner_user_id = ? AND d.deleting_at IS NULL`,
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(id, userId)
     .first();
@@ -474,12 +546,11 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
   // client already saw in a list.
   const row = await c.env.DB.prepare(
     `SELECT 1
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ?
-       AND w.owner_user_id = ?
-       AND d.deleting_at IS NULL
-       AND d.initializing_at IS NULL`,
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL
+       AND initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first();
@@ -509,12 +580,11 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
   const { id } = paramsResult.output;
   const row = await c.env.DB.prepare(
     `SELECT 1
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ?
-       AND w.owner_user_id = ?
-       AND d.deleting_at IS NULL
-       AND d.initializing_at IS NULL`,
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL
+       AND initializing_at IS NULL`,
   )
     .bind(id, userId)
     .first();
@@ -554,12 +624,11 @@ app.get("/api/connect/:documentId", async (c) => {
   // and would race with the create flow's own snapshot push.
   const document = await c.env.DB.prepare(
     `SELECT 1
-     FROM documents d
-     JOIN workspaces w ON w.id = d.workspace_id
-     WHERE d.id = ?
-       AND w.owner_user_id = ?
-       AND d.deleting_at IS NULL
-       AND d.initializing_at IS NULL`,
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL
+       AND initializing_at IS NULL`,
   )
     .bind(documentId, userId)
     .first();

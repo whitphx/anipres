@@ -43,14 +43,21 @@ const sortOrderSchema = v.pipe(
   v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
 );
 
-// Document ids are server-allocated INTEGER autoincrement values; the
-// client passes them as decimal strings in URL params. Coerce to a JS
-// number after validation so handlers can pass it straight to D1
-// `.bind()` (which is happy with either type for INTEGER columns).
-// Reject leading zeros to keep the wire form canonical.
+// Document and workspace ids are server-allocated INTEGER autoincrement
+// values; clients pass them as decimal strings in URL params, query
+// strings, or JSON body fields. Coerce to a JS number after validation
+// so handlers can pass it straight to D1 `.bind()` (which is happy with
+// either type for INTEGER columns). Reject leading zeros to keep the
+// wire form canonical.
 const documentIdSchema = v.pipe(
   v.string(),
   v.regex(/^[1-9]\d*$/u, "Invalid document id"),
+  v.transform(Number),
+);
+
+const workspaceIdSchema = v.pipe(
+  v.string(),
+  v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
   v.transform(Number),
 );
 
@@ -62,13 +69,25 @@ export const documentConnectParamSchema = v.object({
   documentId: documentIdSchema,
 });
 
+// Query string for GET /api/documents — workspace-scoped list.
+// `workspace_id` is required: every list call has to name the
+// workspace it's listing. Phase 1 has 1:1 user:workspace, so the
+// client always passes its own; Extension A will let it list any
+// workspace it's a member of.
+export const documentListQuerySchema = v.object({
+  workspace_id: workspaceIdSchema,
+});
+
 // Body for POST /api/documents (create). The server stamps timestamps
 // itself (column DEFAULT or handler-side `Date.now()`). `created_at`
 // is accepted as an optional override so the local→synced migration
 // can preserve a doc's original on-device creation time. `title` is
 // optional too — the column default is 'Untitled'. `sort_order` is
 // required because the client chooses where to position the new row.
+// `workspace_id` is required: documents belong to workspaces, and the
+// caller must say which one.
 export const documentCreateSchema = v.object({
+  workspace_id: workspaceIdSchema,
   title: v.optional(documentTitleSchema),
   sort_order: sortOrderSchema,
   created_at: v.optional(nonNegativeFiniteInteger),
