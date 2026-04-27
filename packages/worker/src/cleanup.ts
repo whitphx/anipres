@@ -45,13 +45,13 @@ export async function sweepInitializingDocuments(env: Env): Promise<{
       LIMIT ?`,
   )
     .bind(cutoff, SWEEP_BATCH_LIMIT)
-    .all<{ id: number }>();
+    .all<{ id: string }>();
 
   let reconciledCount = 0;
   let deletedCount = 0;
 
   for (const { id } of candidates.results) {
-    const room = env.DOCUMENT_SYNC_ROOM.getByName(String(id));
+    const room = env.DOCUMENT_SYNC_ROOM.getByName(id);
     let snapshotVersion = 0;
     try {
       snapshotVersion = await room.peekSnapshotVersion();

@@ -67,36 +67,53 @@ CREATE INDEX idx_workspaces_owner_user ON workspaces (owner_user_id);
 
 -- documents.id design note:
 --
--- This file picks INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated).
--- That choice is *not* universally correct for a document-management
--- schema; it depends on the sync architecture of the implementing
--- system. Two viable shapes:
+-- This file picks TEXT UUID (client-allocated). That choice is *not*
+-- universally correct for a document-management schema; it depends on
+-- the sync architecture of the implementing system. Two viable shapes:
 --
--- (A) INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated) — chosen here
+-- (A) TEXT UUID v7 (client-allocated) — chosen here
+--     - The id is known the moment the client creates the document,
+--       whether the client is online or offline. No server round-trip
+--       to allocate it; the same id flows unchanged through the
+--       local → synced migration path.
+--     - Lets the API contract stay symmetric: every doc operation
+--       (POST/PUT/GET/DELETE) addresses the doc by the id the client
+--       already holds, so list/create/update share a clean shape.
+--     - v7 specifically (vs v4) so the 48-bit time prefix keeps
+--       B-tree inserts mostly-sequential. Recovers the locality
+--       INTEGER rowids would have given us, modulo a constant
+--       per-row size penalty.
+--     - Trade: larger indexes (UUID is 36 chars vs 4–9 bytes for an
+--       INTEGER rowid alias). Not measurable at hobby scale; real at
+--       any future scale where index size compounds.
+--
+-- (B) INTEGER PRIMARY KEY AUTOINCREMENT (server-allocated)
 --     - Smaller indexes, sequential B-tree inserts, and the PK is the
 --       SQLite rowid (no separate PK index, every secondary index
---       stores rowid implicitly). Materially better on D1.
+--       stores rowid implicitly). Materially better on D1 at scale.
 --     - Easier debugging in support tooling ("doc 42" vs a UUID).
 --     - Trade: clients cannot create a synced document without a
---       round-trip to the server to allocate the id, *or* must use
---       an explicit local→synced migration that remaps the locally
---       generated id to the server-allocated one.
---     - Right choice when the local→synced migration path is already
---       a first-class operation. anipres has this today as
---       `convertLocalDocToSynced` (packages/app/src/documents/migration.ts),
---       which can perform the id remap as part of the existing flow.
---
--- (B) TEXT UUID v7 (client-allocated)
---     - Documents can be created offline with their final id baked in.
---       No round-trip, no remap.
---     - Larger indexes (4–9× per FK reference), no rowid alias.
---     - Right choice when the sync contract is upsert-by-id and the
---       client owns the id lifecycle from creation onward.
+--       round-trip to the server to allocate the id, and the
+--       local → synced migration path needs an explicit id-remap
+--       step that the client must thread through asset uploads,
+--       snapshot pushes, and active-document tracking.
 --
 -- Implementors of similar schemas should evaluate their own sync
--- architecture before copying this choice.
+-- architecture before copying this choice. anipres picked UUID
+-- because the local-first → synced migration is a first-class flow
+-- and the simpler "id flows through the boundary" property matters
+-- more here than the storage win.
 CREATE TABLE documents (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- UUID v7 (RFC 9562) generated on the client. v7 over v4 because
+  -- v7's 48-bit Unix-ms timestamp prefix makes B-tree inserts mostly
+  -- sequential — recovering the rowid-alias-style locality that
+  -- INTEGER AUTOINCREMENT would have given us — and gives a free
+  -- creation-time secondary sort for debug/admin queries (the user-
+  -- visible order is `sort_order`). CHECKed for the canonical 36-char
+  -- form so a malformed id never lands in D1 even if the API-layer
+  -- validator is bypassed.
+  id                  TEXT    NOT NULL PRIMARY KEY
+                              CHECK (length(id) = 36),
   -- ON DELETE RESTRICT (not CASCADE) on workspace_id: documents have
   -- a soft-delete + asset-GC lifecycle (see `deleting_at` below). A
   -- cascade from `workspaces` would hard-delete document rows

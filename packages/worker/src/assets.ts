@@ -88,19 +88,19 @@ function getDeclaredContentLength(contentLength: string | undefined) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function getDocumentAssetPrefix(documentId: number) {
+function getDocumentAssetPrefix(documentId: string) {
   return `${DOCUMENT_ASSET_PREFIX}/${documentId}/`;
 }
 
-function getDocumentAssetKey(documentId: number, assetName: string) {
+function getDocumentAssetKey(documentId: string, assetName: string) {
   return `${getDocumentAssetPrefix(documentId)}${assetName}`;
 }
 
-function getDocumentAssetSrc(documentId: number, assetName: string) {
+function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
 }
 
-function getAssetNameFromDocumentAssetSrc(src: string, documentId: number) {
+function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
   try {
     const url = new URL(src, "https://anipres.invalid");
     const prefix = `/api/documents/${encodeURIComponent(documentId)}/assets/`;
@@ -118,19 +118,19 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: number) {
 
 async function scheduleDocumentAssetGc(
   c: AppContext,
-  documentId: number,
+  documentId: string,
 ): Promise<void> {
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(String(documentId));
-  await room.claimDocument(String(documentId));
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
+  await room.claimDocument(documentId);
   await room.scheduleAssetGc();
 }
 
 async function scheduleDocumentDeletion(
   c: AppContext,
-  documentId: number,
+  documentId: string,
 ): Promise<void> {
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(String(documentId));
-  await room.claimDocument(String(documentId));
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
+  await room.claimDocument(documentId);
   await room.startDelete();
 }
 
@@ -190,7 +190,7 @@ async function parseAssetUploadFormData(request: Request) {
 async function documentExistsForUser(
   c: AppContext,
   userId: number,
-  documentId: number,
+  documentId: string,
 ) {
   // Upload and asset-read paths only operate on active documents. Once a
   // delete starts, `deleting_at` closes the race where an in-flight upload
@@ -323,7 +323,7 @@ function buildUnsatisfiableRangeHeaders(size: number) {
 
 async function deleteDocumentAssetPrefixBatch(
   bucket: R2Bucket,
-  documentId: number,
+  documentId: string,
   cursor?: string,
 ) {
   const prefix = getDocumentAssetPrefix(documentId);
@@ -345,7 +345,7 @@ function getInClausePlaceholders(length: number) {
 
 async function insertDocumentAsset(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
   assetName: string,
   contentType: string,
 ) {
@@ -369,7 +369,7 @@ async function insertDocumentAsset(
 
 async function clearReferencedDocumentAssets(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
   assetNames: readonly string[],
   now: number,
 ) {
@@ -389,7 +389,7 @@ async function clearReferencedDocumentAssets(
 
 async function markUnreferencedDocumentAssetsStale(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
   referencedAssetNames: readonly string[],
   now: number,
 ) {
@@ -416,7 +416,7 @@ async function markUnreferencedDocumentAssetsStale(
 
 async function getNextDocumentAssetGcAt(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
 ) {
   const row = await env.DB.prepare(
     `SELECT MIN(stale_at) AS stale_at
@@ -432,7 +432,7 @@ async function getNextDocumentAssetGcAt(
 
 export async function reconcileDocumentAssets(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
   referencedAssetNames: readonly string[],
 ) {
   const now = Date.now();
@@ -456,7 +456,7 @@ export async function reconcileDocumentAssets(
 
 export async function runDocumentAssetGc(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
 ) {
   const cutoff = Date.now() - STALE_ASSET_RETENTION_MS;
   const expiredAssets = await env.DB.prepare(
@@ -515,7 +515,7 @@ export async function runDocumentAssetGc(
 
 export async function isDocumentDeleting(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
 ) {
   const row = await env.DB.prepare(
     "SELECT deleting_at FROM documents WHERE id = ?",
@@ -529,7 +529,7 @@ export function getReferencedDocumentAssetNames(
   snapshot: {
     documents: Array<{ state: SnapshotRecord }>;
   },
-  documentId: number,
+  documentId: string,
 ) {
   const records = snapshot.documents.map((document) => document.state);
   const assetsById = new Map<string, SnapshotRecord>();
@@ -579,7 +579,7 @@ export function getReferencedDocumentAssetNames(
 
 export async function finalizeDeletingDocument(
   env: AppContext["env"],
-  documentId: number,
+  documentId: string,
   cursor?: string,
 ) {
   const document = await env.DB.prepare(
@@ -611,7 +611,7 @@ export async function finalizeDeletingDocument(
 export async function startDocumentDeletion(
   c: AppContext,
   userId: number,
-  documentId: number,
+  documentId: string,
 ) {
   const { meta } = await c.env.DB.prepare(
     `UPDATE documents

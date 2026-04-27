@@ -214,7 +214,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   private async isDeleting() {
     return this.documentId
-      ? isDocumentDeleting(this.env, Number(this.documentId))
+      ? isDocumentDeleting(this.env, this.documentId)
       : false;
   }
 
@@ -314,7 +314,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     if (this.snapshotDirty) {
       this.flushSnapshot(snapshot, true);
     }
-    const documentId = Number(this.documentId);
+    const documentId = this.documentId;
     const assetNames = getReferencedDocumentAssetNames(snapshot, documentId);
     const nextAssetNamesJson = JSON.stringify(assetNames);
     if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
@@ -343,7 +343,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
     const nextGcAt = await runDocumentAssetGc(
       this.env,
-      Number(this.documentId),
+      this.documentId,
     );
     await this.scheduleAssetGcAlarm(nextGcAt);
   }
@@ -360,7 +360,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         )) ?? undefined;
       const { completed, nextCursor } = await finalizeDeletingDocument(
         this.env,
-        Number(this.documentId),
+        this.documentId,
         cursor,
       );
       if (completed) {
@@ -579,7 +579,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       return;
     }
 
-    if (await isDocumentDeleting(this.env, Number(this.documentId))) {
+    if (await isDocumentDeleting(this.env, this.documentId)) {
       await this.runRoomTask(() => this.runDocumentDeleteCycle());
       return;
     }

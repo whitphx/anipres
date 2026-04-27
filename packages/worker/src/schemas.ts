@@ -43,18 +43,30 @@ const sortOrderSchema = v.pipe(
   v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
 );
 
-// Document and workspace ids are server-allocated INTEGER autoincrement
-// values; clients pass them as decimal strings in URL params, query
-// strings, or JSON body fields. Coerce to a JS number after validation
-// so handlers can pass it straight to D1 `.bind()` (which is happy with
-// either type for INTEGER columns). Reject leading zeros to keep the
-// wire form canonical.
+// Document ids are client-allocated UUIDs (v7, see
+// `0001_initial_schema.sql`'s design note on the documents table).
+// Validate the canonical 36-char hex-with-dashes form here so a
+// malformed id never reaches the D1 layer; the schema's CHECK
+// constraint is the second line of defense.
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const documentIdSchema = v.pipe(
   v.string(),
-  v.regex(/^[1-9]\d*$/u, "Invalid document id"),
-  v.transform(Number),
+  v.regex(UUID_PATTERN, "Invalid document id"),
 );
 
+// Workspace ids are server-allocated INTEGER autoincrement values;
+// clients pass them as decimal strings (URL params, query strings,
+// JSON body fields). Coerce to a JS number after validation so
+// handlers can pass it straight to D1 `.bind()` (which is happy with
+// either type for INTEGER columns). Reject leading zeros to keep the
+// wire form canonical.
+//
+// Note: the asymmetry with `documents.id` is deliberate. Workspaces
+// are a server-side concept the user never originates offline, so the
+// INTEGER rowid wins (smaller indexes, sequential inserts) without
+// the migration friction. Documents flip the trade-off because the
+// id needs to flow unchanged through the local → synced path.
 const workspaceIdSchema = v.pipe(
   v.string(),
   v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
@@ -85,8 +97,10 @@ export const documentListQuerySchema = v.object({
 // optional too — the column default is 'Untitled'. `sort_order` is
 // required because the client chooses where to position the new row.
 // `workspace_id` is required: documents belong to workspaces, and the
-// caller must say which one.
+// caller must say which one. `id` is required and client-allocated:
+// see the documents.id design note in 0001_initial_schema.sql.
 export const documentCreateSchema = v.object({
+  id: documentIdSchema,
   workspace_id: workspaceIdSchema,
   title: v.optional(documentTitleSchema),
   sort_order: sortOrderSchema,

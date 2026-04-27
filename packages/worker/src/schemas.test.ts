@@ -12,43 +12,50 @@ import {
 } from "./schemas";
 
 describe("documentIdParamSchema", () => {
-  it("accepts a positive integer id", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "42" });
+  // Canonical UUID v7 example. The schema doesn't enforce v7
+  // specifically — any well-formed UUID passes the regex — but the
+  // app side always generates v7. Lower-case hex is the canonical
+  // form per RFC 9562; mixed case is also accepted.
+  const validUuid = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
+
+  it("accepts a canonical UUID", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: validUuid });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.output.id).toBe(42);
+      expect(result.output.id).toBe(validUuid);
     }
   });
 
-  it("accepts id 1", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "1" });
+  it("accepts mixed-case hex", () => {
+    const result = v.safeParse(documentIdParamSchema, {
+      id: "0190E7C0-9C52-7000-9D4F-1A2B3C4D5E6F",
+    });
     expect(result.success).toBe(true);
   });
 
-  it("rejects zero", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "0" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects leading zeros (non-canonical)", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "01" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a negative integer", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "-1" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a non-numeric string", () => {
-    const result = v.safeParse(documentIdParamSchema, { id: "not-a-number" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a UUID (the previous shape)", () => {
+  it("rejects a missing dash", () => {
     const result = v.safeParse(documentIdParamSchema, {
-      id: "8d6f4d3e-3c8f-4a8a-9c9d-1e2f3a4b5c6d",
+      id: "0190e7c09c52-7000-9d4f-1a2b3c4d5e6f",
     });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-hex character", () => {
+    const result = v.safeParse(documentIdParamSchema, {
+      id: "0190e7c0-9c52-7000-9d4z-1a2b3c4d5e6f",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a too-short id", () => {
+    const result = v.safeParse(documentIdParamSchema, {
+      id: "0190e7c0-9c52-7000-9d4f",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a decimal integer (the previous shape)", () => {
+    const result = v.safeParse(documentIdParamSchema, { id: "42" });
     expect(result.success).toBe(false);
   });
 
@@ -88,15 +95,21 @@ describe("documentListQuerySchema", () => {
 });
 
 describe("documentCreateSchema", () => {
-  const validMinimal = { workspace_id: "1", sort_order: "a0" };
+  const validUuid = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
+  const validMinimal = {
+    id: validUuid,
+    workspace_id: "1",
+    sort_order: "a0",
+  };
 
-  it("accepts the minimal body (workspace_id + sort_order)", () => {
+  it("accepts the minimal body (id + workspace_id + sort_order)", () => {
     const result = v.safeParse(documentCreateSchema, validMinimal);
     expect(result.success).toBe(true);
   });
 
   it("accepts a fully-populated body", () => {
     const result = v.safeParse(documentCreateSchema, {
+      id: validUuid,
       workspace_id: "42",
       title: "My Document",
       sort_order: "Z9z",
@@ -105,15 +118,34 @@ describe("documentCreateSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("rejects a missing id", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      workspace_id: "1",
+      sort_order: "a0",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a malformed id", () => {
+    const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
+      id: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects a missing workspace_id", () => {
-    const result = v.safeParse(documentCreateSchema, { sort_order: "a0" });
+    const result = v.safeParse(documentCreateSchema, {
+      id: validUuid,
+      sort_order: "a0",
+    });
     expect(result.success).toBe(false);
   });
 
   it("rejects a non-numeric workspace_id", () => {
     const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
       workspace_id: "default",
-      sort_order: "a0",
     });
     expect(result.success).toBe(false);
   });
@@ -127,12 +159,16 @@ describe("documentCreateSchema", () => {
   });
 
   it("rejects a missing sort_order", () => {
-    const result = v.safeParse(documentCreateSchema, { workspace_id: "1" });
+    const result = v.safeParse(documentCreateSchema, {
+      id: validUuid,
+      workspace_id: "1",
+    });
     expect(result.success).toBe(false);
   });
 
   it("rejects a sort_order longer than 256 characters", () => {
     const result = v.safeParse(documentCreateSchema, {
+      ...validMinimal,
       sort_order: "a".repeat(257),
     });
     expect(result.success).toBe(false);
@@ -140,7 +176,7 @@ describe("documentCreateSchema", () => {
 
   it("rejects a non-string sort_order", () => {
     const result = v.safeParse(documentCreateSchema, {
-      workspace_id: "1",
+      ...validMinimal,
       sort_order: 1.5,
     });
     expect(result.success).toBe(false);

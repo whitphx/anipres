@@ -35,30 +35,23 @@ registerAssetRoutes(app);
 // connections cannot race with the R2 cleanup that runs before final row
 // removal.
 //
-// Document ids are server-allocated INTEGER autoincrement values. They
-// surface in JSON as decimal strings (`String(row.id)`) so the frontend
-// keeps an opaque-string id type and doesn't have to worry about JSON
-// number precision.
+// Document ids are client-allocated UUID v7 strings (see the
+// documents.id design note in 0001_initial_schema.sql). The server's
+// only id-related work is to validate the canonical format on input
+// (handled by `documentIdSchema` in schemas.ts) and reject duplicates
+// at INSERT time.
 
+// DocumentRow is also the JSON wire shape — no per-field massaging
+// is needed because ids are already TEXT and timestamps are already
+// the integer ms representation the client expects.
 type DocumentRow = {
-  id: number;
+  id: string;
   slug: string;
   title: string;
   sort_order: string;
   created_at: number;
   updated_at: number;
 };
-
-function serializeDocumentRow(row: DocumentRow) {
-  return {
-    id: String(row.id),
-    slug: row.slug,
-    title: row.title,
-    sort_order: row.sort_order,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
 
 // Slug generator. Phase 1 doesn't surface slugs in the UI; the column is
 // populated for forward compatibility. crypto.randomUUID() is overkill
@@ -160,13 +153,13 @@ app.get("/api/documents", async (c) => {
   )
     .bind(workspaceId)
     .all<DocumentRow>();
-  return c.json(results.map(serializeDocumentRow));
+  return c.json(results);
 });
 
-// Create a document in a workspace the caller owns. Server allocates
-// the document id (INTEGER) and the slug. Caller chooses the
-// sort_order position; title and `created_at` are optional and fall
-// back to server defaults.
+// Create a document in a workspace the caller owns. The caller supplies
+// the document id (UUID v7); the server allocates the slug. Caller
+// chooses the sort_order position; title and `created_at` are optional
+// and fall back to server defaults.
 app.post("/api/documents", async (c) => {
   const userId = c.get("userId");
 
@@ -205,28 +198,47 @@ app.post("/api/documents", async (c) => {
   // and the initial snapshot push). The snapshot push handler clears it
   // on success; the scheduled sweep cleans up rows that never get
   // there. Until cleared, this row is invisible to list/get/update/delete.
-  const row = await c.env.DB.prepare(
-    `INSERT INTO documents (workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at, initializing_at)
-     VALUES (?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?, ?)
-     RETURNING id, slug, title, sort_order, created_at, updated_at`,
-  )
-    .bind(
-      workspaceId,
-      userId,
-      slug,
-      body.title ?? null,
-      body.sort_order,
-      body.created_at ?? now,
-      now,
-      now,
+  //
+  // The INSERT will fail with a unique-constraint error if the client
+  // reuses an id (either by accident — UUID v7 collisions are
+  // astronomically unlikely — or by submitting an id that's already
+  // owned). Surface that as 409 so the client can retry with a fresh id.
+  let row: DocumentRow | null;
+  try {
+    row = await c.env.DB.prepare(
+      `INSERT INTO documents (id, workspace_id, created_by_user_id, slug, title, sort_order, created_at, updated_at, initializing_at)
+       VALUES (?, ?, ?, ?, COALESCE(?, 'Untitled'), ?, ?, ?, ?)
+       RETURNING id, slug, title, sort_order, created_at, updated_at`,
     )
-    .first<DocumentRow>();
+      .bind(
+        body.id,
+        workspaceId,
+        userId,
+        slug,
+        body.title ?? null,
+        body.sort_order,
+        body.created_at ?? now,
+        now,
+        now,
+      )
+      .first<DocumentRow>();
+  } catch (error) {
+    // SQLite UNIQUE constraint on the PK trips when the supplied id
+    // is already taken. Distinguish by message — D1's error reporting
+    // is text-based; the substring is stable across the SQLite
+    // versions Cloudflare ships.
+    const message = error instanceof Error ? error.message : String(error);
+    if (/UNIQUE constraint/i.test(message)) {
+      return c.json({ error: "Document id already exists" }, 409);
+    }
+    throw error;
+  }
 
   if (!row) {
     return c.json({ error: "Failed to create document" }, 500);
   }
 
-  return c.json(serializeDocumentRow(row), 201);
+  return c.json(row, 201);
 });
 
 // Get a single document's metadata (snapshot is null; the live state
@@ -261,7 +273,7 @@ app.get("/api/documents/:id", async (c) => {
   if (!row) {
     return c.json({ error: "Not found" }, 404);
   }
-  return c.json({ meta: serializeDocumentRow(row), snapshot: null });
+  return c.json({ meta: row, snapshot: null });
 });
 
 // Update document metadata. The doc must already exist — there is no
@@ -316,7 +328,7 @@ app.put("/api/documents/:id", async (c) => {
   if (!row) {
     return c.json({ error: "Not found" }, 404);
   }
-  return c.json(serializeDocumentRow(row));
+  return c.json(row);
 });
 
 // Soft-delete a document. The DO takes over R2 sweep + final row
@@ -487,9 +499,9 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const documentIdStr = String(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentIdStr);
-  await room.claimDocument(documentIdStr);
+  
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
   const result = await room.replaceSnapshot(snapshot, expectedSnapshotVersion);
   if (!result.replaced) {
     return c.json(
@@ -558,9 +570,9 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const documentIdStr = String(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentIdStr);
-  await room.claimDocument(documentIdStr);
+  
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
   const cachedSnapshot = await room.getCachedSnapshot();
   return c.json(cachedSnapshot);
 });
@@ -592,9 +604,9 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const documentIdStr = String(id);
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentIdStr);
-  await room.claimDocument(documentIdStr);
+  
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+  await room.claimDocument(id);
   const status = await room.getSnapshotStatus();
   return c.json(status);
 });
@@ -637,7 +649,7 @@ app.get("/api/connect/:documentId", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(String(documentId));
+  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
 
   // Unlike DO RPC calls above, WebSocket upgrades enter through
   // DocumentSyncRoom.fetch(), which claims and validates the document id from
