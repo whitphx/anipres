@@ -12,6 +12,16 @@ import {
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
 import { nextTailSortOrder } from "./sort-order";
+import { EMPTY_SNAPSHOT, pushSnapshot } from "./snapshot-push";
+
+// Synced creation is a two-step server protocol: the POST inserts a
+// row marked `initializing_at`, and a finalizing snapshot push clears
+// it. Without the second step the server's sweep would reap the row
+// after its grace window — so every synced create here pushes an
+// empty initial snapshot to immediately complete the contract.
+async function finalizeSyncedDocument(documentId: string): Promise<void> {
+  await pushSnapshot(documentId, EMPTY_SNAPSHOT, 0);
+}
 
 function createNewDocumentDraft(
   sortOrder: string,
@@ -211,6 +221,10 @@ export function useDocumentManager(params: {
         // returned doc's id rather than the draft's UUID.
         const saved = await repo.create(draft);
         if (cancelled) return;
+        if (defaultOrigin === "synced") {
+          await finalizeSyncedDocument(saved.meta.id);
+          if (cancelled) return;
+        }
         commitDocuments([saved.meta]);
         commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
@@ -297,6 +311,9 @@ export function useDocumentManager(params: {
           origin,
         );
         const saved = await repo.create(draft);
+        if (origin === "synced") {
+          await finalizeSyncedDocument(saved.meta.id);
+        }
 
         editorRef.current = null;
         commitActiveDocumentId(saved.meta.id);
@@ -377,6 +394,9 @@ export function useDocumentManager(params: {
         let saved: DocumentData;
         try {
           saved = await defaultRepo.create(draft);
+          if (defaultOrigin === "synced") {
+            await finalizeSyncedDocument(saved.meta.id);
+          }
         } catch (error) {
           console.error(
             `Failed to create replacement ${defaultOrigin} document; falling back to local`,

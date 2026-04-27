@@ -100,10 +100,22 @@ describe("useDocumentManager", () => {
     // them in tests to keep output readable; individual assertions below
     // verify that the log fires when expected via vi.mocked(console.error).
     vi.spyOn(console, "error").mockImplementation(() => {});
+    // Synced creation finalizes by pushing an empty initial snapshot via
+    // PUT /api/documents/:id/snapshot. Stub fetch so that call resolves
+    // OK and tests don't hit a real network.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as Response),
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("merges synced and local documents on initial load with synced first", async () => {
