@@ -1,6 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData } from "./types";
 import { nextTailSortOrder } from "./sort-order";
 
 export function isDataUrl(value: unknown): value is string {
@@ -192,34 +191,31 @@ export interface ConvertLocalDocToSyncedParams {
 }
 
 /**
- * Move a local IDB-backed document to the server. The server allocates
- * a new id (and slug) at creation time; the local id is discarded once
- * the migration completes.
+ * Move a local IDB-backed document to the server. With UUID v7 ids
+ * minted client-side, the local doc's id is also the canonical server
+ * id — no remap is needed. The same `documentId` flows through every
+ * step and the function's job reduces to "create the server row, push
+ * the snapshot, delete the local copy."
  *
  * Steps:
  *   1. Load the local document.
  *   2. Compute a fractional-indexing key after the synced list's
  *      current tail so the migrated doc lands at the end.
- *   3. POST /api/documents to create the server-side row. Server
- *      returns the canonical id+slug.
- *   4. Upload any inline `data:` URL assets to R2 under the *new*
- *      server id and rewrite the snapshot's asset srcs accordingly.
+ *   3. POST /api/documents — server inserts under the local id.
+ *   4. Upload any inline `data:` URL assets to R2 and rewrite the
+ *      snapshot's asset srcs accordingly.
  *   5. Push the rewritten snapshot into the document's Durable Object
- *      room via PUT /api/documents/:id/snapshot (with the new id).
- *   6. Delete the local IDB entry under the original local id.
- *
- * Returns the new doc data so callers can swap their `activeDocumentId`
- * to the server-allocated value.
+ *      room via PUT /api/documents/:id/snapshot.
+ *   6. Delete the local IDB entry.
  *
  * On failure after step 3 the local copy is intentionally preserved so
- * the user can retry. The half-created server row is left for the same
- * reason — the user can manually delete it, or a retry will create
- * another one (the local→synced relationship is identified only by
- * what the user converts, not by id).
+ * the user can retry. The half-created server row's `initializing_at`
+ * marker keeps it invisible until the snapshot push lands, and the
+ * server-side sweep cleans it up if the user gives up entirely.
  */
 export async function convertLocalDocToSynced(
   params: ConvertLocalDocToSyncedParams,
-): Promise<DocumentData> {
+): Promise<void> {
   const {
     documentId,
     localRepository,
@@ -251,15 +247,11 @@ export async function convertLocalDocToSynced(
 
   abortSignal?.throwIfAborted();
 
-  // POST /api/documents allocates the server id, slug, and updated_at.
-  // The local doc's `createdAt` is forwarded so the migrated doc keeps
-  // its original on-device creation time; without that override the
-  // server would stamp "now" and the timeline would reset. Spreading
-  // the rest of `local.meta` carries fields like `id` and `updatedAt`
-  // through the draft — the API repo discards them at the wire — but
-  // keeps the local id visible to test fakes that derive a
-  // deterministic "synced-<localId>" mapping for assertions.
-  const synced = await syncedRepository.create({
+  // POST /api/documents under the local id. The local doc's
+  // `createdAt` is forwarded so the migrated doc keeps its original
+  // on-device creation time; without that override the server would
+  // stamp "now" and the timeline would reset.
+  await syncedRepository.create({
     meta: {
       ...local.meta,
       sortOrder: newSortOrder,
@@ -267,20 +259,17 @@ export async function convertLocalDocToSynced(
     },
     snapshot: null,
   });
-  const serverId = synced.meta.id;
 
   if (local.snapshot) {
     abortSignal?.throwIfAborted();
     const rewritten = await uploadAssetDataUrls(local.snapshot, (file) =>
-      uploadAsset(serverId, file, abortSignal),
+      uploadAsset(documentId, file, abortSignal),
     );
     abortSignal?.throwIfAborted();
-    await pushSnapshot(serverId, rewritten, abortSignal);
+    await pushSnapshot(documentId, rewritten, abortSignal);
   }
 
   abortSignal?.throwIfAborted();
 
   await localRepository.delete(documentId);
-
-  return synced;
 }

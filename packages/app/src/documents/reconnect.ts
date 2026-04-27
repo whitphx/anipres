@@ -1,4 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { v7 as uuidv7 } from "uuid";
 import type { ApiDocumentRepository } from "./api-repository";
 import {
   snapshotsEqual,
@@ -163,24 +164,23 @@ export async function reconcileOfflineEdits(params: {
   const originalTitle = serverDoc.meta.title;
   const forkTitle = `${originalTitle} (offline copy)`;
 
-  // Create the fork on the server. The fork is a distinct document
-  // with its own id — we know that id only after the POST response
-  // (the API repo lets the server allocate an INTEGER). Place the
-  // fork past the synced list's current tail so the new key is
-  // strictly greater than every existing key — generating off the
-  // original's key alone would collide with whatever doc sits
-  // immediately after it.
+  // The fork's id is minted client-side as UUID v7 — same scheme as
+  // every other doc id. Place the fork past the synced list's
+  // current tail so the new key is strictly greater than every
+  // existing key — generating off the original's key alone would
+  // collide with whatever doc sits immediately after it.
+  const forkId = uuidv7();
   const syncedList = await repository.list();
   const forkSortOrder = nextTailSortOrder(syncedList);
-  const created = await repository.create({
+  await repository.create({
     meta: {
+      id: forkId,
       title: forkTitle,
       sortOrder: forkSortOrder,
       origin: "synced",
     },
     snapshot: null,
   });
-  const forkId = created.meta.id;
 
   // Push the local snapshot into the fork's Durable Object room.
   let forkPushRes: Response;

@@ -159,20 +159,19 @@ describe("reconcileOfflineEdits", () => {
         .mockResolvedValue([
           { id: "doc-id", title: "Foo", sortOrder: "a0", origin: "synced" },
         ]),
-      // The fork flow calls create() and uses the returned doc's id
-      // for the snapshot push. Return a fake server-allocated row.
-      create: vi.fn().mockResolvedValue({
+      // The fork flow mints its own UUID v7 client-side, then calls
+      // create(). The fake repo echoes the supplied draft so the
+      // returned row carries that same id.
+      create: vi.fn().mockImplementation(async (data) => ({
         meta: {
-          id: "fork-server-id",
+          ...data.meta,
           slug: "fork-slug",
-          title: "Foo (offline copy)",
-          sortOrder: "a1",
           createdAt: 0,
           updatedAt: 0,
           origin: "synced",
         },
         snapshot: null,
-      }),
+      })),
       update: vi.fn(),
       delete: vi.fn(),
     } as const;
@@ -198,10 +197,18 @@ describe("reconcileOfflineEdits", () => {
       repository: repository as never,
     });
 
-    expect(result).toMatchObject({
-      action: "forked",
-      forkedDocumentId: "fork-server-id",
-    });
+    // The fork id is whatever uuidv7() produced — assert the shape
+    // (returned id is a UUID and matches what was passed to create()).
+    expect(result.action).toBe("forked");
+    if (result.action === "forked") {
+      expect(result.forkedDocumentId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
+      const sentDraft = repository.create.mock.calls[0][0] as {
+        meta: { id: string };
+      };
+      expect(sentDraft.meta.id).toBe(result.forkedDocumentId);
+    }
     expect(repository.create).toHaveBeenCalledTimes(1);
   });
 

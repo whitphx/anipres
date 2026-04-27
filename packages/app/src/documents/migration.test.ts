@@ -61,12 +61,6 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
   const store = new Map<string, DocumentData>();
   for (const d of initial) store.set(d.meta.id, d);
 
-  // For the API repo, the server allocates an INTEGER id. Tests that
-  // exercise the synced path can override this by providing their own
-  // create mock; the default below preserves the caller's id so
-  // assertions on specific ids stay simple.
-  let serverIdCounter = 1000;
-
   const list = vi.fn(
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
@@ -77,26 +71,20 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
+  // Both local and synced repos honor the caller's id verbatim — UUID
+  // v7 is client-allocated, so the same id flows through every layer.
   const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
-    // Synced repo allocates a server id; local repo honors any
-    // caller-supplied id and falls back to a fresh UUID otherwise.
-    // Mirror that policy so tests can exercise both.
-    const allocatedId =
-      origin === "synced"
-        ? String(++serverIdCounter)
-        : (d.meta.id ?? crypto.randomUUID());
     const now = Date.now();
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
-        id: allocatedId,
         origin,
         createdAt: d.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
-    store.set(allocatedId, stored);
+    store.set(d.meta.id, stored);
     return stored;
   });
   const update = vi.fn(async (d: DocumentData): Promise<void> => {
@@ -320,7 +308,7 @@ describe("convertLocalDocToSynced", () => {
       .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
       .mockResolvedValue(undefined);
 
-    const result = await convertLocalDocToSynced({
+    await convertLocalDocToSynced({
       documentId: "doc-1",
       localRepository: localRepo.repo,
       syncedRepository: syncedRepo.repo,
@@ -329,20 +317,22 @@ describe("convertLocalDocToSynced", () => {
     });
 
     expect(syncedRepo.create).toHaveBeenCalledTimes(1);
-    // The synced repo allocates a server-side id; the migrated doc
-    // does NOT keep the local "doc-1" id.
-    expect(result.meta.id).not.toBe("doc-1");
-    expect(result.meta.origin).toBe("synced");
+    // With UUID v7 ids minted client-side, the synced doc keeps
+    // the same id as the local doc — no remap.
+    const synced = syncedRepo.store.get("doc-1");
+    expect(synced).toBeDefined();
+    expect(synced?.meta.origin).toBe("synced");
     // Sort-order is computed past the existing tail.
-    expect(result.meta.sortOrder > "a0").toBe(true);
+    expect(
+      synced?.meta.sortOrder !== undefined && synced.meta.sortOrder > "a0",
+    ).toBe(true);
 
-    // Asset upload and snapshot push both target the new server id,
-    // not the local UUID.
+    // Asset upload and snapshot push target the same id.
     expect(uploadAsset).toHaveBeenCalledTimes(1);
-    expect(uploadAsset.mock.calls[0][0]).toBe(result.meta.id);
+    expect(uploadAsset.mock.calls[0][0]).toBe("doc-1");
 
     expect(pushSnapshot).toHaveBeenCalledTimes(1);
-    expect(pushSnapshot.mock.calls[0][0]).toBe(result.meta.id);
+    expect(pushSnapshot.mock.calls[0][0]).toBe("doc-1");
     const pushedSnapshot = pushSnapshot.mock.calls[0][1];
     expect(getAssetSrc(pushedSnapshot, "asset:a")).toBe("/uploaded/asset:a");
 
@@ -472,19 +462,20 @@ describe("convertLocalDocToSynced", () => {
 
     const controller = new AbortController();
     // Abort mid-migration, right after syncedRepository.create runs.
+    // The synced doc is stored under the same id as the local doc
+    // (UUID v7 client-allocated, no remap).
     syncedRepo.repo.create = vi.fn(async (d: DocumentDraft) => {
       const now = Date.now();
       const allocated: DocumentData = {
         ...d,
         meta: {
           ...d.meta,
-          id: "server-1",
           origin: "synced",
           createdAt: d.meta.createdAt ?? now,
           updatedAt: now,
         },
       };
-      syncedRepo.store.set("server-1", allocated);
+      syncedRepo.store.set(d.meta.id, allocated);
       controller.abort();
       return allocated;
     });

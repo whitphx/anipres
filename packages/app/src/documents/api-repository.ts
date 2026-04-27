@@ -1,9 +1,10 @@
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
 
-// Server serializes documents.id as a string (decimal-of-INTEGER) so
-// the client can keep an opaque-string id type without worrying about
-// JSON number precision.
+// Document ids are client-allocated UUID v7 strings (see
+// `packages/worker/migrations/0001_initial_schema.sql` design note).
+// The wire shape mirrors the D1 row directly — no per-field coercion
+// needed.
 interface DocumentRow {
   id: string;
   slug: string;
@@ -61,22 +62,23 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   /**
-   * POST /api/documents — server allocates id, slug, and `updated_at`.
-   * The body carries the workspace_id (server enforces ownership) and
-   * the user-meaningful fields. `created_at` is sent only when the
-   * caller explicitly supplies it (the local→synced migration uses
-   * this to preserve the on-device creation time); otherwise the
-   * server stamps it. Any caller-supplied `id` on the draft is
-   * silently dropped — the returned doc carries the canonical id (a
-   * stringified INTEGER from the server).
+   * POST /api/documents — caller supplies the document id (UUID v7);
+   * the server validates it, allocates the slug, and stamps
+   * `updated_at`. The body carries the workspace_id (server enforces
+   * ownership) and the user-meaningful fields. `created_at` is sent
+   * only when the caller explicitly supplies it (the local→synced
+   * migration uses this to preserve the on-device creation time);
+   * otherwise the server stamps it.
    */
   async create(draft: DocumentDraft): Promise<DocumentData> {
     const body: {
+      id: string;
       workspace_id: string;
       title: string;
       sort_order: string;
       created_at?: number;
     } = {
+      id: draft.meta.id,
       workspace_id: this.workspaceId,
       title: draft.meta.title,
       sort_order: draft.meta.sortOrder,

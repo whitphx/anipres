@@ -81,10 +81,11 @@ describe("ApiDocumentRepository", () => {
     expect(await repo.get("missing")).toBeUndefined();
   });
 
-  it("create POSTs metadata-only body and returns server-allocated id and slug", async () => {
+  it("create POSTs the client-supplied id and returns server-stamped fields", async () => {
+    const docId = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({
-        id: "100",
+        id: docId,
         slug: "server-slug",
         title: "Title",
         sort_order: "a0",
@@ -95,6 +96,7 @@ describe("ApiDocumentRepository", () => {
 
     const result = await repo.create({
       meta: {
+        id: docId,
         title: "Title",
         sortOrder: "a0",
         createdAt: 10,
@@ -103,37 +105,39 @@ describe("ApiDocumentRepository", () => {
       snapshot: null,
     });
 
-    // Server-allocated id, slug, and updated_at surface in the result.
-    expect(result.meta.id).toBe("100");
+    // The id is the same one the caller minted; slug and updated_at
+    // come from the server.
+    expect(result.meta.id).toBe(docId);
     expect(result.meta.slug).toBe("server-slug");
     expect(result.meta.sortOrder).toBe("a0");
     expect(result.meta.updatedAt).toBe(20);
 
     // The wire body sends:
+    //   - id: from the draft (client-allocated UUID v7)
     //   - workspace_id: from the repo's binding
     //   - title, sort_order: from the draft
     //   - created_at: only when the caller set it (migration use case)
-    // updated_at and id never appear — the server stamps the former
-    // and allocates the latter.
+    // updated_at and slug never appear — the server stamps both.
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/documents");
     expect(init?.method).toBe("POST");
     const sent = JSON.parse((init?.body as string) ?? "{}");
     expect(sent).toEqual({
+      id: docId,
       workspace_id: TEST_WORKSPACE_ID,
       title: "Title",
       sort_order: "a0",
       created_at: 10,
     });
-    expect(sent).not.toHaveProperty("id");
     expect(sent).not.toHaveProperty("slug");
     expect(sent).not.toHaveProperty("updated_at");
   });
 
   it("create omits created_at when the caller doesn't supply one", async () => {
+    const docId = "0190e7c0-9c52-7000-9d4f-1a2b3c4d5e6f";
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({
-        id: "101",
+        id: docId,
         slug: "fresh-doc",
         title: "Fresh",
         sort_order: "a0",
@@ -144,6 +148,7 @@ describe("ApiDocumentRepository", () => {
 
     await repo.create({
       meta: {
+        id: docId,
         title: "Fresh",
         sortOrder: "a0",
         origin: "synced",
@@ -154,6 +159,7 @@ describe("ApiDocumentRepository", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const sent = JSON.parse((init?.body as string) ?? "{}");
     expect(sent).toEqual({
+      id: docId,
       workspace_id: TEST_WORKSPACE_ID,
       title: "Fresh",
       sort_order: "a0",

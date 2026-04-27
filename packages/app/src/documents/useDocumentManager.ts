@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
+import { v7 as uuidv7 } from "uuid";
 import type { DocumentRepository } from "./repository";
 import type {
   DocumentData,
@@ -20,6 +21,11 @@ function createNewDocumentDraft(
 ): DocumentDraft {
   return {
     meta: {
+      // Mint the doc id upfront so callers (and the server, on
+      // synced creates) see the same id from the moment the doc
+      // exists. v7 keeps client-allocated ids time-monotonic on
+      // the server's B-tree.
+      id: uuidv7(),
       title: "Untitled",
       sortOrder,
       origin,
@@ -331,22 +337,33 @@ export function useDocumentManager(params: {
       // Cancel any in-flight convert-to-synced migration for this id
       // before touching storage. The migration's catch handler will see
       // controller.signal.aborted and exit silently.
-      //
-      // With server-allocated ids, the local id we have here doesn't
-      // match the server-side row's id (the server allocated its own
-      // INTEGER at POST time). Cleaning up a half-migrated server doc
-      // would require tracking the server-allocated id from inside
-      // the migration — deliberately deferred. If the user deletes
-      // mid-migration *and* the server doc was already created, the
-      // user will see a leftover row on the next refresh and can
-      // delete it manually. Acceptable for the rare race window.
       const migrationController = migrationAbortControllersRef.current.get(id);
+      const wasMigrating = migrationController !== undefined;
       if (migrationController) {
         migrationController.abort();
         migrationAbortControllersRef.current.delete(id);
       }
 
       await repo.delete(id);
+
+      // If the migration's POST already landed before we aborted
+      // (step 3 of convertLocalDocToSynced), the server holds a
+      // half-finished row at the same id. Best-effort cleanup —
+      // a 404 here is fine, it just means the migration hadn't
+      // reached step 3 yet. Without this immediate cleanup the
+      // server-side sweep would still reap the row after the
+      // initializing-grace window, but the user would briefly
+      // see a stale entry on the next refresh in the meantime.
+      if (wasMigrating && syncedRepository) {
+        try {
+          await syncedRepository.delete(id);
+        } catch (error) {
+          console.error(
+            `Failed to clean up synced metadata after aborted migration of ${id}`,
+            error,
+          );
+        }
+      }
 
       // Drop any stale convert-to-synced state for this id. An entry in
       // conversionErrors would otherwise linger in memory with no row to
@@ -527,9 +544,8 @@ export function useDocumentManager(params: {
         setConverting(next);
       };
 
-      let migrated: DocumentData;
       try {
-        migrated = await convertLocalDocToSynced({
+        await convertLocalDocToSynced({
           documentId: id,
           localRepository,
           syncedRepository,
@@ -540,8 +556,7 @@ export function useDocumentManager(params: {
         clearInFlight();
         if (controller.signal.aborted) {
           // The migration was cancelled from deleteDocument. That path
-          // has already run its own cleanup (local delete, synced
-          // metadata cleanup, listAllDocuments), so don't double-log,
+          // has already run its own cleanup, so don't double-log,
           // surface an error, or refresh again.
           return;
         }
@@ -554,7 +569,7 @@ export function useDocumentManager(params: {
           );
           return next;
         });
-        // Refresh in case the server metadata was created before the
+        // Refresh in case the server row was created before the
         // failure; the local copy is intentionally preserved by
         // convertLocalDocToSynced so the user can retry.
         await refreshDocuments();
@@ -564,13 +579,14 @@ export function useDocumentManager(params: {
       clearInFlight();
       await refreshDocuments();
 
-      // The converted doc gets a server-allocated id (different from
-      // the local UUID). If the active doc is the one we just
-      // migrated, swap to the new id so the editor key updates and
-      // the synced container takes over.
+      // The doc keeps its id across the local→synced transition
+      // (UUID v7 is client-allocated, see migration docs). If the
+      // active doc is the one we just migrated, re-commit the same
+      // id so the active-origin ref flips from "local" to "synced"
+      // and the synced container takes over the editor.
       if (id === activeDocumentIdRef.current) {
         editorRef.current = null;
-        commitActiveDocumentId(migrated.meta.id);
+        commitActiveDocumentId(id);
       }
     },
     [

@@ -27,17 +27,15 @@ export class IdbDocumentRepository implements DocumentRepository {
   // the API repo can split POST (create) from PUT (update).
   async create(draft: DocumentDraft): Promise<DocumentData> {
     const now = Date.now();
-    const id = draft.meta.id ?? crypto.randomUUID();
     const data: DocumentData = {
       snapshot: draft.snapshot,
       meta: {
         ...draft.meta,
-        id,
         createdAt: draft.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
-    await set(id, data, store);
+    await set(data.meta.id, data, store);
     return { ...data, meta: stampLocal(data.meta) };
   }
 

@@ -54,27 +54,21 @@ function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
     const d = store.get(id);
     return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
   });
-  // For the synced repo the server allocates ids in the real worker;
-  // here we derive a deterministic "synced-<localId>" so tests that
-  // need to correlate a migration with its server-side row (e.g. the
-  // pushSnapshot mock keyed by documentId) have a predictable mapping.
-  // The local repo keeps the caller's id verbatim, mimicking IDB; if
-  // the caller didn't supply one, mint a UUID like the real repo does.
+  // Both local and synced repos honor the caller's id verbatim — UUID
+  // v7 is client-allocated, so the same id flows through every layer
+  // and tests can assert on the original id everywhere.
   const create = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
     const now = Date.now();
-    const localId = d.meta.id ?? crypto.randomUUID();
-    const allocatedId = origin === "synced" ? `synced-${localId}` : localId;
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
-        id: allocatedId,
         origin,
         createdAt: d.meta.createdAt ?? now,
         updatedAt: now,
       },
     };
-    store.set(allocatedId, stored);
+    store.set(d.meta.id, stored);
     return stored;
   });
   const update = vi.fn(async (d: DocumentData): Promise<void> => {
@@ -299,9 +293,9 @@ describe("useDocumentManager", () => {
 
     expect(syncedRepo.create).toHaveBeenCalledTimes(1);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
-    // The migrated doc gets a server-allocated id (≠ "doc-1") and the
-    // active doc should be swapped to it. Origin flips to synced.
-    expect(result.current.activeDocument?.id).not.toBe("doc-1");
+    // The migrated doc keeps its UUID v7 id across the local→synced
+    // transition; only the origin flips.
+    expect(result.current.activeDocument?.id).toBe("doc-1");
     expect(result.current.activeDocument?.origin).toBe("synced");
   });
 
@@ -390,12 +384,10 @@ describe("useDocumentManager", () => {
       expect(result.current.converting.has("doc-2")).toBe(true);
     });
 
-    // The pushSnapshot mock receives the *server-allocated* id, not
-    // the local id. Our test fake's synced repo allocates server ids
-    // as `"synced-<localId>"`, so the resolvers keyed on what
-    // pushSnapshot saw map back via the same prefix.
+    // pushSnapshot receives the same id the local doc had — UUID v7
+    // is client-allocated and carries through unchanged.
     await act(async () => {
-      resolvers["synced-doc-2"]();
+      resolvers["doc-2"]();
       await secondConvert;
     });
 
@@ -403,7 +395,7 @@ describe("useDocumentManager", () => {
     expect(result.current.converting.has("doc-2")).toBe(false);
 
     await act(async () => {
-      resolvers["synced-doc-1"]();
+      resolvers["doc-1"]();
       await firstConvert;
     });
 
@@ -468,9 +460,9 @@ describe("useDocumentManager", () => {
     const pushSnapshot = vi
       .fn<(documentId: string, snapshot: TLStoreSnapshot) => Promise<void>>()
       .mockImplementation(async (documentId) => {
-        // The mock receives the server-allocated id, mapped from the
-        // local id by the test fake (`synced-<localId>`).
-        if (documentId === "synced-doc-bad") {
+        // pushSnapshot receives the same id the local doc had — UUID v7
+        // is client-allocated and unchanged across the migration.
+        if (documentId === "doc-bad") {
           throw new Error("Snapshot push failed: 413");
         }
       });
@@ -669,20 +661,15 @@ describe("useDocumentManager", () => {
     expect(result.current.converting.has("doc-1")).toBe(false);
     expect(result.current.conversionErrors.has("doc-1")).toBe(false);
 
-    // The local doc was deleted by id "doc-1". With server-allocated
-    // ids, the orphan synced metadata (if it was already created
-    // before the abort) cannot be cleaned up by the local id —
-    // deleteDocument does not attempt that anymore. The server row
-    // would surface on a future refresh and need manual cleanup; we
-    // accept that for the rare race window.
+    // With UUID, the local id and server id match, so the orphan
+    // synced row from the half-completed migration is cleaned up
+    // immediately by deleteDocument's syncedRepository.delete(id).
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
+    expect(syncedRepo.delete).toHaveBeenCalledWith("doc-1");
+    expect(syncedRepo.store.has("doc-1")).toBe(false);
 
-    // doc-1 is gone from the local sidebar; doc-2 remains active.
-    // Note: a phantom synced row from the half-completed migration
-    // remains and shows up in the list. Cleaning it up would require
-    // tracking the server-allocated id back up to the manager —
-    // tracked as a follow-up; tolerable for the rare race window.
-    expect(result.current.documents.map((d) => d.id)).toContain("doc-2");
+    // doc-1 is gone everywhere; doc-2 remains.
+    expect(result.current.documents.map((d) => d.id)).toEqual(["doc-2"]);
 
     // Drain the mocked push so no pending promise leaks between tests.
     resolvePush();

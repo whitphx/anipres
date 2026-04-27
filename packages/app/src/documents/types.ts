@@ -29,13 +29,15 @@ export interface DocumentData {
 /**
  * Input shape for creating a new document.
  *
- * The repository owns id allocation and timestamp stamping; callers
- * supply only the user-meaningful fields:
+ * `id` is required: every doc has its UUID v7 minted client-side at
+ * the moment of creation. The same id flows through both the IDB
+ * write and (later, on migration) the POST /api/documents call,
+ * unchanged. See the documents.id design note in the worker schema
+ * for why the id is client-allocated.
  *
- * - `id` is optional. The local IDB repo mints a fresh UUID when
- *   omitted (or honors a caller-supplied one for stable identity-
- *   from-creation); the API repo always ignores it and the server
- *   allocates the canonical INTEGER id at INSERT time.
+ * The repository owns timestamp stamping; callers supply only the
+ * user-meaningful fields plus the id:
+ *
  * - `createdAt` is optional. It exists only as an escape hatch for
  *   the local→synced migration to preserve a doc's on-device
  *   creation time. In every other call site the repo (or the
@@ -43,13 +45,9 @@ export interface DocumentData {
  * - `updatedAt` is not on the draft at all — repos always stamp it
  *   themselves on create; on update, the IDB repo bumps it and the
  *   server's updated_at trigger handles it.
- *
- * `create()` always returns a `DocumentData` with the canonical id
- * and timestamps.
  */
 export interface DocumentDraft {
-  meta: Pick<DocumentMeta, "title" | "sortOrder" | "origin"> & {
-    id?: string;
+  meta: Pick<DocumentMeta, "id" | "title" | "sortOrder" | "origin"> & {
     createdAt?: number;
   };
   snapshot: TLStoreSnapshot | null;
