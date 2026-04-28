@@ -7,20 +7,16 @@ import { MAX_ASSET_SIZE } from "anipres/schema";
 // a user-facing label.
 const DOCUMENT_TITLE_MAX_LENGTH = 256;
 
-// Order is stored as REAL in D1 for fractional reordering. Bound it to
-// a sane range so a malicious or confused client cannot push values that
-// would clutter the sidebar's display formatter (and reject NaN /
-// Infinity which JSON would otherwise pass through as `null`).
-const DOCUMENT_ORDER_MIN = -1e9;
-const DOCUMENT_ORDER_MAX = 1e9;
+// Sort-order is a fractional-indexing key. The package emits printable-
+// ASCII strings; this bound is a sanity cap to reject pathological
+// inputs. Real keys are typically <20 chars even after many reorders.
+const SORT_ORDER_MAX_LENGTH = 256;
 
 // Maximum snapshot push body size. tldraw snapshots are usually well
 // under 1 MB; even the largest realistic doc with embedded references
 // rarely exceeds a few MB. 5 MB gives plenty of headroom while
 // preventing a runaway client from streaming arbitrary blobs at the DO.
 export const MAX_SNAPSHOT_BODY_BYTES = 5 * 1024 * 1024;
-
-const finiteNumber = v.pipe(v.number(), v.finite());
 
 const nonNegativeFiniteInteger = v.pipe(
   v.number(),
@@ -41,25 +37,84 @@ const documentTitleSchema = v.pipe(
   v.regex(/^[^\u0000]*$/u, "Title contains a null byte"),
 );
 
-const documentOrderSchema = v.pipe(
-  finiteNumber,
-  v.minValue(DOCUMENT_ORDER_MIN),
-  v.maxValue(DOCUMENT_ORDER_MAX),
+const sortOrderSchema = v.pipe(
+  v.string(),
+  v.minLength(1, "sort_order cannot be empty"),
+  v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
+);
+
+// Document ids are client-allocated UUIDs (v7, see
+// `0001_initial_schema.sql`'s design note on the documents table).
+// Validate the canonical 36-char hex-with-dashes form here so a
+// malformed id never reaches the D1 layer; the schema's CHECK
+// constraint is the second line of defense.
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const documentIdSchema = v.pipe(
+  v.string(),
+  v.regex(UUID_PATTERN, "Invalid document id"),
+);
+
+// Workspace ids are server-allocated INTEGER autoincrement values;
+// clients pass them as decimal strings (URL params, query strings,
+// JSON body fields). Coerce to a JS number after validation so
+// handlers can pass it straight to D1 `.bind()` (which is happy with
+// either type for INTEGER columns). Reject leading zeros to keep the
+// wire form canonical.
+//
+// Note: the asymmetry with `documents.id` is deliberate. Workspaces
+// are a server-side concept the user never originates offline, so the
+// INTEGER rowid wins (smaller indexes, sequential inserts) without
+// the migration friction. Documents flip the trade-off because the
+// id needs to flow unchanged through the local → synced path.
+const workspaceIdSchema = v.pipe(
+  v.string(),
+  v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
+  v.transform(Number),
 );
 
 export const documentIdParamSchema = v.object({
-  id: v.pipe(v.string(), v.uuid()),
+  id: documentIdSchema,
 });
 
 export const documentConnectParamSchema = v.object({
-  documentId: v.pipe(v.string(), v.uuid()),
+  documentId: documentIdSchema,
 });
 
-export const documentMetadataSchema = v.object({
+// Query string for GET /api/documents — workspace-scoped list.
+// `workspace_id` is required: every list call has to name the
+// workspace it's listing. Phase 1 has 1:1 user:workspace, so the
+// client always passes its own; Extension A will let it list any
+// workspace it's a member of.
+export const documentListQuerySchema = v.object({
+  workspace_id: workspaceIdSchema,
+});
+
+// Body for PUT /api/documents/:id — a single upsert endpoint that
+// covers both create (when no row with this id exists) and update
+// (when one does). The wire shape is uniform so the client doesn't
+// have to track which case it's in:
+//
+// - `workspace_id` is always required. On insert the server places
+//   the row in this workspace; on update the server validates the
+//   existing row is in this workspace (rejects cross-workspace moves
+//   as 404). Idempotent: replaying the same body is a no-op on the
+//   second call.
+// - `title` and `sort_order` are always required — the body
+//   describes the post-state, so the client sends the current
+//   values even on a re-save.
+// - `created_at` is an optional override used only on insert (the
+//   local→synced migration uses it to preserve the on-device creation
+//   time). The server ignores it on update; `updated_at` is always
+//   server-stamped via the documents.updated_at trigger.
+//
+// `id` lives in the URL path, not the body — see
+// `documentIdParamSchema`.
+export const documentUpsertSchema = v.object({
+  workspace_id: workspaceIdSchema,
   title: documentTitleSchema,
-  order: documentOrderSchema,
-  created_at: nonNegativeFiniteInteger,
-  updated_at: nonNegativeFiniteInteger,
+  sort_order: sortOrderSchema,
+  created_at: v.optional(nonNegativeFiniteInteger),
 });
 
 export const snapshotPushBodySchema = v.object({

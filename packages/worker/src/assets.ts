@@ -196,7 +196,11 @@ async function documentExistsForUser(
   // delete starts, `deleting_at` closes the race where an in-flight upload
   // could otherwise recreate a blob after the delete sweep has already run.
   const document = await c.env.DB.prepare(
-    "SELECT 1 FROM documents WHERE id = ? AND user_id = ? AND deleting_at IS NULL",
+    `SELECT 1
+     FROM documents
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(documentId, userId)
     .first();
@@ -612,7 +616,9 @@ export async function startDocumentDeletion(
   const { meta } = await c.env.DB.prepare(
     `UPDATE documents
      SET deleting_at = ?
-     WHERE id = ? AND user_id = ? AND deleting_at IS NULL`,
+     WHERE id = ?
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+       AND deleting_at IS NULL`,
   )
     .bind(Date.now(), documentId, userId)
     .run();
@@ -630,7 +636,11 @@ export async function startDocumentDeletion(
     // document into deletion. Existing delete retries must stay hidden from
     // active routes so uploads/connects cannot race against unfinished cleanup.
     await c.env.DB.prepare(
-      "UPDATE documents SET deleting_at = NULL WHERE id = ? AND user_id = ? AND deleting_at IS NOT NULL",
+      `UPDATE documents
+       SET deleting_at = NULL
+       WHERE id = ?
+         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+         AND deleting_at IS NOT NULL`,
     )
       .bind(documentId, userId)
       .run();
