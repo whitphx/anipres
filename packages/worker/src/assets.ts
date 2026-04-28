@@ -12,7 +12,6 @@ import {
   documentAssetUploadFileSchema,
   documentIdParamSchema,
 } from "./schemas";
-import { OWNED_WORKSPACE_FILTER } from "./sql";
 import type { AppBindings, AppContext } from "./types";
 
 const ASSET_EXTENSION_BY_CONTENT_TYPE = {
@@ -200,7 +199,7 @@ async function documentExistsForUser(
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL`,
   )
     .bind(documentId, userId)
@@ -618,7 +617,7 @@ export async function startDocumentDeletion(
     `UPDATE documents
      SET deleting_at = ?
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL`,
   )
     .bind(Date.now(), documentId, userId)
@@ -640,7 +639,7 @@ export async function startDocumentDeletion(
       `UPDATE documents
        SET deleting_at = NULL
        WHERE id = ?
-         AND ${OWNED_WORKSPACE_FILTER}
+         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
          AND deleting_at IS NOT NULL`,
     )
       .bind(documentId, userId)

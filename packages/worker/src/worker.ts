@@ -11,7 +11,6 @@ import {
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "./schemas";
-import { OWNED_WORKSPACE_FILTER } from "./sql";
 import type { AppBindings, AppContext, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
@@ -179,7 +178,7 @@ app.get("/api/documents/:id", async (c) => {
     `SELECT id, slug, title, sort_order, created_at, updated_at
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -377,7 +376,7 @@ app.delete("/api/documents/:id", async (c) => {
     `SELECT deleting_at, initializing_at
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}`,
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
   )
     .bind(id, userId)
     .first<{ deleting_at: number | null; initializing_at: number | null }>();
@@ -429,7 +428,7 @@ app.post("/api/documents/:id/finalize", async (c) => {
     `UPDATE documents
         SET initializing_at = NULL
       WHERE id = ?
-        AND ${OWNED_WORKSPACE_FILTER}
+        AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
         AND deleting_at IS NULL
         AND initializing_at IS NOT NULL`,
   )
@@ -446,7 +445,7 @@ app.post("/api/documents/:id/finalize", async (c) => {
       `SELECT 1
        FROM documents
        WHERE id = ?
-         AND ${OWNED_WORKSPACE_FILTER}
+         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
          AND deleting_at IS NULL`,
     )
       .bind(id, userId)
@@ -517,7 +516,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL`,
   )
     .bind(id, userId)
@@ -556,7 +555,7 @@ app.put("/api/documents/:id/snapshot", async (c) => {
     `UPDATE documents
      SET updated_at = ?, initializing_at = NULL
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL`,
   )
     .bind(now, id, userId)
@@ -586,7 +585,7 @@ app.get("/api/documents/:id/offline-cache", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -619,7 +618,7 @@ app.get("/api/documents/:id/snapshot-status", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
@@ -662,7 +661,7 @@ app.get("/api/connect/:documentId", async (c) => {
     `SELECT 1
      FROM documents
      WHERE id = ?
-       AND ${OWNED_WORKSPACE_FILTER}
+       AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
        AND deleting_at IS NULL
        AND initializing_at IS NULL`,
   )
