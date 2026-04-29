@@ -459,12 +459,12 @@ Done:
 - Convert-to-synced UX with per-doc spinner / error / retry
 - Input validation: valibot schemas at the worker boundary, with worker-side test pipeline
 - Workspace-discovery error UI (visible message instead of blank screen)
-- Account-settings modal opened from the sidebar; lists linked OAuth identities (`GET /auth/identities`)
+- Account-settings modal opened from the sidebar's `AccountFooter`; lists linked OAuth identities (`GET /auth/identities`)
 - Account linking — the existing OAuth callbacks branch on the session cookie: a logged-in user completing the OAuth dance attaches the new `(provider, provider_id)` to the current `user_id` (via `attachIdentityToCurrentUser` in `auth/session.ts`); a logged-out user follows the existing login flow. Conflict ("provider account is already linked to a different user") surfaces as a redirect-flash error.
+- Disconnect a linked provider — `DELETE /auth/identities/:provider/:provider_id` with a server-side "can't remove your last sign-in method" guard (atomic single-statement check via subquery); two-click in-row Confirm/Cancel UI in the settings modal
 
 Remaining (see [TODO.md](./TODO.md)):
 
-- Disconnect-a-linked-provider flow (link is in; the unlink direction is the natural follow-up)
 - Merge two accounts on conflict (a meaningfully bigger feature; tracked separately)
 - Convert-to-synced polish (friendly error mapping, `aria-live` announce, asset-upload concurrency cap)
 

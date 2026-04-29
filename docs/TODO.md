@@ -4,8 +4,6 @@ Tasks deferred during development that should be addressed before production rel
 
 ## Authentication
 
-- **Disconnect a linked provider**: Account linking lands the connect direction; the disconnect direction is the natural follow-up. Needs a `DELETE /auth/identities/:provider/:provider_id` route with a "can't remove the last identity" safety check, plus a confirmation UI in the existing account-settings modal. The session cookie can keep working as long as another identity remains for the same `user_id`.
-
 - **Merge two accounts**: When a user clicks "Connect {provider}" while logged in as User A, but the provider account is already linked to User B, the v1 implementation just shows a clear error ("This provider account is already linked to a different anipres account."). The richer behavior is to offer a merge: combine User A's and User B's documents under one user, delete the other. This is genuinely useful (real users will hit "I have two accounts and want to combine them") but it's a substantially bigger feature — it crosses the Phase 1 1:1 user↔workspace invariant (the surviving user owns two workspaces, which is Extension A territory), needs explicit confirmation UX (destructive, no undo without an undo window), and has its own race + rollback questions. Track separately.
 
 - **Google OAuth scope for email-based linking**: Currently requests `openid` only and identifies users by `sub`. The shipped account-linking flow uses an explicit "Connect" entry point (no email matching needed), so this remains as-is. _If_ a future merge / email-based-suggest feature is added, widen to `openid email`.

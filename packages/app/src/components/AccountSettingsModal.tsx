@@ -1,6 +1,6 @@
-import { Github, LogIn, X } from "lucide-react";
-import { useEffect, useRef } from "react";
-import useSWR from "swr";
+import { Github, LogIn, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import { jsonFetcher } from "../lib/fetcher";
 import styles from "./AccountSettingsModal.module.css";
 
@@ -73,7 +73,18 @@ export function AccountSettingsModal({
     "/auth/identities",
     jsonFetcher,
   );
+  const { mutate: globalMutate } = useSWRConfig();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Two-click confirm pattern for unlink: first click promotes the row
+  // into a "Confirm / Cancel" state, second click on Confirm fires the
+  // DELETE. Avoids the native window.confirm() (which has uneven UX
+  // across browsers) and a modal-on-modal (which would be heavy for a
+  // small action). `confirmingId` is the row key (`${provider}:${id}`)
+  // currently in the confirm state, or null.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+  const [unlinkError, setUnlinkError] = useState<string | null>(null);
 
   // Focus the close button on mount so Esc-to-close works without
   // the user first having to tab into the dialog.
@@ -82,13 +93,21 @@ export function AccountSettingsModal({
   }, []);
 
   // Esc-to-close. The backdrop click and X button cover mouse users.
+  // If a row is mid-confirm, Esc cancels the confirm instead of
+  // closing the whole modal — the user expects Esc to back out of the
+  // most-recent prompt first.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (confirmingId !== null) {
+        setConfirmingId(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [confirmingId, onClose]);
 
   const linkedProviders = new Set(
     (identities ?? []).map((row) => row.provider),
@@ -97,6 +116,7 @@ export function AccountSettingsModal({
     (p) => !linkedProviders.has(p),
   );
   const isLoading = identities === undefined && loadError === undefined;
+  const canUnlinkAny = identities !== undefined && identities.length > 1;
 
   const flashConfig = initialFlash
     ? (FLASH_MESSAGES[initialFlash.code] ?? {
@@ -104,6 +124,43 @@ export function AccountSettingsModal({
         text: "Account linking returned an unrecognized status.",
       })
     : null;
+
+  const handleUnlink = async (provider: string, providerId: string) => {
+    const rowId = `${provider}:${providerId}`;
+    setUnlinkingId(rowId);
+    setUnlinkError(null);
+    try {
+      const res = await fetch(
+        `/auth/identities/${encodeURIComponent(provider)}/${encodeURIComponent(providerId)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        if (res.status === 409 && body.code === "last_identity") {
+          setUnlinkError(
+            "This is your only sign-in method — link another provider first.",
+          );
+        } else {
+          setUnlinkError(body.error ?? `Request failed (${res.status}).`);
+        }
+        return;
+      }
+      // Refresh the SWR cache so the row disappears. mutate() with no
+      // value triggers a revalidation against the server, which is the
+      // right behavior here — we want the canonical post-delete list.
+      await globalMutate("/auth/identities");
+      setConfirmingId(null);
+    } catch (err) {
+      setUnlinkError(
+        err instanceof Error ? err.message : "Could not unlink. Try again.",
+      );
+    } finally {
+      setUnlinkingId(null);
+    }
+  };
 
   return (
     <div
@@ -146,6 +203,12 @@ export function AccountSettingsModal({
           </div>
         )}
 
+        {unlinkError !== null && (
+          <div role="alert" className={`${styles.flash} ${styles.flashError}`}>
+            {unlinkError}
+          </div>
+        )}
+
         {/* Single loading / error gate around both sections. Rendering
             the sections eagerly (with the connect-buttons list filled in
             from an empty `linkedProviders` Set) caused the modal to
@@ -167,22 +230,72 @@ export function AccountSettingsModal({
                 <p className={styles.empty}>No providers linked.</p>
               ) : (
                 <ul className={styles.identityList}>
-                  {identities.map((identity) => (
-                    <li
-                      key={`${identity.provider}:${identity.provider_id}`}
-                      className={styles.identityItem}
-                    >
-                      <ProviderIcon provider={identity.provider} />
-                      <span className={styles.identityProvider}>
-                        {PROVIDER_LABELS[identity.provider as ProviderName] ??
-                          identity.provider}
-                      </span>
-                      <span className={styles.identityDate}>
-                        Connected {formatDate(identity.created_at)}
-                      </span>
-                    </li>
-                  ))}
+                  {identities.map((identity) => {
+                    const rowId = `${identity.provider}:${identity.provider_id}`;
+                    const isConfirming = confirmingId === rowId;
+                    const isUnlinking = unlinkingId === rowId;
+                    return (
+                      <li key={rowId} className={styles.identityItem}>
+                        <ProviderIcon provider={identity.provider} />
+                        <span className={styles.identityProvider}>
+                          {PROVIDER_LABELS[identity.provider as ProviderName] ??
+                            identity.provider}
+                        </span>
+                        <span className={styles.identityDate}>
+                          Connected {formatDate(identity.created_at)}
+                        </span>
+                        {canUnlinkAny &&
+                          (isConfirming ? (
+                            <span className={styles.identityActions}>
+                              <button
+                                type="button"
+                                className={styles.confirmUnlinkButton}
+                                onClick={() =>
+                                  handleUnlink(
+                                    identity.provider,
+                                    identity.provider_id,
+                                  )
+                                }
+                                disabled={isUnlinking}
+                              >
+                                {isUnlinking ? "Unlinking…" : "Confirm"}
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.cancelUnlinkButton}
+                                onClick={() => setConfirmingId(null)}
+                                disabled={isUnlinking}
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.unlinkButton}
+                              onClick={() => {
+                                setUnlinkError(null);
+                                setConfirmingId(rowId);
+                              }}
+                              aria-label={`Unlink ${
+                                PROVIDER_LABELS[
+                                  identity.provider as ProviderName
+                                ] ?? identity.provider
+                              }`}
+                              title="Unlink"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ))}
+                      </li>
+                    );
+                  })}
                 </ul>
+              )}
+              {identities.length === 1 && (
+                <p className={styles.singleIdentityNote}>
+                  Link another provider before unlinking this one.
+                </p>
               )}
             </section>
 
