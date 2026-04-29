@@ -27,6 +27,13 @@ async function exchangeCodeForAccessToken(c: AppContext, code: string) {
   });
 
   if (!tokenResponse.ok) {
+    // Surface the Google-side error body so misconfigured secrets,
+    // redirect_uri mismatches, etc. produce an actionable line in the
+    // worker log instead of an opaque "Authentication failed".
+    const body = await tokenResponse.text().catch(() => "");
+    console.error(
+      `[google-auth] token exchange failed: ${tokenResponse.status} ${body}`,
+    );
     return null;
   }
 
@@ -45,11 +52,19 @@ async function fetchGoogleUserSub(accessToken: string) {
   );
 
   if (!userResponse.ok) {
+    const body = await userResponse.text().catch(() => "");
+    console.error(
+      `[google-auth] userinfo fetch failed: ${userResponse.status} ${body}`,
+    );
     return null;
   }
 
   const googleUser = (await userResponse.json()) as { sub?: string };
-  return googleUser.sub ?? null;
+  if (!googleUser.sub) {
+    console.error("[google-auth] userinfo response missing 'sub' field");
+    return null;
+  }
+  return googleUser.sub;
 }
 
 function clearGoogleStateCookie(c: AppContext) {
@@ -92,7 +107,14 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
 
     clearGoogleStateCookie(c);
 
+    // Each branch returns the same user-facing 401 ("Authentication
+    // failed") but logs a distinct reason to the worker log so a
+    // misconfigured secret / mismatched redirect_uri / wedged
+    // userinfo call is debuggable without re-deploying.
     if (!code || !state || !storedState || state !== storedState) {
+      console.error(
+        `[google-auth] state validation failed: code=${Boolean(code)} state=${Boolean(state)} storedState=${Boolean(storedState)} match=${state === storedState}`,
+      );
       return c.text("Authentication failed", 401);
     }
 
