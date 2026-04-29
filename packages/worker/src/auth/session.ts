@@ -5,10 +5,26 @@ import type { AppContext } from "../types";
 const SESSION_COOKIE_NAME = "anipres_session";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+/**
+ * Whether the current request is HTTPS. Used to gate the `secure`
+ * cookie attribute: production runs through Cloudflare on HTTPS, so
+ * it returns `true` and cookies are secure-only as expected. Local
+ * `wrangler dev` (and `vite dev` proxying to it) runs over HTTP, so
+ * it returns `false` and the cookies are accepted on `localhost`.
+ *
+ * Without this, the `secure: true` attribute would cause the browser
+ * to drop the cookie on HTTP origins (Chrome's "localhost is a
+ * secure context" rule isn't honored uniformly across browsers /
+ * versions for cookie storage, so relying on it is fragile).
+ */
+export function isSecureRequest(c: AppContext): boolean {
+  return new URL(c.req.url).protocol === "https:";
+}
+
 function setSessionCookie(c: AppContext, jwt: string) {
   setCookie(c, SESSION_COOKIE_NAME, jwt, {
     httpOnly: true,
-    secure: true,
+    secure: isSecureRequest(c),
     sameSite: "Lax",
     path: "/",
     maxAge: JWT_EXPIRY_SECONDS,
@@ -18,7 +34,7 @@ function setSessionCookie(c: AppContext, jwt: string) {
 export function clearSession(c: AppContext) {
   deleteCookie(c, SESSION_COOKIE_NAME, {
     httpOnly: true,
-    secure: true,
+    secure: isSecureRequest(c),
     sameSite: "Lax",
     path: "/",
   });

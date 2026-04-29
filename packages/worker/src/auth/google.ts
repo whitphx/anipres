@@ -1,7 +1,7 @@
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Hono } from "hono";
 import type { AppBindings, AppContext } from "../types";
-import { upsertUserAndIssueSession } from "./session";
+import { isSecureRequest, upsertUserAndIssueSession } from "./session";
 
 const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
@@ -55,7 +55,7 @@ async function fetchGoogleUserSub(accessToken: string) {
 function clearGoogleStateCookie(c: AppContext) {
   deleteCookie(c, GOOGLE_STATE_COOKIE_NAME, {
     httpOnly: true,
-    secure: true,
+    secure: isSecureRequest(c),
     sameSite: "Lax",
     path: GOOGLE_CALLBACK_PATH,
   });
@@ -76,7 +76,7 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
 
     setCookie(c, GOOGLE_STATE_COOKIE_NAME, state, {
       httpOnly: true,
-      secure: true,
+      secure: isSecureRequest(c),
       sameSite: "Lax",
       path: GOOGLE_CALLBACK_PATH,
       maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
