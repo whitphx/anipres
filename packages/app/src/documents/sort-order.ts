@@ -18,10 +18,7 @@ import type { DocumentMeta } from "./types";
 export function nextTailSortOrder(
   existing: ReadonlyArray<Pick<DocumentMeta, "sortOrder">>,
 ): string {
-  const keys = existing
-    .map((d) => d.sortOrder)
-    .filter((key): key is string => typeof key === "string")
-    .sort();
+  const keys = existing.map((d) => d.sortOrder).sort();
   const tail = keys[keys.length - 1] ?? null;
   return generateKeyBetween(tail, null);
 }
