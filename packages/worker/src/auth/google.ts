@@ -30,9 +30,7 @@ function getGoogleRedirectUri(c: AppContext) {
   // Local-dev fallback: when the env var is unset AND the request's
   // Host is loopback (`localhost` / `127.0.0.1`), construct from the
   // Host header so a fresh dev environment doesn't need a
-  // `.dev.vars` edit before Google login works. Vite's proxy
-  // preserves the browser's `Host: localhost:5173` so this builds
-  // exactly the URI the developer would have typed manually.
+  // `.dev.vars` edit before Google login works.
   //
   // Bounded to loopback hosts: in production behind Cloudflare,
   // a request can only reach this worker if its Host matches a
@@ -40,6 +38,11 @@ function getGoogleRedirectUri(c: AppContext) {
   // branch is unreachable in prod and the fallback can't influence
   // a deployed redirect_uri.
   const host = c.req.header("host");
+  // Diagnostic log — helps confirm what Host the worker sees under
+  // a particular `wrangler dev` + Vite proxy setup. Vite preserves
+  // Host by default (changeOrigin=false), but the value depends on
+  // the local config and we want this fallback path observable.
+  console.error(`[google-auth] fallback path; host header=${host}`);
   if (host && isLocalhostHost(host)) {
     return `http://${host}${GOOGLE_CALLBACK_PATH}`;
   }
