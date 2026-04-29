@@ -160,3 +160,16 @@ export const assetNameSchema = v.pipe(
   v.string(),
   v.regex(ASSET_NAME_PATTERN, "Invalid asset name"),
 );
+
+// URL-param schema for `DELETE /auth/identities/:provider/:provider_id`.
+// `provider` is closed-set — only the providers we register OAuth flows
+// for can land in `oauth_identities`, so the API surface stays
+// constrained to the same set. `provider_id` comes from the upstream
+// IdP (numeric for GitHub, opaque `sub` for Google); we don't enforce
+// a specific format, just non-empty + bounded length so a pathological
+// client can't smuggle an unbounded string into a parameterized
+// statement.
+export const oauthIdentityRevokeParamSchema = v.object({
+  provider: v.picklist(["github", "google"]),
+  provider_id: v.pipe(v.string(), v.minLength(1), v.maxLength(256)),
+});

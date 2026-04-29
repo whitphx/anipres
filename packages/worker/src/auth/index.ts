@@ -1,4 +1,6 @@
 import type { Hono } from "hono";
+import * as v from "valibot";
+import { oauthIdentityRevokeParamSchema } from "../schemas";
 import type { AppBindings } from "../types";
 import { registerGitHubAuth } from "./github";
 import { registerGoogleAuth } from "./google";
@@ -7,6 +9,7 @@ import {
   getCurrentUser,
   listOAuthIdentities,
   requireSession,
+  revokeOAuthIdentity,
 } from "./session";
 
 export function registerAuthRoutes(app: Hono<AppBindings>) {
@@ -33,6 +36,51 @@ export function registerAuthRoutes(app: Hono<AppBindings>) {
     }
     const identities = await listOAuthIdentities(c, userId);
     return c.json(identities);
+  });
+
+  // Detach an OAuth identity from the current user (the unlink
+  // counterpart to the `/auth/{provider}` connect flow). 409 with
+  // `code: "last_identity"` when refused — the server-side guard
+  // refuses to leave a user with zero identities (which would lock
+  // them out, since login resolves users via `(provider,
+  // provider_id)`). The settings UI hides the Unlink button when
+  // there's only one identity, but the server check is the actual
+  // safety guarantee.
+  app.delete("/auth/identities/:provider/:provider_id", async (c) => {
+    const userId = await requireSession(c);
+    if (userId === null) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+    const paramsResult = v.safeParse(oauthIdentityRevokeParamSchema, {
+      provider: c.req.param("provider"),
+      provider_id: c.req.param("provider_id"),
+    });
+    if (!paramsResult.success) {
+      return c.json(
+        { error: "Invalid identity", details: paramsResult.issues },
+        400,
+      );
+    }
+    const { provider, provider_id } = paramsResult.output;
+    const outcome = await revokeOAuthIdentity(
+      c,
+      userId,
+      provider,
+      provider_id,
+    );
+    if (outcome === "revoked") {
+      return c.json({ ok: true });
+    }
+    if (outcome === "last_identity") {
+      return c.json(
+        {
+          error: "Cannot remove your last sign-in method.",
+          code: "last_identity",
+        },
+        409,
+      );
+    }
+    return c.json({ error: "Not found" }, 404);
   });
 
   app.post("/auth/logout", (c) => {

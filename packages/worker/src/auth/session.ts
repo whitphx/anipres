@@ -216,20 +216,12 @@ export async function getCurrentUser(c: AppContext) {
     return null;
   }
 
-  // `/auth/me` carries a single `provider` string for legacy callers
-  // (the Authenticated header in the sidebar reads it as a label).
-  // Picking the earliest-attached identity gives a stable answer
-  // across linking events: linking a second provider doesn't flip
-  // the displayed provider, only the dedicated `/auth/identities`
-  // endpoint reflects the full multi-identity state.
-  const user = await c.env.DB.prepare(
-    `SELECT u.id AS id, oi.provider AS provider
-     FROM users u
-     LEFT JOIN oauth_identities oi ON oi.user_id = u.id
-     WHERE u.id = ?
-     ORDER BY oi.created_at ASC
-     LIMIT 1`,
-  )
+  // `/auth/me` returns just the `id` — enough for the client to know
+  // "I am logged in" and to bind workspace-scoped queries. The full
+  // multi-identity state (which providers are linked) lives at
+  // `GET /auth/identities` and is fetched only when the
+  // account-settings UI needs it.
+  const user = await c.env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
     .bind(userId)
     .first();
 
@@ -264,4 +256,59 @@ export async function listOAuthIdentities(
     .bind(userId)
     .all<OAuthIdentitySummary>();
   return results;
+}
+
+export type RevokeOAuthIdentityOutcome =
+  | "revoked"
+  | "last_identity"
+  | "not_found";
+
+/**
+ * Detach an OAuth identity from `userId`. Refuses to remove the user's
+ * last identity — leaving a user with zero identities would lock them
+ * out (login resolves the user via `(provider, provider_id)`, so a
+ * user with no identities is unreachable). Three outcomes:
+ *
+ * - `"revoked"` — identity removed.
+ * - `"last_identity"` — the row exists for this user but is the only
+ *   one. Refused; the row stays.
+ * - `"not_found"` — no row matches `(userId, provider, provider_id)`.
+ *
+ * The DELETE is a single atomic statement: the subquery checks the
+ * count of identities for the user as part of the same statement, so
+ * two concurrent revocations from the same user can't both pass the
+ * check. D1 serializes writers, so the second concurrent statement
+ * sees the post-first-delete count.
+ */
+export async function revokeOAuthIdentity(
+  c: AppContext,
+  userId: number,
+  provider: string,
+  providerId: string,
+): Promise<RevokeOAuthIdentityOutcome> {
+  const result = await c.env.DB.prepare(
+    `DELETE FROM oauth_identities
+     WHERE user_id = ?
+       AND provider = ?
+       AND provider_id = ?
+       AND (SELECT COUNT(*) FROM oauth_identities WHERE user_id = ?) > 1`,
+  )
+    .bind(userId, provider, providerId, userId)
+    .run();
+
+  if ((result.meta.changes ?? 0) > 0) {
+    return "revoked";
+  }
+
+  // Disambiguate: the DELETE matched zero rows either because the
+  // identity doesn't exist for this user, or because it does exist
+  // but it's the user's only one (the count guard rejected the
+  // delete). A single SELECT distinguishes them.
+  const exists = await c.env.DB.prepare(
+    `SELECT 1 FROM oauth_identities
+     WHERE user_id = ? AND provider = ? AND provider_id = ?`,
+  )
+    .bind(userId, provider, providerId)
+    .first();
+  return exists ? "last_identity" : "not_found";
 }

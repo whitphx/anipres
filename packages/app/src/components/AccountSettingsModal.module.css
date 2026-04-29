@@ -203,3 +203,105 @@
 :global([data-color-scheme="dark"]) .allLinkedNote {
   color: #999;
 }
+
+/* `identityDate` already carries `margin-left: auto` to push the
+   right-side group (date + unlink-or-confirm-controls) away from
+   the icon/name. The actions sit next to the date, separated by
+   the parent flex `gap`. */
+.identityActions {
+  display: flex;
+  gap: 6px;
+}
+
+.unlinkButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  color: #888;
+}
+
+.unlinkButton:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #c33;
+  border-color: rgba(204, 51, 51, 0.2);
+}
+
+.unlinkButton:focus-visible {
+  outline: 2px solid #4a90e2;
+  outline-offset: 1px;
+}
+
+.confirmUnlinkButton,
+.cancelUnlinkButton {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.confirmUnlinkButton {
+  border: 1px solid #c33;
+  background: #c33;
+  color: #fff;
+}
+
+.confirmUnlinkButton:hover:not(:disabled) {
+  background: #a82828;
+}
+
+.confirmUnlinkButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancelUnlinkButton {
+  border: 1px solid #ccc;
+  background: none;
+  color: #444;
+}
+
+.cancelUnlinkButton:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.cancelUnlinkButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.singleIdentityNote {
+  font-size: 12px;
+  color: #888;
+  margin: 8px 0 0;
+  font-style: italic;
+}
+
+:global([data-color-scheme="dark"]) .unlinkButton {
+  color: #999;
+}
+
+:global([data-color-scheme="dark"]) .unlinkButton:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f88;
+  border-color: rgba(248, 136, 136, 0.25);
+}
+
+:global([data-color-scheme="dark"]) .cancelUnlinkButton {
+  border-color: #444;
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .cancelUnlinkButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:global([data-color-scheme="dark"]) .singleIdentityNote {
+  color: #999;
+}
