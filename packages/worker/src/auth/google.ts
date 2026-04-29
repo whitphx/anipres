@@ -128,9 +128,16 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
   // cross-provider collisions when multiple OAuth flows run concurrently.
   app.get("/auth/google", async (c) => {
     const state = crypto.randomUUID();
+    const redirectUri = getGoogleRedirectUri(c);
+    // Diagnostic: log what we're sending to Google so any future
+    // redirect_uri_mismatch is a one-glance diagnosis. Cheap line;
+    // keep until the OAuth surface stabilizes for production use.
+    console.log(
+      `[google-auth] authorize host=${c.req.header("host")} redirect_uri=${redirectUri}`,
+    );
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", c.env.GOOGLE_ID);
-    authUrl.searchParams.set("redirect_uri", getGoogleRedirectUri(c));
+    authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", "openid");
     authUrl.searchParams.set("state", state);
