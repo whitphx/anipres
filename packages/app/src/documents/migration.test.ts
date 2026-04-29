@@ -273,6 +273,66 @@ describe("uploadAssetDataUrls", () => {
     expect(result).toBe(snapshot);
     expect(uploadFile).not.toHaveBeenCalled();
   });
+
+  it("caps in-flight uploads to ASSET_UPLOAD_CONCURRENCY (=4) when many assets are present", async () => {
+    // 10 data-URL assets, 4-way pool: max 4 should be in flight at any
+    // moment. Use manually-resolved promises so the test can observe
+    // the in-flight count without races.
+    const records: Record<string, ReturnType<typeof assetRecord>> = {};
+    for (let i = 0; i < 10; i++) {
+      records[`asset:${i}`] = assetRecord(
+        `asset:${i}`,
+        `data:image/png;base64,AAAA${i}`,
+      );
+    }
+    const snapshot = snapshotWith(records);
+
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const resolvers: Array<() => void> = [];
+
+    const uploadFile = vi
+      .fn<(file: File) => Promise<{ src: string }>>()
+      .mockImplementation((file) => {
+        inFlight++;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        return new Promise<{ src: string }>((resolve) => {
+          resolvers.push(() => {
+            inFlight--;
+            resolve({ src: `/uploaded/${file.name}` });
+          });
+        });
+      });
+
+    // Yield enough times to let chained microtasks settle. Each
+    // resolved upload triggers `await fn()` to resume, which enqueues
+    // the next iteration; that iteration calls `fn(items[i+1])` (a
+    // mocked promise that resolves later). One `await Promise.resolve()`
+    // unblocks one such hop; flushing several covers the full chain.
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    };
+
+    const promise = uploadAssetDataUrls(snapshot, uploadFile);
+
+    // Wait for the initial pool to fill: the first 4 uploads should be
+    // dispatched before any complete.
+    await flushMicrotasks();
+    expect(inFlight).toBe(4);
+
+    // Drain in waves. Each wave: resolve everything currently in
+    // flight, then yield until the pool has dispatched whatever
+    // backlog work it can. Loop ends when no more work is queued.
+    while (resolvers.length > 0) {
+      const batch = resolvers.splice(0, resolvers.length);
+      for (const resolve of batch) resolve();
+      await flushMicrotasks();
+    }
+
+    await promise;
+    expect(uploadFile).toHaveBeenCalledTimes(10);
+    expect(peakInFlight).toBe(4);
+  });
 });
 
 describe("convertLocalDocToSynced", () => {

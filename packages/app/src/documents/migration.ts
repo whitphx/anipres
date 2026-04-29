@@ -78,15 +78,55 @@ export function rewriteAssetSrcs(
   return { ...snapshot, store: newStore as typeof snapshot.store };
 }
 
+// Cap on simultaneous in-flight asset uploads during a migration.
+// Browsers cap parallel HTTP/1.1 connections at 6 per host; the worker
+// also has its own per-request cost. 4 leaves headroom for unrelated
+// requests (the doc-list query, snapshot push, etc.) while still
+// pipelining enough to feel fast on a doc with many embedded images.
+const ASSET_UPLOAD_CONCURRENCY = 4;
+
+/**
+ * Run `fn` over each input with at most `limit` concurrent calls. Keeps
+ * the pool full: as one call resolves, the next item is dispatched
+ * (vs. batching, which would wait for the slowest in each batch
+ * before starting the next group).
+ *
+ * Results are returned in input order. On the first rejection the
+ * outer promise rejects; in-flight calls are not actively cancelled
+ * (the pool will not start any further items, but already-running
+ * fetches must finish or be aborted via a separate signal).
+ */
+async function pooledMap<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= items.length) return;
+        results[i] = await fn(items[i]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Scan a snapshot for inline `data:` URL assets, upload each via the
  * injected `uploadFile` callback, and return a new snapshot with the
  * asset srcs rewritten to the uploaded URLs. Snapshots with no data-URL
  * assets are returned unchanged.
  *
- * Uploads run in parallel. On partial failure some assets may still
- * reach R2 even though the promise rejects; the worker's asset GC
- * reconciles orphans against the live snapshot and cleans them up.
+ * Uploads run with bounded concurrency (`ASSET_UPLOAD_CONCURRENCY`).
+ * On partial failure some assets may still reach R2 even though the
+ * outer promise rejects; the worker's asset GC reconciles orphans
+ * against the live snapshot and cleans them up.
  */
 export async function uploadAssetDataUrls(
   snapshot: TLStoreSnapshot,
@@ -99,12 +139,14 @@ export async function uploadAssetDataUrls(
   // derives the final asset key's extension from the validated MIME
   // type and ignores this filename entirely (see
   // packages/worker/src/assets.ts). Passing the record id is enough.
-  const entries = await Promise.all(
-    assets.map(async (asset) => {
+  const entries = await pooledMap(
+    assets,
+    ASSET_UPLOAD_CONCURRENCY,
+    async (asset) => {
       const file = await dataUrlToFile(asset.dataUrl, asset.recordId);
       const { src } = await uploadFile(file);
       return [asset.recordId, src] as const;
-    }),
+    },
   );
   return rewriteAssetSrcs(snapshot, new Map(entries));
 }
@@ -116,7 +158,13 @@ export async function uploadAssetDataUrls(
 // surface as a visible failure rather than an indefinite spinner.
 const MIGRATION_FETCH_TIMEOUT_MS = 60_000;
 
-function composeWithTimeout(userSignal?: AbortSignal): AbortSignal {
+// Internal-only signatures use `AbortSignal | undefined` rather than
+// `?: AbortSignal` because every internal caller passes the parameter
+// explicitly (often from a forwarded `abortSignal`). The optional `?`
+// would invite a "looks safe to omit" reading at the call site that
+// doesn't reflect actual usage. The public
+// `ConvertLocalDocToSyncedParams` keeps `?` for consumer ergonomics.
+function composeWithTimeout(userSignal: AbortSignal | undefined): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(MIGRATION_FETCH_TIMEOUT_MS);
   return userSignal
     ? AbortSignal.any([userSignal, timeoutSignal])
@@ -126,7 +174,7 @@ function composeWithTimeout(userSignal?: AbortSignal): AbortSignal {
 async function defaultUploadAsset(
   documentId: string,
   file: File,
-  abortSignal?: AbortSignal,
+  abortSignal: AbortSignal | undefined,
 ): Promise<{ src: string }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -147,7 +195,7 @@ async function defaultUploadAsset(
 async function defaultPushSnapshot(
   documentId: string,
   snapshot: TLStoreSnapshot,
-  abortSignal?: AbortSignal,
+  abortSignal: AbortSignal | undefined,
 ): Promise<void> {
   const res = await fetch(
     `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
