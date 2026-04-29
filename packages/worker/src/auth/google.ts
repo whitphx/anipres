@@ -8,7 +8,34 @@ const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
 function getGoogleRedirectUri(c: AppContext) {
-  return new URL(GOOGLE_CALLBACK_PATH, c.req.url).toString();
+  // Construct from the Host header rather than c.req.url.
+  //
+  // `wrangler dev` synthesizes `request.url` using the production
+  // `[[routes]] pattern = "anipres.app"` from `wrangler.toml`, so
+  // `c.req.url` reports `http://anipres.app/...` even for local
+  // requests through Vite's proxy. That bogus URI doesn't match
+  // anything registered in Google Cloud Console, so the token
+  // exchange fails with `redirect_uri_mismatch`.
+  //
+  // The Host header reflects the actual user-facing origin in both
+  // environments: Vite's http-proxy preserves the browser's
+  // `Host: localhost:5173` in dev, and Cloudflare sets
+  // `Host: anipres.app` in prod. Trust is bounded — Cloudflare only
+  // routes a request to this worker when the Host matches a
+  // configured route binding, and Google validates the redirect_uri
+  // is in its registered list, so a forged Host can't redirect to a
+  // malicious site.
+  //
+  // Protocol: prefer `x-forwarded-proto` (set by Cloudflare in prod);
+  // fall back to the request URL's protocol (dev is HTTP).
+  const host = c.req.header("host");
+  if (!host) {
+    return new URL(GOOGLE_CALLBACK_PATH, c.req.url).toString();
+  }
+  const isHttps =
+    c.req.header("x-forwarded-proto") === "https" ||
+    new URL(c.req.url).protocol === "https:";
+  return `${isHttps ? "https" : "http"}://${host}${GOOGLE_CALLBACK_PATH}`;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {
