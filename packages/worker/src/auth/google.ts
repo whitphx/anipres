@@ -17,38 +17,35 @@ function isLocalhostHost(host: string): boolean {
 }
 
 function getGoogleRedirectUri(c: AppContext) {
-  // Prefer the configured `PUBLIC_BASE_URL` env var. Set in
-  // `wrangler.toml`'s `[vars]` (prod) and `[env.preview.vars]`
-  // (preview); not derived from request context because
-  // `c.req.url` reports the production route pattern (`anipres.app`)
-  // even under `wrangler dev`, and a request-derived URI would also
-  // depend on Cloudflare's Host-routing trust chain.
-  if (c.env.PUBLIC_BASE_URL) {
-    return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
-  }
-
-  // Local-dev fallback: when the env var is unset AND the request's
-  // Host is loopback (`localhost` / `127.0.0.1`), construct from the
-  // Host header so a fresh dev environment doesn't need a
-  // `.dev.vars` edit before Google login works.
+  // Loopback host wins over any configured `PUBLIC_BASE_URL`.
   //
-  // Bounded to loopback hosts: in production behind Cloudflare,
-  // a request can only reach this worker if its Host matches a
-  // configured route binding. None of those are loopback, so this
-  // branch is unreachable in prod and the fallback can't influence
-  // a deployed redirect_uri.
+  // `wrangler.toml`'s `[vars]` applies to both prod and local
+  // `wrangler dev`, so without this branch a developer running
+  // `wrangler dev` inherits the production URL (`https://anipres.app`)
+  // and Google rejects the redirect_uri at the authorize step. When
+  // the request's Host is `localhost` / `127.0.0.1`, the developer
+  // is definitively on a local origin and we want to redirect back
+  // to that origin — Vite's proxy preserves the browser's
+  // `Host: localhost:5173`, so the result builds exactly the URI
+  // the developer would have typed manually.
+  //
+  // Safe in prod: Cloudflare only routes a request to this worker
+  // when the Host matches a configured route binding. None of those
+  // are loopback, so this branch is unreachable on the deployed
+  // worker — a forged loopback Host can't influence a production
+  // redirect_uri.
   const host = c.req.header("host");
-  // Diagnostic log — helps confirm what Host the worker sees under
-  // a particular `wrangler dev` + Vite proxy setup. Vite preserves
-  // Host by default (changeOrigin=false), but the value depends on
-  // the local config and we want this fallback path observable.
-  console.error(`[google-auth] fallback path; host header=${host}`);
   if (host && isLocalhostHost(host)) {
     return `http://${host}${GOOGLE_CALLBACK_PATH}`;
   }
 
-  // Production miss — env var unset and Host isn't loopback. Log
-  // and return a clearly-bogus URI that Google will reject in a
+  // Production / preview: use the configured env var.
+  if (c.env.PUBLIC_BASE_URL) {
+    return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
+  }
+
+  // Misconfig: non-loopback Host AND no env var set. Log and
+  // return a clearly-bogus URI that Google will reject in a
   // recognizable way ("redirect_uri_mismatch") rather than letting
   // the worker emit `undefined/auth/google/callback` silently.
   console.error(
