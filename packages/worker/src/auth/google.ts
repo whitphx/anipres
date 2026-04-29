@@ -12,6 +12,7 @@ function getGoogleRedirectUri(c: AppContext) {
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {
+  const redirectUri = getGoogleRedirectUri(c);
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
@@ -22,7 +23,7 @@ async function exchangeCodeForAccessToken(c: AppContext, code: string) {
       client_secret: c.env.GOOGLE_SECRET,
       code,
       grant_type: "authorization_code",
-      redirect_uri: getGoogleRedirectUri(c),
+      redirect_uri: redirectUri,
     }),
   });
 
@@ -32,7 +33,7 @@ async function exchangeCodeForAccessToken(c: AppContext, code: string) {
     // worker log instead of an opaque "Authentication failed".
     const body = await tokenResponse.text().catch(() => "");
     console.error(
-      `[google-auth] token exchange failed: ${tokenResponse.status} ${body}`,
+      `[google-auth] token exchange failed: ${tokenResponse.status} redirect_uri=${redirectUri} body=${body}`,
     );
     return null;
   }
@@ -82,9 +83,11 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
   // cross-provider collisions when multiple OAuth flows run concurrently.
   app.get("/auth/google", async (c) => {
     const state = crypto.randomUUID();
+    const redirectUri = getGoogleRedirectUri(c);
+    console.error(`[google-auth] authorize redirect_uri=${redirectUri}`);
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", c.env.GOOGLE_ID);
-    authUrl.searchParams.set("redirect_uri", getGoogleRedirectUri(c));
+    authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", "openid");
     authUrl.searchParams.set("state", state);
