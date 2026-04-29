@@ -22,19 +22,6 @@ crons = ["*/5 * * * *"]
 pattern = "anipres.app"
 custom_domain = true
 
-# Override the dev-server host. By default `wrangler dev` synthesizes
-# `request.url` and the `Host` header from the production
-# `[[routes]] pattern` above (`anipres.app`), even for local requests
-# coming through Vite's proxy. That production-shaped Host is wrong
-# for local OAuth flows: the redirect_uri the worker emits has to
-# match what Google has registered for *this* environment. Setting
-# `host = "localhost"` makes wrangler use the actual local origin
-# so `c.req.header("host")` reflects what the developer is actually
-# hitting (`localhost:5173` via Vite's preserved Host, or
-# `localhost:8787` when going direct to wrangler).
-[dev]
-host = "localhost"
-
 # Bundle the React app's dist into the worker so anipres.app/ serves
 # the SPA. Same shape as `[env.preview.assets]` further down — prod
 # and preview are architecturally symmetric. `run_worker_first` carves

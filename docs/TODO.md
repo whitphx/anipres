@@ -31,15 +31,12 @@ Operational items the code can't cover. Each of these must be set before `wrangl
   - prod: `https://anipres.app/auth/github`, `https://anipres.app/auth/google/callback`
   - preview: `https://anipres-worker-preview.<account>.workers.dev/...`
   - local dev: `http://localhost:5173/auth/github`, `http://localhost:5173/auth/google/callback`
-- **Local-dev `.dev.vars`** at `packages/worker/.dev.vars` (git-ignored). Required entries:
+- **Local-dev `.dev.vars`** at `packages/worker/.dev.vars` (git-ignored). Copy `packages/worker/.dev.vars.example` to `.dev.vars` and fill in the OAuth credentials:
+  ```bash
+  cp packages/worker/.dev.vars.example packages/worker/.dev.vars
+  $EDITOR packages/worker/.dev.vars
   ```
-  GITHUB_ID=<dev oauth client id>
-  GITHUB_SECRET=<dev oauth client secret>
-  GOOGLE_ID=<dev oauth client id>
-  GOOGLE_SECRET=<dev oauth client secret>
-  JWT_SECRET=<any random string>
-  ```
-  `PUBLIC_BASE_URL` is auto-derived from the request's `Host` header for loopback origins (`localhost` / `127.0.0.1`), so local dev doesn't need it set explicitly. If you run dev under a non-loopback host (LAN IP, ngrok, etc.), set `PUBLIC_BASE_URL=<your origin>` in `.dev.vars`. Restart `wrangler dev` after editing.
+  Note that `PUBLIC_BASE_URL=http://localhost:5173` is required even for local dev — wrangler dev applies `wrangler.toml`'s `[vars]` to the local environment too, so without this override the worker inherits the production URL and Google rejects the OAuth redirect_uri. Restart `wrangler dev` after editing.
 - **Run migrations** against both D1 instances on first deploy (and on every subsequent migration): `wrangler d1 migrations apply anipres-db` (and `… --env preview`).
 
 ## Preview architecture

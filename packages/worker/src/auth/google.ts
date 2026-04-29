@@ -7,51 +7,32 @@ const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
-function isLocalhostHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host.startsWith("localhost:") ||
-    host === "127.0.0.1" ||
-    host.startsWith("127.0.0.1:")
-  );
-}
-
 function getGoogleRedirectUri(c: AppContext) {
-  // Loopback host wins over any configured `PUBLIC_BASE_URL`.
+  // Use the explicit `PUBLIC_BASE_URL` env var. Set in
+  // `wrangler.toml`'s `[vars]` for prod (`https://anipres.app`),
+  // `[env.preview.vars]` for preview, and `.dev.vars` for local
+  // dev (`http://localhost:5173`). See `.dev.vars.example`.
   //
-  // `wrangler.toml`'s `[vars]` applies to both prod and local
-  // `wrangler dev`, so without this branch a developer running
-  // `wrangler dev` inherits the production URL (`https://anipres.app`)
-  // and Google rejects the redirect_uri at the authorize step. When
-  // the request's Host is `localhost` / `127.0.0.1`, the developer
-  // is definitively on a local origin and we want to redirect back
-  // to that origin — Vite's proxy preserves the browser's
-  // `Host: localhost:5173`, so the result builds exactly the URI
-  // the developer would have typed manually.
-  //
-  // Safe in prod: Cloudflare only routes a request to this worker
-  // when the Host matches a configured route binding. None of those
-  // are loopback, so this branch is unreachable on the deployed
-  // worker — a forged loopback Host can't influence a production
-  // redirect_uri.
-  const host = c.req.header("host");
-  if (host && isLocalhostHost(host)) {
-    return `http://${host}${GOOGLE_CALLBACK_PATH}`;
-  }
-
-  // Production / preview: use the configured env var.
+  // Auto-detecting from request context (Host header / `c.req.url`)
+  // was attempted but isn't viable: `wrangler dev` synthesizes both
+  // values from the production `[[routes]] pattern`, so locally the
+  // worker sees `Host: anipres.app` regardless of how the developer
+  // accesses it. An explicit per-environment value is the only
+  // reliable way to construct a redirect_uri that matches what
+  // Google has registered for this environment.
   if (c.env.PUBLIC_BASE_URL) {
     return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
   }
 
-  // Misconfig: non-loopback Host AND no env var set. Log and
-  // return a clearly-bogus URI that Google will reject in a
-  // recognizable way ("redirect_uri_mismatch") rather than letting
-  // the worker emit `undefined/auth/google/callback` silently.
+  // Misconfig — the env var must be set. The bogus URI returned
+  // here will surface as `redirect_uri_mismatch` from Google,
+  // which the operator can correlate with the log line below.
   console.error(
     "[google-auth] PUBLIC_BASE_URL is not set. " +
-      "Set it in `wrangler.toml`'s `[vars]` (prod) or " +
-      "`[env.preview.vars]` (preview).",
+      "For local dev, copy `packages/worker/.dev.vars.example` to " +
+      "`.dev.vars` and restart `wrangler dev`. " +
+      "For prod / preview, set it in `wrangler.toml`'s `[vars]` " +
+      "(or `[env.preview.vars]`) section.",
   );
   return GOOGLE_CALLBACK_PATH;
 }
@@ -128,16 +109,9 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
   // cross-provider collisions when multiple OAuth flows run concurrently.
   app.get("/auth/google", async (c) => {
     const state = crypto.randomUUID();
-    const redirectUri = getGoogleRedirectUri(c);
-    // Diagnostic: log what we're sending to Google so any future
-    // redirect_uri_mismatch is a one-glance diagnosis. Cheap line;
-    // keep until the OAuth surface stabilizes for production use.
-    console.log(
-      `[google-auth] authorize host=${c.req.header("host")} redirect_uri=${redirectUri}`,
-    );
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", c.env.GOOGLE_ID);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("redirect_uri", getGoogleRedirectUri(c));
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", "openid");
     authUrl.searchParams.set("state", state);
