@@ -24,19 +24,51 @@ export function clearSession(c: AppContext) {
   });
 }
 
+/**
+ * Resolve the post-OAuth-callback action.
+ *
+ * Two modes, distinguished only by whether the caller already has a
+ * valid session cookie:
+ *
+ * - **Login** (no session): existing flow — find or create the user
+ *   keyed by `(provider, provider_id)`, issue a fresh session cookie,
+ *   redirect to `/`.
+ * - **Link** (session present): attach this `(provider, provider_id)`
+ *   to the existing user. The session cookie stays as-is. Redirect
+ *   carries a query param so the client can surface the result.
+ *
+ * The session cookie *is* the intent — the production UI never sends
+ * a logged-in user through OAuth except via the settings "Connect"
+ * button, so "logged-in user completes the OAuth dance" is
+ * unambiguously a link operation. A separate intent cookie was
+ * considered but adds plumbing without buying anything.
+ */
 export async function upsertUserAndIssueSession(
   c: AppContext,
   provider: string,
   providerId: string,
 ): Promise<Response> {
-  const now = Math.floor(Date.now() / 1000);
+  const currentUserId = await requireSession(c);
+  if (currentUserId !== null) {
+    return attachIdentityToCurrentUser(c, currentUserId, provider, providerId);
+  }
 
   const userId = await resolveUserIdForOAuthIdentity(c, provider, providerId);
   if (userId === null) {
     return c.text("Failed to create user", 500);
   }
 
-  const jwt = await sign(
+  const jwt = await issueSessionJwt(c, userId);
+  setSessionCookie(c, jwt);
+  return c.redirect("/");
+}
+
+async function issueSessionJwt(
+  c: AppContext,
+  userId: number,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return sign(
     {
       sub: String(userId),
       exp: now + JWT_EXPIRY_SECONDS,
@@ -44,9 +76,58 @@ export async function upsertUserAndIssueSession(
     },
     c.env.JWT_SECRET,
   );
+}
 
-  setSessionCookie(c, jwt);
-  return c.redirect("/");
+/**
+ * Attach `(provider, provider_id)` to the currently-logged-in user.
+ *
+ * Three outcomes:
+ *
+ * - **Fresh attach** — INSERT succeeds. Identity now belongs to the
+ *   current user. Redirect with `?account_link=success`.
+ * - **Idempotent re-attach** — INSERT trips the `(provider,
+ *   provider_id)` PK and the existing row's `user_id` matches the
+ *   current user. The user re-clicked Connect on something already
+ *   linked; treat as a no-op success. Redirect with
+ *   `?account_link=already_linked`.
+ * - **Conflict** — INSERT trips the PK and the existing row's
+ *   `user_id` is *another* user. The provider account belongs to
+ *   someone else; we don't auto-merge here (see TODO.md). Redirect
+ *   with `?account_link_error=identity_in_use`.
+ */
+async function attachIdentityToCurrentUser(
+  c: AppContext,
+  currentUserId: number,
+  provider: string,
+  providerId: string,
+): Promise<Response> {
+  try {
+    await c.env.DB.prepare(
+      "INSERT INTO oauth_identities (user_id, provider, provider_id) VALUES (?, ?, ?)",
+    )
+      .bind(currentUserId, provider, providerId)
+      .run();
+    return c.redirect("/?account_link=success");
+  } catch {
+    // The PK trip is the dominant case; any other DB error also lands
+    // here. Distinguish by re-reading the row: if it exists and points
+    // at the current user, we're idempotent; if it points elsewhere,
+    // surface the conflict; if it doesn't exist at all, the original
+    // error wasn't a PK trip — surface a generic failure.
+    const existing = await c.env.DB.prepare(
+      "SELECT user_id FROM oauth_identities WHERE provider = ? AND provider_id = ?",
+    )
+      .bind(provider, providerId)
+      .first<{ user_id: number }>();
+
+    if (!existing) {
+      return c.redirect("/?account_link_error=server_error");
+    }
+    if (existing.user_id === currentUserId) {
+      return c.redirect("/?account_link=already_linked");
+    }
+    return c.redirect("/?account_link_error=identity_in_use");
+  }
 }
 
 // Look up the user_id for a given (provider, provider_id), creating
@@ -135,10 +216,12 @@ export async function getCurrentUser(c: AppContext) {
     return null;
   }
 
-  // Phase 1: each user has exactly one identity, so picking the
-  // earliest-attached one is unambiguous. When account-linking lands
-  // (`docs/TODO.md`), this should return all identities or the user's
-  // designated primary.
+  // `/auth/me` carries a single `provider` string for legacy callers
+  // (the Authenticated header in the sidebar reads it as a label).
+  // Picking the earliest-attached identity gives a stable answer
+  // across linking events: linking a second provider doesn't flip
+  // the displayed provider, only the dedicated `/auth/identities`
+  // endpoint reflects the full multi-identity state.
   const user = await c.env.DB.prepare(
     `SELECT u.id AS id, oi.provider AS provider
      FROM users u
@@ -155,4 +238,30 @@ export async function getCurrentUser(c: AppContext) {
   }
 
   return user;
+}
+
+export interface OAuthIdentitySummary {
+  provider: string;
+  provider_id: string;
+  created_at: number;
+}
+
+/**
+ * List the linked OAuth identities for `userId`, oldest-attached
+ * first. Used by `GET /auth/identities` to power the account-settings
+ * UI.
+ */
+export async function listOAuthIdentities(
+  c: AppContext,
+  userId: number,
+): Promise<OAuthIdentitySummary[]> {
+  const { results } = await c.env.DB.prepare(
+    `SELECT provider, provider_id, created_at
+     FROM oauth_identities
+     WHERE user_id = ?
+     ORDER BY created_at ASC`,
+  )
+    .bind(userId)
+    .all<OAuthIdentitySummary>();
+  return results;
 }

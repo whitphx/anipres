@@ -1,0 +1,232 @@
+import { Github, LogIn, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import styles from "./AccountSettingsModal.module.css";
+
+interface OAuthIdentity {
+  provider: string;
+  provider_id: string;
+  created_at: number;
+}
+
+const ALL_PROVIDERS = ["github", "google"] as const;
+type ProviderName = (typeof ALL_PROVIDERS)[number];
+
+const PROVIDER_LABELS: Record<ProviderName, string> = {
+  github: "GitHub",
+  google: "Google",
+};
+
+const FLASH_MESSAGES: Record<
+  string,
+  { kind: "success" | "error"; text: string }
+> = {
+  // success codes (?account_link=...)
+  success: {
+    kind: "success",
+    text: "Account connected.",
+  },
+  already_linked: {
+    kind: "success",
+    text: "That account is already linked.",
+  },
+  // error codes (?account_link_error=...)
+  identity_in_use: {
+    kind: "error",
+    text: "That provider account is already linked to a different anipres account. Sign in there instead.",
+  },
+  server_error: {
+    kind: "error",
+    text: "Could not link the account. Please try again.",
+  },
+};
+
+interface AccountSettingsModalProps {
+  onClose: () => void;
+  /**
+   * Optional initial flash to show, passed in by the parent when the
+   * URL query params indicate the modal is being opened in response
+   * to a finished OAuth-link flow.
+   *
+   * The modal is mount/unmount-controlled by the parent — there is
+   * no `open` prop. Mount = visible. This pattern keeps the
+   * fetch-on-open useEffect from needing a synchronous-setState
+   * reset (which the React lint rule discourages); React unmount
+   * resets state for free on the next open.
+   */
+  initialFlash?: { code: string; kind: "success" | "error" } | null;
+}
+
+export function AccountSettingsModal({
+  onClose,
+  initialFlash,
+}: AccountSettingsModalProps) {
+  const [identities, setIdentities] = useState<OAuthIdentity[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Fetch identities once on mount. Parent unmounts the modal when
+  // closed, so any subsequent open is a fresh mount and re-fetches.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/auth/identities")
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((data: OAuthIdentity[]) => {
+        if (!cancelled) setIdentities(data);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : `Could not load (${String(err)})`,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Focus the close button on mount so Esc-to-close works without
+  // the user first having to tab into the dialog.
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  // Esc-to-close. The backdrop click and X button cover mouse users.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const linkedProviders = new Set(
+    (identities ?? []).map((row) => row.provider),
+  );
+  const unlinkedProviders = ALL_PROVIDERS.filter(
+    (p) => !linkedProviders.has(p),
+  );
+
+  const flashConfig = initialFlash
+    ? (FLASH_MESSAGES[initialFlash.code] ?? {
+        kind: initialFlash.kind,
+        text: "Account linking returned an unrecognized status.",
+      })
+    : null;
+
+  return (
+    <div
+      className={styles.backdrop}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-settings-title"
+      >
+        <div className={styles.header}>
+          <h2 id="account-settings-title" className={styles.title}>
+            Account settings
+          </h2>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className={styles.closeButton}
+            onClick={onClose}
+            aria-label="Close account settings"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {flashConfig && (
+          <div
+            role={flashConfig.kind === "error" ? "alert" : "status"}
+            className={`${styles.flash} ${
+              flashConfig.kind === "success"
+                ? styles.flashSuccess
+                : styles.flashError
+            }`}
+          >
+            {flashConfig.text}
+          </div>
+        )}
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Linked sign-in providers</h3>
+          {identities === null && loadError === null && (
+            <p className={styles.empty}>Loading…</p>
+          )}
+          {loadError !== null && (
+            <p className={styles.empty}>Could not load: {loadError}</p>
+          )}
+          {identities !== null && identities.length === 0 && (
+            <p className={styles.empty}>No providers linked.</p>
+          )}
+          {identities !== null && identities.length > 0 && (
+            <ul className={styles.identityList}>
+              {identities.map((identity) => (
+                <li
+                  key={`${identity.provider}:${identity.provider_id}`}
+                  className={styles.identityItem}
+                >
+                  <ProviderIcon provider={identity.provider} />
+                  <span className={styles.identityProvider}>
+                    {PROVIDER_LABELS[identity.provider as ProviderName] ??
+                      identity.provider}
+                  </span>
+                  <span className={styles.identityDate}>
+                    Connected {formatDate(identity.created_at)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Connect another provider</h3>
+          {identities !== null && unlinkedProviders.length === 0 ? (
+            <p className={styles.allLinkedNote}>
+              All supported providers are already linked.
+            </p>
+          ) : (
+            <div className={styles.connectButtons}>
+              {unlinkedProviders.map((provider) => (
+                <button
+                  key={provider}
+                  type="button"
+                  className={styles.connectButton}
+                  onClick={() => {
+                    window.location.href = `/auth/${provider}`;
+                  }}
+                  disabled={identities === null}
+                >
+                  <ProviderIcon provider={provider} />
+                  Connect {PROVIDER_LABELS[provider]}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ProviderIcon({ provider }: { provider: string }) {
+  if (provider === "github") return <Github size={14} aria-hidden />;
+  return <LogIn size={14} aria-hidden />;
+}
+
+function formatDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
