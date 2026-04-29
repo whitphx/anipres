@@ -156,63 +156,72 @@ export function AccountSettingsModal({
           </div>
         )}
 
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Linked sign-in providers</h3>
-          {identities === null && loadError === null && (
-            <p className={styles.empty}>Loading…</p>
-          )}
-          {loadError !== null && (
-            <p className={styles.empty}>Could not load: {loadError}</p>
-          )}
-          {identities !== null && identities.length === 0 && (
-            <p className={styles.empty}>No providers linked.</p>
-          )}
-          {identities !== null && identities.length > 0 && (
-            <ul className={styles.identityList}>
-              {identities.map((identity) => (
-                <li
-                  key={`${identity.provider}:${identity.provider_id}`}
-                  className={styles.identityItem}
-                >
-                  <ProviderIcon provider={identity.provider} />
-                  <span className={styles.identityProvider}>
-                    {PROVIDER_LABELS[identity.provider as ProviderName] ??
-                      identity.provider}
-                  </span>
-                  <span className={styles.identityDate}>
-                    Connected {formatDate(identity.created_at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {/* Single loading / error gate around both sections. Rendering
+            the sections eagerly (with the connect-buttons list filled in
+            from an empty `linkedProviders` Set) caused the modal to
+            open at "all providers offered as Connect" height and shrink
+            once the fetch revealed which providers were already linked.
+            Hold both sections behind the gate so the modal opens at its
+            final size in one pass. */}
+        {identities === null && loadError === null && (
+          <p className={styles.empty}>Loading…</p>
+        )}
+        {loadError !== null && (
+          <p className={styles.empty}>Could not load: {loadError}</p>
+        )}
+        {identities !== null && (
+          <>
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Linked sign-in providers</h3>
+              {identities.length === 0 ? (
+                <p className={styles.empty}>No providers linked.</p>
+              ) : (
+                <ul className={styles.identityList}>
+                  {identities.map((identity) => (
+                    <li
+                      key={`${identity.provider}:${identity.provider_id}`}
+                      className={styles.identityItem}
+                    >
+                      <ProviderIcon provider={identity.provider} />
+                      <span className={styles.identityProvider}>
+                        {PROVIDER_LABELS[identity.provider as ProviderName] ??
+                          identity.provider}
+                      </span>
+                      <span className={styles.identityDate}>
+                        Connected {formatDate(identity.created_at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Connect another provider</h3>
-          {identities !== null && unlinkedProviders.length === 0 ? (
-            <p className={styles.allLinkedNote}>
-              All supported providers are already linked.
-            </p>
-          ) : (
-            <div className={styles.connectButtons}>
-              {unlinkedProviders.map((provider) => (
-                <button
-                  key={provider}
-                  type="button"
-                  className={styles.connectButton}
-                  onClick={() => {
-                    window.location.href = `/auth/${provider}`;
-                  }}
-                  disabled={identities === null}
-                >
-                  <ProviderIcon provider={provider} />
-                  Connect {PROVIDER_LABELS[provider]}
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Connect another provider</h3>
+              {unlinkedProviders.length === 0 ? (
+                <p className={styles.allLinkedNote}>
+                  All supported providers are already linked.
+                </p>
+              ) : (
+                <div className={styles.connectButtons}>
+                  {unlinkedProviders.map((provider) => (
+                    <button
+                      key={provider}
+                      type="button"
+                      className={styles.connectButton}
+                      onClick={() => {
+                        window.location.href = `/auth/${provider}`;
+                      }}
+                    >
+                      <ProviderIcon provider={provider} />
+                      Connect {PROVIDER_LABELS[provider]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </div>
     </div>
   );
