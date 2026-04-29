@@ -22,7 +22,22 @@ function getGoogleRedirectUri(c: AppContext) {
   //
   // Per-env values are set via `[vars]` in wrangler.toml (prod /
   // preview) and `.dev.vars` (local dev).
-  return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
+  const baseUrl = c.env.PUBLIC_BASE_URL;
+  if (!baseUrl) {
+    // Surface a clear log line so a missing env var is a one-glance
+    // fix instead of a confusing "Access blocked" page from Google.
+    // Without the var, the template literal below would emit
+    // `undefined/auth/google/callback`, which Google rejects at the
+    // authorize step.
+    console.error(
+      "[google-auth] PUBLIC_BASE_URL is not set. " +
+        "For local dev, add `PUBLIC_BASE_URL=http://localhost:5173` " +
+        "to `packages/worker/.dev.vars` and restart `wrangler dev`. " +
+        "For prod/preview, set it in `wrangler.toml`'s `[vars]` " +
+        "(or `[env.preview.vars]`) section.",
+    );
+  }
+  return `${baseUrl}${GOOGLE_CALLBACK_PATH}`;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {
