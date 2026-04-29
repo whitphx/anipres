@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import type { User } from "./types";
 import { AuthContext } from "./useAuth";
 
@@ -23,12 +23,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // focus-revalidation behavior covers a real case here: a user who
   // logs out in another tab gets reflected in this tab on focus
   // without needing a cross-tab broadcast.
-  const {
-    data,
-    isLoading: loading,
-    mutate,
-  } = useSWR<User | null>(ME_KEY, fetchMe);
+  const { data, isLoading: loading } = useSWR<User | null>(ME_KEY, fetchMe);
   const user = data ?? null;
+
+  // Pull the global mutate so logout can wipe every SWR cache key,
+  // not just `/auth/me`. The server-side cookie clearing already
+  // protects the API surface (every authenticated route returns 401
+  // post-logout), but stale auth-scoped cache values would otherwise
+  // linger in any open UI surface that read them — see the comment
+  // on logout below.
+  const { mutate: globalMutate } = useSWRConfig();
 
   const loginWithGitHub = useCallback(() => {
     window.location.href = "/auth/github";
@@ -41,13 +45,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     const res = await fetch("/auth/logout", { method: "POST" });
     if (res.ok) {
-      // Update the SWR cache to "logged out" without an extra
-      // round-trip. revalidate:false skips the follow-up GET that
-      // would otherwise fire — it'd return 401 anyway, so the GET
-      // is pure overhead.
-      await mutate(null, { revalidate: false });
+      // Wipe every SWR cache key, not just `/auth/me`. After logout,
+      // any data fetched while authenticated (workspaces, identities,
+      // future endpoints) belongs to the previous session; the server
+      // would now return 401, so any subsequent UI that reads the
+      // cache is showing stale prior-session data. `revalidate:false`
+      // skips a flurry of immediate refetches that would all 401
+      // anyway. Background revalidation on the next focus event will
+      // refresh whatever the new logged-out state needs.
+      //
+      // `() => true` is the SWR-canonical match-all-keys filter.
+      await globalMutate(() => true, undefined, { revalidate: false });
     }
-  }, [mutate]);
+  }, [globalMutate]);
 
   return (
     <AuthContext.Provider

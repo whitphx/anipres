@@ -211,7 +211,11 @@ export function DocumentSidebar({
           onChange={onColorSchemeChange}
         />
       </div>
-      {settingsOpen && (
+      {/* Gating on `user` (in addition to `settingsOpen`) makes the
+          modal unmount the moment the user logs out, so it can't keep
+          rendering the previous user's cached identity list during
+          the brief window before SWR revalidates. */}
+      {settingsOpen && user && (
         <AccountSettingsModal
           onClose={() => {
             setSettingsOpen(false);
