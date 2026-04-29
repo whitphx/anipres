@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
+import useSWR from "swr";
 import * as xiaolai from "./fonts/XiaolaiSC-Regular.ttf";
 import "anipres/anipres.css";
 import { IdbDocumentRepository } from "./documents/idb-repository";
@@ -8,6 +9,7 @@ import { SyncedRepositoryProvider } from "./documents/SyncedRepositoryContext";
 import { AppContent } from "./AppContent";
 import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
+import { jsonFetcher } from "./lib/fetcher";
 
 interface Workspace {
   id: string;
@@ -15,15 +17,6 @@ interface Workspace {
   created_at: number;
   updated_at: number;
 }
-
-// Result of a workspace-discovery fetch. The fetched value is tagged
-// with the user id it was fetched for, so derived state can treat
-// stale entries (after a user-A → user-B transition) as "loading"
-// instead of synchronously clearing state from the effect (which the
-// React lint rule discourages — it causes a cascading re-render).
-type WorkspaceFetchResult =
-  | { userId: number; id: string }
-  | { userId: number; error: string };
 
 function AuthenticatedApp() {
   const { user, loading: authLoading } = useAuth();
@@ -33,53 +26,40 @@ function AuthenticatedApp() {
   // the user's workspaces via `GET /api/workspaces` and bind the synced
   // repo to the (Phase 1: only) workspace returned. Extension A will
   // surface the list to the user; for now we just take the first row.
-  const [fetchedWorkspace, setFetchedWorkspace] =
-    useState<WorkspaceFetchResult | null>(null);
-  useEffect(() => {
-    if (!user) return;
-    const userId = user.id;
-    let cancelled = false;
-    fetch("/api/workspaces")
-      .then(async (res): Promise<WorkspaceFetchResult> => {
-        if (!res.ok) {
-          return { userId, error: `request failed (${res.status})` };
-        }
-        const data: Workspace[] = await res.json();
-        if (data.length === 0) {
-          return { userId, error: "no workspace found for this account" };
-        }
-        return { userId, id: data[0].id };
-      })
-      .catch(
-        (err: unknown): WorkspaceFetchResult => ({
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      )
-      .then((next) => {
-        if (cancelled) return;
-        if ("error" in next) {
-          console.error(
-            `Workspace discovery failed: ${next.error}. The app cannot reach the server-backed document store.`,
-          );
-        }
-        setFetchedWorkspace(next);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  //
+  // Conditional key: SWR doesn't fetch when key is null. Logged-out
+  // users skip the fetch entirely; the moment a user lands the key
+  // flips to the URL and SWR fires the request.
+  const { data: workspaces, error: workspaceFetchError } = useSWR<Workspace[]>(
+    user ? "/api/workspaces" : null,
+    jsonFetcher,
+  );
 
-  // Derived: treat a fetched value belonging to a different user (or no
-  // value at all) as "still loading" without touching state.
-  const currentWorkspace =
-    user && fetchedWorkspace?.userId === user.id ? fetchedWorkspace : null;
+  // Derived state. The `user &&` guards make logout robust against
+  // SWR's per-key cache potentially still holding the previous user's
+  // workspace data — derived values become null the moment user is
+  // null, regardless of cache state.
   const workspaceId =
-    currentWorkspace && "id" in currentWorkspace ? currentWorkspace.id : null;
-  const workspaceError =
-    currentWorkspace && "error" in currentWorkspace
-      ? currentWorkspace.error
-      : null;
+    user && workspaces && workspaces.length > 0 ? workspaces[0].id : null;
+  const workspaceError = user
+    ? ((workspaceFetchError instanceof Error
+        ? workspaceFetchError.message
+        : null) ??
+      (workspaces && workspaces.length === 0
+        ? "no workspace found for this account"
+        : null))
+    : null;
+
+  // Log workspace errors when they appear. The console message helps
+  // diagnose the rare path where Phase 1's workspace-on-signup
+  // invariant is violated or the server is unreachable.
+  useEffect(() => {
+    if (workspaceError) {
+      console.error(
+        `Workspace discovery failed: ${workspaceError}. The app cannot reach the server-backed document store.`,
+      );
+    }
+  }, [workspaceError]);
 
   const syncedRepository = useMemo(
     () =>
