@@ -1,19 +1,11 @@
-import {
-  Github,
-  LogIn,
-  LogOut,
-  Menu,
-  PanelLeftClose,
-  Plus,
-  Settings,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Menu, PanelLeftClose, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import type { DocumentMeta } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
-import { AccountSettingsModal } from "./AccountSettingsModal";
+import { AccountFooter } from "./AccountFooter";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
 import { DocumentListItem } from "./DocumentListItem";
 import { NetworkStatus } from "./NetworkStatus";
@@ -22,26 +14,6 @@ import styles from "./DocumentSidebar.module.css";
 interface DocumentSidebarProps {
   colorSchemePreference: ColorSchemePreference;
   onColorSchemeChange: (next: ColorSchemePreference) => void;
-}
-
-// Pull the account-link flash from the current URL — set by the
-// worker's redirect after the OAuth callback resolves a link
-// operation. Returns null when neither query param is present
-// (the common case: ordinary navigation, not arriving from a link
-// flow).
-function readLinkFlashFromUrl(): {
-  code: string;
-  kind: "success" | "error";
-} | null {
-  if (typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.search);
-  const success = params.get("account_link");
-  const error = params.get("account_link_error");
-  if (!success && !error) return null;
-  return {
-    code: error ?? success ?? "",
-    kind: error ? "error" : "success",
-  };
 }
 
 export function DocumentSidebar({
@@ -60,38 +32,14 @@ export function DocumentSidebar({
     conversionErrors,
   } = useDocumentManagerContext();
 
-  const { user, loginWithGitHub, loginWithGoogle, logout } = useAuth();
+  // The convert action only makes sense when the user is logged in,
+  // i.e. when there is a synced destination to migrate the doc into.
+  // Auth state lives in `AccountFooter`'s subtree for the rest of the
+  // sidebar's account-related UI; the sidebar still needs `user` here
+  // to decide whether to expose the convert affordance per row.
+  const { user } = useAuth();
 
   const [collapsed, setCollapsed] = useState(false);
-
-  // Surface the post-OAuth-callback flash. The worker redirects to
-  // `/?account_link=success|already_linked` on a successful link or
-  // `/?account_link_error=...` on conflict; we read the params at
-  // mount via lazy state init (avoids the React lint trap of
-  // synchronously setting state in an effect), pop the modal open,
-  // and the effect below strips the params from the URL so a refresh
-  // doesn't re-show the flash.
-  const [linkFlash, setLinkFlash] = useState<{
-    code: string;
-    kind: "success" | "error";
-  } | null>(readLinkFlashFromUrl);
-  const [settingsOpen, setSettingsOpen] = useState<boolean>(
-    () => readLinkFlashFromUrl() !== null,
-  );
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has("account_link") && !params.has("account_link_error")) {
-      return;
-    }
-    params.delete("account_link");
-    params.delete("account_link_error");
-    const search = params.toString();
-    const next =
-      window.location.pathname +
-      (search ? `?${search}` : "") +
-      window.location.hash;
-    window.history.replaceState({}, "", next);
-  }, []);
 
   // Announcement string for the convert-to-synced aria-live region.
   // The convert-to-synced button itself updates its `title` /
@@ -147,8 +95,6 @@ export function DocumentSidebar({
     );
   }
 
-  // The convert action only makes sense when the user is logged in,
-  // i.e. when there is a synced destination to migrate the doc into.
   const onConvert = user !== null ? convertToSynced : undefined;
 
   const renderGroup = (docs: DocumentMeta[]) =>
@@ -209,59 +155,12 @@ export function DocumentSidebar({
       </div>
       <div className={styles.footer}>
         <NetworkStatus />
-        {user ? (
-          <>
-            <button
-              type="button"
-              className={styles.authButton}
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings size={14} /> Account settings
-            </button>
-            <button
-              type="button"
-              className={styles.authButton}
-              onClick={logout}
-            >
-              <LogOut size={14} /> Log out
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={styles.authButton}
-              onClick={loginWithGitHub}
-            >
-              <Github size={14} /> Log in with GitHub
-            </button>
-            <button
-              type="button"
-              className={styles.authButton}
-              onClick={loginWithGoogle}
-            >
-              <LogIn size={14} /> Log in with Google
-            </button>
-          </>
-        )}
+        <AccountFooter />
         <ColorSchemeSwitcher
           preference={colorSchemePreference}
           onChange={onColorSchemeChange}
         />
       </div>
-      {/* Gating on `user` (in addition to `settingsOpen`) makes the
-          modal unmount the moment the user logs out, so it can't keep
-          rendering the previous user's cached identity list during
-          the brief window before SWR revalidates. */}
-      {settingsOpen && user && (
-        <AccountSettingsModal
-          onClose={() => {
-            setSettingsOpen(false);
-            setLinkFlash(null);
-          }}
-          initialFlash={linkFlash}
-        />
-      )}
     </div>
   );
 }
