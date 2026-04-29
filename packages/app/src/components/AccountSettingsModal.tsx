@@ -1,26 +1,13 @@
 import { Github, LogIn, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import useSWR from "swr";
+import { jsonFetcher } from "../lib/fetcher";
 import styles from "./AccountSettingsModal.module.css";
 
 interface OAuthIdentity {
   provider: string;
   provider_id: string;
   created_at: number;
-}
-
-// Inline JSON fetcher. Pulled out of the hook so it isn't recreated
-// per render (SWR keys cache by url, but the fetcher identity also
-// matters for some operations). Only one SWR call site in the app
-// today, so a shared utility module would be premature; if more
-// fetches migrate to SWR, lift this into `lib/fetcher.ts` or set it
-// as the default via `<SWRConfig>`.
-async function jsonFetcher<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Request failed (${res.status})`);
-  }
-  return (await res.json()) as T;
 }
 
 const ALL_PROVIDERS = ["github", "google"] as const;
