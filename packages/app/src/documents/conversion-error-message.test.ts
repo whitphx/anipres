@@ -8,12 +8,19 @@ function withName(name: string, message: string): Error {
 }
 
 describe("getConversionErrorMessage", () => {
-  it("maps 413 to a too-large message", () => {
+  it("maps 413 to a too-large message across each throw site", () => {
     expect(
       getConversionErrorMessage(new Error("Asset upload failed: 413")),
     ).toMatch(/too large/i);
     expect(
       getConversionErrorMessage(new Error("Snapshot push failed: 413")),
+    ).toMatch(/too large/i);
+    // Document finalize doesn't realistically return 413, but the
+    // helper covers the throw-site prefix uniformly so a future
+    // path that surfaces a finalize failure renders the same family
+    // of friendly messages instead of falling through to the generic.
+    expect(
+      getConversionErrorMessage(new Error("Document finalize failed: 413")),
     ).toMatch(/too large/i);
   });
 

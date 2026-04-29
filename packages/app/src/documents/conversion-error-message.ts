@@ -1,10 +1,15 @@
 /**
- * Map a raw `convertLocalDocToSynced` failure into a user-facing
- * sentence. The raw `Error.message` strings come from a few well-known
- * sites:
+ * Map a raw failure from any of the synced-doc upload paths
+ * (`convertLocalDocToSynced`, `finalizeSyncedDocument`,
+ * `pushSnapshot` from the reconnect-fork) into a user-facing
+ * sentence. The raw `Error.message` strings come from a few
+ * well-known sites:
  *
  * - `defaultUploadAsset` throws `"Asset upload failed: <status>"`
- * - `defaultPushSnapshot` throws `"Snapshot push failed: <status>"`
+ * - `defaultPushSnapshot` / `pushSnapshot` throw `"Snapshot push
+ *   failed: <status>"`
+ * - `finalizeSyncedDocument` throws `"Document finalize failed:
+ *   <status>"`
  * - The shared `composeWithTimeout` produces `AbortSignal.timeout(...)`
  *   which surfaces as `TimeoutError` on the abort signal
  * - User-cancellation / mid-migration delete surfaces as `AbortError`
@@ -24,7 +29,7 @@ export function getConversionErrorMessage(error: Error): string {
   }
 
   const httpMatch = error.message.match(
-    /^(?:Asset upload|Snapshot push) failed: (\d+)/,
+    /^(?:Asset upload|Snapshot push|Document finalize) failed: (\d+)/,
   );
   if (httpMatch) {
     const status = Number(httpMatch[1]);
