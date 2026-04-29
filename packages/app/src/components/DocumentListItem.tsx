@@ -10,7 +10,7 @@ interface DocumentListItemProps {
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   /**
-   * When provided and `doc.origin === "local"`, the item renders a
+   * When provided and `doc.source === "local"`, the item renders a
    * "Upload to cloud" affordance that triggers migration to the synced
    * repository. Absent when the user is logged out (no synced
    * destination) or when the doc is already synced.
@@ -56,7 +56,7 @@ export function DocumentListItem({
     setEditing(false);
   };
 
-  const canConvert = onConvert !== undefined && doc.origin === "local";
+  const canConvert = onConvert !== undefined && doc.source === "local";
   const convertTitle = isConverting
     ? "Uploading…"
     : conversionError

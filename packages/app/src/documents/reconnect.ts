@@ -1,10 +1,12 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { v7 as uuidv7 } from "uuid";
 import type { ApiDocumentRepository } from "./api-repository";
 import {
   snapshotsEqual,
   shouldSkipReconnect,
   type ReconnectSnapshotState,
 } from "./offline-recovery";
+import { nextTailSortOrder } from "./sort-order";
 
 export type ReconnectResult =
   | { action: "noop" }
@@ -161,18 +163,21 @@ export async function reconcileOfflineEdits(params: {
   // Server has diverged — fork the local version as a new document.
   const originalTitle = serverDoc.meta.title;
   const forkTitle = `${originalTitle} (offline copy)`;
-  const forkId = crypto.randomUUID();
-  const now = Date.now();
 
-  // Create the fork document metadata on the server.
+  // The fork's id is minted client-side as UUID v7 — same scheme as
+  // every other doc id. Place the fork past the synced list's
+  // current tail so the new key is strictly greater than every
+  // existing key — generating off the original's key alone would
+  // collide with whatever doc sits immediately after it.
+  const forkId = uuidv7();
+  const syncedList = await repository.list();
+  const forkSortOrder = nextTailSortOrder(syncedList);
   await repository.save({
     meta: {
       id: forkId,
       title: forkTitle,
-      createdAt: now,
-      updatedAt: now,
-      order: serverDoc.meta.order + 0.001,
-      origin: "synced",
+      sortOrder: forkSortOrder,
+      source: "synced",
     },
     snapshot: null,
   });

@@ -19,7 +19,7 @@ import {
   reconcileOfflineEdits,
   type ReconnectResult,
 } from "../documents/reconnect";
-import { ApiDocumentRepository } from "../documents/api-repository";
+import { useSyncedRepository } from "../documents/useSyncedRepository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
 type Mode =
@@ -42,8 +42,6 @@ interface OfflineAwareSyncedContainerProps {
   colorScheme?: "light" | "dark" | "system";
 }
 
-const repository = new ApiDocumentRepository();
-
 // Owns the sync editor lifecycle: startup cache restore, offline fallback,
 // reconnect reconciliation, and switching to a forked document on conflict.
 // The live WebSocket-backed editor itself stays inside SyncedAnipresContainer.
@@ -53,6 +51,7 @@ export function OfflineAwareSyncedContainer({
 }: OfflineAwareSyncedContainerProps) {
   const [mode, setMode] = useState<Mode>({ type: "loading" });
   const { refreshDocuments, selectDocument } = useDocumentManagerContext();
+  const repository = useSyncedRepository();
   const currentSessionId = getSyncCacheSessionId();
 
   // Track the offline editor so we can grab its snapshot for reconciliation.
@@ -139,6 +138,12 @@ export function OfflineAwareSyncedContainer({
       return;
     }
     if (mode.type !== "offline" && mode.type !== "reconnecting") return;
+
+    // The synced repo is bound to a workspace at login. If somehow we
+    // got here without one (logged out mid-flow, race during workspace
+    // discovery), there's no server to reconcile against — stay
+    // offline and let a future reconnect retry the path.
+    if (!repository) return;
 
     const recovery = mode.recovery;
     let snapshot: TLStoreSnapshot = mode.snapshot;
@@ -230,7 +235,14 @@ export function OfflineAwareSyncedContainer({
         recovery,
       });
     }
-  }, [mode, documentId, currentSessionId, refreshDocuments, selectDocument]);
+  }, [
+    mode,
+    documentId,
+    currentSessionId,
+    refreshDocuments,
+    selectDocument,
+    repository,
+  ]);
 
   useEffect(() => {
     retryHandleOnlineRef.current = () => {

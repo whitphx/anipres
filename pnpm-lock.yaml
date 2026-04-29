@@ -114,6 +114,9 @@ importers:
       anipres:
         specifier: workspace:*
         version: link:../anipres
+      fractional-indexing:
+        specifier: ^3.2.0
+        version: 3.2.0
       idb-keyval:
         specifier: ^6.2.1
         version: 6.2.2
@@ -129,6 +132,9 @@ importers:
       tldraw:
         specifier: 3.15.5
         version: 3.15.5(@types/react-dom@18.3.5(@types/react@18.3.18))(@types/react@18.3.18)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      uuid:
+        specifier: ^14.0.0
+        version: 14.0.0
     devDependencies:
       '@testing-library/react':
         specifier: ^16.3.2
@@ -4586,6 +4592,10 @@ packages:
   fractional-indexing-jittered@1.0.0:
     resolution: {integrity: sha512-0tLU0FOedVY7lrvN4LK0DVj6FTuYM0pWDpN97/8UTZE2lx1+OwX8+2uL7IOWc2PmktYTHQjMT6FvZZ3SGCdZdg==, tarball: https://registry.npmjs.org/fractional-indexing-jittered/-/fractional-indexing-jittered-1.0.0.tgz}
 
+  fractional-indexing@3.2.0:
+    resolution: {integrity: sha512-PcOxmqwYCW7O2ovKRU8OoQQj2yqTfEB/yeTYk4gPid6dN5ODRfU1hXd9tTVZzax/0NkO7AxpHykvZnT1aYp/BQ==, tarball: https://registry.npmjs.org/fractional-indexing/-/fractional-indexing-3.2.0.tgz}
+    engines: {node: ^14.13.1 || >=16.0.0}
+
   framesync@6.1.2:
     resolution: {integrity: sha512-jBTqhX6KaQVDyus8muwZbBeGGP0XgujBRbQ7gM7BRdS3CadCZIHiawyzYLnafYcvZIh5j8WE7cxZKFn7dXhu9g==, tarball: https://registry.npmjs.org/framesync/-/framesync-6.1.2.tgz}
 
@@ -6939,6 +6949,10 @@ packages:
 
   uuid@11.1.0:
     resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==, tarball: https://registry.npmjs.org/uuid/-/uuid-11.1.0.tgz}
+    hasBin: true
+
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==, tarball: https://registry.npmjs.org/uuid/-/uuid-14.0.0.tgz}
     hasBin: true
 
   valibot@1.3.1:
@@ -11013,14 +11027,6 @@ snapshots:
     optionalDependencies:
       vite: 7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
 
-  '@vitest/mocker@4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))':
-    dependencies:
-      '@vitest/spy': 4.0.6
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
-
   '@vitest/pretty-format@4.0.6':
     dependencies:
       tinyrainbow: 3.0.3
@@ -12771,6 +12777,8 @@ snapshots:
     optional: true
 
   fractional-indexing-jittered@1.0.0: {}
+
+  fractional-indexing@3.2.0: {}
 
   framesync@6.1.2:
     dependencies:
@@ -15636,6 +15644,8 @@ snapshots:
 
   uuid@11.1.0: {}
 
+  uuid@14.0.0: {}
+
   valibot@1.3.1(typescript@5.8.3):
     optionalDependencies:
       typescript: 5.8.3
@@ -15837,7 +15847,7 @@ snapshots:
   vitest@4.0.6(@types/debug@4.1.12)(@types/node@24.10.0)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@25.0.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.6
-      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.6
       '@vitest/runner': 4.0.6
       '@vitest/snapshot': 4.0.6

@@ -1,5 +1,6 @@
 import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentRepository } from "./repository";
+import { nextTailSortOrder } from "./sort-order";
 
 export function isDataUrl(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("data:");
@@ -166,6 +167,7 @@ async function defaultPushSnapshot(
 }
 
 export interface ConvertLocalDocToSyncedParams {
+  /** The local doc's id (the UUID generated when it was created). */
   documentId: string;
   localRepository: DocumentRepository;
   syncedRepository: DocumentRepository;
@@ -189,23 +191,27 @@ export interface ConvertLocalDocToSyncedParams {
 }
 
 /**
- * Move a local IDB-backed document to the server under the same id.
+ * Move a local IDB-backed document to the server. With UUID v7 ids
+ * minted client-side, the local doc's id is also the canonical server
+ * id — no remap is needed. The same `documentId` flows through every
+ * step and the function's job reduces to "create the server row, push
+ * the snapshot, delete the local copy."
  *
  * Steps:
  *   1. Load the local document.
- *   2. Create server-side metadata via PUT /api/documents/:id
- *      (with the synced repository's save).
- *   3. Upload any inline `data:` URL assets to R2 and rewrite the
- *      snapshot's asset srcs to point at the uploaded URLs.
- *   4. Push the rewritten snapshot into the document's Durable Object
+ *   2. Compute a fractional-indexing key after the synced list's
+ *      current tail so the migrated doc lands at the end.
+ *   3. POST /api/documents — server inserts under the local id.
+ *   4. Upload any inline `data:` URL assets to R2 and rewrite the
+ *      snapshot's asset srcs accordingly.
+ *   5. Push the rewritten snapshot into the document's Durable Object
  *      room via PUT /api/documents/:id/snapshot.
- *   5. Delete the local IDB entry.
+ *   6. Delete the local IDB entry.
  *
- * On failure after step 2 the local copy is intentionally preserved so
- * the user can retry. Server-side metadata left over from a partial run
- * is harmless: the next attempt is an upsert and the snapshot push with
- * `expectedSnapshotVersion: 0` will either succeed (fresh DO room) or
- * no-op (409) if the prior attempt got that far.
+ * On failure after step 3 the local copy is intentionally preserved so
+ * the user can retry. The half-created server row's `initializing_at`
+ * marker keeps it invisible until the snapshot push lands, and the
+ * server-side sweep cleans it up if the user gives up entirely.
  */
 export async function convertLocalDocToSynced(
   params: ConvertLocalDocToSyncedParams,
@@ -225,38 +231,31 @@ export async function convertLocalDocToSynced(
   if (!local) {
     throw new Error(`Local document ${documentId} not found`);
   }
-  if (local.meta.origin !== "local") {
+  if (local.meta.source !== "local") {
     throw new Error(
-      `Document ${documentId} is not a local document (origin: ${local.meta.origin})`,
+      `Document ${documentId} is not a local document (source: ${local.meta.source})`,
     );
   }
 
   abortSignal?.throwIfAborted();
 
-  // Compute an order value against the synced repo so the migrated doc
-  // does not collide with an existing server doc's order.
-  //
-  // Known limitation: when multiple convertLocalDocToSynced calls run
-  // in parallel they can each read the same maxOrder and write the
-  // same order+1 to their respective new docs. The sidebar's stable
-  // sort still shows both, just in a non-deterministic order between
-  // them, and any user reorder heals the collision. Fixing this cleanly
-  // would require threading an atomic allocator through this function
-  // — deliberately deferred until convert-to-synced is commonly used
-  // with enough docs for the cosmetic ambiguity to matter.
+  // Append the migrated doc to the end of the synced list. Using the
+  // synced repo's current tail as the "previous key" keeps each
+  // migrated doc strictly after every existing synced doc.
   const syncedList = await syncedRepository.list();
-  const maxOrder = syncedList.reduce((max, d) => Math.max(max, d.order), 0);
+  const newSortOrder = nextTailSortOrder(syncedList);
 
   abortSignal?.throwIfAborted();
 
-  // createdAt is preserved from the local doc so migrated docs keep
-  // their original creation time; only updatedAt advances.
+  // POST /api/documents under the local id. The local doc's
+  // `createdAt` is forwarded so the migrated doc keeps its original
+  // on-device creation time; without that override the server would
+  // stamp "now" and the timeline would reset.
   await syncedRepository.save({
     meta: {
       ...local.meta,
-      origin: "synced",
-      order: maxOrder + 1,
-      updatedAt: Date.now(),
+      sortOrder: newSortOrder,
+      source: "synced",
     },
     snapshot: null,
   });

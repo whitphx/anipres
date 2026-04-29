@@ -1,24 +1,34 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
+import { v7 as uuidv7 } from "uuid";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentMeta, DocumentOrigin } from "./types";
+import type {
+  DocumentData,
+  DocumentInput,
+  DocumentMeta,
+  DocumentSource,
+} from "./types";
 import {
   convertLocalDocToSynced,
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
+import { nextTailSortOrder } from "./sort-order";
+import { finalizeSyncedDocument } from "./snapshot-push";
 
-function createNewDocument(
-  order: number,
-  origin: DocumentOrigin,
-): DocumentData {
+function createNewDocumentInput(
+  sortOrder: string,
+  source: DocumentSource,
+): DocumentInput {
   return {
     meta: {
-      id: crypto.randomUUID(),
+      // Mint the doc id upfront so callers (and the server, on
+      // synced creates) see the same id from the moment the doc
+      // exists. v7 keeps client-allocated ids time-monotonic on
+      // the server's B-tree.
+      id: uuidv7(),
       title: "Untitled",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      order,
-      origin,
+      sortOrder,
+      source,
     },
     snapshot: null,
   };
@@ -39,10 +49,10 @@ export interface DocumentManager {
    */
   conversionErrors: ReadonlyMap<string, Error>;
   selectDocument: (id: string) => Promise<void>;
-  createDocument: (options?: { origin?: DocumentOrigin }) => Promise<void>;
+  createDocument: (options?: { source?: DocumentSource }) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, title: string) => Promise<void>;
-  reorderDocument: (id: string, newOrder: number) => Promise<void>;
+  reorderDocument: (id: string, newSortOrder: string) => Promise<void>;
   convertToSynced: (id: string) => Promise<void>;
   registerEditor: (editor: Editor) => () => void;
   refreshDocuments: () => Promise<void>;
@@ -93,30 +103,30 @@ export function useDocumentManager(params: {
   // Keep refs in sync with state via a pair of commit helpers so actions
   // that run immediately after a state change (e.g. selecting a
   // freshly-forked doc after refreshDocuments, or reading the active
-  // doc's origin from a store listener right after a doc switch) can see
+  // doc's source from a store listener right after a doc switch) can see
   // the updated values before React commits the next render.
   const documentsRef = useRef<DocumentMeta[]>(documents);
   const activeDocumentIdRef = useRef<string | null>(null);
-  const activeDocumentOriginRef = useRef<DocumentOrigin | null>(null);
+  const activeDocumentSourceRef = useRef<DocumentSource | null>(null);
 
-  const syncActiveOriginRef = (
+  const syncActiveSourceRef = (
     nextDocs: DocumentMeta[],
     activeId: string | null,
   ) => {
-    activeDocumentOriginRef.current = activeId
-      ? (nextDocs.find((d) => d.id === activeId)?.origin ?? null)
+    activeDocumentSourceRef.current = activeId
+      ? (nextDocs.find((d) => d.id === activeId)?.source ?? null)
       : null;
   };
 
   const commitDocuments = useCallback((next: DocumentMeta[]) => {
     documentsRef.current = next;
-    syncActiveOriginRef(next, activeDocumentIdRef.current);
+    syncActiveSourceRef(next, activeDocumentIdRef.current);
     setDocuments(next);
   }, []);
 
   const commitActiveDocumentId = useCallback((next: string | null) => {
     activeDocumentIdRef.current = next;
-    syncActiveOriginRef(documentsRef.current, next);
+    syncActiveSourceRef(documentsRef.current, next);
     setActiveDocumentId(next);
   }, []);
 
@@ -129,8 +139,8 @@ export function useDocumentManager(params: {
   // latest merged list. Falls back to the implicit "local only" repo when
   // called before the first load settles.
   const getRepository = useCallback(
-    (origin: DocumentOrigin | undefined): DocumentRepository | null => {
-      if (origin === "synced") return syncedRepository ?? null;
+    (source: DocumentSource | undefined): DocumentRepository | null => {
+      if (source === "synced") return syncedRepository ?? null;
       return localRepository;
     },
     [localRepository, syncedRepository],
@@ -138,7 +148,7 @@ export function useDocumentManager(params: {
   const findRepositoryForId = useCallback(
     (id: string): DocumentRepository | null => {
       const meta = documentsRef.current.find((d) => d.id === id);
-      return getRepository(meta?.origin);
+      return getRepository(meta?.source);
     },
     [getRepository],
   );
@@ -156,7 +166,7 @@ export function useDocumentManager(params: {
       syncedRepository
         ? syncedRepository.list().catch((error) => {
             console.error("Failed to list synced documents", error);
-            return documentsRef.current.filter((d) => d.origin === "synced");
+            return documentsRef.current.filter((d) => d.source === "synced");
           })
         : Promise.resolve([] as DocumentMeta[]),
       localRepository.list(),
@@ -167,9 +177,9 @@ export function useDocumentManager(params: {
   }, [localRepository, syncedRepository]);
 
   const saveCurrentEditor = useCallback(async () => {
-    // Only local-origin documents are persisted via this hook — synced
+    // Only local-source documents are persisted via this hook — synced
     // documents are persisted by useSync over WebSocket.
-    if (activeDocumentOriginRef.current !== "local") return;
+    if (activeDocumentSourceRef.current !== "local") return;
 
     const editor = editorRef.current;
     const docId = activeDocumentIdRef.current;
@@ -181,7 +191,6 @@ export function useDocumentManager(params: {
     const { document } = getSnapshot(editor.store);
     await localRepository.save({
       ...existing,
-      meta: { ...existing.meta, updatedAt: Date.now() },
       snapshot: document,
     });
   }, [localRepository]);
@@ -196,21 +205,30 @@ export function useDocumentManager(params: {
       if (metas.length === 0) {
         // Prefer creating the first document in the synced repo when the
         // user is logged in; otherwise create it locally.
-        const defaultOrigin: DocumentOrigin = syncedRepository
+        const defaultSource: DocumentSource = syncedRepository
           ? "synced"
           : "local";
-        const repo = getRepository(defaultOrigin);
+        const repo = getRepository(defaultSource);
         if (!repo) return;
-        const doc = createNewDocument(1, defaultOrigin);
-        await repo.save(doc);
+        const input = createNewDocumentInput(
+          nextTailSortOrder([]),
+          defaultSource,
+        );
+        // The synced repo allocates a server-side id at create; use the
+        // returned doc's id rather than the input's UUID.
+        const saved = await repo.save(input);
         if (cancelled) return;
-        commitDocuments([doc.meta]);
-        commitActiveDocumentId(doc.meta.id);
+        if (defaultSource === "synced") {
+          await finalizeSyncedDocument(saved.meta.id);
+          if (cancelled) return;
+        }
+        commitDocuments([saved.meta]);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
       } else {
         commitDocuments(metas);
         const firstMeta = metas[0];
-        const repo = getRepository(firstMeta.origin);
+        const repo = getRepository(firstMeta.source);
         const data = repo ? await repo.get(firstMeta.id) : undefined;
         if (cancelled) return;
         commitActiveDocumentId(firstMeta.id);
@@ -270,30 +288,36 @@ export function useDocumentManager(params: {
   );
 
   const createDocument = useCallback(
-    async (options?: { origin?: DocumentOrigin }) => {
+    async (options?: { source?: DocumentSource }) => {
       await saveCurrentEditor();
 
-      const origin: DocumentOrigin =
-        options?.origin ?? (syncedRepository ? "synced" : "local");
-      const repo = getRepository(origin);
+      const source: DocumentSource =
+        options?.source ?? (syncedRepository ? "synced" : "local");
+      const repo = getRepository(source);
       if (!repo) return;
 
-      // Compute order against just this repo's docs so each group stays
-      // independently ordered. Catch repository failures (e.g. synced
-      // server unreachable) so the button click doesn't end in an
-      // unhandled rejection with no user-visible change.
+      // Compute the next sort_order key against just this repo's docs
+      // so each group stays independently ordered. Catch repository
+      // failures (e.g. synced server unreachable) so the button click
+      // doesn't end in an unhandled rejection with no user-visible
+      // change.
       try {
         const existing = await repo.list();
-        const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), 0);
-        const doc = createNewDocument(maxOrder + 1, origin);
-        await repo.save(doc);
+        const input = createNewDocumentInput(
+          nextTailSortOrder(existing),
+          source,
+        );
+        const saved = await repo.save(input);
+        if (source === "synced") {
+          await finalizeSyncedDocument(saved.meta.id);
+        }
 
         editorRef.current = null;
-        commitActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
         await refreshDocuments();
       } catch (error) {
-        console.error(`Failed to create ${origin} document`, error);
+        console.error(`Failed to create ${source} document`, error);
       }
     },
     [
@@ -312,8 +336,7 @@ export function useDocumentManager(params: {
 
       // Cancel any in-flight convert-to-synced migration for this id
       // before touching storage. The migration's catch handler will see
-      // controller.signal.aborted and exit silently; its half-done state
-      // is cleaned up below.
+      // controller.signal.aborted and exit silently.
       const migrationController = migrationAbortControllersRef.current.get(id);
       const wasMigrating = migrationController !== undefined;
       if (migrationController) {
@@ -323,17 +346,20 @@ export function useDocumentManager(params: {
 
       await repo.delete(id);
 
-      // If the migration had already persisted metadata to the synced
-      // repo before we aborted (step 2 of convertLocalDocToSynced), a
-      // ghost synced copy of the deleted doc would otherwise appear on
-      // the next refresh. Best-effort cleanup — a 404 is fine, it just
-      // means the migration hadn't reached that step yet.
+      // If the migration's POST already landed before we aborted
+      // (step 3 of convertLocalDocToSynced), the server holds a
+      // half-finished row at the same id. Best-effort cleanup —
+      // a 404 here is fine, it just means the migration hadn't
+      // reached step 3 yet. Without this immediate cleanup the
+      // server-side sweep would still reap the row after the
+      // initializing-grace window, but the user would briefly
+      // see a stale entry on the next refresh in the meantime.
       if (wasMigrating && syncedRepository) {
         try {
           await syncedRepository.delete(id);
         } catch (error) {
           console.error(
-            `Failed to clean up synced metadata after aborting migration of ${id}`,
+            `Failed to clean up synced metadata after aborted migration of ${id}`,
             error,
           );
         }
@@ -361,27 +387,36 @@ export function useDocumentManager(params: {
 
       if (remaining.length === 0) {
         // Create a new document if we deleted the last one; use the
-        // current default origin. Fall back to local creation if the
+        // current default source. Fall back to local creation if the
         // preferred (synced) save fails so the user is not left with an
         // empty sidebar after a successful delete.
-        const defaultOrigin: DocumentOrigin = syncedRepository
+        const defaultSource: DocumentSource = syncedRepository
           ? "synced"
           : "local";
-        const defaultRepo = getRepository(defaultOrigin);
+        const defaultRepo = getRepository(defaultSource);
         if (!defaultRepo) return;
-        const doc = createNewDocument(1, defaultOrigin);
+        const input = createNewDocumentInput(
+          nextTailSortOrder([]),
+          defaultSource,
+        );
+        let saved: DocumentData;
         try {
-          await defaultRepo.save(doc);
+          saved = await defaultRepo.save(input);
+          if (defaultSource === "synced") {
+            await finalizeSyncedDocument(saved.meta.id);
+          }
         } catch (error) {
           console.error(
-            `Failed to create replacement ${defaultOrigin} document; falling back to local`,
+            `Failed to create replacement ${defaultSource} document; falling back to local`,
             error,
           );
-          if (defaultOrigin === "synced") {
-            const localDoc = createNewDocument(1, "local");
+          if (defaultSource === "synced") {
+            const localInput = createNewDocumentInput(
+              nextTailSortOrder([]),
+              "local",
+            );
             try {
-              await localRepository.save(localDoc);
-              doc.meta = localDoc.meta;
+              saved = await localRepository.save(localInput);
             } catch (localError) {
               console.error(
                 "Failed to create replacement local document",
@@ -393,9 +428,9 @@ export function useDocumentManager(params: {
             return;
           }
         }
-        commitDocuments([doc.meta]);
+        commitDocuments([saved.meta]);
         editorRef.current = null;
-        commitActiveDocumentId(doc.meta.id);
+        commitActiveDocumentId(saved.meta.id);
         setActiveSnapshot(null);
         return;
       }
@@ -405,7 +440,7 @@ export function useDocumentManager(params: {
       if (id === activeDocumentIdRef.current) {
         // Switch to the first remaining document
         const nextMeta = remaining[0];
-        const nextRepo = getRepository(nextMeta.origin);
+        const nextRepo = getRepository(nextMeta.source);
         const data = nextRepo ? await nextRepo.get(nextMeta.id) : undefined;
         editorRef.current = null;
         commitActiveDocumentId(nextMeta.id);
@@ -434,7 +469,7 @@ export function useDocumentManager(params: {
       if (!data) return;
       await repo.save({
         ...data,
-        meta: { ...data.meta, title, updatedAt: Date.now() },
+        meta: { ...data.meta, title },
       });
       await refreshDocuments();
     },
@@ -442,7 +477,7 @@ export function useDocumentManager(params: {
   );
 
   const reorderDocument = useCallback(
-    async (id: string, newOrder: number) => {
+    async (id: string, newSortOrder: string) => {
       if (id === activeDocumentIdRef.current) {
         await saveCurrentEditor();
       }
@@ -452,7 +487,7 @@ export function useDocumentManager(params: {
       if (!data) return;
       await repo.save({
         ...data,
-        meta: { ...data.meta, order: newOrder, updatedAt: Date.now() },
+        meta: { ...data.meta, sortOrder: newSortOrder },
       });
       await refreshDocuments();
     },
@@ -472,7 +507,7 @@ export function useDocumentManager(params: {
       // returning the first match would otherwise pick the synced one
       // and silently block the retry.
       const meta = documentsRef.current.find(
-        (d) => d.id === id && d.origin === "local",
+        (d) => d.id === id && d.source === "local",
       );
       if (!meta) return;
 
@@ -521,8 +556,7 @@ export function useDocumentManager(params: {
         clearInFlight();
         if (controller.signal.aborted) {
           // The migration was cancelled from deleteDocument. That path
-          // has already run its own cleanup (local delete, synced
-          // metadata cleanup, listAllDocuments), so don't double-log,
+          // has already run its own cleanup, so don't double-log,
           // surface an error, or refresh again.
           return;
         }
@@ -535,7 +569,7 @@ export function useDocumentManager(params: {
           );
           return next;
         });
-        // Refresh in case the server metadata was created before the
+        // Refresh in case the server row was created before the
         // failure; the local copy is intentionally preserved by
         // convertLocalDocToSynced so the user can retry.
         await refreshDocuments();
@@ -545,9 +579,11 @@ export function useDocumentManager(params: {
       clearInFlight();
       await refreshDocuments();
 
-      // The converted doc keeps its id; re-commit the active id so the
-      // active-origin ref flips from "local" to "synced" and the
-      // correct editor container renders on the next tick.
+      // The doc keeps its id across the local→synced transition
+      // (UUID v7 is client-allocated, see migration docs). If the
+      // active doc is the one we just migrated, re-commit the same
+      // id so the active-source ref flips from "local" to "synced"
+      // and the synced container takes over the editor.
       if (id === activeDocumentIdRef.current) {
         editorRef.current = null;
         commitActiveDocumentId(id);
@@ -568,13 +604,13 @@ export function useDocumentManager(params: {
       editorRef.current = editor;
 
       // Synced documents are persisted by useSync; this auto-save path is
-      // only for local-origin docs. The check is re-evaluated on every
+      // only for local-source docs. The check is re-evaluated on every
       // store event below so switching the active doc takes effect without
       // re-registering.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const stopListening = editor.store.listen(
         () => {
-          if (activeDocumentOriginRef.current !== "local") return;
+          if (activeDocumentSourceRef.current !== "local") return;
           clearTimeout(timer);
           timer = setTimeout(() => {
             saveCurrentEditor();
@@ -601,17 +637,17 @@ export function useDocumentManager(params: {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (
-        activeDocumentOriginRef.current === "local" &&
+        activeDocumentSourceRef.current === "local" &&
         document.visibilityState === "hidden"
       ) {
         saveCurrentEditor();
       }
     };
     const handlePageHide = () => {
-      if (activeDocumentOriginRef.current === "local") saveCurrentEditor();
+      if (activeDocumentSourceRef.current === "local") saveCurrentEditor();
     };
     const handleBeforeUnload = () => {
-      if (activeDocumentOriginRef.current === "local") saveCurrentEditor();
+      if (activeDocumentSourceRef.current === "local") saveCurrentEditor();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);

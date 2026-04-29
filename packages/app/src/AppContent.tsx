@@ -25,7 +25,7 @@ export function AppContent() {
       }
     >
       {activeDocument &&
-        (activeDocument.origin === "synced" ? (
+        (activeDocument.source === "synced" ? (
           <OfflineAwareSyncedContainer
             key={activeDocument.id}
             documentId={activeDocument.id}
