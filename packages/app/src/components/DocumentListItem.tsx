@@ -1,5 +1,6 @@
 import { CloudUpload, Loader2, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import type { DocumentMeta } from "../documents/types";
 import styles from "./DocumentListItem.module.css";
 
@@ -57,15 +58,18 @@ export function DocumentListItem({
   };
 
   const canConvert = onConvert !== undefined && doc.source === "local";
+  const friendlyError = conversionError
+    ? getConversionErrorMessage(conversionError)
+    : null;
   const convertTitle = isConverting
     ? "Uploading…"
-    : conversionError
-      ? `Upload failed: ${conversionError.message}. Click to retry.`
+    : friendlyError
+      ? `${friendlyError} Click to retry.`
       : "Upload to cloud";
   const convertAriaLabel = isConverting
     ? `Uploading ${doc.title} to cloud`
-    : conversionError
-      ? `Retry uploading ${doc.title} to cloud (previous attempt failed)`
+    : friendlyError
+      ? `Retry uploading ${doc.title} to cloud (${friendlyError})`
       : `Upload ${doc.title} to cloud`;
 
   return (

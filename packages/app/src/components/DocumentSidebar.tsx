@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
+import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import type { DocumentMeta } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
@@ -92,6 +93,35 @@ export function DocumentSidebar({
     window.history.replaceState({}, "", next);
   }, []);
 
+  // Announcement string for the convert-to-synced aria-live region.
+  // The convert-to-synced button itself updates its `title` /
+  // `aria-label` in place, but those only get re-announced when the
+  // button receives focus. The polite live region below announces
+  // start / failure transitions to screen readers as they happen,
+  // without taking focus.
+  //
+  // Errors take precedence over in-flight state: when a doc fails
+  // mid-conversion, useDocumentManager moves it from `converting`
+  // into `conversionErrors`, so the error branch fires on the
+  // failure transition. Successful completions don't appear here
+  // (the doc just moves out of `converting` into the synced group);
+  // the visible badge change is enough.
+  const conversionAnnouncement = useMemo(() => {
+    for (const [id, err] of conversionErrors) {
+      const doc = documents.find((d) => d.id === id);
+      if (doc) {
+        return `Failed to upload ${doc.title} to cloud: ${getConversionErrorMessage(err)}`;
+      }
+    }
+    if (converting.size === 0) return "";
+    if (converting.size === 1) {
+      const id = [...converting][0];
+      const doc = documents.find((d) => d.id === id);
+      if (doc) return `Uploading ${doc.title} to cloud.`;
+    }
+    return `Uploading ${converting.size} documents to cloud.`;
+  }, [converting, conversionErrors, documents]);
+
   const { syncedDocs, localDocs } = useMemo(() => {
     const synced: DocumentMeta[] = [];
     const local: DocumentMeta[] = [];
@@ -168,6 +198,14 @@ export function DocumentSidebar({
           <div className={styles.groupHeader}>Local</div>
         )}
         {renderGroup(localDocs)}
+      </div>
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={styles.srOnly}
+      >
+        {conversionAnnouncement}
       </div>
       <div className={styles.footer}>
         <NetworkStatus />

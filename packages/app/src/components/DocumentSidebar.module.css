@@ -182,3 +182,18 @@
 :global([data-color-scheme="dark"]) .authButton:hover {
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* Visually hidden but accessible to screen readers. Used for an
+   aria-live region that announces convert-to-synced state changes
+   without taking up visual space. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

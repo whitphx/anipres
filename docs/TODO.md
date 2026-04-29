@@ -46,9 +46,11 @@ See [Post-Launch Hardening](./design-server-sync.md#post-launch-hardening) in th
 
 ## Convert-to-synced polish
 
-Follow-ups deferred from the convert-to-synced PRs (#431–#435). None are blocking; group here so they surface during a Phase 6 polish pass.
+Follow-ups deferred from the convert-to-synced PRs (#431–#435) — all four shipped together.
 
-- **Friendly error-message mapping**: `conversionError.message` flows directly to the button's `title` / `aria-label` today, surfacing strings like `"Asset upload failed: 413"` or `"signal timed out"`. Map to user-friendly text (413 → "This file is too large", `AbortError` → "Upload timed out — check your connection and try again", other 4xx/5xx → "Couldn't reach the server. Try again.").
-- **`aria-live` region for screen readers**: Convert state changes only announce when the button is re-focused. A `<div aria-live="polite">` near the sidebar footer would announce success/failure passively. Needs a small design pass on when/what to announce.
-- **Asset-upload concurrency cap**: `uploadAssetDataUrls` runs every data-URL asset upload in parallel via `Promise.all`. A legacy doc with many inline images will fire N simultaneous requests. Add a small pool (4–6 in flight) to be kinder to the browser connection pool and the worker.
-- **Tighten internal `composeWithTimeout` / default-helper signatures**: The internal `composeWithTimeout(userSignal?: AbortSignal)` helper and the `abortSignal?: AbortSignal` params on `defaultUploadAsset` / `defaultPushSnapshot` read like they can be called without an argument, but every call site passes the value. Change those internals to `AbortSignal | undefined` for an honest signature. The public `ConvertLocalDocToSyncedParams` interface keeps `?` for consumer ergonomics.
+Done:
+
+- **Friendly error-message mapping**: `getConversionErrorMessage` in `documents/conversion-error-message.ts` maps `Asset upload failed: 413` → "This file is too large", `AbortError`/`TimeoutError` → "Upload timed out…", network `TypeError` → "Couldn't reach the server…", etc. Used by both the per-doc button title/aria-label and the new `aria-live` region.
+- **`aria-live` region for screen readers**: `<div role="status" aria-live="polite">` rendered above the sidebar footer (visually hidden via `srOnly`). Announces "Uploading {title}…" on convert start and "Failed to upload {title}: {friendly}" on failure.
+- **Asset-upload concurrency cap**: `uploadAssetDataUrls` now uses a `pooledMap` helper with `ASSET_UPLOAD_CONCURRENCY = 4`. Keeps the pool full (work-stealing pattern, not batched) so the slowest upload in a wave doesn't gate the next wave.
+- **Tighten internal `composeWithTimeout` / default-helper signatures**: Internal `composeWithTimeout` and `defaultUploadAsset` / `defaultPushSnapshot` use `AbortSignal | undefined` instead of `?: AbortSignal`. Public `ConvertLocalDocToSyncedParams` keeps `?` for consumer ergonomics.
