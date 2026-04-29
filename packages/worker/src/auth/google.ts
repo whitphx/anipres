@@ -8,34 +8,21 @@ const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
 function getGoogleRedirectUri(c: AppContext) {
-  // Construct from the Host header rather than c.req.url.
+  // Build from the configured `PUBLIC_BASE_URL` env var rather than
+  // anything derived from the request. Two reasons:
   //
-  // `wrangler dev` synthesizes `request.url` using the production
-  // `[[routes]] pattern = "anipres.app"` from `wrangler.toml`, so
-  // `c.req.url` reports `http://anipres.app/...` even for local
-  // requests through Vite's proxy. That bogus URI doesn't match
-  // anything registered in Google Cloud Console, so the token
-  // exchange fails with `redirect_uri_mismatch`.
+  // 1. `c.req.url` lies in `wrangler dev`: with `[[routes]] pattern
+  //    = "anipres.app"` configured for production, wrangler
+  //    synthesizes the request URL using that pattern's host even
+  //    for local requests through Vite's proxy.
+  // 2. Defense in depth: an explicit per-environment value doesn't
+  //    rely on Cloudflare's Host-routing trust chain or Google's
+  //    redirect_uri whitelist as the only safeguards. A forged Host
+  //    can't influence the URI we emit.
   //
-  // The Host header reflects the actual user-facing origin in both
-  // environments: Vite's http-proxy preserves the browser's
-  // `Host: localhost:5173` in dev, and Cloudflare sets
-  // `Host: anipres.app` in prod. Trust is bounded — Cloudflare only
-  // routes a request to this worker when the Host matches a
-  // configured route binding, and Google validates the redirect_uri
-  // is in its registered list, so a forged Host can't redirect to a
-  // malicious site.
-  //
-  // Protocol: prefer `x-forwarded-proto` (set by Cloudflare in prod);
-  // fall back to the request URL's protocol (dev is HTTP).
-  const host = c.req.header("host");
-  if (!host) {
-    return new URL(GOOGLE_CALLBACK_PATH, c.req.url).toString();
-  }
-  const isHttps =
-    c.req.header("x-forwarded-proto") === "https" ||
-    new URL(c.req.url).protocol === "https:";
-  return `${isHttps ? "https" : "http"}://${host}${GOOGLE_CALLBACK_PATH}`;
+  // Per-env values are set via `[vars]` in wrangler.toml (prod /
+  // preview) and `.dev.vars` (local dev).
+  return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {
@@ -110,11 +97,9 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
   // cross-provider collisions when multiple OAuth flows run concurrently.
   app.get("/auth/google", async (c) => {
     const state = crypto.randomUUID();
-    const redirectUri = getGoogleRedirectUri(c);
-    console.error(`[google-auth] authorize redirect_uri=${redirectUri}`);
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", c.env.GOOGLE_ID);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("redirect_uri", getGoogleRedirectUri(c));
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", "openid");
     authUrl.searchParams.set("state", state);

@@ -26,7 +26,21 @@ Operational items the code can't cover. Each of these must be set before `wrangl
 - **OAuth credentials** as secrets on both envs (names match `Env` in `packages/worker/src/types.ts`):
   - `GITHUB_ID` / `GITHUB_SECRET`
   - `GOOGLE_ID` / `GOOGLE_SECRET`
-- **OAuth redirect URIs** registered in the GitHub and Google developer consoles for both prod (`https://anipres.app/auth/github`, `https://anipres.app/auth/google/callback`) and preview (`https://anipres-worker-preview.<account>.workers.dev/...`).
+- **`PUBLIC_BASE_URL` for the preview env** in `wrangler.toml`'s `[env.preview.vars]`. Production is hardcoded to `https://anipres.app`; the preview placeholder is `https://anipres-worker-preview.preview-todo.workers.dev` and needs to be replaced with the actual `workers.dev` URL after the first preview deploy. The Google OAuth callback URL the worker emits is built from this value, so a stale value here produces `redirect_uri_mismatch`.
+- **OAuth redirect URIs** registered in the GitHub and Google developer consoles. The exact URIs depend on `PUBLIC_BASE_URL` for each env:
+  - prod: `https://anipres.app/auth/github`, `https://anipres.app/auth/google/callback`
+  - preview: `https://anipres-worker-preview.<account>.workers.dev/...`
+  - local dev: `http://localhost:5173/auth/github`, `http://localhost:5173/auth/google/callback`
+- **Local-dev `.dev.vars`** at `packages/worker/.dev.vars` (git-ignored). Required entries:
+  ```
+  GITHUB_ID=<dev oauth client id>
+  GITHUB_SECRET=<dev oauth client secret>
+  GOOGLE_ID=<dev oauth client id>
+  GOOGLE_SECRET=<dev oauth client secret>
+  JWT_SECRET=<any random string>
+  PUBLIC_BASE_URL=http://localhost:5173
+  ```
+  Restart `wrangler dev` after editing.
 - **Run migrations** against both D1 instances on first deploy (and on every subsequent migration): `wrangler d1 migrations apply anipres-db` (and `… --env preview`).
 
 ## Preview architecture
