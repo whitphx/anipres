@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { SWRConfig } from "swr";
 import { AccountSettingsModal } from "./AccountSettingsModal";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -8,6 +10,23 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     json: async () => body,
   } as Response;
+}
+
+// Wrap each render in a fresh SWR cache + zero dedup window so tests
+// don't leak fetch results across each other (SWR's default cache is
+// module-global and the default 2s dedup interval would hide the
+// per-test `mockResolvedValueOnce` setups).
+function renderModal(ui: ReactNode) {
+  return render(
+    <SWRConfig
+      value={{
+        provider: () => new Map(),
+        dedupingInterval: 0,
+      }}
+    >
+      {ui}
+    </SWRConfig>,
+  );
 }
 
 describe("AccountSettingsModal", () => {
@@ -31,7 +50,7 @@ describe("AccountSettingsModal", () => {
       ]),
     );
 
-    render(<AccountSettingsModal onClose={() => {}} />);
+    renderModal(<AccountSettingsModal onClose={() => {}} />);
 
     await waitFor(() => {
       expect(screen.getByText("GitHub")).toBeTruthy();
@@ -54,7 +73,7 @@ describe("AccountSettingsModal", () => {
       ]),
     );
 
-    render(<AccountSettingsModal onClose={() => {}} />);
+    renderModal(<AccountSettingsModal onClose={() => {}} />);
 
     await waitFor(() => {
       expect(
@@ -66,7 +85,7 @@ describe("AccountSettingsModal", () => {
   it("renders the success flash when an account-link redirect lands here", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([]));
 
-    render(
+    renderModal(
       <AccountSettingsModal
         onClose={() => {}}
         initialFlash={{ code: "success", kind: "success" }}
@@ -79,7 +98,7 @@ describe("AccountSettingsModal", () => {
   it("renders the conflict flash with role=alert when identity is in use", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([]));
 
-    render(
+    renderModal(
       <AccountSettingsModal
         onClose={() => {}}
         initialFlash={{ code: "identity_in_use", kind: "error" }}
@@ -95,7 +114,7 @@ describe("AccountSettingsModal", () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([]));
     const onClose = vi.fn();
 
-    render(<AccountSettingsModal onClose={onClose} />);
+    renderModal(<AccountSettingsModal onClose={onClose} />);
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
@@ -107,7 +126,7 @@ describe("AccountSettingsModal", () => {
   it("surfaces a load error when /auth/identities returns non-ok", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(null, 401));
 
-    render(<AccountSettingsModal onClose={() => {}} />);
+    renderModal(<AccountSettingsModal onClose={() => {}} />);
 
     await waitFor(() => {
       expect(screen.getByText(/could not load/i)).toBeTruthy();
