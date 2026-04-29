@@ -1,4 +1,4 @@
-import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
+import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
 export interface DocumentRepository {
   list(): Promise<DocumentMeta[]>;
@@ -18,6 +18,6 @@ export interface DocumentRepository {
    * Returns the saved doc with all server-side stamps (slug, current
    * timestamps) populated.
    */
-  save(draft: DocumentDraft): Promise<DocumentData>;
+  save(input: DocumentInput): Promise<DocumentData>;
   delete(id: string): Promise<void>;
 }

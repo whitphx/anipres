@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { TLStoreSnapshot } from "tldraw";
 import type {
   DocumentData,
-  DocumentDraft,
+  DocumentInput,
   DocumentMeta,
-  DocumentOrigin,
+  DocumentSource,
 } from "./types";
 import type { DocumentRepository } from "./repository";
 import {
@@ -51,37 +51,37 @@ function makeLocalDoc(
       sortOrder: "a0",
       createdAt: 0,
       updatedAt: 0,
-      origin: "local",
+      source: "local",
     },
     snapshot,
   };
 }
 
-function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
+function makeFakeRepo(source: DocumentSource, initial: DocumentData[] = []) {
   const store = new Map<string, DocumentData>();
   for (const d of initial) store.set(d.meta.id, d);
 
   const list = vi.fn(
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
-        .map((d) => ({ ...d.meta, origin }))
+        .map((d) => ({ ...d.meta, source }))
         .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder)),
   );
   const get = vi.fn(async (id: string): Promise<DocumentData | undefined> => {
     const d = store.get(id);
-    return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
+    return d ? { ...d, meta: { ...d.meta, source } } : undefined;
   });
   // Single upsert method matching the production repo. Both local and
   // synced repos honor the caller's id verbatim — UUID v7 is
   // client-allocated, so the same id flows through every layer.
-  const save = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+  const save = vi.fn(async (d: DocumentInput): Promise<DocumentData> => {
     const now = Date.now();
     const existing = store.get(d.meta.id);
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
-        origin,
+        source,
         createdAt: existing?.meta.createdAt ?? d.meta.createdAt ?? now,
         updatedAt: now,
       },
@@ -290,7 +290,7 @@ describe("convertLocalDocToSynced", () => {
         sortOrder: "a0",
         createdAt: 0,
         updatedAt: 0,
-        origin: "synced",
+        source: "synced",
       },
       snapshot: null,
     };
@@ -319,7 +319,7 @@ describe("convertLocalDocToSynced", () => {
     // the same id as the local doc — no remap.
     const synced = syncedRepo.store.get("doc-1");
     expect(synced).toBeDefined();
-    expect(synced?.meta.origin).toBe("synced");
+    expect(synced?.meta.source).toBe("synced");
     // Sort-order is computed past the existing tail.
     expect(
       synced?.meta.sortOrder !== undefined && synced.meta.sortOrder > "a0",
@@ -462,13 +462,13 @@ describe("convertLocalDocToSynced", () => {
     // Abort mid-migration, right after syncedRepository.create runs.
     // The synced doc is stored under the same id as the local doc
     // (UUID v7 client-allocated, no remap).
-    syncedRepo.repo.save = vi.fn(async (d: DocumentDraft) => {
+    syncedRepo.repo.save = vi.fn(async (d: DocumentInput) => {
       const now = Date.now();
       const allocated: DocumentData = {
         ...d,
         meta: {
           ...d.meta,
-          origin: "synced",
+          source: "synced",
           createdAt: d.meta.createdAt ?? now,
           updatedAt: now,
         },
@@ -501,10 +501,10 @@ describe("convertLocalDocToSynced", () => {
   it("throws when the document is already synced", async () => {
     const syncedDoc: DocumentData = {
       ...makeLocalDoc("doc-1"),
-      meta: { ...makeLocalDoc("doc-1").meta, origin: "synced" },
+      meta: { ...makeLocalDoc("doc-1").meta, source: "synced" },
     };
     const localRepo = makeFakeRepo("local");
-    // Force the local repo's get to return a synced-origin doc — the repo
+    // Force the local repo's get to return a synced-source doc — the repo
     // normally stamps "local", so this mimics a corrupted state to verify
     // the defensive guard.
     localRepo.repo.get = vi.fn().mockResolvedValue(syncedDoc);

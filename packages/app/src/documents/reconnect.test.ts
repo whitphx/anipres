@@ -155,10 +155,10 @@ describe("reconcileOfflineEdits", () => {
       list: vi
         .fn()
         .mockResolvedValue([
-          { id: "doc-id", title: "Foo", sortOrder: "a0", origin: "synced" },
+          { id: "doc-id", title: "Foo", sortOrder: "a0", source: "synced" },
         ]),
       // The fork flow mints its own UUID v7 client-side, then calls
-      // create(). The fake repo echoes the supplied draft so the
+      // save(). The fake repo echoes the supplied input so the
       // returned row carries that same id.
       save: vi.fn().mockImplementation(async (data) => ({
         meta: {
@@ -166,7 +166,7 @@ describe("reconcileOfflineEdits", () => {
           slug: "fork-slug",
           createdAt: 0,
           updatedAt: 0,
-          origin: "synced",
+          source: "synced",
         },
         snapshot: null,
       })),
@@ -195,16 +195,16 @@ describe("reconcileOfflineEdits", () => {
     });
 
     // The fork id is whatever uuidv7() produced — assert the shape
-    // (returned id is a UUID and matches what was passed to create()).
+    // (returned id is a UUID and matches what was passed to save()).
     expect(result.action).toBe("forked");
     if (result.action === "forked") {
       expect(result.forkedDocumentId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );
-      const sentDraft = repository.save.mock.calls[0][0] as {
+      const sentInput = repository.save.mock.calls[0][0] as {
         meta: { id: string };
       };
-      expect(sentDraft.meta.id).toBe(result.forkedDocumentId);
+      expect(sentInput.meta.id).toBe(result.forkedDocumentId);
     }
     expect(repository.save).toHaveBeenCalledTimes(1);
   });
@@ -223,12 +223,12 @@ describe("reconcileOfflineEdits", () => {
         meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
       }),
       list: vi.fn().mockResolvedValue([
-        { id: "doc-id", title: "Foo", sortOrder: "a0", origin: "synced" },
+        { id: "doc-id", title: "Foo", sortOrder: "a0", source: "synced" },
         {
           id: "neighbor",
           title: "Neighbor",
           sortOrder: "a1",
-          origin: "synced",
+          source: "synced",
         },
       ]),
       save: vi.fn().mockImplementation(async (data) => ({
@@ -238,7 +238,7 @@ describe("reconcileOfflineEdits", () => {
           slug: "fork-slug",
           createdAt: 0,
           updatedAt: 0,
-          origin: "synced",
+          source: "synced",
         },
         snapshot: null,
       })),

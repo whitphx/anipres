@@ -1,5 +1,5 @@
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
+import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
 // Document ids are client-allocated UUID v7 strings (see
 // `packages/worker/migrations/0001_initial_schema.sql` design note).
@@ -22,7 +22,7 @@ function rowToMeta(row: DocumentRow): DocumentMeta {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    origin: "synced",
+    source: "synced",
   };
 }
 
@@ -71,7 +71,7 @@ export class ApiDocumentRepository implements DocumentRepository {
    *
    * The id is in the URL path; it's not duplicated in the body.
    */
-  async save(draft: DocumentDraft): Promise<DocumentData> {
+  async save(input: DocumentInput): Promise<DocumentData> {
     const body: {
       workspace_id: string;
       title: string;
@@ -79,14 +79,14 @@ export class ApiDocumentRepository implements DocumentRepository {
       created_at?: number;
     } = {
       workspace_id: this.workspaceId,
-      title: draft.meta.title,
-      sort_order: draft.meta.sortOrder,
+      title: input.meta.title,
+      sort_order: input.meta.sortOrder,
     };
-    if (draft.meta.createdAt !== undefined) {
-      body.created_at = draft.meta.createdAt;
+    if (input.meta.createdAt !== undefined) {
+      body.created_at = input.meta.createdAt;
     }
     const res = await fetch(
-      `/api/documents/${encodeURIComponent(draft.meta.id)}`,
+      `/api/documents/${encodeURIComponent(input.meta.id)}`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -101,7 +101,7 @@ export class ApiDocumentRepository implements DocumentRepository {
       meta: rowToMeta(row),
       // Snapshot is uploaded separately (PUT /api/documents/:id/snapshot);
       // the save response only carries metadata.
-      snapshot: draft.snapshot,
+      snapshot: input.snapshot,
     };
   }
 

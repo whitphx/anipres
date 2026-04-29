@@ -231,9 +231,9 @@ export async function convertLocalDocToSynced(
   if (!local) {
     throw new Error(`Local document ${documentId} not found`);
   }
-  if (local.meta.origin !== "local") {
+  if (local.meta.source !== "local") {
     throw new Error(
-      `Document ${documentId} is not a local document (origin: ${local.meta.origin})`,
+      `Document ${documentId} is not a local document (source: ${local.meta.source})`,
     );
   }
 
@@ -255,7 +255,7 @@ export async function convertLocalDocToSynced(
     meta: {
       ...local.meta,
       sortOrder: newSortOrder,
-      origin: "synced",
+      source: "synced",
     },
     snapshot: null,
   });

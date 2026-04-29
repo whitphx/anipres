@@ -1,11 +1,11 @@
 import { createStore, get, set, del, entries } from "idb-keyval";
 import type { DocumentRepository } from "./repository";
-import type { DocumentData, DocumentDraft, DocumentMeta } from "./types";
+import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
 const store = createStore("anipres-documents", "documents");
 
 function stampLocal(meta: DocumentMeta): DocumentMeta {
-  return { ...meta, origin: "local" };
+  return { ...meta, source: "local" };
 }
 
 export class IdbDocumentRepository implements DocumentRepository {
@@ -23,21 +23,21 @@ export class IdbDocumentRepository implements DocumentRepository {
   }
 
   /**
-   * Insert or update the row at `draft.meta.id`. On insert, stamps
+   * Insert or update the row at `input.meta.id`. On insert, stamps
    * `createdAt` (honoring the optional override) and `updatedAt`. On
    * update, bumps `updatedAt` and preserves the existing `createdAt`
-   * — even if a different value is in `draft.meta.createdAt`, the
+   * — even if a different value is in `input.meta.createdAt`, the
    * stored row's createdAt wins, since it represents the actual
    * on-device creation moment.
    */
-  async save(draft: DocumentDraft): Promise<DocumentData> {
+  async save(input: DocumentInput): Promise<DocumentData> {
     const now = Date.now();
-    const existing = await get<DocumentData>(draft.meta.id, store);
+    const existing = await get<DocumentData>(input.meta.id, store);
     const data: DocumentData = {
-      snapshot: draft.snapshot,
+      snapshot: input.snapshot,
       meta: {
-        ...draft.meta,
-        createdAt: existing?.meta.createdAt ?? draft.meta.createdAt ?? now,
+        ...input.meta,
+        createdAt: existing?.meta.createdAt ?? input.meta.createdAt ?? now,
         updatedAt: now,
       },
     };

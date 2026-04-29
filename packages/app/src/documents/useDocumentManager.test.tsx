@@ -5,9 +5,9 @@ import { useDocumentManager } from "./useDocumentManager";
 import type { DocumentRepository } from "./repository";
 import type {
   DocumentData,
-  DocumentDraft,
+  DocumentInput,
   DocumentMeta,
-  DocumentOrigin,
+  DocumentSource,
 } from "./types";
 
 const emptySnapshot = { store: {}, schema: {} } as unknown as TLStoreSnapshot;
@@ -18,7 +18,7 @@ function makeLocalDocWithSnapshot(id: string): DocumentData {
       id,
       title: id,
       sortOrder: "a0",
-      origin: "local",
+      source: "local",
       createdAt: 0,
       updatedAt: 0,
     },
@@ -29,43 +29,43 @@ function makeLocalDocWithSnapshot(id: string): DocumentData {
 function makeDoc(
   id: string,
   sortOrder: string,
-  origin: DocumentOrigin,
+  source: DocumentSource,
   title = id,
 ): DocumentData {
   return {
-    meta: { id, title, sortOrder, origin, createdAt: 0, updatedAt: 0 },
+    meta: { id, title, sortOrder, source, createdAt: 0, updatedAt: 0 },
     snapshot: null,
   };
 }
 
-function makeFakeRepo(origin: DocumentOrigin, initial: DocumentData[] = []) {
+function makeFakeRepo(source: DocumentSource, initial: DocumentData[] = []) {
   const store = new Map<string, DocumentData>();
   for (const d of initial) store.set(d.meta.id, d);
 
-  // Each fake stamps `origin` on list/get to mimic the real repo behavior so
-  // the hook sees DocumentMeta objects with the correct origin field.
+  // Each fake stamps `source` on list/get to mimic the real repo behavior so
+  // the hook sees DocumentMeta objects with the correct source field.
   const list = vi.fn(
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
-        .map((d) => ({ ...d.meta, origin }))
+        .map((d) => ({ ...d.meta, source }))
         .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder)),
   );
   const get = vi.fn(async (id: string): Promise<DocumentData | undefined> => {
     const d = store.get(id);
-    return d ? { ...d, meta: { ...d.meta, origin } } : undefined;
+    return d ? { ...d, meta: { ...d.meta, source } } : undefined;
   });
   // Single upsert method matching the production repo. Both local and
   // synced repos honor the caller's id verbatim — UUID v7 is
   // client-allocated, so the same id flows through every layer and
-  // tests can assert on the original id everywhere.
-  const save = vi.fn(async (d: DocumentDraft): Promise<DocumentData> => {
+  // tests can assert on the same id everywhere.
+  const save = vi.fn(async (d: DocumentInput): Promise<DocumentData> => {
     const now = Date.now();
     const existing = store.get(d.meta.id);
     const stored: DocumentData = {
       ...d,
       meta: {
         ...d.meta,
-        origin,
+        source,
         createdAt: existing?.meta.createdAt ?? d.meta.createdAt ?? now,
         updatedAt: now,
       },
@@ -135,7 +135,7 @@ describe("useDocumentManager", () => {
       "L1",
       "L2",
     ]);
-    expect(result.current.documents.map((d) => d.origin)).toEqual([
+    expect(result.current.documents.map((d) => d.source)).toEqual([
       "synced",
       "synced",
       "local",
@@ -159,7 +159,7 @@ describe("useDocumentManager", () => {
     expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     expect(localRepo.save).not.toHaveBeenCalled();
     expect(result.current.documents).toHaveLength(1);
-    expect(result.current.documents[0].origin).toBe("synced");
+    expect(result.current.documents[0].source).toBe("synced");
   });
 
   it("completes initial load with local docs when the synced list rejects", async () => {
@@ -234,7 +234,7 @@ describe("useDocumentManager", () => {
     expect(syncedRepo.get).toHaveBeenCalledWith("S2");
     expect(localRepo.get).not.toHaveBeenCalledWith("S2");
     expect(result.current.activeDocumentId).toBe("S2");
-    expect(result.current.activeDocument?.origin).toBe("synced");
+    expect(result.current.activeDocument?.source).toBe("synced");
   });
 
   it("falls back to creating a local replacement when deleting the last doc and synced save fails", async () => {
@@ -260,11 +260,11 @@ describe("useDocumentManager", () => {
 
     expect(localRepo.save).toHaveBeenCalledTimes(1);
     expect(result.current.documents).toHaveLength(1);
-    expect(result.current.documents[0].origin).toBe("local");
+    expect(result.current.documents[0].source).toBe("local");
     expect(vi.mocked(console.error)).toHaveBeenCalled();
   });
 
-  it("migrates a local doc to synced via convertToSynced and keeps it selected with the new origin", async () => {
+  it("migrates a local doc to synced via convertToSynced and keeps it selected with the new source", async () => {
     const localRepo = makeFakeRepo("local", [makeDoc("doc-1", "a0", "local")]);
     const syncedRepo = makeFakeRepo("synced");
 
@@ -281,7 +281,7 @@ describe("useDocumentManager", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.activeDocument?.id).toBe("doc-1");
-    expect(result.current.activeDocument?.origin).toBe("local");
+    expect(result.current.activeDocument?.source).toBe("local");
 
     await act(async () => {
       await result.current.convertToSynced("doc-1");
@@ -290,9 +290,9 @@ describe("useDocumentManager", () => {
     expect(syncedRepo.save).toHaveBeenCalledTimes(1);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
     // The migrated doc keeps its UUID v7 id across the local→synced
-    // transition; only the origin flips.
+    // transition; only the source flips.
     expect(result.current.activeDocument?.id).toBe("doc-1");
-    expect(result.current.activeDocument?.origin).toBe("synced");
+    expect(result.current.activeDocument?.source).toBe("synced");
   });
 
   it("exposes converting while a migration is in flight and clears it on completion", async () => {
@@ -556,7 +556,7 @@ describe("useDocumentManager", () => {
     expect(result.current.conversionErrors.has("doc-1")).toBe(false);
     expect(pushSnapshot).toHaveBeenCalledTimes(2);
     expect(localRepo.delete).toHaveBeenCalledWith("doc-1");
-    expect(result.current.activeDocument?.origin).toBe("synced");
+    expect(result.current.activeDocument?.source).toBe("synced");
   });
 
   it("clears conversionErrors for a doc when it is deleted", async () => {
@@ -773,10 +773,10 @@ describe("useDocumentManager", () => {
     });
 
     expect(localRepo.delete).not.toHaveBeenCalled();
-    expect(result.current.documents[0].origin).toBe("local");
+    expect(result.current.documents[0].source).toBe("local");
   });
 
-  it("treats createDocument({origin: 'synced'}) as a no-op when no synced repository is configured", async () => {
+  it("treats createDocument({source: 'synced'}) as a no-op when no synced repository is configured", async () => {
     const localRepo = makeFakeRepo("local", [makeDoc("L1", "a0", "local")]);
 
     const { result } = renderHook(() =>
@@ -786,11 +786,11 @@ describe("useDocumentManager", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.createDocument({ origin: "synced" });
+      await result.current.createDocument({ source: "synced" });
     });
 
     // localRepo.save should have been called exactly zero times — L1 already
-    // exists from the fixture, and the synced-origin create should not fall
+    // exists from the fixture, and the synced-source create should not fall
     // through to local here (that fallback is only for the last-doc-delete
     // replacement path).
     expect(localRepo.save).not.toHaveBeenCalled();

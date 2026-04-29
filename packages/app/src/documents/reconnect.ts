@@ -177,7 +177,7 @@ export async function reconcileOfflineEdits(params: {
       id: forkId,
       title: forkTitle,
       sortOrder: forkSortOrder,
-      origin: "synced",
+      source: "synced",
     },
     snapshot: null,
   });

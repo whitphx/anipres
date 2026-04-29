@@ -47,7 +47,7 @@ describe("ApiDocumentRepository", () => {
         sortOrder: "a0",
         createdAt: 1,
         updatedAt: 2,
-        origin: "synced",
+        source: "synced",
       },
     ]);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
@@ -101,7 +101,7 @@ describe("ApiDocumentRepository", () => {
         title: "Title",
         sortOrder: "a0",
         createdAt: 10,
-        origin: "synced",
+        source: "synced",
       },
       snapshot: null,
     });
@@ -116,7 +116,7 @@ describe("ApiDocumentRepository", () => {
     // PUT goes to /api/documents/:id (id in URL, not body). The body
     // sends:
     //   - workspace_id: from the repo's binding
-    //   - title, sort_order: from the draft
+    //   - title, sort_order: from the input
     //   - created_at: only when the caller set it (migration use case)
     // updated_at and slug never appear — the server stamps both.
     const [url, init] = vi.mocked(fetch).mock.calls[0];
@@ -152,7 +152,7 @@ describe("ApiDocumentRepository", () => {
         id: docId,
         title: "Fresh",
         sortOrder: "a0",
-        origin: "synced",
+        source: "synced",
       },
       snapshot: null,
     });
@@ -183,7 +183,7 @@ describe("ApiDocumentRepository", () => {
     // Pass a full DocumentData (with all timestamps and slug). The
     // repo only forwards the meaningful fields to the wire; extras
     // are dropped. DocumentData is structurally a superset of
-    // DocumentDraft, so the call is valid; the local-variable typing
+    // DocumentInput, so the call is valid; the local-variable typing
     // hop avoids TS's excess-property check on object literals.
     const data: DocumentData = {
       meta: {
@@ -193,7 +193,7 @@ describe("ApiDocumentRepository", () => {
         sortOrder: "a1",
         createdAt: 1,
         updatedAt: 99,
-        origin: "synced",
+        source: "synced",
       },
       snapshot: null,
     };
@@ -206,7 +206,7 @@ describe("ApiDocumentRepository", () => {
     // The wire body has no updated_at (server's trigger handles it),
     // no slug (server-allocated on insert; ignored on update), and no
     // id (it's in the URL). created_at is forwarded because the
-    // caller's draft had it set.
+    // caller's input had it set.
     expect(sent).toEqual({
       workspace_id: TEST_WORKSPACE_ID,
       title: "Renamed",

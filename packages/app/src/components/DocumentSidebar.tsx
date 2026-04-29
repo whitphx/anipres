@@ -45,7 +45,7 @@ export function DocumentSidebar({
     const synced: DocumentMeta[] = [];
     const local: DocumentMeta[] = [];
     for (const doc of documents) {
-      (doc.origin === "synced" ? synced : local).push(doc);
+      (doc.source === "synced" ? synced : local).push(doc);
     }
     return { syncedDocs: synced, localDocs: local };
   }, [documents]);
