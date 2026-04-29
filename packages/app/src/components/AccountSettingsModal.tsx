@@ -1,11 +1,26 @@
 import { Github, LogIn, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import useSWR from "swr";
 import styles from "./AccountSettingsModal.module.css";
 
 interface OAuthIdentity {
   provider: string;
   provider_id: string;
   created_at: number;
+}
+
+// Inline JSON fetcher. Pulled out of the hook so it isn't recreated
+// per render (SWR keys cache by url, but the fetcher identity also
+// matters for some operations). Only one SWR call site in the app
+// today, so a shared utility module would be premature; if more
+// fetches migrate to SWR, lift this into `lib/fetcher.ts` or set it
+// as the default via `<SWRConfig>`.
+async function jsonFetcher<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status})`);
+  }
+  return (await res.json()) as T;
 }
 
 const ALL_PROVIDERS = ["github", "google"] as const;
@@ -48,10 +63,10 @@ interface AccountSettingsModalProps {
    * to a finished OAuth-link flow.
    *
    * The modal is mount/unmount-controlled by the parent — there is
-   * no `open` prop. Mount = visible. This pattern keeps the
-   * fetch-on-open useEffect from needing a synchronous-setState
-   * reset (which the React lint rule discourages); React unmount
-   * resets state for free on the next open.
+   * no `open` prop. Mount = visible. SWR keeps the identities cache
+   * across mounts, so subsequent opens are instant; the unmount-on-
+   * close pattern still simplifies internal state (the parent owns
+   * the flash, so it disappears as soon as the modal unmounts).
    */
   initialFlash?: { code: string; kind: "success" | "error" } | null;
 }
@@ -60,31 +75,18 @@ export function AccountSettingsModal({
   onClose,
   initialFlash,
 }: AccountSettingsModalProps) {
-  const [identities, setIdentities] = useState<OAuthIdentity[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // SWR handles cancellation, error/loading state, dedup, and cache
+  // reuse on reopen — second-and-later opens of the modal in the same
+  // session show the cached identity list immediately while a
+  // background revalidation refreshes it. (Focus revalidation also
+  // catches "user linked a provider in a second tab" without explicit
+  // wiring; it doesn't help the primary flow because that flow does a
+  // full-page redirect, but it's a free correctness backstop.)
+  const { data: identities, error: loadError } = useSWR<OAuthIdentity[]>(
+    "/auth/identities",
+    jsonFetcher,
+  );
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Fetch identities once on mount. Parent unmounts the modal when
-  // closed, so any subsequent open is a fresh mount and re-fetches.
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/auth/identities")
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((data: OAuthIdentity[]) => {
-        if (!cancelled) setIdentities(data);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setLoadError(
-          err instanceof Error
-            ? err.message
-            : `Could not load (${String(err)})`,
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Focus the close button on mount so Esc-to-close works without
   // the user first having to tab into the dialog.
@@ -107,6 +109,7 @@ export function AccountSettingsModal({
   const unlinkedProviders = ALL_PROVIDERS.filter(
     (p) => !linkedProviders.has(p),
   );
+  const isLoading = identities === undefined && loadError === undefined;
 
   const flashConfig = initialFlash
     ? (FLASH_MESSAGES[initialFlash.code] ?? {
@@ -163,13 +166,13 @@ export function AccountSettingsModal({
             once the fetch revealed which providers were already linked.
             Hold both sections behind the gate so the modal opens at its
             final size in one pass. */}
-        {identities === null && loadError === null && (
-          <p className={styles.empty}>Loading…</p>
+        {isLoading && <p className={styles.empty}>Loading…</p>}
+        {loadError !== undefined && (
+          <p className={styles.empty}>
+            Could not load: {loadError.message ?? String(loadError)}
+          </p>
         )}
-        {loadError !== null && (
-          <p className={styles.empty}>Could not load: {loadError}</p>
-        )}
-        {identities !== null && (
+        {identities !== undefined && (
           <>
             <section className={styles.section}>
               <h3 className={styles.sectionTitle}>Linked sign-in providers</h3>
