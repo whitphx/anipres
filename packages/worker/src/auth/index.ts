@@ -2,7 +2,12 @@ import type { Hono } from "hono";
 import type { AppBindings } from "../types";
 import { registerGitHubAuth } from "./github";
 import { registerGoogleAuth } from "./google";
-import { clearSession, getCurrentUser, requireSession } from "./session";
+import {
+  clearSession,
+  getCurrentUser,
+  listOAuthIdentities,
+  requireSession,
+} from "./session";
 
 export function registerAuthRoutes(app: Hono<AppBindings>) {
   registerGitHubAuth(app);
@@ -15,6 +20,19 @@ export function registerAuthRoutes(app: Hono<AppBindings>) {
     }
 
     return c.json(user);
+  });
+
+  // List the OAuth identities linked to the current user. Used by the
+  // account-settings UI to render the "linked providers" panel and
+  // gate the "Connect another" buttons. 401 when logged out — the
+  // settings UI is only reachable from a logged-in surface anyway.
+  app.get("/auth/identities", async (c) => {
+    const userId = await requireSession(c);
+    if (userId === null) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+    const identities = await listOAuthIdentities(c, userId);
+    return c.json(identities);
   });
 
   app.post("/auth/logout", (c) => {
