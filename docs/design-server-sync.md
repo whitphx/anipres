@@ -2,7 +2,16 @@
 
 > This document captures the design discussions for introducing server-side authentication,
 > document persistence, and real-time synchronization to the anipres app.
-> It was produced during a Claude Code session on 2026-03-13.
+> It was produced during a Claude Code session on 2026-03-13 and has since
+> been kept in sync with the as-built shape of the system; sections that
+> describe the implemented schema / API / worker layout reflect the code
+> on `feature/sync-server` as of 2026-04-29.
+
+## Status
+
+Phases 1–5 are landed on `feature/sync-server`. Phase 6 is partial — online/offline indicator, reconnect UX, input validation, anonymous-mode preservation are done; user profile/settings and account linking are pending. See [`TODO.md`](./TODO.md) for the residual list.
+
+The implementation diverged from the original spec in a few load-bearing places — workspaces between users and documents (pre-positions Extension A), `oauth_identities` as a separate table for future account linking, INTEGER PKs for server-allocated entities (users, workspaces) but TEXT UUID v7 for documents (client-allocated), `initializing_at` / `deleting_at` lifecycle columns, an `assets` GC table, and a single-endpoint PUT-as-upsert document API. The "Database Schema", "API Design", and "Worker Structure" sections below have been rewritten to match the as-built; the philosophy sections (Dual-Mode, Offline, etc.) describe decisions that survived intact.
 
 ## Table of Contents
 
@@ -15,32 +24,35 @@
 7. [Anonymous to Logged-In Transition](#anonymous-to-logged-in-transition)
 8. [API Design](#api-design)
 9. [Database Schema](#database-schema)
-10. [Worker Structure](#worker-structure)
-11. [Custom Shape Schema Sharing](#custom-shape-schema-sharing)
-12. [Implementation Phases](#implementation-phases)
-13. [Risks & Considerations](#risks--considerations)
+10. [Document Lifecycle](#document-lifecycle)
+11. [Worker Structure](#worker-structure)
+12. [Custom Shape Schema Sharing](#custom-shape-schema-sharing)
+13. [Implementation Phases](#implementation-phases)
+14. [Risks & Considerations](#risks--considerations)
 
 ---
 
 ## Current Architecture
 
-- **Pure client-side SPA** deployed to Cloudflare Pages.
+The local-only SPA described below was the starting point. The implementation now layers a Cloudflare Worker + D1 + R2 + Durable Objects on top — see the rest of this document — but the local repository, the `useDocumentManager` hook, and the IDB storage path are still present and active for the anonymous (logged-out) experience.
+
 - Documents stored in **IndexedDB** via `idb-keyval` (`packages/app/src/documents/idb-repository.ts`).
-- Clean `DocumentRepository` interface with `list`, `get`, `save`, `delete`.
-- Document payload: `DocumentMeta` (id, title, createdAt, updatedAt, order) + `TLStoreSnapshot | null`.
-- Auto-save: 500ms debounced writes to IndexedDB on store changes, plus flush on `visibilitychange`/`pagehide`/`beforeunload`.
-- No backend, no authentication, no sync.
+- `DocumentRepository` interface with `list`, `get`, `save`, `delete`. The same interface backs the synced (server) path via `ApiDocumentRepository`.
+- Document payload: `DocumentMeta` (id, title, slug?, sortOrder, createdAt, updatedAt, source) + `TLStoreSnapshot | null`. `sortOrder` is a fractional-indexing key (the `fractional-indexing` npm package); ids are UUID v7 minted client-side via the `uuid` package.
+- Auto-save (local docs): 500ms debounced writes to IndexedDB on store changes, plus flush on `visibilitychange`/`pagehide`/`beforeunload`.
 
 ### Key Files
 
-| File                                                    | Purpose                                                                          |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `packages/app/src/documents/types.ts`                   | `DocumentMeta`, `DocumentData` interfaces                                        |
-| `packages/app/src/documents/idb-repository.ts`          | `IdbDocumentRepository` — IndexedDB persistence                                  |
-| `packages/app/src/documents/useDocumentManager.ts`      | Main hook: CRUD, editor registration, auto-save                                  |
-| `packages/app/src/documents/DocumentManagerContext.tsx` | React context + provider                                                         |
-| `packages/app/src/AppContent.tsx`                       | Loads active document, renders `AnipresContainer` with `key={activeDocumentId}`  |
-| `packages/anipres/src/Anipres.tsx`                      | tldraw wrapper with custom shapes (Slide, ThemeImage), animation/step management |
+| File                                                     | Purpose                                                                          |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/app/src/documents/types.ts`                    | `DocumentMeta`, `DocumentData`, `DocumentInput`, `DocumentSource`                |
+| `packages/app/src/documents/idb-repository.ts`           | `IdbDocumentRepository` — IndexedDB persistence                                  |
+| `packages/app/src/documents/api-repository.ts`           | `ApiDocumentRepository` — workspace-bound HTTP repository                        |
+| `packages/app/src/documents/useDocumentManager.ts`       | Main hook: CRUD, editor registration, auto-save, convert-to-synced               |
+| `packages/app/src/documents/DocumentManagerContext.tsx`  | React context + provider                                                         |
+| `packages/app/src/documents/SyncedRepositoryContext.tsx` | React context for the workspace-bound synced repo                                |
+| `packages/app/src/AppContent.tsx`                        | Loads active document, renders `AnipresContainer` with `key={activeDocumentId}`  |
+| `packages/anipres/src/Anipres.tsx`                       | tldraw wrapper with custom shapes (Slide, ThemeImage), animation/step management |
 
 ---
 
@@ -222,46 +234,63 @@ These are complementary, not conflicting. `useSync` handles 90% of sync; our for
 
 ## Anonymous to Logged-In Transition
 
-A one-time migration event, not a continuous toggle:
+Not a one-shot batch — the implementation makes the transition per-document, opt-in, and idempotent.
 
-1. User has been working anonymously with documents in IndexedDB
-2. User signs up / logs in
-3. App detects local documents in IndexedDB
-4. Prompt: "Upload N documents to your account?"
-   - **Yes**: For each document:
-     - Create D1 metadata entry
-     - Provision Durable Object room
-     - Load local snapshot via `SQLiteSyncStorage({ sql, snapshot })`
-     - Clear local copy (or keep as cache)
-   - **No / Later**: Keep local docs, start fresh on server
-5. Remount editor with `useSync` (brief flash, acceptable for one-time event)
+After login, local docs continue to live in IDB and show up in the sidebar alongside synced docs (separated visually by source). Each local doc gets a "Migrate this document" button that runs `convertLocalDocToSynced` (`packages/app/src/documents/migration.ts`):
 
-**Logging out**: Snapshot current store to IndexedDB, disconnect WebSocket, remount in local mode.
+1. Read the local doc.
+2. Compute a fractional-indexing key past the synced list's tail.
+3. `PUT /api/documents/:id` (server inserts under the local UUID, marks `initializing_at`).
+4. Upload any inline `data:` URL assets to R2 via `POST /api/documents/:id/assets`, rewriting the snapshot's asset srcs.
+5. `PUT /api/documents/:id/snapshot` (DO room seeded; `initializing_at` cleared).
+6. Delete the local IDB entry.
+
+UUID v7 client-allocation means `localId === serverId` — no remap, no active-doc id swap. On failure after step 3 the local copy is preserved so the user can retry; the half-created server row stays hidden behind `initializing_at` and is reaped by the sweep if the user gives up entirely. If the user deletes a doc mid-migration, the migration's `AbortController` cancels and `deleteDocument` runs a one-line `syncedRepository.delete(id)` cleanup (`localId === serverId` makes this trivial).
+
+**Logging out**: clear the session cookie. The `OfflineAwareSyncedContainer` unmounts; synced docs disappear from the sidebar; local docs (if any) remain. No data movement on logout — everything synced lives on the server.
 
 ---
 
 ## API Design
 
+The shipped contract diverges from the original sketch in two load-bearing places: a single PUT-as-upsert replaces the POST + PATCH split, and document operations are workspace-scoped (every list/save names a `workspace_id`).
+
 ```
-# Auth
-POST   /auth/login/:provider     -> Initiate OAuth
-GET    /auth/callback/:provider   -> OAuth callback -> JWT
-POST   /auth/logout
-GET    /auth/me
+# Auth (cookie-session JWT, same-origin, HS256)
+GET    /auth/github                   -> OAuth flow + callback (one route via @hono/oauth-providers)
+GET    /auth/google                   -> OAuth flow
+GET    /auth/google/callback          -> OAuth callback
+POST   /auth/logout                   -> Clear session cookie
+GET    /auth/me                       -> Current user (id, primary provider)
 
-# Document metadata (D1)
-GET    /api/documents             -> List user's documents
-POST   /api/documents             -> Create document (+ provision DO room)
-PATCH  /api/documents/:id         -> Rename, reorder
-DELETE /api/documents/:id         -> Delete document (+ destroy DO state)
+# Workspaces (Phase 1 invariant: 1:1 user ↔ workspace)
+GET    /api/workspaces                -> List workspaces the user owns
 
-# Sync (WebSocket, routed to Durable Object)
-GET    /rooms/:id                 -> WebSocket upgrade -> TLSocketRoom
+# Documents (workspace-scoped; PUT-as-upsert)
+GET    /api/documents?workspace_id=:wsid     -> List active docs in a workspace
+GET    /api/documents/:id                    -> Read one doc's metadata
+PUT    /api/documents/:id                    -> Upsert (insert if new, update if existing)
+DELETE /api/documents/:id                    -> Soft-delete (R2 GC + final row removal happens after grace)
 
-# Assets (R2)
-POST   /api/documents/:id/assets  -> Upload file under the document's R2 prefix
-GET    /api/documents/:id/assets/:assetName -> Serve a document-owned asset
+# Document lifecycle
+POST   /api/documents/:id/finalize           -> Clear initializing_at without seeding the DO room
+PUT    /api/documents/:id/snapshot           -> Push a snapshot into the DO room (used by migration + reconnect-fork)
+GET    /api/documents/:id/snapshot-status    -> Server-side snapshot version (for offline reconcile)
+GET    /api/documents/:id/offline-cache      -> Latest cached snapshot (for offline cold-start)
+
+# Sync (WebSocket → Durable Object)
+GET    /api/connect/:documentId              -> WebSocket upgrade -> DocumentSyncRoom
+
+# Assets (R2 via the worker; document-scoped)
+POST   /api/documents/:id/assets             -> Upload, server allocates UUID v4 asset name
+GET    /api/documents/:id/assets/:assetName  -> Serve the asset
 ```
+
+Notes:
+
+- **PUT-as-upsert** lets the client mint the doc id (UUID v7) up front and use the same call shape on first save and every later save. The server inserts (with `initializing_at` set) on first sight, updates otherwise. Rejects state transitions (cross-workspace move, save-while-deleting, save-while-initializing) as 404 from the client's perspective.
+- **`workspace_id` is always required on list/save** even though Phase 1 has 1:1 user ↔ workspace. The client passes the workspace id resolved from `GET /api/workspaces`. Per-doc routes (`get`, `delete`, snapshot, finalize) don't need it because the doc id implicitly identifies its workspace; the server still verifies ownership.
+- **`/api/connect/:documentId`** runs through the same `requireSession` middleware as the REST routes — only logged-in users can open a sync session.
 
 ---
 
@@ -269,47 +298,97 @@ GET    /api/documents/:id/assets/:assetName -> Serve a document-owned asset
 
 ### D1 (metadata only — snapshots live in Durable Object SQLite)
 
-```sql
-CREATE TABLE users (
-  id            TEXT PRIMARY KEY,   -- UUID
-  email         TEXT UNIQUE,
-  name          TEXT,
-  avatar_url    TEXT,
-  provider      TEXT,               -- 'github' | 'google'
-  provider_id   TEXT,
-  created_at    INTEGER
-);
+The implemented schema is in `packages/worker/migrations/0001_initial_schema.sql` and `0002_create_assets.sql`. The shape:
 
-CREATE TABLE documents (
-  id            TEXT PRIMARY KEY,   -- UUID, also the Durable Object room ID
-  user_id       TEXT REFERENCES users(id),
-  title         TEXT,
-  "order"       REAL,
-  created_at    INTEGER,
-  updated_at    INTEGER
-);
 ```
+users (INTEGER PK)
+  └─ workspaces (INTEGER PK, owner_user_id FK)
+       └─ documents (TEXT UUID v7 PK, workspace_id FK,
+                     slug TEXT UNIQUE, sort_order TEXT,
+                     deleting_at, initializing_at, created_at, updated_at)
+                          └─ assets (document_id FK, asset_name,
+                                     last_seen_at, stale_at)
+
+oauth_identities (composite PK (provider, provider_id), user_id FK)
+```
+
+Decisions worth knowing:
+
+- **INTEGER PKs for users / workspaces** — server-allocated, never user-facing in URLs, smaller indexes, sequential B-tree inserts. Asymmetric with documents.
+- **TEXT UUID v7 PK for documents (client-allocated)** — the local→synced migration is a first-class flow, and the same id flowing unchanged through IDB → POST → asset uploads → snapshot push is the simplification that lets the migration stay one screen of code. v7 over v4 because the 48-bit time prefix keeps B-tree inserts mostly-sequential, recovering most of the locality an INTEGER would have given. The full design discussion (UUID vs INTEGER trade-offs, the `slug` distinction) lives in the doc-comment block at the top of `documents` in the migration file.
+- **Workspaces between users and documents** — pre-positions Extension A (org-owned workspaces, multi-member) without rewriting the document handlers. Phase 1 invariant: every user has exactly one personal workspace, created on first login.
+- **`oauth_identities` separate table** — pre-positions account linking (GitHub + Google on one user) without rewriting the OAuth handlers. Composite PK `(provider, provider_id)` enforces global identity uniqueness and gives the parallel-login race a clean failure mode (loser trips the PK, rolls back its orphan user, re-selects the canonical user_id).
+- **`initializing_at` / `deleting_at`** — explicit lifecycle states for multi-step create and delete flows. See [Document Lifecycle](#document-lifecycle).
+- **`assets` GC table** — per-document asset registry with `last_seen_at` (refreshed on every snapshot push that still references the asset) and `stale_at` (set when the asset drops out of the snapshot). A grace period after `stale_at` lets undo/redo recover the asset; afterward the worker GCs the R2 blob.
+- **`updated_at` triggers** with a `WHEN NEW.updated_at IS OLD.updated_at` guard — auto-stamp callers who forget, honor callers who pass it explicitly (the local→synced migration preserves on-device timestamps).
+- **`updated_at` is dropped from the wire** — the API never accepts `updated_at` on PUT; the trigger handles it. Clients only decide _what_ changed (title, sortOrder); the server (or repo, on the local side) decides _when_.
+
+---
+
+## Document Lifecycle
+
+Document creation and deletion are multi-step flows. The schema makes both states explicit so a half-finished operation can never appear to the client as a real document.
+
+### Creation
+
+```
+PUT  /api/documents/:id            →  row inserted with initializing_at = now()
+   (optional) POST /api/documents/:id/assets...  →  inline data: URLs uploaded to R2
+PUT  /api/documents/:id/snapshot   →  DO room initialized + initializing_at cleared
+   (or, for empty fresh creates)
+POST /api/documents/:id/finalize   →  initializing_at cleared without seeding the DO
+```
+
+Initializing rows are excluded from list/get/update/delete (the partial index `idx_documents_workspace_sort` filters them out and the handlers re-assert the predicate). The client never sees a half-built doc.
+
+If the client gives up between insert and finalize (tab close, crash, network failure, delete-mid-migration), the row lingers as `initializing_at IS NOT NULL`. A scheduled cron (`*/5 * * * *`, see `wrangler.toml`) runs `sweepInitializingDocuments` (`packages/worker/src/cleanup.ts`) which, after a 10-minute grace window, either:
+
+- **Reconciles** — DO has a snapshot (`peekSnapshotVersion > 0`), meaning the snapshot push succeeded but the D1 UPDATE that should have cleared `initializing_at` never landed. Clear the flag.
+- **Deletes** — DO has no snapshot. Genuinely abandoned; hard-delete the row, FK cascade cleans up `assets`.
+
+The fresh-create path uses `/finalize` (no DO touch) instead of pushing an empty snapshot client-side, because synthesizing a valid empty `TLStoreSnapshot` requires reconstructing tldraw's schema descriptor and would pre-seed the DO room — pre-empting `useSync`'s natural "populate on first connect" path.
+
+### Deletion
+
+`DELETE /api/documents/:id` flips `deleting_at = now()` rather than removing the row. The DO claims the document and starts a soft-delete timeline:
+
+1. Stop accepting WebSocket connections (the DO returns an error).
+2. After a short grace, GC the document's R2 assets via the `assets` table.
+3. Hard-delete the D1 row (FK cascade removes the `assets` rows).
+
+This avoids racing R2 cleanup against an in-flight upload from a still-connected client, and handles the case where another client is mid-WebSocket-session against the soon-to-be-deleted doc.
+
+The `deleting_at` and `initializing_at` filters appear in every read path, so the client cannot accidentally see a row in either intermediate state.
+
+### Asset GC
+
+Each `assets` row records `last_seen_at` (refreshed when a snapshot push still references the asset) and `stale_at` (set when the asset drops out of the snapshot). After a grace window past `stale_at`, the GC sweep deletes the R2 blob and removes the row. The grace period exists so undo / redo can still bring a deleted asset back without re-uploading.
 
 ---
 
 ## Worker Structure
 
 ```
-packages/
-  worker/
-    src/
-      index.ts                    # Hono router: auth, REST, WebSocket upgrade
-      durable-objects/
-        TldrawRoom.ts             # DurableObject class wrapping TLSocketRoom + SQLiteSyncStorage
-      routes/
-        auth.ts                   # OAuth flows (GitHub, Google), JWT issuance
-        documents.ts              # CRUD against D1
-        assets.ts                 # R2 upload/download
-      middleware/
-        auth.ts                   # JWT verification
-      schema.ts                   # createTLSchema with anipres custom shapes
-    wrangler.toml                 # D1, R2, DO bindings
+packages/worker/
+  src/
+    worker.ts                # Hono router: workspace + document REST, finalize, snapshot, connect
+    DocumentSyncRoom.ts      # DurableObject wrapping TLSocketRoom + SQLiteSyncStorage; soft-delete timeline
+    assets.ts                # R2 upload/download routes + startDocumentDeletion (asset GC)
+    cleanup.ts               # sweepInitializingDocuments — runs from the scheduled cron
+    schemas.ts               # valibot schemas for params/bodies (id, workspace_id, upsert body, etc.)
+    types.ts                 # AppBindings, AppContext, Env type aliases
+    auth/
+      index.ts               # registerAuthRoutes (delegating), registerApiAuth (JWT middleware)
+      session.ts             # JWT issue + verify, oauth_identities resolve, parallel-login race handling
+      github.ts              # GitHub OAuth (via @hono/oauth-providers/github)
+      google.ts              # Google OAuth (manual: nonce + id_token verify)
+  migrations/
+    0001_initial_schema.sql  # users, oauth_identities, workspaces, documents
+    0002_create_assets.sql   # assets GC table
+  wrangler.toml              # bindings + scheduled trigger + preview env
 ```
+
+The custom-shape schema for `TLSocketRoom`'s record validation lives in `packages/anipres` and is imported by both the app and the worker — see [Custom Shape Schema Sharing](#custom-shape-schema-sharing).
 
 ---
 
@@ -330,54 +409,64 @@ export const anipresSchema = createTLSchema({
 });
 ```
 
-The `packages/anipres` library should export these schema definitions so the worker can import them. This may require a build change to produce a non-React bundle for the worker environment.
+The `packages/anipres` library exports the shape schema descriptors via `anipres/schema` (a non-React entry point). The worker imports `slideShapeProps`, `themeImageShapeProps`, and the corresponding type-name constants from there and reconstructs `createTLSchema` locally — see `packages/worker/src/DocumentSyncRoom.ts`.
 
 ---
 
 ## Implementation Phases
 
-### Phase 1 — Worker skeleton + document sync (no auth)
+### Phase 1 — Worker skeleton + document sync (no auth) ✅
 
-- Create `packages/worker` with Hono + wrangler config
-- Implement `TldrawRoom` Durable Object with `TLSocketRoom` + `SQLiteSyncStorage`
-- Wire up WebSocket upgrade route
-- Client: add `useSync` path in `AnipresContainer`, toggled by a flag
-- Verify real-time sync works between two browser tabs
+- `packages/worker` with Hono + wrangler config
+- `DocumentSyncRoom` Durable Object wrapping `TLSocketRoom` + `SQLiteSyncStorage`
+- WebSocket upgrade route (now at `/api/connect/:documentId`, behind auth)
+- Client: `useSync` path in `OfflineAwareSyncedContainer` and `SyncedAnipresContainer`
+- Real-time sync verified between browser tabs
 
-### Phase 2 — D1 metadata + document management
+### Phase 2 — D1 metadata + document management ✅
 
-- D1 schema + migrations for `documents` table
-- REST routes for document CRUD
-- Connect sidebar's document list to the API instead of IndexedDB
-- Create/delete documents provisions/destroys Durable Object state
+- D1 schema + migrations (`0001_initial_schema.sql`)
+- REST routes for document CRUD as PUT-as-upsert (`worker.ts`)
+- Sidebar's document list reads from `ApiDocumentRepository`
+- Soft-delete + asset GC + sweep replaces the original "delete = destroy DO state" plan; see [Document Lifecycle](#document-lifecycle)
 
-### Phase 3 — Authentication
+### Phase 3 — Authentication ✅
 
-- OAuth flow (GitHub + Google) in the Worker
-- JWT session management
-- `AuthContext` + login UI in the app
-- Protect all API routes + WebSocket connections with auth middleware
+- OAuth flow for GitHub (via `@hono/oauth-providers`) and Google (manual nonce + id_token verify)
+- JWT cookie-session in `auth/session.ts` (HS256, 7-day expiry, HttpOnly + Secure + SameSite=Lax)
+- `AuthContext` + login UI in the app sidebar footer
+- `requireSession` middleware protects every `/api/*` route including the WebSocket upgrade
+- `oauth_identities` separate table — pre-positions account linking (see [TODO.md](./TODO.md))
 
-### Phase 4 — Assets + migration
+### Phase 4 — Assets + migration ✅
 
-- Document-scoped R2 asset upload/download routes
-- `TLAssetStore` implementation pointing to the Worker
-- Local-to-cloud document migration flow on first login
+- Document-scoped R2 asset upload/download routes (`assets.ts`)
+- `TLAssetStore` implementation in the app pointing at the Worker
+- `convertLocalDocToSynced` migration: client-allocated UUID v7 means the local id flows unchanged through every step (POST → asset uploads → snapshot push → IDB delete); see `packages/app/src/documents/migration.ts`
 
-### Phase 5 — Offline support + IDB cache
+### Phase 5 — Offline support + IDB cache ✅
 
-- 500ms debounced IDB cache during synced mode + flush on `visibilitychange`/`pagehide`
-- Offline detection: if `useSync` can't connect, fall back to IDB cache in local mode
-- Reconnection: push-or-fork logic comparing local vs server timestamps
+- 500ms debounced IDB cache during synced mode (`OfflineAwareSyncedContainer` + `idb-sync-cache.ts`); flush on `visibilitychange`/`pagehide`
+- Offline cold-start path: `GET /api/documents/:id/offline-cache` falls back to local IDB cache when the network is unreachable
+- Reconnect (`reconcileOfflineEdits` in `reconnect.ts`): push-or-fork against the server's snapshot version. Fork mints a new UUID v7 client-side and lands past the synced list's tail.
 
-### Phase 6 — Anonymous mode + polish
+### Phase 6 — Anonymous mode + polish (partial) 🟡
 
-- Ensure anonymous mode (current IndexedDB path) stays intact alongside synced mode
-- Online/offline indicator, reconnection UX
-- User profile, account settings
-- Input validation
+Done:
 
-(Rate limiting was originally listed under Phase 6; see [Post-Launch Hardening](#post-launch-hardening) below for why it moved.)
+- Anonymous mode (IDB-only) preserved alongside synced mode; `DocumentManagerProvider` accepts an optional `syncedRepository`
+- Online/offline indicator + reconnect banner (`NetworkStatus`)
+- Convert-to-synced UX with per-doc spinner / error / retry
+- Input validation: valibot schemas at the worker boundary, with worker-side test pipeline
+- Workspace-discovery error UI (visible message instead of blank screen)
+
+Remaining (see [TODO.md](./TODO.md)):
+
+- User profile / settings (today: minimal "logged in as X / logout" in the sidebar footer)
+- Account linking (GitHub + Google on one user, via `oauth_identities`)
+- Convert-to-synced polish (friendly error mapping, `aria-live` announce, asset-upload concurrency cap)
+
+(Rate limiting was originally listed under Phase 6; see [Post-Launch Hardening](./TODO.md#post-launch-hardening) in TODO.md for why it moved.)
 
 ---
 
@@ -416,7 +505,7 @@ Independent of rate limiting and worth doing before any public open:
 - **Version pinning**: Client and server tldraw versions must match exactly. Pin both and deploy together.
 - **Custom shape schema sharing**: `packages/anipres` must export shape props/migrations for the worker. May need a non-React build target.
 - **Durable Object limits**: 128MB memory, 10GB SQLite per DO. More than enough for individual documents.
-- **TODO: document deletion vs active rooms**: Deleting a document that still has an active sync room needs a future design for room invalidation. Assets are now document-scoped in R2, so the old cross-document shared-blob coordination problem is intentionally gone, but an already-open room for a deleted document can still hold stale in-memory state until refresh.
+- **Document deletion vs active rooms** (resolved): `DELETE` flips `deleting_at` rather than removing the row; the DO claims the document, stops accepting connections, and runs the asset-GC + final-row-removal timeline. See [Document Lifecycle](#document-lifecycle).
 - **Offline data loss window**: Edits made in the last 500ms before a browser crash can be lost. Acceptable tradeoff.
 - **Collaboration scope**: tldraw sync gives multi-cursor, real-time co-editing for free once Phase 1 is done.
 - **Cost**: Cloudflare free tier is generous. Paid tier is very affordable at small-to-medium scale.

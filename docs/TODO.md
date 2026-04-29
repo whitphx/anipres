@@ -4,13 +4,30 @@ Tasks deferred during development that should be addressed before production rel
 
 ## Authentication
 
-- **Account linking**: Allow users to connect multiple OAuth providers (GitHub + Google) to a single account. Requires a `user_providers` junction table and an explicit "connect account" flow in settings. See design discussion in the Phase 3 implementation. When implementing this, review the `user:email` scope comment and related design in `packages/worker/src/worker.ts` — email-based linking may make that scope intentionally required rather than a library workaround.
+- **Account linking**: Allow users to connect multiple OAuth providers (GitHub + Google) to a single account. The `oauth_identities` table already supports multiple `(provider, provider_id)` rows per `user_id` — what's missing is an explicit "connect account" flow in settings (re-auth with the second provider while logged in, then INSERT into `oauth_identities` keyed to the existing `user_id`). When implementing this, review the `user:email` scope comment in `packages/worker/src/auth/github.ts` — email-based linking may make that scope intentionally required rather than a library workaround.
 
 - **Google OAuth scope for account linking**: Currently requests `openid` only and identifies users by `sub`. If account linking is implemented via email, the scope will need to be widened to `openid email`.
 
-## Phases Not Yet Implemented
+## Phase 6 (in progress)
 
-- **Phase 6 — Anonymous mode + polish**: User profile/settings (the current minimal "logged in as X / logout" surface in the sidebar footer is sufficient for now). Online/offline indicator, reconnection UX, and input validation are done.
+Phases 1–5 landed. Phase 6 is partially done — see [design-server-sync.md § Phase 6](./design-server-sync.md#phase-6--anonymous-mode--polish-partial-) for the breakdown of what's complete vs. remaining.
+
+Remaining for Phase 6:
+
+- **User profile / settings UI**. Today the sidebar footer shows "logged in as X / logout"; a real settings panel (account linking entry point, sign-out-from-all, future workspace name editing) goes here. Probably a modal opened from the user button.
+- **Convert-to-synced polish** — see the dedicated section below.
+
+## Before first deploy
+
+Operational items the code can't cover. Each of these must be set before `wrangler deploy` (prod) or `wrangler deploy --env preview` (preview) succeeds against real Cloudflare resources.
+
+- **D1 database ids** in `packages/worker/wrangler.toml`. Both envs ship with a placeholder (`database_id = "local"` for prod, `"preview-todo"` for preview) so wrangler fails loudly if they're forgotten. Run `wrangler d1 create anipres-db` (and `… anipres-db-preview`), then paste the returned ids in.
+- **`JWT_SECRET`** secret on both envs (`wrangler secret put JWT_SECRET` and `… --env preview`). Used by `auth/session.ts` to sign / verify the cookie-session token.
+- **OAuth credentials** as secrets on both envs (names match `Env` in `packages/worker/src/types.ts`):
+  - `GITHUB_ID` / `GITHUB_SECRET`
+  - `GOOGLE_ID` / `GOOGLE_SECRET`
+- **OAuth redirect URIs** registered in the GitHub and Google developer consoles for both prod (`https://anipres.app/auth/github`, `https://anipres.app/auth/google/callback`) and preview (`https://anipres-worker-preview.<account>.workers.dev/...`).
+- **Run migrations** against both D1 instances on first deploy (and on every subsequent migration): `wrangler d1 migrations apply anipres-db` (and `… --env preview`).
 
 ## Preview architecture
 
