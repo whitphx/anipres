@@ -7,37 +7,53 @@ const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
+function isLocalhostHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host.startsWith("localhost:") ||
+    host === "127.0.0.1" ||
+    host.startsWith("127.0.0.1:")
+  );
+}
+
 function getGoogleRedirectUri(c: AppContext) {
-  // Build from the configured `PUBLIC_BASE_URL` env var rather than
-  // anything derived from the request. Two reasons:
-  //
-  // 1. `c.req.url` lies in `wrangler dev`: with `[[routes]] pattern
-  //    = "anipres.app"` configured for production, wrangler
-  //    synthesizes the request URL using that pattern's host even
-  //    for local requests through Vite's proxy.
-  // 2. Defense in depth: an explicit per-environment value doesn't
-  //    rely on Cloudflare's Host-routing trust chain or Google's
-  //    redirect_uri whitelist as the only safeguards. A forged Host
-  //    can't influence the URI we emit.
-  //
-  // Per-env values are set via `[vars]` in wrangler.toml (prod /
-  // preview) and `.dev.vars` (local dev).
-  const baseUrl = c.env.PUBLIC_BASE_URL;
-  if (!baseUrl) {
-    // Surface a clear log line so a missing env var is a one-glance
-    // fix instead of a confusing "Access blocked" page from Google.
-    // Without the var, the template literal below would emit
-    // `undefined/auth/google/callback`, which Google rejects at the
-    // authorize step.
-    console.error(
-      "[google-auth] PUBLIC_BASE_URL is not set. " +
-        "For local dev, add `PUBLIC_BASE_URL=http://localhost:5173` " +
-        "to `packages/worker/.dev.vars` and restart `wrangler dev`. " +
-        "For prod/preview, set it in `wrangler.toml`'s `[vars]` " +
-        "(or `[env.preview.vars]`) section.",
-    );
+  // Prefer the configured `PUBLIC_BASE_URL` env var. Set in
+  // `wrangler.toml`'s `[vars]` (prod) and `[env.preview.vars]`
+  // (preview); not derived from request context because
+  // `c.req.url` reports the production route pattern (`anipres.app`)
+  // even under `wrangler dev`, and a request-derived URI would also
+  // depend on Cloudflare's Host-routing trust chain.
+  if (c.env.PUBLIC_BASE_URL) {
+    return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
   }
-  return `${baseUrl}${GOOGLE_CALLBACK_PATH}`;
+
+  // Local-dev fallback: when the env var is unset AND the request's
+  // Host is loopback (`localhost` / `127.0.0.1`), construct from the
+  // Host header so a fresh dev environment doesn't need a
+  // `.dev.vars` edit before Google login works. Vite's proxy
+  // preserves the browser's `Host: localhost:5173` so this builds
+  // exactly the URI the developer would have typed manually.
+  //
+  // Bounded to loopback hosts: in production behind Cloudflare,
+  // a request can only reach this worker if its Host matches a
+  // configured route binding. None of those are loopback, so this
+  // branch is unreachable in prod and the fallback can't influence
+  // a deployed redirect_uri.
+  const host = c.req.header("host");
+  if (host && isLocalhostHost(host)) {
+    return `http://${host}${GOOGLE_CALLBACK_PATH}`;
+  }
+
+  // Production miss — env var unset and Host isn't loopback. Log
+  // and return a clearly-bogus URI that Google will reject in a
+  // recognizable way ("redirect_uri_mismatch") rather than letting
+  // the worker emit `undefined/auth/google/callback` silently.
+  console.error(
+    "[google-auth] PUBLIC_BASE_URL is not set. " +
+      "Set it in `wrangler.toml`'s `[vars]` (prod) or " +
+      "`[env.preview.vars]` (preview).",
+  );
+  return GOOGLE_CALLBACK_PATH;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {

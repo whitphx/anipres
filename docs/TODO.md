@@ -38,9 +38,8 @@ Operational items the code can't cover. Each of these must be set before `wrangl
   GOOGLE_ID=<dev oauth client id>
   GOOGLE_SECRET=<dev oauth client secret>
   JWT_SECRET=<any random string>
-  PUBLIC_BASE_URL=http://localhost:5173
   ```
-  Restart `wrangler dev` after editing.
+  `PUBLIC_BASE_URL` is auto-derived from the request's `Host` header for loopback origins (`localhost` / `127.0.0.1`), so local dev doesn't need it set explicitly. If you run dev under a non-loopback host (LAN IP, ngrok, etc.), set `PUBLIC_BASE_URL=<your origin>` in `.dev.vars`. Restart `wrangler dev` after editing.
 - **Run migrations** against both D1 instances on first deploy (and on every subsequent migration): `wrangler d1 migrations apply anipres-db` (and `… --env preview`).
 
 ## Preview architecture
