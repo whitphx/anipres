@@ -161,6 +161,14 @@ export const assetNameSchema = v.pipe(
   v.regex(ASSET_NAME_PATTERN, "Invalid asset name"),
 );
 
+// Combined param schema for `GET /api/documents/:id/assets/:assetName` —
+// validates both segments at once so the route can use a single
+// `vValidator("param", ...)` instead of two safeParse calls.
+export const documentAssetParamSchema = v.object({
+  id: documentIdSchema,
+  assetName: assetNameSchema,
+});
+
 // URL-param schema for `DELETE /auth/identities/:provider/:provider_id`.
 // `provider` is closed-set — only the providers we register OAuth flows
 // for can land in `oauth_identities`, so the API surface stays

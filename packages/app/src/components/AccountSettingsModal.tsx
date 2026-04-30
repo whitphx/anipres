@@ -139,7 +139,17 @@ export function AccountSettingsModal({
       const res = await apiClient.auth.identities[":provider"][
         ":provider_id"
       ].$delete({
-        param: { provider, provider_id: providerId },
+        // The typed client narrows `provider` to the picklist
+        // ("github" | "google") that the worker's
+        // `oauthIdentityRevokeParamSchema` declares. At runtime the
+        // value comes from `/auth/identities` rows, which only ever
+        // hold providers from the same closed set (the worker
+        // wouldn't have inserted them otherwise), so widening the
+        // string back into the picklist is safe.
+        param: {
+          provider: provider as "github" | "google",
+          provider_id: providerId,
+        },
       });
       if (!res.ok) {
         // The typed client gives us a union over all `c.json(...)`

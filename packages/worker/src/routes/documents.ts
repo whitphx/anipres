@@ -1,6 +1,5 @@
 import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
 import { startDocumentDeletion } from "../tldraw-assets";
 import {
   documentIdParamSchema,
@@ -22,10 +21,13 @@ import type { AppBindings } from "../types";
 //
 // Document ids are client-allocated UUID v7 strings (see the
 // documents.id design note in 0001_initial_schema.sql). Path-param
-// validation is done inline with `v.safeParse(documentIdParamSchema,
-// ...)` rather than via `vValidator("param", ...)` because the typed
-// client already types `:id` as `string`; the inline check is just a
-// runtime UUID-format guard.
+// validation goes through `vValidator("param", documentIdParamSchema,
+// ...)` for consistency with the json/query validators on the same
+// chain. The typed client already exposes `:id` as `string`, so the
+// validator's job is purely a runtime UUID-format guard — but using
+// the same shape across all three target kinds (`param`, `query`,
+// `json`) keeps each handler's "validate inputs, then read" structure
+// uniform.
 //
 // Status literals (the second arg to `c.json(...)`) are critical:
 // the typed client narrows `res.json()` per status, but only when the
@@ -84,38 +86,39 @@ export const documentsRoutes = new Hono<AppBindings>()
   )
   // Get a single document's metadata (snapshot is null; the live
   // state lives in the Durable Object).
-  .get("/api/documents/:id", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
-
-    const { id } = paramsResult.output;
-    // Ownership scoping is expressed by filtering on the doc's
-    // `workspace_id` against the set of workspaces owned by the user.
-    // The IN-subquery form is consistent with the other per-doc
-    // handlers and reads as "this doc, in one of my workspaces."
-    const row = await c.env.DB.prepare(
-      `SELECT id, slug, title, sort_order, created_at, updated_at
-       FROM documents
-       WHERE id = ?
-         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-         AND deleting_at IS NULL
-         AND initializing_at IS NULL`,
-    )
-      .bind(id, userId)
-      .first<DocumentRow>();
-    if (!row) {
-      return c.json({ error: "Not found" }, 404);
-    }
-    return c.json({ meta: row, snapshot: null }, 200);
-  })
+  .get(
+    "/api/documents/:id",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      // Ownership scoping is expressed by filtering on the doc's
+      // `workspace_id` against the set of workspaces owned by the user.
+      // The IN-subquery form is consistent with the other per-doc
+      // handlers and reads as "this doc, in one of my workspaces."
+      const row = await c.env.DB.prepare(
+        `SELECT id, slug, title, sort_order, created_at, updated_at
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+           AND deleting_at IS NULL
+           AND initializing_at IS NULL`,
+      )
+        .bind(id, userId)
+        .first<DocumentRow>();
+      if (!row) {
+        return c.json({ error: "Not found" }, 404);
+      }
+      return c.json({ meta: row, snapshot: null }, 200);
+    },
+  )
   // Upsert a document by id. PUT-as-upsert is the canonical pattern
   // for client-allocated ids: the client supplies the doc id (UUID
   // v7) and the body describes the post-state. The handler branches
@@ -125,6 +128,14 @@ export const documentsRoutes = new Hono<AppBindings>()
   // has to match the existing row (cross-workspace moves return 404).
   .put(
     "/api/documents/:id",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
     vValidator("json", documentUpsertSchema, (result, c) => {
       if (!result.success) {
         return c.json(
@@ -135,17 +146,7 @@ export const documentsRoutes = new Hono<AppBindings>()
     }),
     async (c) => {
       const userId = c.get("userId");
-      const paramsResult = v.safeParse(documentIdParamSchema, {
-        id: c.req.param("id"),
-      });
-      if (!paramsResult.success) {
-        return c.json(
-          { error: "Invalid document id", details: paramsResult.issues },
-          400,
-        );
-      }
-
-      const { id } = paramsResult.output;
+      const { id } = c.req.valid("param");
       const body = c.req.valid("json");
       const workspaceId = body.workspace_id;
 
@@ -298,51 +299,55 @@ export const documentsRoutes = new Hono<AppBindings>()
   // Soft-delete a document. The DO takes over R2 sweep + final row
   // removal after the grace period (see tldraw-assets.ts
   // startDocumentDeletion).
-  .delete("/api/documents/:id", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
+  .delete(
+    "/api/documents/:id",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      const document = await c.env.DB.prepare(
+        `SELECT deleting_at, initializing_at
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
+      )
+        .bind(id, userId)
+        .first<{
+          deleting_at: number | null;
+          initializing_at: number | null;
+        }>();
+      if (!document) {
+        return c.json({ error: "Not found" }, 404);
+      }
 
-    const { id } = paramsResult.output;
-    const document = await c.env.DB.prepare(
-      `SELECT deleting_at, initializing_at
-       FROM documents
-       WHERE id = ?
-         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
-    )
-      .bind(id, userId)
-      .first<{ deleting_at: number | null; initializing_at: number | null }>();
-    if (!document) {
-      return c.json({ error: "Not found" }, 404);
-    }
+      // Initializing rows are invisible to the client and cleaned up
+      // by the scheduled sweep. Treat a delete request against one as
+      // a 404 — the user couldn't have seen it in any list.
+      if (
+        document.initializing_at !== null &&
+        document.initializing_at !== undefined
+      ) {
+        return c.json({ error: "Not found" }, 404);
+      }
 
-    // Initializing rows are invisible to the client and cleaned up by
-    // the scheduled sweep. Treat a delete request against one as a
-    // 404 — the user couldn't have seen it in any list.
-    if (
-      document.initializing_at !== null &&
-      document.initializing_at !== undefined
-    ) {
-      return c.json({ error: "Not found" }, 404);
-    }
+      if (
+        document.deleting_at !== null &&
+        document.deleting_at !== undefined
+      ) {
+        return c.json({ ok: true as const }, 200);
+      }
 
-    if (
-      document.deleting_at !== null &&
-      document.deleting_at !== undefined
-    ) {
+      await startDocumentDeletion(c, userId, id);
       return c.json({ ok: true as const }, 200);
-    }
-
-    await startDocumentDeletion(c, userId, id);
-    return c.json({ ok: true as const }, 200);
-  })
+    },
+  )
   // Finalize a fresh synced document without pushing a snapshot.
   // Fresh creates have no content yet and the DO room can stay
   // un-seeded until the user actually opens the doc — so this just
@@ -351,57 +356,58 @@ export const documentsRoutes = new Hono<AppBindings>()
   // via the snapshot push handler below; this endpoint is for the
   // empty-doc case where a snapshot push would just need to be
   // synthesized.
-  .post("/api/documents/:id/finalize", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
-
-    const { id } = paramsResult.output;
-    // The IS NOT NULL guard makes finalize idempotent — calling it on
+  .post(
+    "/api/documents/:id/finalize",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      // The IS NOT NULL guard makes finalize idempotent — calling it on
     // an already-finalized doc is a no-op rather than an error. The
-    // ownership/deleting filters are the same as the regular update
-    // path: we don't want a finalize call to revive a soft-deleted
-    // doc, and we want a clean 404 for foreign / non-existent ids.
-    const result = await c.env.DB.prepare(
-      `UPDATE documents
-          SET initializing_at = NULL
-        WHERE id = ?
-          AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-          AND deleting_at IS NULL
-          AND initializing_at IS NOT NULL`,
-    )
-      .bind(id, userId)
-      .run();
-
-    if ((result.meta.changes ?? 0) === 0) {
-      // Either the doc doesn't exist for this user, or it's already
-      // finalized. Both cases respond with 200 — the caller's intent
-      // ("make sure this doc is finalized") is satisfied either way.
-      // Distinguish the not-found case so the client can surface a
-      // genuine error if the row really doesn't exist.
-      const exists = await c.env.DB.prepare(
-        `SELECT 1
-         FROM documents
-         WHERE id = ?
-           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-           AND deleting_at IS NULL`,
+      // ownership/deleting filters are the same as the regular update
+      // path: we don't want a finalize call to revive a soft-deleted
+      // doc, and we want a clean 404 for foreign / non-existent ids.
+      const result = await c.env.DB.prepare(
+        `UPDATE documents
+            SET initializing_at = NULL
+          WHERE id = ?
+            AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+            AND deleting_at IS NULL
+            AND initializing_at IS NOT NULL`,
       )
         .bind(id, userId)
-        .first();
-      if (!exists) {
-        return c.json({ error: "Not found" }, 404);
-      }
-    }
+        .run();
 
-    return c.json({ ok: true as const }, 200);
-  })
+      if ((result.meta.changes ?? 0) === 0) {
+        // Either the doc doesn't exist for this user, or it's already
+        // finalized. Both cases respond with 200 — the caller's intent
+        // ("make sure this doc is finalized") is satisfied either way.
+        // Distinguish the not-found case so the client can surface a
+        // genuine error if the row really doesn't exist.
+        const exists = await c.env.DB.prepare(
+          `SELECT 1
+           FROM documents
+           WHERE id = ?
+             AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+             AND deleting_at IS NULL`,
+        )
+          .bind(id, userId)
+          .first();
+        if (!exists) {
+          return c.json({ error: "Not found" }, 404);
+        }
+      }
+
+      return c.json({ ok: true as const }, 200);
+    },
+  )
   // Push a snapshot into the Durable Object room. Used by the
   // local→synced migration to land a converted doc's content, and by
   // the push-or-fork reconnect flow to land a returning client's
@@ -410,6 +416,14 @@ export const documentsRoutes = new Hono<AppBindings>()
   // pushes a real snapshot doesn't need to also call /finalize.
   .put(
     "/api/documents/:id/snapshot",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
     // Body-size cap as a separate middleware before the schema
     // validator. The validator parses the JSON, which means the body
     // is fully buffered before this point — gating on content-length
@@ -437,17 +451,7 @@ export const documentsRoutes = new Hono<AppBindings>()
     }),
     async (c) => {
       const userId = c.get("userId");
-      const paramsResult = v.safeParse(documentIdParamSchema, {
-        id: c.req.param("id"),
-      });
-      if (!paramsResult.success) {
-        return c.json(
-          { error: "Invalid document id", details: paramsResult.issues },
-          400,
-        );
-      }
-
-      const { id } = paramsResult.output;
+      const { id } = c.req.valid("param");
       const { snapshot, expectedSnapshotVersion } = c.req.valid("json");
 
       // Snapshot push reaches both regular and still-initializing
@@ -512,73 +516,75 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json({ ok: true as const }, 200);
     },
   )
-  .get("/api/documents/:id/offline-cache", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
+  .get(
+    "/api/documents/:id/offline-cache",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      // The offline cache only makes sense for fully-finalized docs. An
+      // initializing row has no DO state worth fetching — the cache
+      // fetch is part of the reconnect flow which only runs against
+      // docs the client already saw in a list.
+      const row = await c.env.DB.prepare(
+        `SELECT 1
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+           AND deleting_at IS NULL
+           AND initializing_at IS NULL`,
+      )
+        .bind(id, userId)
+        .first();
+      if (!row) {
+        return c.json({ error: "Not found" }, 404);
+      }
 
-    const { id } = paramsResult.output;
-    // The offline cache only makes sense for fully-finalized docs. An
-    // initializing row has no DO state worth fetching — the cache
-    // fetch is part of the reconnect flow which only runs against
-    // docs the client already saw in a list.
-    const row = await c.env.DB.prepare(
-      `SELECT 1
-       FROM documents
-       WHERE id = ?
-         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-         AND deleting_at IS NULL
-         AND initializing_at IS NULL`,
-    )
-      .bind(id, userId)
-      .first();
-    if (!row) {
-      return c.json({ error: "Not found" }, 404);
-    }
+      const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+      await room.claimDocument(id);
+      const cachedSnapshot = await room.getCachedSnapshot();
+      return c.json(cachedSnapshot, 200);
+    },
+  )
+  .get(
+    "/api/documents/:id/snapshot-status",
+    vValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      const row = await c.env.DB.prepare(
+        `SELECT 1
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+           AND deleting_at IS NULL
+           AND initializing_at IS NULL`,
+      )
+        .bind(id, userId)
+        .first();
+      if (!row) {
+        return c.json({ error: "Not found" }, 404);
+      }
 
-    const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
-    await room.claimDocument(id);
-    const cachedSnapshot = await room.getCachedSnapshot();
-    return c.json(cachedSnapshot, 200);
-  })
-  .get("/api/documents/:id/snapshot-status", async (c) => {
-    const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentIdParamSchema, {
-      id: c.req.param("id"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
-
-    const { id } = paramsResult.output;
-    const row = await c.env.DB.prepare(
-      `SELECT 1
-       FROM documents
-       WHERE id = ?
-         AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-         AND deleting_at IS NULL
-         AND initializing_at IS NULL`,
-    )
-      .bind(id, userId)
-      .first();
-    if (!row) {
-      return c.json({ error: "Not found" }, 404);
-    }
-
-    const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
-    await room.claimDocument(id);
-    const status = await room.getSnapshotStatus();
-    return c.json(status, 200);
-  });
+      const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+      await room.claimDocument(id);
+      const status = await room.getSnapshotStatus();
+      return c.json(status, 200);
+    },
+  );
 
 export type DocumentsRoutes = typeof documentsRoutes;

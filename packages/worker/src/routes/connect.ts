@@ -1,5 +1,5 @@
+import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
 import { documentConnectParamSchema } from "../schemas";
 import type { AppBindings } from "../types";
 
@@ -11,23 +11,21 @@ import type { AppBindings } from "../types";
 // lives under `routes/` so the URL→file rule resolves uniformly.
 export const connectRoutes = new Hono<AppBindings>().get(
   "/api/connect/:documentId",
+  vValidator("param", documentConnectParamSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        { error: "Invalid document id", details: result.issues },
+        400,
+      );
+    }
+  }),
   async (c) => {
     if (c.req.header("Upgrade") !== "websocket") {
       return c.text("Expected WebSocket upgrade", 426);
     }
 
     const userId = c.get("userId");
-    const paramsResult = v.safeParse(documentConnectParamSchema, {
-      documentId: c.req.param("documentId"),
-    });
-    if (!paramsResult.success) {
-      return c.json(
-        { error: "Invalid document id", details: paramsResult.issues },
-        400,
-      );
-    }
-
-    const { documentId } = paramsResult.output;
+    const { documentId } = c.req.valid("param");
 
     // Sync sessions only open against finalized documents. An
     // initializing row's DO room hasn't been seeded with a snapshot
