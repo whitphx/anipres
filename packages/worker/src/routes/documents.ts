@@ -8,12 +8,25 @@ import {
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "../schemas";
-import {
-  generateDocumentSlug,
-  userOwnsWorkspace,
-  type DocumentRow,
-} from "../route-helpers";
+import { generateDocumentSlug, userOwnsWorkspace } from "../route-helpers";
 import type { AppBindings } from "../types";
+
+// Wire shape of a documents-table row as returned by every JSON
+// endpoint in this file. Ids are TEXT (UUID v7 strings,
+// client-allocated) and timestamps are integer ms — no per-field
+// massaging needed at the JSON boundary. Lives next to its consumers
+// rather than in `route-helpers.ts`: the only callers are the
+// handlers below, and naming a query projection only pays off when
+// it's reused (5 sites here). One-off projections elsewhere in the
+// worker stay inline.
+type DocumentRow = {
+  id: string;
+  slug: string;
+  title: string;
+  sort_order: string;
+  created_at: number;
+  updated_at: number;
+};
 
 // All JSON endpoints under `/api/documents/*` (excluding the asset
 // sub-resource, which has its own multipart-aware sub-router in

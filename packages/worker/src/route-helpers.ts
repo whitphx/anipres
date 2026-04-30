@@ -1,18 +1,5 @@
 import type { AppContext } from "./types";
 
-// Wire shape of a documents-table row as returned by every JSON
-// endpoint that surfaces document metadata. Ids are TEXT (UUID v7
-// strings, client-allocated) and timestamps are integer ms — no
-// per-field massaging needed at the JSON boundary.
-export type DocumentRow = {
-  id: string;
-  slug: string;
-  title: string;
-  sort_order: string;
-  created_at: number;
-  updated_at: number;
-};
-
 // Slug generator. Phase 1 doesn't surface slugs in the UI; the column
 // is populated for forward compatibility. crypto.randomUUID() is
 // overkill for collision avoidance but keeps the call site one line
