@@ -6,18 +6,7 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
-    // The worker package's `exports` map points at `.ts` sources, so
-    // `import type { AppType } from "anipres-worker/api-types"` makes
-    // tsc compile transitively-reachable worker files (worker.ts →
-    // types.ts → DocumentSyncRoom.ts → tldraw-assets.ts) under THIS
-    // tsconfig. Those files reference Workers globals (`D1Database`,
-    // `R2Bucket`, `DurableObjectNamespace`, `R2Range`, `WebSocketPair`),
-    // so the app needs them ambient too — even though the app never
-    // uses any of these types directly. Mild pollution: `Response`,
-    // `Request`, `ResponseInit` etc. get merged with worker-flavored
-    // properties. Fix path is to publish compiled `.d.ts` from the
-    // worker; tracked as a follow-up.
-    "types": ["vite-plugin-font/src/font", "@cloudflare/workers-types"],
+    "types": ["vite-plugin-font/src/font"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -34,5 +23,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Project reference to anipres-worker's type-emit config. `tsc -b`
+  // builds it (emits `dist/api-types.d.ts`) before checking the app,
+  // and `import type { AppType } from "anipres-worker/api-types"`
+  // resolves to the compiled `.d.ts` instead of the live worker
+  // source — which is why this package no longer needs
+  // `@cloudflare/workers-types` ambient (the worker globals stay
+  // contained inside the worker package's typecheck).
+  "references": [{ "path": "../worker/tsconfig.build.json" }]
 }

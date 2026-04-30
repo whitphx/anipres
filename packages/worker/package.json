@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts",
-    "./api-types": "./src/api-types.ts"
+    "./api-types": {
+      "types": "./dist/api-types.d.ts",
+      "default": "./src/api-types.ts"
+    }
   },
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
@@ -14,6 +17,7 @@
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
+    "build:types": "tsc -b tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest"
   },

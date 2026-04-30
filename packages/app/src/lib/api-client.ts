@@ -9,12 +9,15 @@ import type { AppType } from "anipres-worker/api-types";
 //
 // `/` base means the client uses relative URLs: in dev Vite proxies
 // `/auth/*` and `/api/*` to wrangler at :8787; in prod the worker
-// serves the bundled SPA from the same origin. Keep a single client
-// instance so SWR cache keys remain stable across renders.
+// serves the bundled SPA from the same origin.
 //
-// The `AppType` import is type-only: the runtime worker code never
-// reaches the browser (the app bundles its own client code). At
-// compile time, TypeScript walks the type, which transitively
-// requires `@cloudflare/workers-types` to be ambient — see the
-// comment in `tsconfig.app.json` for why.
-export const apiClient = hc<AppType>("/");
+// `ApiClient = ReturnType<typeof hc<AppType>>` is the trick called
+// out in the Hono RPC docs: capturing the resolved client type once
+// here means `tsserver` doesn't re-instantiate the (large) `AppType`
+// generic at every call site, which keeps IDE responsiveness fast.
+// `AppType` itself comes from the worker's compiled `.d.ts`
+// (project reference in `tsconfig.app.json`) — the ahead-of-time
+// `tsc -b` does the heavy type-instantiation work once, off the
+// editor's hot path.
+export type ApiClient = ReturnType<typeof hc<AppType>>;
+export const apiClient: ApiClient = hc<AppType>("/");

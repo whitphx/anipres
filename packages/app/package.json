@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier . --write",
@@ -27,7 +27,6 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260426.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

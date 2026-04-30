@@ -3,4 +3,4 @@
 // (DocumentSyncRoom, the default export's `fetch`/`scheduled`) don't
 // have to be re-exported alongside the type — `import type` from
 // here is purely a compile-time relationship.
-export type { AppType } from "./worker.ts";
+export type { AppType } from "./worker";
