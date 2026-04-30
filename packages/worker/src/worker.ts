@@ -13,15 +13,6 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
 
-// hono/csrf validates simple-request POST/PUT/DELETE/PATCH (form-
-// style or bodyless requests that bypass the CORS preflight) against
-// an Origin allowlist. JSON requests get a CORS preflight from the
-// browser and are blocked there because the worker doesn't emit
-// `Access-Control-Allow-Origin`. WebSocket upgrades are GET and
-// skipped here; cross-site WS upgrades initiated by JS are blocked
-// at the cookie layer (SameSite=Lax treats WS as a subresource).
-// Mounted first so unauthorized cross-origin requests are rejected
-// before the auth lookup runs.
 app.use(
   "*",
   csrf({ origin: (origin, c) => origin === c.env.PUBLIC_BASE_URL }),
