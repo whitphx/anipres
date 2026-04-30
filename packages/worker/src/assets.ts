@@ -3,7 +3,7 @@ import * as v from "valibot";
 // Single source of truth for the per-asset size cap, shared with the
 // client (passed into tldraw's `maxAssetSize` prop via the Anipres
 // component) so the two sides cannot drift.
-import { MAX_ASSET_SIZE } from "anipres/schema";
+import { MAX_ASSET_SIZE } from "./asset-policy.ts";
 import {
   ASSET_NAME_PATTERN,
   SUPPORTED_ASSET_CONTENT_TYPES,

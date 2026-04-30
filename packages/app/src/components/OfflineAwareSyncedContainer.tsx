@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { Anipres } from "anipres";
+import { MAX_ASSET_SIZE } from "anipres-worker/asset-policy";
 import { SyncedAnipresContainer } from "./SyncedAnipresContainer";
 import {
   createRecoveryState,
@@ -490,6 +491,7 @@ export function OfflineAwareSyncedContainer({
           snapshot={mode.snapshot}
           onMount={handleOfflineMount}
           colorScheme={colorScheme}
+          maxAssetSize={MAX_ASSET_SIZE}
         />
       </>
     );
