@@ -5,7 +5,6 @@ import * as v from "valibot";
 // component) so the two sides cannot drift.
 import { MAX_ASSET_SIZE } from "./tldraw-asset-policy.ts";
 import {
-  ASSET_NAME_PATTERN,
   SUPPORTED_ASSET_CONTENT_TYPES,
   assetNameSchema,
   documentAssetUploadFieldsSchema,

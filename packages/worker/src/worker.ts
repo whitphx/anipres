@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import * as v from "valibot";
 import { registerAssetRoutes, startDocumentDeletion } from "./tldraw-assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
+import { identitiesRoutes } from "./auth/identities";
 import { sweepInitializingDocuments } from "./cleanup";
 import {
   documentConnectParamSchema,
@@ -18,6 +19,11 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 const app = new Hono<AppBindings>();
 
 registerAuthRoutes(app);
+// Mount the typed identities sub-router. `app.route("/", ...)` keeps
+// the existing `/auth/identities[...]` URLs unchanged; the typed
+// `hc<typeof identitiesRoutes>()` client on the app side derives its
+// signature from this same `identitiesRoutes` value.
+app.route("/", identitiesRoutes);
 registerApiAuth(app);
 registerAssetRoutes(app);
 

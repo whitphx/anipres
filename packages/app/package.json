@@ -17,6 +17,7 @@
     "anipres": "workspace:*",
     "anipres-worker": "workspace:*",
     "fractional-indexing": "^3.2.0",
+    "hono": "^4.12.15",
     "idb-keyval": "^6.2.1",
     "lucide-react": "^0.577.0",
     "react": "^18.3.1",
@@ -26,6 +27,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260426.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

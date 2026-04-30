@@ -4,7 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
-    "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts"
+    "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts",
+    "./auth/identities": "./src/auth/identities.ts"
   },
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
