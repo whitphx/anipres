@@ -253,17 +253,26 @@ app.put("/api/documents/:id", async (c) => {
 
   if (existing) {
     // Update path. Reject any state that means "this row isn't a
-    // user-visible doc right now":
-    //   - soft-deleting: row is on its way out
-    //   - initializing:  row is mid-create, finalizing snapshot push
-    //                    pending. Updating metadata would race with
-    //                    the multi-step finalization.
-    //   - workspace_id mismatch: doc lives in another workspace
-    //                            (we don't allow cross-workspace moves).
-    // All three collapse to 404 from the client's perspective.
+    // user-visible doc the caller can address right now":
+    //   - soft-deleting: row is on its way out.
+    //   - workspace_id mismatch: doc lives in another workspace (we
+    //     don't allow cross-workspace moves).
+    // Both collapse to 404 from the client's perspective.
+    //
+    // `initializing_at` is deliberately *not* a rejection condition.
+    // PUT-as-upsert needs to be replayable: the convert-to-synced
+    // flow does PUT → upload assets → push snapshot, and any failure
+    // between PUT and snapshot push leaves a row stuck initializing.
+    // The retry replays the same PUT with the same body; if we
+    // rejected initializing rows, the retry would 404 forever (the
+    // sweep eventually cleans up after a 10-minute grace window, but
+    // interactive retry is a minute-zero need). Letting the metadata
+    // UPDATE through is harmless — the row stays initializing, the
+    // snapshot push remains the sole finalizer (worker.ts ~554), and
+    // any orphan tldraw_assets rows from the prior attempt get GC'd
+    // by the asset sweep at the next push.
     if (
       existing.deleting_at !== null ||
-      existing.initializing_at !== null ||
       existing.workspace_id !== workspaceId
     ) {
       return c.json({ error: "Not found" }, 404);
@@ -273,32 +282,31 @@ app.put("/api/documents/:id", async (c) => {
     // updated_at trigger in 0001_initial_schema.sql. created_at on
     // the body is ignored: backdating is only meaningful at insert.
     //
-    // The WHERE clause re-asserts every condition the pre-SELECT
-    // checked (workspace match, not deleting, not initializing). The
-    // SELECT alone isn't enough — between it and this UPDATE another
-    // request could soft-delete the row, finalize-then-delete it, or
-    // (in some future Extension B world) move it across workspaces.
-    // With these guards on the UPDATE itself, a state transition in
-    // that window safely flips the result to 0 changes → 404 instead
-    // of writing title/sort_order onto a row in a state we just
-    // rejected. The pre-SELECT still drives the insert-vs-update
-    // branch decision; it just no longer carries the safety contract.
+    // The WHERE clause re-asserts the rejection conditions the
+    // pre-SELECT checked (workspace match, not deleting). The SELECT
+    // alone isn't enough — between it and this UPDATE another request
+    // could soft-delete the row or (in some future Extension B
+    // world) move it across workspaces. With these guards on the
+    // UPDATE itself, a state transition in that window safely flips
+    // the result to 0 changes → 404 instead of writing title/sort_order
+    // onto a row in a state we just rejected. The pre-SELECT still
+    // drives the insert-vs-update branch decision; it just no longer
+    // carries the safety contract.
     const row = await c.env.DB.prepare(
       `UPDATE documents
        SET title = ?, sort_order = ?
        WHERE id = ?
          AND workspace_id = ?
          AND deleting_at IS NULL
-         AND initializing_at IS NULL
        RETURNING id, slug, title, sort_order, created_at, updated_at`,
     )
       .bind(body.title, body.sort_order, id, workspaceId)
       .first<DocumentRow>();
     if (!row) {
       // The row's state changed between the SELECT and the UPDATE
-      // (delete, finalize-then-delete, etc.). 404 is the right code
-      // — from the client's point of view the doc is no longer
-      // updatable in the workspace it asked for.
+      // (delete, etc.). 404 is the right code — from the client's
+      // point of view the doc is no longer updatable in the workspace
+      // it asked for.
       return c.json({ error: "Not found" }, 404);
     }
     return c.json(row);
