@@ -1,5 +1,6 @@
 import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
+import { nanoid } from "nanoid";
 import * as v from "valibot";
 import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
@@ -83,10 +84,8 @@ type DocumentRow = {
   updated_at: number;
 };
 
-// Slugs aren't user-visible yet, so URL brevity isn't a concern;
-// crypto.randomUUID() avoids pulling in a separate id-gen dep.
 function generateDocumentSlug() {
-  return crypto.randomUUID();
+  return nanoid();
 }
 
 async function userOwnsWorkspace(

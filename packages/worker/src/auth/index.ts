@@ -4,8 +4,6 @@ import { registerGitHubAuth } from "./github";
 import { registerGoogleAuth } from "./google";
 import { requireSession } from "./session";
 
-export { registerCsrfGuard } from "./csrf";
-
 export function registerOAuthProviderRoutes(app: Hono<AppBindings>) {
   registerGitHubAuth(app);
   registerGoogleAuth(app);

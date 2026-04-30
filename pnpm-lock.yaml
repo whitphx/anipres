@@ -233,6 +233,9 @@ importers:
       hono:
         specifier: ^4.12.15
         version: 4.12.15
+      nanoid:
+        specifier: ^5.1.9
+        version: 5.1.9
       tldraw:
         specifier: 3.15.5
         version: 3.15.5(@types/react-dom@18.3.5(@types/react@18.3.18))(@types/react@18.3.18)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5571,6 +5574,11 @@ packages:
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==, tarball: https://registry.npmjs.org/nanoid/-/nanoid-3.3.11.tgz}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  nanoid@5.1.9:
+    resolution: {integrity: sha512-ZUvP7KeBLe3OZ1ypw6dI/TzYJuvHP77IM4Ry73waSQTLn8/g8rpdjfyVAh7t1/+FjBtG4lCP42MEbDxOsRpBMw==, tarball: https://registry.npmjs.org/nanoid/-/nanoid-5.1.9.tgz}
+    engines: {node: ^18 || >=20}
     hasBin: true
 
   nanotar@0.2.0:
@@ -11055,6 +11063,14 @@ snapshots:
     optionalDependencies:
       vite: 7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
 
+  '@vitest/mocker@4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))':
+    dependencies:
+      '@vitest/spy': 4.0.6
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
+
   '@vitest/pretty-format@4.0.6':
     dependencies:
       tinyrainbow: 3.0.3
@@ -13991,6 +14007,8 @@ snapshots:
 
   nanoid@3.3.11: {}
 
+  nanoid@5.1.9: {}
+
   nanotar@0.2.0: {}
 
   natural-compare@1.4.0: {}
@@ -15881,7 +15899,7 @@ snapshots:
   vitest@4.0.6(@types/debug@4.1.12)(@types/node@24.10.0)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@25.0.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.6
-      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.6
       '@vitest/runner': 4.0.6
       '@vitest/snapshot': 4.0.6

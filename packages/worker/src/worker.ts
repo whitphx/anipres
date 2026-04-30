@@ -1,9 +1,6 @@
 import { Hono } from "hono";
-import {
-  registerApiAuth,
-  registerCsrfGuard,
-  registerOAuthProviderRoutes,
-} from "./auth";
+import { csrf } from "hono/csrf";
+import { registerApiAuth, registerOAuthProviderRoutes } from "./auth";
 import { sweepInitializingDocuments } from "./cleanup";
 import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
@@ -16,9 +13,18 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
 
-// CSRF guard is mounted first so unauthorized cross-origin
-// state-changing requests are rejected before the auth lookup runs.
-registerCsrfGuard(app);
+// hono/csrf validates simple-request POST/PUT/DELETE/PATCH (form-
+// style or bodyless requests that bypass the CORS preflight) against
+// an Origin allowlist. JSON requests get a CORS preflight from the
+// browser and are blocked there because the worker doesn't emit
+// `Access-Control-Allow-Origin`. WebSocket upgrades are GET and not
+// covered here — see `routes/connect.ts` for the upgrade-side check.
+// Mounted first so unauthorized cross-origin requests are rejected
+// before the auth lookup runs.
+app.use(
+  "*",
+  csrf({ origin: (origin, c) => origin === c.env.PUBLIC_BASE_URL }),
+);
 registerOAuthProviderRoutes(app);
 // Must mount before the /api/* sub-routers below — Hono runs
 // middleware that matches a request's path in registration order.
