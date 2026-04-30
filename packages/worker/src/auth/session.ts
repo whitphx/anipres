@@ -44,20 +44,29 @@ export function clearSession(c: AppContext) {
  * Resolve the post-OAuth-callback action.
  *
  * Two modes, distinguished only by whether the caller already has a
- * valid session cookie:
+ * valid session cookie pointing at an existing user:
  *
- * - **Login** (no session): existing flow — find or create the user
- *   keyed by `(provider, provider_id)`, issue a fresh session cookie,
- *   redirect to `/`.
- * - **Link** (session present): attach this `(provider, provider_id)`
- *   to the existing user. The session cookie stays as-is. Redirect
- *   carries a query param so the client can surface the result.
+ * - **Login** (no session, or session points at a user that no longer
+ *   exists): existing flow — find or create the user keyed by
+ *   `(provider, provider_id)`, issue a fresh session cookie, redirect
+ *   to `/`.
+ * - **Link** (session present, user still exists): attach this
+ *   `(provider, provider_id)` to the existing user. The session
+ *   cookie stays as-is. Redirect carries a query param so the client
+ *   can surface the result.
  *
  * The session cookie *is* the intent — the production UI never sends
  * a logged-in user through OAuth except via the settings "Connect"
  * button, so "logged-in user completes the OAuth dance" is
  * unambiguously a link operation. A separate intent cookie was
  * considered but adds plumbing without buying anything.
+ *
+ * The "session points at a user that no longer exists" path covers
+ * orphan-session recovery: a JWT remains valid until expiry, but if
+ * the underlying user row is gone (DB reset in dev, or — once
+ * account deletion ships — a deleted account), the link path would
+ * trip the `oauth_identities.user_id` FK. Detect by SELECT, clear
+ * the stale cookie, and proceed as a fresh login.
  */
 export async function upsertUserAndIssueSession(
   c: AppContext,
@@ -66,7 +75,18 @@ export async function upsertUserAndIssueSession(
 ): Promise<Response> {
   const currentUserId = await requireSession(c);
   if (currentUserId !== null) {
-    return attachIdentityToCurrentUser(c, currentUserId, provider, providerId);
+    if (await userExists(c, currentUserId)) {
+      return attachIdentityToCurrentUser(
+        c,
+        currentUserId,
+        provider,
+        providerId,
+      );
+    }
+    // Orphan session — JWT is valid but the user is gone. Clear the
+    // cookie before falling through so the new session cookie issued
+    // below replaces it cleanly.
+    clearSession(c);
   }
 
   const userId = await resolveUserIdForOAuthIdentity(c, provider, providerId);
@@ -77,6 +97,13 @@ export async function upsertUserAndIssueSession(
   const jwt = await issueSessionJwt(c, userId);
   setSessionCookie(c, jwt);
   return c.redirect("/");
+}
+
+async function userExists(c: AppContext, userId: number): Promise<boolean> {
+  const row = await c.env.DB.prepare("SELECT 1 FROM users WHERE id = ?")
+    .bind(userId)
+    .first();
+  return row !== null;
 }
 
 async function issueSessionJwt(
