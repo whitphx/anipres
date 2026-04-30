@@ -10,9 +10,6 @@ import type { AppBindings, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
-// Route handlers are imported from elsewhere; by convention they
-// live under `./routes/`.
-
 const app = new Hono<AppBindings>();
 
 registerOAuthProviderRoutes(app);
@@ -20,8 +17,8 @@ registerOAuthProviderRoutes(app);
 // middleware that matches a request's path in registration order.
 registerApiAuth(app);
 
-// `typeof routes` is the type the app's `hc<>` client consumes;
-// each `.route()` extends that type with its sub-router's schema.
+// Capture the chained type so `AppType` reflects every sub-router's
+// schema for the typed RPC client.
 const routes = app
   .route("/", authRoutes)
   .route("/", workspacesRoutes)

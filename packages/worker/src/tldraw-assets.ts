@@ -2,10 +2,6 @@ import * as v from "valibot";
 import { assetNameSchema } from "./schemas";
 import type { AppContext } from "./types";
 
-// Asset-storage / GC / lifecycle module — scheduled GC passes,
-// soft-delete sweeps, room→DB asset reconciliation. The asset route
-// handlers live in `./routes/document-assets.ts`.
-
 const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOCUMENT_DELETE_BATCH_SIZE = 128;
 

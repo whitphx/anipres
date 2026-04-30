@@ -8,18 +8,13 @@ const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
 function getGoogleRedirectUri(c: AppContext) {
-  // Use the explicit `PUBLIC_BASE_URL` env var. Set in
-  // `wrangler.toml`'s `[vars]` for prod (`https://anipres.app`),
-  // `[env.preview.vars]` for preview, and `.dev.vars` for local
-  // dev (`http://localhost:5173`). See `.dev.vars.example`.
-  //
   // Auto-detecting from request context (Host header / `c.req.url`)
-  // was attempted but isn't viable: `wrangler dev` synthesizes both
-  // values from the production `[[routes]] pattern`, so locally the
-  // worker sees `Host: anipres.app` regardless of how the developer
-  // accesses it. An explicit per-environment value is the only
-  // reliable way to construct a redirect_uri that matches what
-  // Google has registered for this environment.
+  // isn't viable: `wrangler dev` synthesizes both values from the
+  // production `[[routes]] pattern`, so locally the worker sees the
+  // production Host regardless of how the developer accesses it. An
+  // explicit per-environment `PUBLIC_BASE_URL` is the only reliable
+  // way to construct a redirect_uri that matches what Google has
+  // registered for this environment.
   if (!c.env.PUBLIC_BASE_URL) {
     // Throw rather than silently emit a bogus URI. A path-only or
     // placeholder string would produce a confusing Google error
@@ -106,9 +101,10 @@ function clearGoogleStateCookie(c: AppContext) {
 }
 
 export function registerGoogleAuth(app: Hono<AppBindings>) {
-  // Google is handled manually because @hono/oauth-providers@0.8.5 posts an
-  // incompatible token payload, and a provider-specific state cookie avoids
-  // cross-provider collisions when multiple OAuth flows run concurrently.
+  // Hand-rolled rather than going through @hono/oauth-providers: the
+  // package's Google flow posts a token payload Google rejects, and
+  // a provider-specific state cookie avoids cross-provider
+  // collisions when multiple OAuth flows run concurrently.
   app.get("/auth/google", async (c) => {
     const state = crypto.randomUUID();
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");

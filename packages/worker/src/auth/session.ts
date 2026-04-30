@@ -6,16 +6,10 @@ const SESSION_COOKIE_NAME = "anipres_session";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 /**
- * Whether the current request is HTTPS. Used to gate the `secure`
- * cookie attribute: production runs through Cloudflare on HTTPS, so
- * it returns `true` and cookies are secure-only as expected. Local
- * `wrangler dev` (and `vite dev` proxying to it) runs over HTTP, so
- * it returns `false` and the cookies are accepted on `localhost`.
- *
- * Without this, the `secure: true` attribute would cause the browser
- * to drop the cookie on HTTP origins (Chrome's "localhost is a
- * secure context" rule isn't honored uniformly across browsers /
- * versions for cookie storage, so relying on it is fragile).
+ * Gates the `secure` cookie attribute against the current request's
+ * scheme. Production runs over HTTPS; `wrangler dev` and the Vite
+ * dev origin proxying to it run over HTTP, where a hard-coded
+ * `secure: true` would cause the browser to drop the cookie.
  */
 export function isSecureRequest(c: AppContext): boolean {
   return new URL(c.req.url).protocol === "https:";
@@ -63,10 +57,9 @@ export function clearSession(c: AppContext) {
  *
  * The "session points at a user that no longer exists" path covers
  * orphan-session recovery: a JWT remains valid until expiry, but if
- * the underlying user row is gone (DB reset in dev, or — once
- * account deletion ships — a deleted account), the link path would
- * trip the `oauth_identities.user_id` FK. Detect by SELECT, clear
- * the stale cookie, and proceed as a fresh login.
+ * the underlying user row is gone (e.g. DB reset in dev) the link
+ * path would trip the `oauth_identities.user_id` FK. We fall back
+ * to a fresh login.
  */
 export async function upsertUserAndIssueSession(
   c: AppContext,
@@ -173,14 +166,10 @@ async function attachIdentityToCurrentUser(
   }
 }
 
-// Look up the user_id for a given (provider, provider_id), creating
-// the user record (and their personal workspace, per the Phase 1
-// 1:1 invariant) on first sight. On a parallel-login race two workers
-// can both observe "no identity yet" and both attempt to insert; the
-// loser's INSERT into oauth_identities trips the (provider,
-// provider_id) PK. The catch path deletes the orphan user — the
-// workspace cascades away via `workspaces.owner_user_id ON DELETE
-// CASCADE` — and re-selects to get the canonical user_id.
+// Two workers can both observe "no identity yet" on a parallel-login
+// race and both attempt to insert; the loser's INSERT trips the
+// identity PK. The catch path deletes our orphan user (the workspace
+// cascades away via the FK) and re-selects to find the winner.
 async function resolveUserIdForOAuthIdentity(
   c: AppContext,
   provider: string,
@@ -203,11 +192,10 @@ async function resolveUserIdForOAuthIdentity(
   }
 
   try {
-    // Phase 1 invariant: every user has a 1:1 personal workspace.
-    // Created eagerly here so the document handlers can rely on its
-    // existence rather than checking on every request. The workspace
-    // concept isn't user-visible yet — `'Personal'` is just an
-    // internal placeholder; Extension A will let users see/rename it.
+    // Every user has a personal workspace. Created eagerly here so
+    // the document handlers can rely on its existence rather than
+    // checking on every request. The workspace concept isn't
+    // user-visible yet, so the name is just an internal placeholder.
     await c.env.DB.prepare(
       "INSERT INTO workspaces (name, owner_user_id) VALUES (?, ?)",
     )
@@ -221,12 +209,10 @@ async function resolveUserIdForOAuthIdentity(
       .run();
     return newUser.id;
   } catch {
-    // Either the parallel-login race tripped the identity PK, or some
-    // other partial-failure mid-sequence. Roll back our just-created
-    // user; the workspace (which has no documents yet, so the
-    // documents.workspace_id RESTRICT is a no-op) cascades away.
-    // Re-select to find the canonical user_id, or null if no winner
-    // landed an identity either.
+    // Either the parallel-login race tripped the identity PK, or
+    // some other partial-failure mid-sequence. Roll back our
+    // just-created user — the workspace cascades away (no documents
+    // yet, so nothing else blocks).
     await c.env.DB.prepare("DELETE FROM users WHERE id = ?")
       .bind(newUser.id)
       .run();
@@ -259,11 +245,6 @@ export async function getCurrentUser(c: AppContext) {
     return null;
   }
 
-  // `/auth/me` returns just the `id` — enough for the client to know
-  // "I am logged in" and to bind workspace-scoped queries. The full
-  // multi-identity state (which providers are linked) lives at
-  // `GET /auth/identities` and is fetched only when the
-  // account-settings UI needs it.
   const user = await c.env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
     .bind(userId)
     .first<{ id: number }>();
@@ -281,11 +262,6 @@ export interface OAuthIdentitySummary {
   created_at: number;
 }
 
-/**
- * List the linked OAuth identities for `userId`, oldest-attached
- * first. Used by `GET /auth/identities` to power the account-settings
- * UI.
- */
 export async function listOAuthIdentities(
   c: AppContext,
   userId: number,
