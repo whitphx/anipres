@@ -2,9 +2,10 @@ import { apiClient } from "../lib/api-client";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
-// Wire shape comes from the worker route's `c.json(row, ...)`. We
-// only need a structural alias here; the `DocumentMeta` shape we
-// project to is the app's domain type.
+// Document ids are client-allocated UUID v7 strings (see
+// `packages/worker/migrations/0001_initial_schema.sql` design note).
+// The wire shape mirrors the D1 row directly — no per-field coercion
+// needed.
 interface DocumentRow {
   id: string;
   slug: string;
@@ -45,9 +46,7 @@ export class ApiDocumentRepository implements DocumentRepository {
     const res = await apiClient.api.documents.$get({
       query: { workspace_id: this.workspaceId },
     });
-    if (res.status !== 200) {
-      throw new Error(`Failed to list documents: ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Failed to list documents: ${res.status}`);
     const rows = await res.json();
     return rows.map(rowToMeta);
   }
@@ -55,9 +54,7 @@ export class ApiDocumentRepository implements DocumentRepository {
   async get(id: string): Promise<DocumentData | undefined> {
     const res = await apiClient.api.documents[":id"].$get({ param: { id } });
     if (res.status === 404) return undefined;
-    if (res.status !== 200) {
-      throw new Error(`Failed to get document: ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Failed to get document: ${res.status}`);
     const body = await res.json();
     return {
       meta: rowToMeta(body.meta),
@@ -93,8 +90,7 @@ export class ApiDocumentRepository implements DocumentRepository {
       param: { id: input.meta.id },
       json: body,
     });
-    // Server returns 200 (update) or 201 (insert); both are success.
-    if (res.status !== 200 && res.status !== 201) {
+    if (!res.ok) {
       throw new Error(`Failed to save document: ${res.status}`);
     }
     const row = await res.json();
@@ -110,8 +106,6 @@ export class ApiDocumentRepository implements DocumentRepository {
     const res = await apiClient.api.documents[":id"].$delete({
       param: { id },
     });
-    if (!res.ok) {
-      throw new Error(`Failed to delete document: ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Failed to delete document: ${res.status}`);
   }
 }

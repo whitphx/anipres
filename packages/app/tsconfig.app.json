@@ -7,9 +7,9 @@
     "module": "ESNext",
     "skipLibCheck": true,
     // The worker package's `exports` map points at `.ts` sources, so
-    // `import type { IdentitiesRoutes } from "anipres-worker/auth/identities"`
-    // makes tsc compile transitively-reachable worker files (session.ts
-    // → types.ts → DocumentSyncRoom.ts → tldraw-assets.ts) under THIS
+    // `import type { AppType } from "anipres-worker/api-types"` makes
+    // tsc compile transitively-reachable worker files (worker.ts →
+    // types.ts → DocumentSyncRoom.ts → tldraw-assets.ts) under THIS
     // tsconfig. Those files reference Workers globals (`D1Database`,
     // `R2Bucket`, `DurableObjectNamespace`, `R2Range`, `WebSocketPair`),
     // so the app needs them ambient too — even though the app never
