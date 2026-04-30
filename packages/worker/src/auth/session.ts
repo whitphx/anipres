@@ -5,6 +5,10 @@ import type { AppContext } from "../types";
 const SESSION_COOKIE_NAME = "anipres_session";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+type UserRow = {
+  id: number;
+};
+
 /**
  * Gates the `secure` cookie attribute against the current request's
  * scheme. Production runs over HTTPS; `wrangler dev` and the Vite
@@ -186,7 +190,7 @@ async function resolveUserIdForOAuthIdentity(
 
   const newUser = await c.env.DB.prepare(
     "INSERT INTO users DEFAULT VALUES RETURNING id",
-  ).first<{ id: number }>();
+  ).first<UserRow>();
   if (!newUser) {
     return null;
   }
@@ -239,7 +243,9 @@ export async function requireSession(c: AppContext): Promise<number | null> {
   }
 }
 
-export async function getCurrentUser(c: AppContext) {
+export async function getCurrentUser(
+  c: AppContext,
+): Promise<UserRow | null> {
   const userId = await requireSession(c);
   if (userId === null) {
     return null;
@@ -247,7 +253,7 @@ export async function getCurrentUser(c: AppContext) {
 
   const user = await c.env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
     .bind(userId)
-    .first<{ id: number }>();
+    .first<UserRow>();
 
   if (!user) {
     return null;
