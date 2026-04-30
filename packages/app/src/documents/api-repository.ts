@@ -5,14 +5,14 @@ import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 // Wire shape comes from the worker route's `c.json(row, ...)`. We
 // only need a structural alias here; the `DocumentMeta` shape we
 // project to is the app's domain type.
-type DocumentRow = {
+interface DocumentRow {
   id: string;
   slug: string;
   title: string;
   sort_order: string;
   created_at: number;
   updated_at: number;
-};
+}
 
 function rowToMeta(row: DocumentRow): DocumentMeta {
   return {
