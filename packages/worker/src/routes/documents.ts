@@ -25,9 +25,9 @@ const documentTitleSchema = v.pipe(
   v.regex(/^[^\u0000]*$/u, "Title contains a null byte"),
 );
 
-// Sort-order is a fractional-indexing key. The package emits
-// printable-ASCII strings (typically <20 chars); the bound is a
-// sanity cap to reject pathological inputs.
+// Sort-order is a fractional-indexing key (printable-ASCII string;
+// see https://www.npmjs.com/package/fractional-indexing). The bound
+// is a sanity cap to reject pathological inputs.
 const SORT_ORDER_MAX_LENGTH = 256;
 const sortOrderSchema = v.pipe(
   v.string(),
