@@ -18,7 +18,7 @@
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
     "build:types": "tsc -b tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc",
     "test": "vitest"
   },
   "dependencies": {

@@ -25,11 +25,15 @@
   },
   "include": ["src"],
   // Project reference to anipres-worker's type-emit config. `tsc -b`
-  // builds it (emits `dist/api-types.d.ts`) before checking the app,
-  // and `import type { AppType } from "anipres-worker/api-types"`
-  // resolves to the compiled `.d.ts` instead of the live worker
-  // source — which is why this package no longer needs
-  // `@cloudflare/workers-types` ambient (the worker globals stay
-  // contained inside the worker package's typecheck).
+  // builds it (emits `dist/api-types.d.ts`) before checking this
+  // package, and `import type { AppType } from
+  // "anipres-worker/api-types"` resolves to the compiled `.d.ts`
+  // instead of the live worker source. This is why
+  // `@cloudflare/workers-types` is NOT in `types` above even though
+  // the worker code references `D1Database`, `R2Bucket`,
+  // `DurableObjectNamespace` etc. — those references stay contained
+  // inside the worker's own typecheck (against the worker's own
+  // tsconfig, which DOES pull workers-types in via its `types`),
+  // and never reach this package's compilation context.
   "references": [{ "path": "../worker/tsconfig.build.json" }]
 }
