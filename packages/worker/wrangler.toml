@@ -32,6 +32,19 @@ directory = "../app/dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/auth/*"]
 
+[vars]
+# Public-facing origin for outbound URL construction (currently the
+# Google OAuth redirect_uri). See `Env.PUBLIC_BASE_URL` in
+# packages/worker/src/types.ts. Don't include a trailing slash.
+#
+# `[vars]` applies to both `wrangler deploy` (prod) AND `wrangler
+# dev` (local), so this prod URL is also what the local worker
+# inherits unless overridden via `.dev.vars`. Local dev MUST
+# override with `PUBLIC_BASE_URL=http://localhost:5173` to match
+# the URL registered in Google Cloud Console — the .dev.vars.example
+# template includes this entry.
+PUBLIC_BASE_URL = "https://anipres.app"
+
 [durable_objects]
 bindings = [
   { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
@@ -68,6 +81,13 @@ preview_bucket_name = "anipres-assets-preview"
 [env.preview]
 name = "anipres-worker-preview"
 workers_dev = true
+
+[env.preview.vars]
+# TODO: replace with the real preview-worker URL after the first
+# `wrangler deploy --env preview` (the workers.dev subdomain is
+# account-scoped, so it's not knowable until then). The placeholder
+# value will fail Google's redirect_uri check in a clear way.
+PUBLIC_BASE_URL = "https://anipres-worker-preview.preview-todo.workers.dev"
 
 # Same sweep cadence as prod — preview should exercise the cleanup
 # path so any regression surfaces before deploy.

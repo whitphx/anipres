@@ -1,17 +1,46 @@
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Hono } from "hono";
 import type { AppBindings, AppContext } from "../types";
-import { upsertUserAndIssueSession } from "./session";
+import { isSecureRequest, upsertUserAndIssueSession } from "./session";
 
 const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
 function getGoogleRedirectUri(c: AppContext) {
-  return new URL(GOOGLE_CALLBACK_PATH, c.req.url).toString();
+  // Use the explicit `PUBLIC_BASE_URL` env var. Set in
+  // `wrangler.toml`'s `[vars]` for prod (`https://anipres.app`),
+  // `[env.preview.vars]` for preview, and `.dev.vars` for local
+  // dev (`http://localhost:5173`). See `.dev.vars.example`.
+  //
+  // Auto-detecting from request context (Host header / `c.req.url`)
+  // was attempted but isn't viable: `wrangler dev` synthesizes both
+  // values from the production `[[routes]] pattern`, so locally the
+  // worker sees `Host: anipres.app` regardless of how the developer
+  // accesses it. An explicit per-environment value is the only
+  // reliable way to construct a redirect_uri that matches what
+  // Google has registered for this environment.
+  if (!c.env.PUBLIC_BASE_URL) {
+    // Throw rather than silently emit a bogus URI. A path-only or
+    // placeholder string would produce a confusing Google error
+    // unrelated to the actual cause. The 500 the worker returns
+    // here is honest: the server is misconfigured and the request
+    // can't be served until an operator sets the env var. The log
+    // line below is the actionable signal.
+    console.error(
+      "[google-auth] PUBLIC_BASE_URL is not set. " +
+        "For local dev, copy `packages/worker/.dev.vars.example` to " +
+        "`.dev.vars` and restart `wrangler dev`. " +
+        "For prod / preview, set it in `wrangler.toml`'s `[vars]` " +
+        "(or `[env.preview.vars]`) section.",
+    );
+    throw new Error("PUBLIC_BASE_URL is not configured");
+  }
+  return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {
+  const redirectUri = getGoogleRedirectUri(c);
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
@@ -22,11 +51,18 @@ async function exchangeCodeForAccessToken(c: AppContext, code: string) {
       client_secret: c.env.GOOGLE_SECRET,
       code,
       grant_type: "authorization_code",
-      redirect_uri: getGoogleRedirectUri(c),
+      redirect_uri: redirectUri,
     }),
   });
 
   if (!tokenResponse.ok) {
+    // Surface the Google-side error body so misconfigured secrets,
+    // redirect_uri mismatches, etc. produce an actionable line in the
+    // worker log instead of an opaque "Authentication failed".
+    const body = await tokenResponse.text().catch(() => "");
+    console.error(
+      `[google-auth] token exchange failed: ${tokenResponse.status} redirect_uri=${redirectUri} body=${body}`,
+    );
     return null;
   }
 
@@ -45,17 +81,25 @@ async function fetchGoogleUserSub(accessToken: string) {
   );
 
   if (!userResponse.ok) {
+    const body = await userResponse.text().catch(() => "");
+    console.error(
+      `[google-auth] userinfo fetch failed: ${userResponse.status} ${body}`,
+    );
     return null;
   }
 
   const googleUser = (await userResponse.json()) as { sub?: string };
-  return googleUser.sub ?? null;
+  if (!googleUser.sub) {
+    console.error("[google-auth] userinfo response missing 'sub' field");
+    return null;
+  }
+  return googleUser.sub;
 }
 
 function clearGoogleStateCookie(c: AppContext) {
   deleteCookie(c, GOOGLE_STATE_COOKIE_NAME, {
     httpOnly: true,
-    secure: true,
+    secure: isSecureRequest(c),
     sameSite: "Lax",
     path: GOOGLE_CALLBACK_PATH,
   });
@@ -76,7 +120,7 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
 
     setCookie(c, GOOGLE_STATE_COOKIE_NAME, state, {
       httpOnly: true,
-      secure: true,
+      secure: isSecureRequest(c),
       sameSite: "Lax",
       path: GOOGLE_CALLBACK_PATH,
       maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
@@ -92,7 +136,14 @@ export function registerGoogleAuth(app: Hono<AppBindings>) {
 
     clearGoogleStateCookie(c);
 
+    // Each branch returns the same user-facing 401 ("Authentication
+    // failed") but logs a distinct reason to the worker log so a
+    // misconfigured secret / mismatched redirect_uri / wedged
+    // userinfo call is debuggable without re-deploying.
     if (!code || !state || !storedState || state !== storedState) {
+      console.error(
+        `[google-auth] state validation failed: code=${Boolean(code)} state=${Boolean(state)} storedState=${Boolean(storedState)} match=${state === storedState}`,
+      );
       return c.text("Authentication failed", 401);
     }
 
