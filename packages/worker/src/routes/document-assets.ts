@@ -437,12 +437,9 @@ export const assetRoutes = new Hono<AppBindings>()
   )
   .get(
     "/api/documents/:id/assets/:assetName",
-    // Both segments validated together via the combined schema.
-    // Pre-typed-RPC the asset-name path returned 404 on a malformed
-    // name (treating it as "no such asset"); preserve that by mapping
-    // the validator's failure to 404 here too — a malformed name
-    // can't address an asset, so "not found" is more accurate than
-    // 400 for the route's external contract.
+    // 404 not 400 on validator failure: a malformed asset name can't
+    // address an asset, so "not found" matches the route's external
+    // contract better than "bad request".
     vValidator("param", documentAssetParamSchema, (result, c) => {
       if (!result.success) {
         return c.json({ error: "Not found" }, 404);
