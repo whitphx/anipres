@@ -8,17 +8,12 @@ import {
   MAX_SNAPSHOT_BODY_BYTES,
   snapshotPushBodySchema,
 } from "../schemas";
-import { generateDocumentSlug, userOwnsWorkspace } from "../route-helpers";
-import type { AppBindings } from "../types";
+import type { AppBindings, AppContext } from "../types";
 
 // Wire shape of a documents-table row as returned by every JSON
 // endpoint in this file. Ids are TEXT (UUID v7 strings,
 // client-allocated) and timestamps are integer ms — no per-field
-// massaging needed at the JSON boundary. Lives next to its consumers
-// rather than in `route-helpers.ts`: the only callers are the
-// handlers below, and naming a query projection only pays off when
-// it's reused (5 sites here). One-off projections elsewhere in the
-// worker stay inline.
+// massaging needed at the JSON boundary.
 type DocumentRow = {
   id: string;
   slug: string;
@@ -27,6 +22,34 @@ type DocumentRow = {
   created_at: number;
   updated_at: number;
 };
+
+// Slug generator. Phase 1 doesn't surface slugs in the UI; the column
+// is populated for forward compatibility. `crypto.randomUUID()` is
+// overkill for collision avoidance but keeps it one line and avoids
+// pulling in nanoid. Swap to a shorter format when slugs become
+// user-visible. Named so the INSERT call site reads as "generate a
+// slug" rather than as a generic UUID.
+function generateDocumentSlug() {
+  return crypto.randomUUID();
+}
+
+// Returns true iff the workspace exists and is owned by `userId`.
+// Phase 1 has 1:1 user:workspace, so this is a presence check;
+// Extension A will replace this with a membership query against
+// `workspaces` ∪ `org_memberships`. Used in two sites below — the
+// list query and the PUT-upsert workspace check.
+async function userOwnsWorkspace(
+  c: AppContext,
+  userId: number,
+  workspaceId: number,
+): Promise<boolean> {
+  const row = await c.env.DB.prepare(
+    "SELECT 1 FROM workspaces WHERE id = ? AND owner_user_id = ?",
+  )
+    .bind(workspaceId, userId)
+    .first();
+  return Boolean(row);
+}
 
 // All JSON endpoints under `/api/documents/*` (excluding the asset
 // sub-resource, which has its own multipart-aware sub-router in
