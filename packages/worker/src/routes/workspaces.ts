@@ -1,6 +1,19 @@
 import { Hono } from "hono";
 import type { AppBindings } from "../types";
 
+// DB-row shape for the `workspaces` table as projected by this
+// file's queries. Note `id: number` here vs `id: string` on the
+// wire (the response below stringifies it) — see
+// `workspaceIdSchema` in `../schemas.ts` for the symmetric request
+// side. Named because every line of the handler reads better
+// against this alias than a four-field inline shape.
+type WorkspaceRow = {
+  id: number;
+  name: string;
+  created_at: number;
+  updated_at: number;
+};
+
 // `/api/workspaces` — list-the-workspaces-I-own discovery endpoint.
 // Phase 1 always returns exactly one row (the user's personal
 // workspace, created at signup). Extension A will expand this to
@@ -17,19 +30,9 @@ export const workspacesRoutes = new Hono<AppBindings>().get(
        ORDER BY id ASC`,
     )
       .bind(userId)
-      .all<{
-        id: number;
-        name: string;
-        created_at: number;
-        updated_at: number;
-      }>();
+      .all<WorkspaceRow>();
     return c.json(
-      results.map((row) => ({
-        id: String(row.id),
-        name: row.name,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      })),
+      results.map((row) => ({ ...row, id: String(row.id) })),
       200,
     );
   },
