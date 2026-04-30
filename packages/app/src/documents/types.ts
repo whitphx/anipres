@@ -20,9 +20,7 @@ export interface DocumentMeta {
   sortOrder: string;
   /**
    * Where the document lives — `"local"` for IDB-backed local-only
-   * docs and `"synced"` for server-backed docs. The `Source` term is
-   * used here (rather than `Origin`) to avoid confusion with URL
-   * origins (`location.origin`, CORS origins, etc.).
+   * docs and `"synced"` for server-backed docs.
    */
   source: DocumentSource;
 }
