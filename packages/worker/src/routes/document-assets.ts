@@ -11,8 +11,6 @@ import { MAX_ASSET_SIZE } from "../tldraw-asset-policy";
 import { getDocumentAssetKey } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 
-// --- Schemas ---------------------------------------------------------
-
 const documentAssetParamSchema = v.object({
   id: documentIdSchema,
   assetName: assetNameSchema,
@@ -27,8 +25,6 @@ export const documentAssetUploadFileSchema = v.pipe(
   v.mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
   v.maxSize(MAX_ASSET_SIZE),
 );
-
-// --- Content-type derivation -----------------------------------------
 
 const ASSET_EXTENSION_BY_CONTENT_TYPE = {
   "image/jpeg": ".jpg",
@@ -70,8 +66,6 @@ function getAssetExtensionForContentType(contentType: string) {
 function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
 }
-
-// --- Multipart upload parsing ----------------------------------------
 
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
 const MAX_ASSET_REQUEST_BODY_SIZE =
@@ -152,8 +146,6 @@ async function parseAssetUploadFormData(request: Request) {
     throw new InvalidMultipartFormDataError();
   }
 }
-
-// --- Range-request math ---------------------------------------------
 
 function normalizeRange(
   size: number,
@@ -269,8 +261,6 @@ function buildUnsatisfiableRangeHeaders(size: number) {
   return headers;
 }
 
-// --- DB existence check + asset row insert ---------------------------
-
 async function documentExistsForUser(
   c: AppContext,
   userId: number,
@@ -323,8 +313,6 @@ async function scheduleDocumentAssetGc(
   await room.claimDocument(documentId);
   await room.scheduleAssetGc();
 }
-
-// --- Routes ----------------------------------------------------------
 
 // One handler returns raw bytes (browsers consume the asset URL
 // directly via `<img>`, not through the typed client). Including it

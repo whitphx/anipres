@@ -5,8 +5,6 @@ import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 
-// --- Schemas ---------------------------------------------------------
-
 const nonNegativeFiniteInteger = v.pipe(
   v.number(),
   v.integer(),
