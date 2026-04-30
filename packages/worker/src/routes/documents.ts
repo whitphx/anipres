@@ -55,15 +55,13 @@ async function userOwnsWorkspace(
 // sub-resource, which has its own multipart-aware sub-router in
 // `./document-assets.ts`).
 //
-// Document ids are client-allocated UUID v7 strings (see the
-// documents.id design note in 0001_initial_schema.sql). Path-param
-// validation goes through `vValidator("param", documentIdParamSchema,
-// ...)` for consistency with the json/query validators on the same
-// chain. The typed client already exposes `:id` as `string`, so the
-// validator's job is purely a runtime UUID-format guard — but using
-// the same shape across all three target kinds (`param`, `query`,
-// `json`) keeps each handler's "validate inputs, then read" structure
-// uniform.
+// Path-param validation goes through `vValidator("param", ...)` for
+// consistency with the json/query validators on the same chain. The
+// typed client already exposes `:id` as `string`, so the validator's
+// job is purely a runtime UUID-format guard — but using the same
+// `vValidator` shape across all three targets (`param`, `query`,
+// `json`) keeps every handler's "validate inputs, then read"
+// structure uniform.
 //
 // Status literals (the second arg to `c.json(...)`) are critical:
 // the typed client narrows `res.json()` per status, but only when the

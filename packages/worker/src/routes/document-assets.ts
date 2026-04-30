@@ -9,14 +9,10 @@ import {
   documentIdParamSchema,
 } from "../schemas";
 import { MAX_ASSET_SIZE } from "../tldraw-asset-policy";
-// `getDocumentAssetKey` is the one helper shared with the asset GC /
-// lifecycle code in `../tldraw-assets.ts`. Both the routes and the GC
-// need to derive the same R2 key (so an upload writes where a delete
-// reads), which is why this helper lives there and is imported here.
-// All other helpers used by these handlers — multipart parsing,
-// range-request math, content-type derivation, the per-doc DB
-// existence check — are file-private below because the route
-// handlers are their only consumers.
+// `getDocumentAssetKey` is shared with the asset GC / lifecycle
+// code — see `../tldraw-assets.ts`. The other helpers used here
+// (multipart parsing, range-request math, content-type derivation,
+// the per-doc DB existence check) are file-private below.
 import { getDocumentAssetKey } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 

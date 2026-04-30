@@ -27,9 +27,6 @@ function getDocumentAssetPrefix(documentId: string) {
   return `${DOCUMENT_ASSET_PREFIX}/${documentId}/`;
 }
 
-// Shared with `routes/document-assets.ts` — both the upload PUT and
-// the asset GET / GC delete have to derive the same R2 object key,
-// so the function lives in one place and is imported by both.
 export function getDocumentAssetKey(documentId: string, assetName: string) {
   return `${getDocumentAssetPrefix(documentId)}${assetName}`;
 }

@@ -12,12 +12,9 @@ import type { AppBindings } from "../types";
 
 // All JSON endpoints under `/auth/*` as a single chained sub-router.
 // `typeof authRoutes` flows into the worker's combined `AppType` so
-// the app's `apiClient.auth.*` reaches every route here.
-//
-// OAuth provider routes (`/auth/github/*`, `/auth/google/*`) are
-// browser-redirect endpoints registered separately by
-// `registerOAuthProviderRoutes` — the app never `fetch()`es them, so
-// they don't need typed-RPC plumbing.
+// the app's `apiClient.auth.*` reaches every route here. The
+// `/auth/{github,google}/*` browser-redirect handlers live outside
+// this chain — see `registerOAuthProviderRoutes` in `../auth`.
 export const authRoutes = new Hono<AppBindings>()
   .get("/auth/me", async (c) => {
     const user = await getCurrentUser(c);
