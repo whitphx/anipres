@@ -9,7 +9,7 @@
 
 ## Status
 
-Phases 1–5 are landed on `feature/sync-server`. Phase 6 is partial — online/offline indicator, reconnect UX, input validation, anonymous-mode preservation are done; user profile/settings and account linking are pending. See [`TODO.md`](./TODO.md) for the residual list.
+All six implementation phases are landed on `feature/sync-server`. The remaining work is operational (deploy to real Cloudflare resources — see [`TODO.md`](./TODO.md) § Before first deploy) plus deferred follow-ups (merge two accounts on conflict, post-launch hardening). The OAuth flow has been exercised end-to-end locally; the next milestone is a preview deploy.
 
 The implementation diverged from the original spec in a few load-bearing places — workspaces between users and documents (pre-positions Extension A), `oauth_identities` as a separate table for future account linking, INTEGER PKs for server-allocated entities (users, workspaces) but TEXT UUID v7 for documents (client-allocated), `initializing_at` / `deleting_at` lifecycle columns, an `assets` GC table, and a single-endpoint PUT-as-upsert document API. The "Database Schema", "API Design", and "Worker Structure" sections below have been rewritten to match the as-built; the philosophy sections (Dual-Mode, Offline, etc.) describe decisions that survived intact.
 
@@ -450,23 +450,22 @@ The `packages/anipres` library exports the shape schema descriptors via `anipres
 - Offline cold-start path: `GET /api/documents/:id/offline-cache` falls back to local IDB cache when the network is unreachable
 - Reconnect (`reconcileOfflineEdits` in `reconnect.ts`): push-or-fork against the server's snapshot version. Fork mints a new UUID v7 client-side and lands past the synced list's tail.
 
-### Phase 6 — Anonymous mode + polish (partial) 🟡
-
-Done:
+### Phase 6 — Anonymous mode + polish ✅
 
 - Anonymous mode (IDB-only) preserved alongside synced mode; `DocumentManagerProvider` accepts an optional `syncedRepository`
 - Online/offline indicator + reconnect banner (`NetworkStatus`)
-- Convert-to-synced UX with per-doc spinner / error / retry
+- Convert-to-synced UX: per-doc spinner / error / retry; friendly error-message mapping (`getConversionErrorMessage` in `documents/conversion-error-message.ts`); polite `aria-live` region for screen-reader announcements; asset-upload concurrency cap (`ASSET_UPLOAD_CONCURRENCY = 4`, work-stealing pattern)
 - Input validation: valibot schemas at the worker boundary, with worker-side test pipeline
 - Workspace-discovery error UI (visible message instead of blank screen)
-- Account-settings modal opened from the sidebar's `AccountFooter`; lists linked OAuth identities (`GET /auth/identities`)
-- Account linking — the existing OAuth callbacks branch on the session cookie: a logged-in user completing the OAuth dance attaches the new `(provider, provider_id)` to the current `user_id` (via `attachIdentityToCurrentUser` in `auth/session.ts`); a logged-out user follows the existing login flow. Conflict ("provider account is already linked to a different user") surfaces as a redirect-flash error.
+- Account-settings modal opened from the sidebar's `AccountFooter`; lists linked OAuth identities (`GET /auth/identities`); fetches via SWR with focus-revalidation
+- Account linking — existing OAuth callbacks branch on the session cookie: a logged-in user completing the OAuth dance attaches the new `(provider, provider_id)` to the current `user_id` (via `attachIdentityToCurrentUser` in `auth/session.ts`); a logged-out user follows the existing login flow. Conflict ("provider account already linked to a different user") surfaces as a redirect-flash error.
 - Disconnect a linked provider — `DELETE /auth/identities/:provider/:provider_id` with a server-side "can't remove your last sign-in method" guard (atomic single-statement check via subquery); two-click in-row Confirm/Cancel UI in the settings modal
+- SWR migration of all auth-context fetches (`/auth/me`, `/auth/identities`, `/api/workspaces`); cache-wipe on logout via `globalMutate(() => true, …)` so no auth-scoped data lingers post-session
+- OAuth cookie / redirect_uri robustness: cookies use conditional `secure` attribute (HTTPS-only in prod, accepted on HTTP localhost); Google `redirect_uri` derived from explicit `PUBLIC_BASE_URL` env var (per-environment, see `.dev.vars.example` for local setup); per-failure-path logging in the Google callback for debuggable misconfigurations
 
-Remaining (see [TODO.md](./TODO.md)):
+Deferred (see [TODO.md](./TODO.md)):
 
 - Merge two accounts on conflict (a meaningfully bigger feature; tracked separately)
-- Convert-to-synced polish (friendly error mapping, `aria-live` announce, asset-upload concurrency cap)
 
 (Rate limiting was originally listed under Phase 6; see [Post-Launch Hardening](./TODO.md#post-launch-hardening) in TODO.md for why it moved.)
 

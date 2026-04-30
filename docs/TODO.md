@@ -8,15 +8,6 @@ Tasks deferred during development that should be addressed before production rel
 
 - **Google OAuth scope for email-based linking**: Currently requests `openid` only and identifies users by `sub`. The shipped account-linking flow uses an explicit "Connect" entry point (no email matching needed), so this remains as-is. _If_ a future merge / email-based-suggest feature is added, widen to `openid email`.
 
-## Phase 6 (in progress)
-
-Phases 1–5 landed. Phase 6 is partially done — see [design-server-sync.md § Phase 6](./design-server-sync.md#phase-6--anonymous-mode--polish-partial-) for the breakdown of what's complete vs. remaining.
-
-Remaining for Phase 6:
-
-- **Account-settings UI extensions**. The modal opened from the sidebar's "Account settings" button is the home for account-related controls; today it carries linked-providers + connect-another. Future content goes here: disconnect (see Authentication section), workspace name editing once Extension A makes that user-visible, sign-out-from-all-devices.
-- **Convert-to-synced polish** — see the dedicated section below.
-
 ## Before first deploy
 
 Operational items the code can't cover. Each of these must be set before `wrangler deploy` (prod) or `wrangler deploy --env preview` (preview) succeeds against real Cloudflare resources.
@@ -51,14 +42,3 @@ See [Post-Launch Hardening](./design-server-sync.md#post-launch-hardening) in th
 - **R2 storage growth alarm**.
 - **Workers analytics dashboard review** for unusual per-route request volume.
 - **Rate limiting** (Workers Rate Limiting API, per-user, applied to asset upload / snapshot push / doc create with 429 + `Retry-After`).
-
-## Convert-to-synced polish
-
-Follow-ups deferred from the convert-to-synced PRs (#431–#435) — all four shipped together.
-
-Done:
-
-- **Friendly error-message mapping**: `getConversionErrorMessage` in `documents/conversion-error-message.ts` maps `Asset upload failed: 413` → "This file is too large", `AbortError`/`TimeoutError` → "Upload timed out…", network `TypeError` → "Couldn't reach the server…", etc. Used by both the per-doc button title/aria-label and the new `aria-live` region.
-- **`aria-live` region for screen readers**: `<div role="status" aria-live="polite">` rendered above the sidebar footer (visually hidden via `srOnly`). Announces "Uploading {title}…" on convert start and "Failed to upload {title}: {friendly}" on failure.
-- **Asset-upload concurrency cap**: `uploadAssetDataUrls` now uses a `pooledMap` helper with `ASSET_UPLOAD_CONCURRENCY = 4`. Keeps the pool full (work-stealing pattern, not batched) so the slowest upload in a wave doesn't gate the next wave.
-- **Tighten internal `composeWithTimeout` / default-helper signatures**: Internal `composeWithTimeout` and `defaultUploadAsset` / `defaultPushSnapshot` use `AbortSignal | undefined` instead of `?: AbortSignal`. Public `ConvertLocalDocToSyncedParams` keeps `?` for consumer ergonomics.
