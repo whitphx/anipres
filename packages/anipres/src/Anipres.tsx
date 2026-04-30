@@ -273,13 +273,6 @@ interface InnerProps {
   store?: TLStore | TLStoreWithStatus;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
-  /**
-   * Forwarded to tldraw's `<Tldraw maxAssetSize>`. Caps the in-editor
-   * file-drop / paste size so oversized assets are rejected before any
-   * upload attempt. This is a deployment-policy concern owned by the
-   * consumer; `anipres` itself sets no default. Omit to inherit
-   * tldraw's built-in default.
-   */
   maxAssetSize?: TldrawProps["maxAssetSize"];
   user: TLUser;
 }
