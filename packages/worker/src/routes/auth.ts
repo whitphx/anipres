@@ -1,22 +1,47 @@
 import { Hono } from "hono";
 import * as v from "valibot";
-import { oauthIdentityRevokeParamSchema } from "../schemas";
-import type { AppBindings } from "../types";
 import {
+  clearSession,
+  getCurrentUser,
   listOAuthIdentities,
   requireSession,
   revokeOAuthIdentity,
-} from "./session";
+} from "../auth/session";
+import { oauthIdentityRevokeParamSchema } from "../schemas";
+import type { AppBindings } from "../types";
 
-// Chained Hono route definition. Each `.get(...).delete(...)` call
-// returns the builder typed with the cumulative route shape, so
-// `typeof identitiesRoutes` carries the full path/param/response
-// signature. That `typeof` is what the app-side `hc<typeof
-// identitiesRoutes>(...)` client uses to derive its method names,
-// path-param shapes, and `r.json()` return types — refactoring a
-// signature here surfaces a compile error at the call site rather
-// than at runtime.
-export const identitiesRoutes = new Hono<AppBindings>()
+// All JSON endpoints under `/auth/*` as a single chained sub-router.
+// `typeof authRoutes` flows into the worker's combined `AppType` so
+// the app's `apiClient.auth.*` reaches every route here.
+//
+// OAuth provider routes (`/auth/github/*`, `/auth/google/*`) are
+// browser-redirect endpoints registered separately by
+// `registerOAuthProviderRoutes` — the app never `fetch()`es them, so
+// they don't need typed-RPC plumbing.
+export const authRoutes = new Hono<AppBindings>()
+  .get("/auth/me", async (c) => {
+    const user = await getCurrentUser(c);
+    if (!user) {
+      // Self-heal stale cookies: a JWT can outlive its underlying
+      // user row (DB reset in dev, or an account deletion once that
+      // ships). Without this, the browser keeps replaying the orphan
+      // cookie on every load — `getCurrentUser` returns null, the
+      // client stays in a logged-out state with a still-present
+      // cookie, and the next OAuth attempt would land in link mode
+      // against a missing user (now caught in `session.ts`, but the
+      // cookie itself is the root cause and worth clearing here).
+      // Safe to call unconditionally: when there's no cookie or the
+      // signature failed, `clearSession` is a no-op for the client.
+      clearSession(c);
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+
+    return c.json(user, 200);
+  })
+  .post("/auth/logout", (c) => {
+    clearSession(c);
+    return c.json({ ok: true as const }, 200);
+  })
   // List the OAuth identities linked to the current user. Used by the
   // account-settings UI to render the "linked providers" panel and
   // gate the "Connect another" buttons. 401 when logged out — the
@@ -69,4 +94,4 @@ export const identitiesRoutes = new Hono<AppBindings>()
     return c.json({ error: "Not found" }, 404);
   });
 
-export type IdentitiesRoutes = typeof identitiesRoutes;
+export type AuthRoutes = typeof authRoutes;
