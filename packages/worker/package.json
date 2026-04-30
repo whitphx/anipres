@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts",
-    "./auth/identities": "./src/auth/identities.ts"
+    "./api-types": "./src/api-types.ts"
   },
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@hono/oauth-providers": "^0.8.5",
+    "@hono/valibot-validator": "^0.6.1",
     "@tldraw/sync-core": "3.15.5",
     "anipres": "workspace:*",
     "hono": "^4.12.15",

@@ -27,7 +27,7 @@ export const identitiesRoutes = new Hono<AppBindings>()
       return c.json({ error: "Not authenticated" }, 401);
     }
     const identities = await listOAuthIdentities(c, userId);
-    return c.json(identities);
+    return c.json(identities, 200);
   })
   // Detach an OAuth identity from the current user (the unlink
   // counterpart to the `/auth/{provider}` connect flow). 409 with
@@ -55,7 +55,7 @@ export const identitiesRoutes = new Hono<AppBindings>()
     const { provider, provider_id } = paramsResult.output;
     const outcome = await revokeOAuthIdentity(c, userId, provider, provider_id);
     if (outcome === "revoked") {
-      return c.json({ ok: true as const });
+      return c.json({ ok: true as const }, 200);
     }
     if (outcome === "last_identity") {
       return c.json(

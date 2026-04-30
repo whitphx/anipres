@@ -1,20 +1,25 @@
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import type { Hono as HonoType } from "hono";
 import type { AppBindings } from "../types";
 import { registerGitHubAuth } from "./github";
 import { registerGoogleAuth } from "./google";
 import { clearSession, getCurrentUser, requireSession } from "./session";
 
-// `/auth/identities` GET + DELETE live in `./identities` as a chained
-// sub-router so their `typeof` can be consumed by the app-side
-// `hc<>()` typed client. The rest of the auth surface stays in this
-// register-mutates-app form for now; we can convert it incrementally
-// as more endpoints get typed-client call sites on the app side.
-
-export function registerAuthRoutes(app: Hono<AppBindings>) {
+// OAuth provider routes (`/auth/github/*`, `/auth/google/*`) are
+// browser-redirect endpoints — the app never `fetch()`es them, so
+// they don't need typed-RPC plumbing. Kept as register-mutates-app.
+export function registerOAuthProviderRoutes(app: HonoType<AppBindings>) {
   registerGitHubAuth(app);
   registerGoogleAuth(app);
+}
 
-  app.get("/auth/me", async (c) => {
+// `/auth/me` and `/auth/logout` as a chained Hono sub-router. The
+// chain's `typeof` flows through the worker's combined `AppType` so
+// the app's typed `apiClient` picks them up. Status literals are
+// always passed to `c.json(...)` (e.g. `c.json(user, 200)`) so the
+// client can narrow `res.json()` per status code.
+export const authMeAndLogoutRoutes = new Hono<AppBindings>()
+  .get("/auth/me", async (c) => {
     const user = await getCurrentUser(c);
     if (!user) {
       // Self-heal stale cookies: a JWT can outlive its underlying
@@ -31,16 +36,14 @@ export function registerAuthRoutes(app: Hono<AppBindings>) {
       return c.json({ error: "Not authenticated" }, 401);
     }
 
-    return c.json(user);
-  });
-
-  app.post("/auth/logout", (c) => {
+    return c.json(user, 200);
+  })
+  .post("/auth/logout", (c) => {
     clearSession(c);
-    return c.json({ ok: true });
+    return c.json({ ok: true as const }, 200);
   });
-}
 
-export function registerApiAuth(app: Hono<AppBindings>) {
+export function registerApiAuth(app: HonoType<AppBindings>) {
   app.use("/api/*", async (c, next) => {
     const userId = await requireSession(c);
     if (userId === null) {

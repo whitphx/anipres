@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import { Hono } from "hono";
 import * as v from "valibot";
 // Single source of truth for the per-asset size cap, shared with the
 // client (passed into tldraw's `maxAssetSize` prop via the Anipres
@@ -647,8 +647,15 @@ export async function startDocumentDeletion(
   }
 }
 
-export function registerAssetRoutes(app: Hono<AppBindings>) {
-  app.post("/api/documents/:id/assets", async (c) => {
+// Chained Hono sub-router for the per-document asset endpoints.
+// `typeof assetRoutes` flows into the worker's combined `AppType`
+// so the app's typed client can call `apiClient.api.documents[
+// ":id"].assets.$post({...})`. The asset GET returns raw bytes (an
+// untyped `Response`) since browsers consume the asset URL directly
+// via `<img>` etc.; including it in the chain keeps the type story
+// uniform without losing anything.
+export const assetRoutes = new Hono<AppBindings>()
+  .post("/api/documents/:id/assets", async (c) => {
     const userId = c.get("userId");
     const paramsResult = v.safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
@@ -746,13 +753,15 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
       }),
     );
 
-    return c.json({
-      assetName,
-      src: getDocumentAssetSrc(documentId, assetName),
-    });
-  });
-
-  app.get("/api/documents/:id/assets/:assetName", async (c) => {
+    return c.json(
+      {
+        assetName,
+        src: getDocumentAssetSrc(documentId, assetName),
+      },
+      200,
+    );
+  })
+  .get("/api/documents/:id/assets/:assetName", async (c) => {
     const userId = c.get("userId");
     const paramsResult = v.safeParse(documentIdParamSchema, {
       id: c.req.param("id"),
@@ -813,4 +822,5 @@ export function registerAssetRoutes(app: Hono<AppBindings>) {
 
     return new Response(object.body, { status, headers });
   });
-}
+
+export type AssetRoutes = typeof assetRoutes;

@@ -1,18 +1,18 @@
+import { apiClient } from "../lib/api-client";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
-// Document ids are client-allocated UUID v7 strings (see
-// `packages/worker/migrations/0001_initial_schema.sql` design note).
-// The wire shape mirrors the D1 row directly — no per-field coercion
-// needed.
-interface DocumentRow {
+// Wire shape comes from the worker route's `c.json(row, ...)`. We
+// only need a structural alias here; the `DocumentMeta` shape we
+// project to is the app's domain type.
+type DocumentRow = {
   id: string;
   slug: string;
   title: string;
   sort_order: string;
   created_at: number;
   updated_at: number;
-}
+};
 
 function rowToMeta(row: DocumentRow): DocumentMeta {
   return {
@@ -42,19 +42,23 @@ export class ApiDocumentRepository implements DocumentRepository {
   constructor(private readonly workspaceId: string) {}
 
   async list(): Promise<DocumentMeta[]> {
-    const res = await fetch(
-      `/api/documents?workspace_id=${encodeURIComponent(this.workspaceId)}`,
-    );
-    if (!res.ok) throw new Error(`Failed to list documents: ${res.status}`);
-    const rows: DocumentRow[] = await res.json();
+    const res = await apiClient.api.documents.$get({
+      query: { workspace_id: this.workspaceId },
+    });
+    if (res.status !== 200) {
+      throw new Error(`Failed to list documents: ${res.status}`);
+    }
+    const rows = await res.json();
     return rows.map(rowToMeta);
   }
 
   async get(id: string): Promise<DocumentData | undefined> {
-    const res = await fetch(`/api/documents/${encodeURIComponent(id)}`);
+    const res = await apiClient.api.documents[":id"].$get({ param: { id } });
     if (res.status === 404) return undefined;
-    if (!res.ok) throw new Error(`Failed to get document: ${res.status}`);
-    const body: { meta: DocumentRow; snapshot: null } = await res.json();
+    if (res.status !== 200) {
+      throw new Error(`Failed to get document: ${res.status}`);
+    }
+    const body = await res.json();
     return {
       meta: rowToMeta(body.meta),
       snapshot: body.snapshot,
@@ -85,18 +89,15 @@ export class ApiDocumentRepository implements DocumentRepository {
     if (input.meta.createdAt !== undefined) {
       body.created_at = input.meta.createdAt;
     }
-    const res = await fetch(
-      `/api/documents/${encodeURIComponent(input.meta.id)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    if (!res.ok) {
+    const res = await apiClient.api.documents[":id"].$put({
+      param: { id: input.meta.id },
+      json: body,
+    });
+    // Server returns 200 (update) or 201 (insert); both are success.
+    if (res.status !== 200 && res.status !== 201) {
       throw new Error(`Failed to save document: ${res.status}`);
     }
-    const row: DocumentRow = await res.json();
+    const row = await res.json();
     return {
       meta: rowToMeta(row),
       // Snapshot is uploaded separately (PUT /api/documents/:id/snapshot);
@@ -106,9 +107,11 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
-      method: "DELETE",
+    const res = await apiClient.api.documents[":id"].$delete({
+      param: { id },
     });
-    if (!res.ok) throw new Error(`Failed to delete document: ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`Failed to delete document: ${res.status}`);
+    }
   }
 }

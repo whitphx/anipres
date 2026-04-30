@@ -266,7 +266,7 @@ export async function getCurrentUser(c: AppContext) {
   // account-settings UI needs it.
   const user = await c.env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
     .bind(userId)
-    .first();
+    .first<{ id: number }>();
 
   if (!user) {
     return null;

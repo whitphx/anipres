@@ -9,14 +9,7 @@ import { SyncedRepositoryProvider } from "./documents/SyncedRepositoryContext";
 import { AppContent } from "./AppContent";
 import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
-import { jsonFetcher } from "./lib/fetcher";
-
-interface Workspace {
-  id: string;
-  name: string;
-  created_at: number;
-  updated_at: number;
-}
+import { apiClient } from "./lib/api-client";
 
 function AuthenticatedApp() {
   const { user, loading: authLoading } = useAuth();
@@ -29,10 +22,17 @@ function AuthenticatedApp() {
   //
   // Conditional key: SWR doesn't fetch when key is null. Logged-out
   // users skip the fetch entirely; the moment a user lands the key
-  // flips to the URL and SWR fires the request.
-  const { data: workspaces, error: workspaceFetchError } = useSWR<Workspace[]>(
-    user ? "/api/workspaces" : null,
-    jsonFetcher,
+  // flips to the (workspaces) tuple and SWR fires the request via the
+  // typed RPC client below.
+  const { data: workspaces, error: workspaceFetchError } = useSWR(
+    user ? (["api", "workspaces"] as const) : null,
+    async () => {
+      const res = await apiClient.api.workspaces.$get();
+      if (res.status !== 200) {
+        throw new Error(`Request failed (${res.status})`);
+      }
+      return res.json();
+    },
   );
 
   // Derived state. The `user &&` guards make logout robust against
