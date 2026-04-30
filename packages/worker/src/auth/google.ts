@@ -20,21 +20,23 @@ function getGoogleRedirectUri(c: AppContext) {
   // accesses it. An explicit per-environment value is the only
   // reliable way to construct a redirect_uri that matches what
   // Google has registered for this environment.
-  if (c.env.PUBLIC_BASE_URL) {
-    return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
+  if (!c.env.PUBLIC_BASE_URL) {
+    // Throw rather than silently emit a bogus URI. A path-only or
+    // placeholder string would produce a confusing Google error
+    // unrelated to the actual cause. The 500 the worker returns
+    // here is honest: the server is misconfigured and the request
+    // can't be served until an operator sets the env var. The log
+    // line below is the actionable signal.
+    console.error(
+      "[google-auth] PUBLIC_BASE_URL is not set. " +
+        "For local dev, copy `packages/worker/.dev.vars.example` to " +
+        "`.dev.vars` and restart `wrangler dev`. " +
+        "For prod / preview, set it in `wrangler.toml`'s `[vars]` " +
+        "(or `[env.preview.vars]`) section.",
+    );
+    throw new Error("PUBLIC_BASE_URL is not configured");
   }
-
-  // Misconfig — the env var must be set. The bogus URI returned
-  // here will surface as `redirect_uri_mismatch` from Google,
-  // which the operator can correlate with the log line below.
-  console.error(
-    "[google-auth] PUBLIC_BASE_URL is not set. " +
-      "For local dev, copy `packages/worker/.dev.vars.example` to " +
-      "`.dev.vars` and restart `wrangler dev`. " +
-      "For prod / preview, set it in `wrangler.toml`'s `[vars]` " +
-      "(or `[env.preview.vars]`) section.",
-  );
-  return GOOGLE_CALLBACK_PATH;
+  return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
 }
 
 async function exchangeCodeForAccessToken(c: AppContext, code: string) {

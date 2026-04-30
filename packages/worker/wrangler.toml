@@ -36,6 +36,13 @@ run_worker_first = ["/api/*", "/auth/*"]
 # Public-facing origin for outbound URL construction (currently the
 # Google OAuth redirect_uri). See `Env.PUBLIC_BASE_URL` in
 # packages/worker/src/types.ts. Don't include a trailing slash.
+#
+# `[vars]` applies to both `wrangler deploy` (prod) AND `wrangler
+# dev` (local), so this prod URL is also what the local worker
+# inherits unless overridden via `.dev.vars`. Local dev MUST
+# override with `PUBLIC_BASE_URL=http://localhost:5173` to match
+# the URL registered in Google Cloud Console — the .dev.vars.example
+# template includes this entry.
 PUBLIC_BASE_URL = "https://anipres.app"
 
 [durable_objects]
