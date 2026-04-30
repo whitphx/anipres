@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useSync } from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
-import { MAX_ASSET_SIZE } from "anipres-worker/asset-policy";
+import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
 import {
   deleteSyncRecovery,
   getSyncCacheSessionId,

@@ -3,7 +3,7 @@ import * as v from "valibot";
 // Single source of truth for the per-asset size cap, shared with the
 // client (passed into tldraw's `maxAssetSize` prop via the Anipres
 // component) so the two sides cannot drift.
-import { MAX_ASSET_SIZE } from "./asset-policy.ts";
+import { MAX_ASSET_SIZE } from "./tldraw-asset-policy.ts";
 import {
   ASSET_NAME_PATTERN,
   SUPPORTED_ASSET_CONTENT_TYPES,
@@ -354,7 +354,7 @@ async function insertDocumentAsset(
   // them. That lets us reclaim abandoned uploads while keeping a grace window
   // for the editor to write the new asset into the room snapshot.
   await env.DB.prepare(
-    `INSERT INTO assets (
+    `INSERT INTO tldraw_assets (
        document_id,
        asset_name,
        content_type,
@@ -378,7 +378,7 @@ async function clearReferencedDocumentAssets(
   }
 
   await env.DB.prepare(
-    `UPDATE assets
+    `UPDATE tldraw_assets
      SET last_seen_at = ?, stale_at = NULL
      WHERE document_id = ?
        AND asset_name IN (${getInClausePlaceholders(assetNames.length)})`,
@@ -395,7 +395,7 @@ async function markUnreferencedDocumentAssetsStale(
 ) {
   if (referencedAssetNames.length === 0) {
     await env.DB.prepare(
-      `UPDATE assets
+      `UPDATE tldraw_assets
        SET stale_at = COALESCE(stale_at, ?)
        WHERE document_id = ?`,
     )
@@ -405,7 +405,7 @@ async function markUnreferencedDocumentAssetsStale(
   }
 
   await env.DB.prepare(
-    `UPDATE assets
+    `UPDATE tldraw_assets
      SET stale_at = COALESCE(stale_at, ?)
      WHERE document_id = ?
        AND asset_name NOT IN (${getInClausePlaceholders(referencedAssetNames.length)})`,
@@ -420,7 +420,7 @@ async function getNextDocumentAssetGcAt(
 ) {
   const row = await env.DB.prepare(
     `SELECT MIN(stale_at) AS stale_at
-     FROM assets
+     FROM tldraw_assets
      WHERE document_id = ? AND stale_at IS NOT NULL`,
   )
     .bind(documentId)
@@ -461,7 +461,7 @@ export async function runDocumentAssetGc(
   const cutoff = Date.now() - STALE_ASSET_RETENTION_MS;
   const expiredAssets = await env.DB.prepare(
     `SELECT asset_name
-     FROM assets
+     FROM tldraw_assets
      WHERE document_id = ?
        AND stale_at IS NOT NULL
        AND stale_at <= ?`,
@@ -478,7 +478,7 @@ export async function runDocumentAssetGc(
       // a recent reconcile or undo does not lose its underlying object.
       const currentExpiredAssets = await env.DB.prepare(
         `SELECT asset_name
-         FROM assets
+         FROM tldraw_assets
          WHERE document_id = ?
            AND stale_at IS NOT NULL
            AND stale_at <= ?
@@ -495,7 +495,7 @@ export async function runDocumentAssetGc(
 
       await env.ASSETS.delete(keys);
       await env.DB.prepare(
-        `DELETE FROM assets
+        `DELETE FROM tldraw_assets
          WHERE document_id = ?
            AND stale_at IS NOT NULL
            AND stale_at <= ?
