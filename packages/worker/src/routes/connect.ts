@@ -26,16 +26,6 @@ export const connectRoutes = new Hono<AppBindings>().get(
       return c.text("Expected WebSocket upgrade", 426);
     }
 
-    // SameSite=Lax already blocks cookies on cross-site WS upgrades
-    // initiated by JS, but the Origin allowlist is cheap defense in
-    // depth against CSWSH on browser quirks or non-Lax-honoring
-    // clients. Hono's `csrf()` runs only on non-safe methods, so
-    // this WS path needs its own check.
-    const origin = c.req.header("Origin");
-    if (!origin || origin !== c.env.PUBLIC_BASE_URL) {
-      return c.json({ error: "Forbidden" }, 403);
-    }
-
     const userId = c.get("userId");
     const { documentId } = c.req.valid("param");
 
