@@ -1,10 +1,17 @@
+import { Hono } from "hono";
 import * as v from "valibot";
 // Single source of truth for the per-asset size cap, shared with the
 // client (passed into tldraw's `maxAssetSize` prop via the Anipres
 // component) so the two sides cannot drift.
 import { MAX_ASSET_SIZE } from "./tldraw-asset-policy";
-import { SUPPORTED_ASSET_CONTENT_TYPES, assetNameSchema } from "./schemas";
-import type { AppContext } from "./types";
+import {
+  SUPPORTED_ASSET_CONTENT_TYPES,
+  assetNameSchema,
+  documentAssetUploadFieldsSchema,
+  documentAssetUploadFileSchema,
+  documentIdParamSchema,
+} from "./schemas";
+import type { AppBindings, AppContext } from "./types";
 
 const ASSET_EXTENSION_BY_CONTENT_TYPE = {
   "image/jpeg": ".jpg",
@@ -23,21 +30,21 @@ const ASSET_EXTENSION_BY_CONTENT_TYPE = {
 >;
 
 const MAX_ASSET_MULTIPART_OVERHEAD = 256 * 1024; // 256 KB
-export const MAX_ASSET_REQUEST_BODY_SIZE =
+const MAX_ASSET_REQUEST_BODY_SIZE =
   MAX_ASSET_SIZE + MAX_ASSET_MULTIPART_OVERHEAD;
 const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOCUMENT_DELETE_BATCH_SIZE = 128;
 
 const DOCUMENT_ASSET_PREFIX = "documents";
 
-export class RequestBodyTooLargeError extends Error {
+class RequestBodyTooLargeError extends Error {
   constructor() {
     super("Request body too large");
     this.name = "RequestBodyTooLargeError";
   }
 }
 
-export class InvalidMultipartFormDataError extends Error {
+class InvalidMultipartFormDataError extends Error {
   constructor() {
     super("Invalid multipart form data");
     this.name = "InvalidMultipartFormDataError";
@@ -54,13 +61,13 @@ function isSvgContentType(contentType: string) {
   return contentType === "image/svg+xml";
 }
 
-export function isSupportedAssetContentType(contentType: string): boolean {
+function isSupportedAssetContentType(contentType: string): boolean {
   return (SUPPORTED_ASSET_CONTENT_TYPES as readonly string[]).includes(
     contentType,
   );
 }
 
-export function getAssetExtensionForContentType(contentType: string) {
+function getAssetExtensionForContentType(contentType: string) {
   const ext =
     ASSET_EXTENSION_BY_CONTENT_TYPE[
       contentType as keyof typeof ASSET_EXTENSION_BY_CONTENT_TYPE
@@ -71,7 +78,7 @@ export function getAssetExtensionForContentType(contentType: string) {
   return ext;
 }
 
-export function getDeclaredContentLength(contentLength: string | undefined) {
+function getDeclaredContentLength(contentLength: string | undefined) {
   if (!contentLength) {
     return null;
   }
@@ -84,11 +91,11 @@ function getDocumentAssetPrefix(documentId: string) {
   return `${DOCUMENT_ASSET_PREFIX}/${documentId}/`;
 }
 
-export function getDocumentAssetKey(documentId: string, assetName: string) {
+function getDocumentAssetKey(documentId: string, assetName: string) {
   return `${getDocumentAssetPrefix(documentId)}${assetName}`;
 }
 
-export function getDocumentAssetSrc(documentId: string, assetName: string) {
+function getDocumentAssetSrc(documentId: string, assetName: string) {
   return `/api/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(assetName)}`;
 }
 
@@ -108,7 +115,7 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
   }
 }
 
-export async function scheduleDocumentAssetGc(
+async function scheduleDocumentAssetGc(
   c: AppContext,
   documentId: string,
 ): Promise<void> {
@@ -160,7 +167,7 @@ async function readRequestBodyWithLimit(request: Request, limit: number) {
   return body;
 }
 
-export async function parseAssetUploadFormData(request: Request) {
+async function parseAssetUploadFormData(request: Request) {
   const body = await readRequestBodyWithLimit(
     request,
     MAX_ASSET_REQUEST_BODY_SIZE,
@@ -179,7 +186,7 @@ export async function parseAssetUploadFormData(request: Request) {
   }
 }
 
-export async function documentExistsForUser(
+async function documentExistsForUser(
   c: AppContext,
   userId: number,
   documentId: string,
@@ -223,7 +230,7 @@ function normalizeRange(
   return { offset, length };
 }
 
-export function parseRangeHeader(rangeHeader: string, size: number): R2Range | null {
+function parseRangeHeader(rangeHeader: string, size: number): R2Range | null {
   const match = /^bytes=(.+)$/i.exec(rangeHeader.trim());
   if (!match) {
     return null;
@@ -278,7 +285,7 @@ export function parseRangeHeader(rangeHeader: string, size: number): R2Range | n
   return { offset: start, length: clampedEnd - start + 1 };
 }
 
-export function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
+function buildAssetHeaders(contentType: string, size: number, range?: R2Range) {
   const headers = new Headers();
   headers.set("Content-Type", contentType);
   headers.set("X-Content-Type-Options", "nosniff");
@@ -303,7 +310,7 @@ export function buildAssetHeaders(contentType: string, size: number, range?: R2R
   return headers;
 }
 
-export function buildUnsatisfiableRangeHeaders(size: number) {
+function buildUnsatisfiableRangeHeaders(size: number) {
   const headers = new Headers();
   headers.set("Accept-Ranges", "bytes");
   headers.set("Cache-Control", "private, no-store");
@@ -335,7 +342,7 @@ function getInClausePlaceholders(length: number) {
   return Array.from({ length }, () => "?").join(", ");
 }
 
-export async function insertDocumentAsset(
+async function insertDocumentAsset(
   env: AppContext["env"],
   documentId: string,
   assetName: string,
@@ -639,3 +646,181 @@ export async function startDocumentDeletion(
     throw error;
   }
 }
+
+// Chained Hono sub-router for the per-document asset endpoints.
+// `typeof assetRoutes` flows into the worker's combined `AppType`
+// so the app's typed client can call `apiClient.api.documents[
+// ":id"].assets.$post({...})`. The asset GET returns raw bytes (an
+// untyped `Response`) since browsers consume the asset URL directly
+// via `<img>` etc.; including it in the chain keeps the type story
+// uniform without losing anything.
+export const assetRoutes = new Hono<AppBindings>()
+  .post("/api/documents/:id/assets", async (c) => {
+    const userId = c.get("userId");
+    const paramsResult = v.safeParse(documentIdParamSchema, {
+      id: c.req.param("id"),
+    });
+    if (!paramsResult.success) {
+      return c.json(
+        { error: "Invalid document id", details: paramsResult.issues },
+        400,
+      );
+    }
+
+    const { id: documentId } = paramsResult.output;
+    if (!(await documentExistsForUser(c, userId, documentId))) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    const declaredContentLength = getDeclaredContentLength(
+      c.req.header("Content-Length"),
+    );
+    if (
+      declaredContentLength !== null &&
+      declaredContentLength > MAX_ASSET_REQUEST_BODY_SIZE
+    ) {
+      return c.json({ error: "File too large" }, 413);
+    }
+
+    let formData: FormData;
+    try {
+      formData = await parseAssetUploadFormData(c.req.raw);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return c.json({ error: "File too large" }, 413);
+      }
+      if (error instanceof InvalidMultipartFormDataError) {
+        return c.json({ error: "Invalid multipart form data" }, 400);
+      }
+      throw error;
+    }
+
+    const uploadFieldsResult = v.safeParse(documentAssetUploadFieldsSchema, {
+      file: formData.get("file"),
+    });
+    if (!uploadFieldsResult.success) {
+      return c.json(
+        {
+          error: "Invalid asset upload fields",
+          details: uploadFieldsResult.issues,
+        },
+        400,
+      );
+    }
+
+    const { file: uploadFile } = uploadFieldsResult.output;
+    const uploadFileResult = v.safeParse(
+      documentAssetUploadFileSchema,
+      uploadFile,
+    );
+    if (!uploadFileResult.success) {
+      return c.json(
+        {
+          error:
+            uploadFile.size > MAX_ASSET_SIZE
+              ? "File too large"
+              : "Unsupported asset type",
+          details: uploadFileResult.issues,
+        },
+        uploadFile.size > MAX_ASSET_SIZE ? 413 : 400,
+      );
+    }
+
+    // Derive the suffix from the validated MIME type instead of trusting the
+    // uploaded filename. That keeps asset keys bounded and predictable even if
+    // a client sends a pathological or misleading name.
+    const ext = getAssetExtensionForContentType(uploadFile.type);
+    const assetName = `${crypto.randomUUID()}${ext}`;
+    const key = getDocumentAssetKey(documentId, assetName);
+
+    try {
+      await c.env.ASSETS.put(key, uploadFile.stream(), {
+        httpMetadata: { contentType: uploadFile.type },
+      });
+      if (!(await documentExistsForUser(c, userId, documentId))) {
+        await c.env.ASSETS.delete(key);
+        return c.json({ error: "Not found" }, 404);
+      }
+      await insertDocumentAsset(c.env, documentId, assetName, uploadFile.type);
+    } catch (error) {
+      await c.env.ASSETS.delete(key);
+      throw error;
+    }
+
+    c.executionCtx.waitUntil(
+      scheduleDocumentAssetGc(c, documentId).catch((error) => {
+        console.error("Failed to schedule document asset GC", error);
+      }),
+    );
+
+    return c.json(
+      {
+        assetName,
+        src: getDocumentAssetSrc(documentId, assetName),
+      },
+      200,
+    );
+  })
+  .get("/api/documents/:id/assets/:assetName", async (c) => {
+    const userId = c.get("userId");
+    const paramsResult = v.safeParse(documentIdParamSchema, {
+      id: c.req.param("id"),
+    });
+    if (!paramsResult.success) {
+      return c.json(
+        { error: "Invalid document id", details: paramsResult.issues },
+        400,
+      );
+    }
+
+    const { id: documentId } = paramsResult.output;
+    if (!(await documentExistsForUser(c, userId, documentId))) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    const assetName = c.req.param("assetName");
+    const assetNameResult = v.safeParse(assetNameSchema, assetName);
+    if (!assetNameResult.success) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    const key = getDocumentAssetKey(documentId, assetNameResult.output);
+    const rangeHeader = c.req.header("Range");
+    let metadata: R2Object | null = null;
+    let object: R2ObjectBody | null;
+    if (rangeHeader) {
+      const rangedMetadata = await c.env.ASSETS.head(key);
+      if (!rangedMetadata) {
+        return c.json({ error: "Not found" }, 404);
+      }
+      metadata = rangedMetadata;
+      const range = parseRangeHeader(rangeHeader, rangedMetadata.size);
+      if (!range) {
+        return new Response("Range Not Satisfiable", {
+          status: 416,
+          headers: buildUnsatisfiableRangeHeaders(rangedMetadata.size),
+        });
+      }
+
+      object = await c.env.ASSETS.get(key, { range });
+    } else {
+      object = await c.env.ASSETS.get(key);
+    }
+
+    if (!object) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    const contentType =
+      object.httpMetadata?.contentType ?? metadata?.httpMetadata?.contentType;
+    if (!contentType || !isSupportedAssetContentType(contentType)) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    const headers = buildAssetHeaders(contentType, object.size, object.range);
+    const status = rangeHeader && object.range ? 206 : 200;
+
+    return new Response(object.body, { status, headers });
+  });
+
+export type AssetRoutes = typeof assetRoutes;
