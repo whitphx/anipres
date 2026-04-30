@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { Anipres } from "anipres";
-import { MAX_ASSET_SIZE } from "anipres-worker/asset-policy";
+import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
 import { SyncedAnipresContainer } from "./SyncedAnipresContainer";
 import {
   createRecoveryState,

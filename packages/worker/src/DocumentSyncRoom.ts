@@ -14,7 +14,7 @@ import {
   isDocumentDeleting,
   reconcileDocumentAssets,
   runDocumentAssetGc,
-} from "./assets";
+} from "./tldraw-assets";
 import type { Env as WorkerEnv } from "./types";
 
 const schema = createTLSchema({

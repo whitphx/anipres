@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import * as v from "valibot";
-import { registerAssetRoutes, startDocumentDeletion } from "./assets";
+import { registerAssetRoutes, startDocumentDeletion } from "./tldraw-assets";
 import { registerApiAuth, registerAuthRoutes } from "./auth";
 import { sweepInitializingDocuments } from "./cleanup";
 import {
@@ -366,7 +366,7 @@ app.put("/api/documents/:id", async (c) => {
 });
 
 // Soft-delete a document. The DO takes over R2 sweep + final row
-// removal after the grace period (see assets.ts startDocumentDeletion).
+// removal after the grace period (see tldraw-assets.ts startDocumentDeletion).
 app.delete("/api/documents/:id", async (c) => {
   const userId = c.get("userId");
   const paramsResult = v.safeParse(documentIdParamSchema, {
