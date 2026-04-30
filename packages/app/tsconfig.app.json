@@ -6,6 +6,17 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
+    // The worker package's `exports` map points at `.ts` sources, so
+    // `import type { IdentitiesRoutes } from "anipres-worker/auth/identities"`
+    // makes tsc compile transitively-reachable worker files (session.ts
+    // → types.ts → DocumentSyncRoom.ts → tldraw-assets.ts) under THIS
+    // tsconfig. Those files reference Workers globals (`D1Database`,
+    // `R2Bucket`, `DurableObjectNamespace`, `R2Range`, `WebSocketPair`),
+    // so the app needs them ambient too — even though the app never
+    // uses any of these types directly. Mild pollution: `Response`,
+    // `Request`, `ResponseInit` etc. get merged with worker-flavored
+    // properties. Fix path is to publish compiled `.d.ts` from the
+    // worker; tracked as a follow-up.
     "types": ["vite-plugin-font/src/font", "@cloudflare/workers-types"],
 
     /* Bundler mode */
