@@ -4,10 +4,7 @@ import type { AppContext } from "./types";
 
 // Asset-storage / GC / lifecycle module — scheduled GC passes,
 // soft-delete sweeps, room→DB asset reconciliation. The asset route
-// handlers live in `./routes/document-assets.ts`; the only helper
-// shared with that side is `getDocumentAssetKey` (both have to
-// derive the same R2 key for an upload's PUT to land where a delete
-// or GC sweep looks).
+// handlers live in `./routes/document-assets.ts`.
 
 const STALE_ASSET_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOCUMENT_DELETE_BATCH_SIZE = 128;
