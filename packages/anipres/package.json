@@ -2,25 +2,18 @@
   "name": "anipres",
   "version": "0.12.0",
   "type": "module",
-  "main": "./dist/anipres.cjs",
-  "module": "./dist/anipres.js",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/anipres.js"
-      },
-      "require": "./dist/anipres.cjs"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/anipres.js"
     },
     "./anipres.css": "./dist/anipres.css",
     "./schema": {
-      "import": {
-        "types": "./dist/schema.d.ts",
-        "default": "./dist/schema.js"
-      }
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
     }
   },
   "types": "./dist/index.d.ts",
