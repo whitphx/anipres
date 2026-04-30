@@ -12,32 +12,26 @@ import type { AppBindings } from "../types";
 
 // `provider` is closed-set — only providers we register OAuth flows
 // for can land in `oauth_identities`. `provider_id` comes from the
-// upstream IdP (numeric for GitHub, opaque `sub` for Google); no
-// specific format enforced, just a length bound so a pathological
-// client can't smuggle an unbounded string into the parameterized
-// statement.
+// upstream IdP and formats vary, so no specific format is enforced
+// — just a length bound so a pathological client can't smuggle an
+// unbounded string into the parameterized statement.
 const oauthIdentityRevokeParamSchema = v.object({
   provider: v.picklist(["github", "google"]),
   provider_id: v.pipe(v.string(), v.minLength(1), v.maxLength(256)),
 });
 
-// JSON `/auth/*` routes. Browser-redirect handlers for the OAuth
-// providers are off this chain — see `registerOAuthProviderRoutes`
-// in `../auth`.
 export const authRoutes = new Hono<AppBindings>()
   .get("/auth/me", async (c) => {
     const user = await getCurrentUser(c);
     if (!user) {
       // Self-heal stale cookies: a JWT can outlive its underlying
-      // user row (DB reset in dev, or an account deletion once that
-      // ships). Without this, the browser keeps replaying the orphan
-      // cookie on every load — `getCurrentUser` returns null, the
-      // client stays in a logged-out state with a still-present
-      // cookie, and the next OAuth attempt would land in link mode
-      // against a missing user (now caught in `session.ts`, but the
-      // cookie itself is the root cause and worth clearing here).
-      // Safe to call unconditionally: when there's no cookie or the
-      // signature failed, `clearSession` is a no-op for the client.
+      // user row (e.g. DB reset in dev). Without this, the browser
+      // keeps replaying the orphan cookie on every load —
+      // `getCurrentUser` returns null, the client stays in a
+      // logged-out state with a still-present cookie, and the next
+      // OAuth attempt would land in link mode against a missing
+      // user. Clearing here addresses the root cause locally even
+      // though the link-mode case is also caught downstream.
       clearSession(c);
       return c.json({ error: "Not authenticated" }, 401);
     }
@@ -48,10 +42,9 @@ export const authRoutes = new Hono<AppBindings>()
     clearSession(c);
     return c.json({ ok: true as const }, 200);
   })
-  // List the OAuth identities linked to the current user. Used by the
-  // account-settings UI to render the "linked providers" panel and
-  // gate the "Connect another" buttons. 401 when logged out — the
-  // settings UI is only reachable from a logged-in surface anyway.
+  // 401 when logged out rather than an empty list — the
+  // settings UI that drives this is only reachable from a
+  // logged-in surface anyway.
   .get("/auth/identities", async (c) => {
     const userId = await requireSession(c);
     if (userId === null) {
@@ -60,11 +53,9 @@ export const authRoutes = new Hono<AppBindings>()
     const identities = await listOAuthIdentities(c, userId);
     return c.json(identities, 200);
   })
-  // Detach an OAuth identity from the current user (the unlink
-  // counterpart to the `/auth/{provider}` connect flow). 409 with
-  // `code: "last_identity"` when refused — the server-side guard
-  // refuses to leave a user with zero identities (which would lock
-  // them out, since login resolves users via `(provider,
+  // 409 with `code: "last_identity"` when refused — the server-side
+  // guard refuses to leave a user with zero identities (which would
+  // lock them out, since login resolves users via `(provider,
   // provider_id)`). The settings UI hides the Unlink button when
   // there's only one identity, but the server check is the actual
   // safety guarantee.
