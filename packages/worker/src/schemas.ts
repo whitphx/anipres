@@ -20,10 +20,9 @@ export const documentIdParamSchema = v.object({
   id: documentIdSchema,
 });
 
-// Server-side allowlist of asset content types. Mirror tldraw's defaults
-// for image and short-form video formats; SVG is included for vector
-// imports. Anything outside the list is rejected by the upload handler
-// before R2 ever sees the bytes.
+// Server-side allowlist of asset content types. Anything outside the
+// list is rejected by the upload handler before R2 ever sees the
+// bytes.
 export const SUPPORTED_ASSET_CONTENT_TYPES = [
   "image/jpeg",
   "image/png",

@@ -432,10 +432,7 @@ export const assetRoutes = new Hono<AppBindings>()
     },
   )
   // Returns raw bytes — browsers consume the asset URL directly via
-  // `<img>` etc., not through the typed RPC client. Mounting it in
-  // the chain alongside the JSON POST is harmless (the typed client
-  // just sees a non-JSON response) and keeps the routes/ layout
-  // uniform.
+  // `<img>` etc., not through the typed RPC client.
   .get(
     "/api/documents/:id/assets/:assetName",
     // 404 not 400 on validator failure: a malformed asset name can't

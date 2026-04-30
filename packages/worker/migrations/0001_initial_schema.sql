@@ -43,6 +43,11 @@ CREATE TABLE oauth_identities (
 
 CREATE INDEX idx_oauth_identities_user ON oauth_identities (user_id);
 
+-- INTEGER PK here vs TEXT UUID for `documents` — see the
+-- documents.id design note below for the trade-off. Workspaces are
+-- server-allocated at signup and never originate offline, so the
+-- local-first / round-trip-to-allocate argument that flips the
+-- decision for documents doesn't apply.
 CREATE TABLE workspaces (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name            TEXT NOT NULL CHECK (length(trim(name)) > 0),

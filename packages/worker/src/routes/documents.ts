@@ -14,9 +14,9 @@ const nonNegativeFiniteInteger = v.pipe(
 const DOCUMENT_TITLE_MAX_LENGTH = 256;
 
 // Server-side floor for callers that bypass the client's "Untitled"
-// fallback in createNewDocument: empty / whitespace-only titles would
-// render as a blank sidebar row. Null bytes are rejected because D1's
-// TEXT tolerates them but they break grep and leak through raw logs.
+// fallback: empty / whitespace-only titles would render as a blank
+// sidebar row. Null bytes are rejected because D1's TEXT tolerates
+// them but they break grep and leak through raw logs.
 const documentTitleSchema = v.pipe(
   v.string(),
   v.minLength(1),
@@ -35,14 +35,10 @@ const sortOrderSchema = v.pipe(
   v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
 );
 
-// Workspace ids are server-allocated INTEGER autoincrement values
-// passed as decimal strings on the wire. Coerce to JS number after
-// validation so handlers can pass it straight to D1 `.bind()`. The
-// asymmetry with `documents.id` (which stays TEXT end-to-end) is
-// deliberate: workspaces are a server-side concept the user never
-// originates offline, so the INTEGER rowid wins (smaller indexes,
-// sequential inserts); documents need their id to flow unchanged
-// through the local → synced path.
+// Workspace ids are INTEGER on the server side (see the migration);
+// clients pass them as decimal strings on the wire. Coerce to JS
+// number after validation so handlers can pass it straight to D1
+// `.bind()`.
 const workspaceIdSchema = v.pipe(
   v.string(),
   v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
@@ -71,18 +67,13 @@ export const documentUpsertSchema = v.object({
 
 // Cap on snapshot push body size. Prevents a runaway client from
 // streaming arbitrary blobs at the DO; sized with headroom over
-// realistic tldraw snapshot sizes (typically well under 1 MB even
-// for docs with embedded references).
+// realistic tldraw snapshot sizes.
 const MAX_SNAPSHOT_BODY_BYTES = 5 * 1024 * 1024;
 export const snapshotPushBodySchema = v.object({
   snapshot: v.record(v.string(), v.unknown()),
   expectedSnapshotVersion: nonNegativeFiniteInteger,
 });
 
-// Wire shape of a documents-table row as returned by every JSON
-// endpoint in this file. Ids are TEXT (UUID v7 strings,
-// client-allocated) and timestamps are integer ms — no per-field
-// massaging needed at the JSON boundary.
 type DocumentRow = {
   id: string;
   slug: string;
@@ -92,19 +83,12 @@ type DocumentRow = {
   updated_at: number;
 };
 
-// Slug generator. Phase 1 doesn't surface slugs in the UI; the column
-// is populated for forward compatibility. `crypto.randomUUID()` is
-// overkill for collision avoidance but keeps it one line and avoids
-// pulling in nanoid. Swap to a shorter format when slugs become
-// user-visible.
+// Slugs aren't user-visible yet, so URL brevity isn't a concern;
+// crypto.randomUUID() avoids pulling in a separate id-gen dep.
 function generateDocumentSlug() {
   return crypto.randomUUID();
 }
 
-// Returns true iff the workspace exists and is owned by `userId`.
-// Phase 1 has 1:1 user:workspace, so this is a presence check;
-// Extension A will replace this with a membership query against
-// `workspaces` ∪ `org_memberships`.
 async function userOwnsWorkspace(
   c: AppContext,
   userId: number,
@@ -124,18 +108,9 @@ async function userOwnsWorkspace(
 export const documentsRoutes = new Hono<AppBindings>()
   // List active documents in a workspace, in sort order.
   //
-  // "Active" means neither soft-deleted nor still initializing. Rows
-  // in either of those states are an implementation detail of a
-  // multi-step lifecycle the user shouldn't see: deleting rows are
-  // mid-asset-GC, initializing rows are mid-create. The partial index
-  // `idx_documents_workspace_sort` matches this exact predicate.
-  //
-  // Why a query param instead of a path segment: `/api/documents/:id`
-  // is already the per-doc route; making the list-route
-  // `/api/documents` keeps the surface flat and pairs naturally with
-  // the per-doc routes. Extension A will likely add
-  // `/api/workspaces/:wsid/documents` as a secondary form for
-  // org-scoped enumeration.
+  // "Active" means neither soft-deleted nor still initializing — both
+  // states are intermediate steps in multi-step lifecycles (asset GC,
+  // create finalization) that the user shouldn't see in the sidebar.
   .get(
     "/api/documents",
     vValidator("query", documentListQuerySchema, (result, c) => {
@@ -186,10 +161,6 @@ export const documentsRoutes = new Hono<AppBindings>()
     async (c) => {
       const userId = c.get("userId");
       const { id } = c.req.valid("param");
-      // Ownership scoping is expressed by filtering on the doc's
-      // `workspace_id` against the set of workspaces owned by the user.
-      // The IN-subquery form is consistent with the other per-doc
-      // handlers and reads as "this doc, in one of my workspaces."
       const row = await c.env.DB.prepare(
         `SELECT id, slug, title, sort_order, created_at, updated_at
          FROM documents
@@ -206,13 +177,6 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json({ meta: row, snapshot: null }, 200);
     },
   )
-  // Upsert a document by id. PUT-as-upsert is the canonical pattern
-  // for client-allocated ids: the client supplies the doc id (UUID
-  // v7) and the body describes the post-state. The handler branches
-  // on row existence: insert with initializing_at on first call,
-  // update title/sort_order on subsequent calls. workspace_id is
-  // always in the body — on insert it places the row, on update it
-  // has to match the existing row (cross-workspace moves return 404).
   .put(
     "/api/documents/:id",
     vValidator("param", documentIdParamSchema, (result, c) => {
@@ -275,15 +239,12 @@ export const documentsRoutes = new Hono<AppBindings>()
         // snapshot, and any failure between PUT and snapshot push
         // leaves a row stuck initializing. The retry replays the
         // same PUT with the same body; if we rejected initializing
-        // rows, the retry would 404 forever (the sweep eventually
-        // cleans up after a 10-minute grace window, but interactive
-        // retry is a minute-zero need). Letting the metadata UPDATE
-        // through is harmless — the row stays initializing, the
-        // snapshot push remains the sole finalizer (the `PUT
-        // /api/documents/:id/snapshot` handler clears
-        // `initializing_at` on a successful push), and any orphan
-        // tldraw_assets rows from the prior attempt get GC'd by the
-        // asset sweep at the next push.
+        // rows, the retry would 404 until the sweep cleaned up,
+        // which doesn't fit interactive retry. Letting the metadata
+        // UPDATE through is harmless — the row stays initializing,
+        // the snapshot push remains the sole finalizer, and any
+        // orphan tldraw_assets rows from the prior attempt get GC'd
+        // by the asset sweep at the next push.
         if (
           existing.deleting_at !== null ||
           existing.workspace_id !== workspaceId
@@ -291,20 +252,18 @@ export const documentsRoutes = new Hono<AppBindings>()
           return c.json({ error: "Not found" }, 404);
         }
 
-        // updated_at is left to the trigger — see the documents
-        // updated_at trigger in 0001_initial_schema.sql. created_at
-        // on the body is ignored: backdating is only meaningful at
-        // insert.
+        // updated_at is left to the documents.updated_at trigger.
+        // created_at on the body is ignored: backdating is only
+        // meaningful at insert.
         //
         // The WHERE clause re-asserts the rejection conditions the
         // pre-SELECT checked (workspace match, not deleting). The
         // SELECT alone isn't enough — between it and this UPDATE
-        // another request could soft-delete the row or (in some
-        // future Extension B world) move it across workspaces. With
-        // these guards on the UPDATE itself, a state transition in
-        // that window safely flips the result to 0 changes → 404
-        // instead of writing title/sort_order onto a row in a state
-        // we just rejected. The pre-SELECT still drives the
+        // another request could soft-delete the row. With these
+        // guards on the UPDATE itself, a state transition in that
+        // window safely flips the result to 0 changes → 404 instead
+        // of writing title/sort_order onto a row in a state we just
+        // rejected. The pre-SELECT still drives the
         // insert-vs-update branch decision; it just no longer
         // carries the safety contract.
         const row = await c.env.DB.prepare(
@@ -358,14 +317,11 @@ export const documentsRoutes = new Hono<AppBindings>()
         // "UNIQUE constraint failed: <table>.<column>", so
         // distinguish by the column name. Two unique columns on
         // documents:
-        //   - id    : two PUTs for the same id raced (UUID v7
-        //             collision is astronomically unlikely; the
-        //             realistic case is a buggy client reusing an
-        //             id).
-        //   - slug  : crypto.randomUUID() collision — even more
-        //             unlikely (one in 2^61 odds with a million
-        //             docs). Surface distinctly so the operator
-        //             notices if it ever fires.
+        //   - id    : two PUTs for the same id raced; the realistic
+        //             case is a buggy client reusing an id rather
+        //             than a genuine UUID v7 collision.
+        //   - slug  : slug collision. Surface distinctly so the
+        //             operator notices if it ever fires.
         const message = error instanceof Error ? error.message : String(error);
         if (/UNIQUE constraint failed: documents\.id/i.test(message)) {
           return c.json({ error: "Document id already exists" }, 409);
@@ -456,11 +412,12 @@ export const documentsRoutes = new Hono<AppBindings>()
     async (c) => {
       const userId = c.get("userId");
       const { id } = c.req.valid("param");
-      // The IS NOT NULL guard makes finalize idempotent — calling it on
-    // an already-finalized doc is a no-op rather than an error. The
-      // ownership/deleting filters are the same as the regular update
-      // path: we don't want a finalize call to revive a soft-deleted
-      // doc, and we want a clean 404 for foreign / non-existent ids.
+      // The IS NOT NULL guard makes finalize idempotent — calling it
+      // on an already-finalized doc is a no-op rather than an error.
+      // The ownership/deleting filters are the same as the regular
+      // update path: we don't want a finalize call to revive a
+      // soft-deleted doc, and we want a clean 404 for foreign /
+      // non-existent ids.
       const result = await c.env.DB.prepare(
         `UPDATE documents
             SET initializing_at = NULL
