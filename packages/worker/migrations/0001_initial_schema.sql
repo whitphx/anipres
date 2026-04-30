@@ -131,8 +131,7 @@ CREATE TABLE documents (
   -- Every document has a slug from creation. The slug is the URL
   -- handle for both authorized access (the owner navigating to their
   -- own draft) and any future public access. UNIQUE+CHECK enforced
-  -- on the column directly; SQLite auto-creates the unique index
-  -- (named `sqlite_autoindex_documents_1`).
+  -- on the column directly; SQLite auto-creates the unique index.
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
   -- title and `workspaces.name` use `length(trim(...)) > 0` (vs the
   -- plain length CHECK on slug/sort_order) because they're user-
