@@ -10,11 +10,8 @@ import type { AppBindings, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
-// Concrete route definitions live under `./routes/<url>.ts`, keyed
-// by their top-level URL segment. To add an endpoint: add it to the
-// matching sub-router (or create a new file under `routes/` for a
-// fresh URL prefix), then chain `.route("/", newRouter)` below so
-// its types flow into `AppType`.
+// Route handlers are imported from elsewhere; by convention they
+// live under `./routes/`.
 
 const app = new Hono<AppBindings>();
 
