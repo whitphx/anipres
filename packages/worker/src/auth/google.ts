@@ -7,6 +7,8 @@ const GOOGLE_STATE_COOKIE_NAME = "anipres_google_oauth_state";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const GOOGLE_CALLBACK_PATH = "/auth/google/callback";
 
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 function getGoogleRedirectUri(c: AppContext) {
   // Auto-detecting from request context (Host header / `c.req.url`)
   // isn't viable: `wrangler dev` synthesizes both values from the
@@ -18,10 +20,8 @@ function getGoogleRedirectUri(c: AppContext) {
   if (!c.env.PUBLIC_BASE_URL) {
     // Throw rather than silently emit a bogus URI. A path-only or
     // placeholder string would produce a confusing Google error
-    // unrelated to the actual cause. The 500 the worker returns
-    // here is honest: the server is misconfigured and the request
-    // can't be served until an operator sets the env var. The log
-    // line below is the actionable signal.
+    // unrelated to the actual cause. The log line is the actionable
+    // signal.
     console.error(
       "[google-auth] PUBLIC_BASE_URL is not set. " +
         "For local dev, copy `packages/worker/.dev.vars.example` to " +
@@ -31,6 +31,30 @@ function getGoogleRedirectUri(c: AppContext) {
     );
     throw new Error("PUBLIC_BASE_URL is not configured");
   }
+
+  // Catch the common dev misconfiguration: developer forgot to copy
+  // `.dev.vars.example` to `.dev.vars`, so PUBLIC_BASE_URL inherits
+  // the prod value from `[vars]`. Without this guard, the worker
+  // would happily emit `https://anipres.app/auth/google/callback`
+  // for a localhost-originated request and the user would see only
+  // Google's opaque "redirect_uri_mismatch" error.
+  const requestHost = new URL(c.req.url).hostname;
+  const configuredHost = new URL(c.env.PUBLIC_BASE_URL).hostname;
+  if (
+    LOCALHOST_HOSTS.has(requestHost) &&
+    !LOCALHOST_HOSTS.has(configuredHost)
+  ) {
+    console.error(
+      "[google-auth] Request is on localhost but PUBLIC_BASE_URL " +
+        `points at ${configuredHost}. Copy ` +
+        "`packages/worker/.dev.vars.example` to `.dev.vars` and " +
+        "restart `wrangler dev`.",
+    );
+    throw new Error(
+      "PUBLIC_BASE_URL is misconfigured for local development",
+    );
+  }
+
   return `${c.env.PUBLIC_BASE_URL}${GOOGLE_CALLBACK_PATH}`;
 }
 

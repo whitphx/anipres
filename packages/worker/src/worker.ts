@@ -1,5 +1,9 @@
 import { Hono } from "hono";
-import { registerApiAuth, registerOAuthProviderRoutes } from "./auth";
+import {
+  registerApiAuth,
+  registerCsrfGuard,
+  registerOAuthProviderRoutes,
+} from "./auth";
 import { sweepInitializingDocuments } from "./cleanup";
 import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
@@ -12,6 +16,9 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
 
+// CSRF guard is mounted first so unauthorized cross-origin
+// state-changing requests are rejected before the auth lookup runs.
+registerCsrfGuard(app);
 registerOAuthProviderRoutes(app);
 // Must mount before the /api/* sub-routers below — Hono runs
 // middleware that matches a request's path in registration order.
