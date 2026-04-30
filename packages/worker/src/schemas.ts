@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { MAX_ASSET_SIZE } from "anipres/schema";
+import { MAX_ASSET_SIZE } from "./asset-policy.ts";
 
 // Document title bounds: long enough to be useful, short enough to keep
 // rows compact in D1. Reject null bytes — D1's TEXT column tolerates

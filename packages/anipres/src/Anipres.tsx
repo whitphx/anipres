@@ -35,7 +35,6 @@ import type {
 } from "tldraw";
 import "tldraw/tldraw.css";
 
-import { MAX_ASSET_SIZE } from "./schema";
 import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
@@ -274,10 +273,19 @@ interface InnerProps {
   store?: TLStore | TLStoreWithStatus;
   perInstanceAtoms: AnipresAtoms;
   assetUrls?: TldrawProps["assetUrls"];
+  maxAssetSize?: TldrawProps["maxAssetSize"];
   user: TLUser;
 }
 const Inner = (props: InnerProps) => {
-  const { onMount, snapshot, store, perInstanceAtoms, assetUrls, user } = props;
+  const {
+    onMount,
+    snapshot,
+    store,
+    perInstanceAtoms,
+    assetUrls,
+    maxAssetSize,
+    user,
+  } = props;
 
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
@@ -531,11 +539,12 @@ const Inner = (props: InnerProps) => {
       shapeUtils={customShapeUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
-      maxAssetSize={MAX_ASSET_SIZE}
+      maxAssetSize={maxAssetSize}
       options={{
         maxPages: 1,
       }}
-      {...(store ? { store } : { snapshot })}
+      store={store}
+      snapshot={snapshot}
       assetUrls={assetUrls}
       user={user}
     />
@@ -551,6 +560,7 @@ export interface AnipresProps {
   snapshot?: InnerProps["snapshot"];
   store?: InnerProps["store"];
   assetUrls?: InnerProps["assetUrls"];
+  maxAssetSize?: InnerProps["maxAssetSize"];
   stepHotkeyEnabled?: boolean;
   colorScheme?: "light" | "dark" | "system";
 }
@@ -565,6 +575,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       snapshot,
       store,
       assetUrls,
+      maxAssetSize,
       stepHotkeyEnabled,
       colorScheme,
     } = props;
@@ -649,6 +660,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         snapshot={snapshot}
         store={store}
         assetUrls={memoizedAssetUrls}
+        maxAssetSize={maxAssetSize}
         user={user}
       />
     );

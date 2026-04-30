@@ -114,6 +114,9 @@ importers:
       anipres:
         specifier: workspace:*
         version: link:../anipres
+      anipres-worker:
+        specifier: workspace:*
+        version: link:../worker
       fractional-indexing:
         specifier: ^3.2.0
         version: 3.2.0
@@ -11035,6 +11038,14 @@ snapshots:
     optionalDependencies:
       vite: 7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
 
+  '@vitest/mocker@4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))':
+    dependencies:
+      '@vitest/spy': 4.0.6
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2)
+
   '@vitest/pretty-format@4.0.6':
     dependencies:
       tinyrainbow: 3.0.3
@@ -15861,7 +15872,7 @@ snapshots:
   vitest@4.0.6(@types/debug@4.1.12)(@types/node@24.10.0)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@25.0.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.6
-      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@22.13.10)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.6(vite@7.2.6(@types/node@24.10.0)(jiti@2.6.1)(sass-embedded@1.93.3)(sass@1.93.3)(tsx@4.19.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.6
       '@vitest/runner': 4.0.6
       '@vitest/snapshot': 4.0.6

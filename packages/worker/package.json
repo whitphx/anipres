@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "exports": {
+    "./asset-policy": "./src/asset-policy.ts"
+  },
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
     "deploy": "pnpm run migrate:remote && wrangler deploy",
