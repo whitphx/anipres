@@ -23,5 +23,11 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Project reference to anipres-worker's type-emit config. `tsc -b`
+  // builds the worker's `.d.ts` ahead of checking this package, which
+  // is why `@cloudflare/workers-types` is NOT in `types` above —
+  // worker globals stay contained inside the worker's own typecheck
+  // and never reach this compilation.
+  "references": [{ "path": "../worker/tsconfig.build.json" }]
 }

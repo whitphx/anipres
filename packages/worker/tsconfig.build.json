@@ -1,0 +1,23 @@
+// Type-emit config consumed by the app's project reference
+// (`packages/app/tsconfig.app.json`'s `references`). The default
+// `tsconfig.json` is set up for fast `tsc --noEmit` typechecks and
+// for wrangler dev (which doesn't go through tsc); this overlay
+// flips the flags needed to emit declarations to `./dist` so
+// `import type { AppType } from "anipres-worker/api-types"` on the
+// app side resolves to a compiled `.d.ts` rather than walking
+// worker source under the app's tsconfig (which would force
+// `@cloudflare/workers-types` ambient there).
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src"]
+}

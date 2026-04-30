@@ -4,7 +4,11 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
-    "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts"
+    "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts",
+    "./api-types": {
+      "types": "./dist/api-types.d.ts",
+      "default": "./src/api-types.ts"
+    }
   },
   "scripts": {
     "dev": "pnpm run migrate:local && wrangler dev",
@@ -13,11 +17,13 @@
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
-    "typecheck": "tsc --noEmit",
+    "build:types": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc",
     "test": "vitest"
   },
   "dependencies": {
     "@hono/oauth-providers": "^0.8.5",
+    "@hono/valibot-validator": "^0.6.1",
     "@tldraw/sync-core": "3.15.5",
     "anipres": "workspace:*",
     "hono": "^4.12.15",

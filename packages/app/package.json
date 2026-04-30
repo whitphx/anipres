@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier . --write",
@@ -17,6 +17,7 @@
     "anipres": "workspace:*",
     "anipres-worker": "workspace:*",
     "fractional-indexing": "^3.2.0",
+    "hono": "^4.12.15",
     "idb-keyval": "^6.2.1",
     "lucide-react": "^0.577.0",
     "react": "^18.3.1",

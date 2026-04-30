@@ -3,6 +3,7 @@ import { useSync } from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
+import { apiClient } from "../lib/api-client";
 import {
   deleteSyncRecovery,
   getSyncCacheSessionId,
@@ -58,13 +59,16 @@ async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
 }> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/offline-cache`,
-  );
+  const res = await apiClient.api.documents[":id"]["offline-cache"].$get({
+    param: { id: documentId },
+  });
   if (!res.ok) {
     throw new Error(`Offline cache fetch failed: ${res.status}`);
   }
-  return (await res.json()) as {
+  // The DO's `getCachedSnapshot` is opaque from the worker's side —
+  // tldraw types aren't reachable across the package boundary, so
+  // the worker schema can't describe the snapshot precisely; cast.
+  return (await res.json()) as unknown as {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
   };
@@ -74,13 +78,13 @@ async function fetchSnapshotStatus(documentId: string): Promise<{
   snapshotVersion: number;
   snapshotFingerprint: string;
 }> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/snapshot-status`,
-  );
+  const res = await apiClient.api.documents[":id"]["snapshot-status"].$get({
+    param: { id: documentId },
+  });
   if (!res.ok) {
     throw new Error(`Snapshot status fetch failed: ${res.status}`);
   }
-  return (await res.json()) as {
+  return (await res.json()) as unknown as {
     snapshotVersion: number;
     snapshotFingerprint: string;
   };

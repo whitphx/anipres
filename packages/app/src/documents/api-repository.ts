@@ -1,3 +1,4 @@
+import { apiClient } from "../lib/api-client";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
@@ -42,19 +43,19 @@ export class ApiDocumentRepository implements DocumentRepository {
   constructor(private readonly workspaceId: string) {}
 
   async list(): Promise<DocumentMeta[]> {
-    const res = await fetch(
-      `/api/documents?workspace_id=${encodeURIComponent(this.workspaceId)}`,
-    );
+    const res = await apiClient.api.documents.$get({
+      query: { workspace_id: this.workspaceId },
+    });
     if (!res.ok) throw new Error(`Failed to list documents: ${res.status}`);
-    const rows: DocumentRow[] = await res.json();
+    const rows = await res.json();
     return rows.map(rowToMeta);
   }
 
   async get(id: string): Promise<DocumentData | undefined> {
-    const res = await fetch(`/api/documents/${encodeURIComponent(id)}`);
+    const res = await apiClient.api.documents[":id"].$get({ param: { id } });
     if (res.status === 404) return undefined;
     if (!res.ok) throw new Error(`Failed to get document: ${res.status}`);
-    const body: { meta: DocumentRow; snapshot: null } = await res.json();
+    const body = await res.json();
     return {
       meta: rowToMeta(body.meta),
       snapshot: body.snapshot,
@@ -85,18 +86,14 @@ export class ApiDocumentRepository implements DocumentRepository {
     if (input.meta.createdAt !== undefined) {
       body.created_at = input.meta.createdAt;
     }
-    const res = await fetch(
-      `/api/documents/${encodeURIComponent(input.meta.id)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
+    const res = await apiClient.api.documents[":id"].$put({
+      param: { id: input.meta.id },
+      json: body,
+    });
     if (!res.ok) {
       throw new Error(`Failed to save document: ${res.status}`);
     }
-    const row: DocumentRow = await res.json();
+    const row = await res.json();
     return {
       meta: rowToMeta(row),
       // Snapshot is uploaded separately (PUT /api/documents/:id/snapshot);
@@ -106,8 +103,8 @@ export class ApiDocumentRepository implements DocumentRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
-      method: "DELETE",
+    const res = await apiClient.api.documents[":id"].$delete({
+      param: { id },
     });
     if (!res.ok) throw new Error(`Failed to delete document: ${res.status}`);
   }

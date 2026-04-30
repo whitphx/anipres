@@ -1,5 +1,6 @@
 import type { TLStoreSnapshot } from "tldraw";
 import { v7 as uuidv7 } from "uuid";
+import { apiClient } from "../lib/api-client";
 import type { ApiDocumentRepository } from "./api-repository";
 import {
   snapshotsEqual,
@@ -22,13 +23,13 @@ async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
   snapshotVersion: number;
 }> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/offline-cache`,
-  );
+  const res = await apiClient.api.documents[":id"]["offline-cache"].$get({
+    param: { id: documentId },
+  });
   if (!res.ok) {
     throw new Error(`Offline cache fetch failed: ${res.status}`);
   }
-  return (await res.json()) as {
+  return (await res.json()) as unknown as {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
   };
@@ -60,19 +61,16 @@ export async function reconcileOfflineEdits(params: {
     return { action: "noop" };
   }
 
-  // Try to push: the server endpoint rejects with 409 if the DO snapshot
-  // version has advanced since this cached snapshot was written.
-  const pushRes = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        snapshot: localSnapshot,
-        expectedSnapshotVersion: snapshotVersion,
-      }),
+  // Try to push: the server endpoint rejects with 409 if the DO
+  // snapshot version has advanced since this cached snapshot was
+  // written.
+  const pushRes = await apiClient.api.documents[":id"].snapshot.$put({
+    param: { id: documentId },
+    json: {
+      snapshot: localSnapshot as unknown as Record<string, unknown>,
+      expectedSnapshotVersion: snapshotVersion,
     },
-  );
+  });
 
   if (pushRes.ok) {
     return { action: "pushed" };
@@ -113,17 +111,13 @@ export async function reconcileOfflineEdits(params: {
       snapshotsEqual(serverCache.snapshot, recovery.baselineSnapshot) ||
       snapshotsEqual(serverCache.snapshot, recovery.reconnectSnapshot)
     ) {
-      const retryPushRes = await fetch(
-        `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            snapshot: localSnapshot,
-            expectedSnapshotVersion: serverCache.snapshotVersion,
-          }),
+      const retryPushRes = await apiClient.api.documents[":id"].snapshot.$put({
+        param: { id: documentId },
+        json: {
+          snapshot: localSnapshot as unknown as Record<string, unknown>,
+          expectedSnapshotVersion: serverCache.snapshotVersion,
         },
-      );
+      });
 
       if (retryPushRes.ok) {
         return { action: "pushed" };
@@ -183,19 +177,15 @@ export async function reconcileOfflineEdits(params: {
   });
 
   // Push the local snapshot into the fork's Durable Object room.
-  let forkPushRes: Response;
+  let forkPushRes;
   try {
-    forkPushRes = await fetch(
-      `/api/documents/${encodeURIComponent(forkId)}/snapshot`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          snapshot: localSnapshot,
-          expectedSnapshotVersion: 0,
-        }),
+    forkPushRes = await apiClient.api.documents[":id"].snapshot.$put({
+      param: { id: forkId },
+      json: {
+        snapshot: localSnapshot as unknown as Record<string, unknown>,
+        expectedSnapshotVersion: 0,
       },
-    );
+    });
   } catch (error) {
     await repository.delete(forkId).catch(() => {});
     return {

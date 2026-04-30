@@ -1,4 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { apiClient } from "../lib/api-client";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
 
@@ -176,6 +177,11 @@ async function defaultUploadAsset(
   file: File,
   abortSignal: AbortSignal | undefined,
 ): Promise<{ src: string }> {
+  // Asset uploads stay on raw `fetch` instead of the typed RPC client.
+  // The worker's POST handler does size-aware multipart parsing that
+  // doesn't fit `vValidator("form")`'s eager `parseBody()`; until the
+  // server side switches to validator-friendly parsing, the call site
+  // has nothing typed to consume.
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(
@@ -197,17 +203,15 @@ async function defaultPushSnapshot(
   snapshot: TLStoreSnapshot,
   abortSignal: AbortSignal | undefined,
 ): Promise<void> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
+  const res = await apiClient.api.documents[":id"].snapshot.$put(
     {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        snapshot,
+      param: { id: documentId },
+      json: {
+        snapshot: snapshot as unknown as Record<string, unknown>,
         expectedSnapshotVersion: 0,
-      }),
-      signal: composeWithTimeout(abortSignal),
+      },
     },
+    { init: { signal: composeWithTimeout(abortSignal) } },
   );
   if (!res.ok) {
     throw new Error(`Snapshot push failed: ${res.status}`);

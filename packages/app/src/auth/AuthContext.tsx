@@ -1,21 +1,21 @@
 import { useCallback } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import type { User } from "./types";
+import { apiClient } from "../lib/api-client";
 import { AuthContext } from "./useAuth";
 
-const ME_KEY = "/auth/me";
+const ME_KEY = ["auth", "me"] as const;
 
-// `/auth/me` returns 401 with a JSON error body when not logged in
-// — that's "logged out", not a fetch error — so the fetcher maps 401
-// to `null` instead of throwing. Other non-ok statuses still throw so
-// SWR's `error` channel surfaces real failures.
-async function fetchMe(url: string): Promise<User | null> {
-  const res = await fetch(url);
+// 401 is "logged out", not an error — mapping to `null` instead of
+// throwing keeps SWR's `error` channel reserved for real server
+// failures (5xx) so they surface to the user rather than silently
+// logging them out. The `as Response` cast is the price of TS
+// narrowing `res` to `never` after the typed status union has been
+// exhausted; at runtime `res.status` is still the real number.
+export async function fetchMe() {
+  const res = await apiClient.auth.me.$get();
+  if (res.status === 200) return res.json();
   if (res.status === 401) return null;
-  if (!res.ok) {
-    throw new Error(`Request failed (${res.status})`);
-  }
-  return (await res.json()) as User;
+  throw new Error(`Request failed (${(res as Response).status})`);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -23,7 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // focus-revalidation behavior covers a real case here: a user who
   // logs out in another tab gets reflected in this tab on focus
   // without needing a cross-tab broadcast.
-  const { data, isLoading: loading } = useSWR<User | null>(ME_KEY, fetchMe);
+  const { data, isLoading: loading } = useSWR(ME_KEY, fetchMe);
   const user = data ?? null;
 
   // Pull the global mutate so logout can wipe every SWR cache key,
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    const res = await fetch("/auth/logout", { method: "POST" });
+    const res = await apiClient.auth.logout.$post();
     if (res.ok) {
       // Wipe every SWR cache key, not just `/auth/me`. After logout,
       // any data fetched while authenticated (workspaces, identities,

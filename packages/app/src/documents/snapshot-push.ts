@@ -1,4 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { apiClient } from "../lib/api-client";
 
 /**
  * Push a snapshot to a document's Durable Object room. Used by the
@@ -18,14 +19,18 @@ export async function pushSnapshot(
   snapshot: TLStoreSnapshot,
   expectedSnapshotVersion: number,
 ): Promise<void> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/snapshot`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ snapshot, expectedSnapshotVersion }),
+  const res = await apiClient.api.documents[":id"].snapshot.$put({
+    param: { id: documentId },
+    // `snapshot` is `TLStoreSnapshot`; the route's schema infers
+    // `Record<string, unknown>`. Structurally compatible (an object
+    // with string keys) but `StoreSnapshot` lacks the explicit string
+    // index signature TS needs to widen automatically. Cast is safe —
+    // the runtime validator only asserts "is a record".
+    json: {
+      snapshot: snapshot as unknown as Record<string, unknown>,
+      expectedSnapshotVersion,
     },
-  );
+  });
   if (!res.ok) {
     throw new Error(`Snapshot push failed: ${res.status}`);
   }
@@ -49,10 +54,9 @@ export async function pushSnapshot(
 export async function finalizeSyncedDocument(
   documentId: string,
 ): Promise<void> {
-  const res = await fetch(
-    `/api/documents/${encodeURIComponent(documentId)}/finalize`,
-    { method: "POST" },
-  );
+  const res = await apiClient.api.documents[":id"].finalize.$post({
+    param: { id: documentId },
+  });
   if (!res.ok) {
     throw new Error(`Document finalize failed: ${res.status}`);
   }

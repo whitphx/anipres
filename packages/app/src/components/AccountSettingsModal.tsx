@@ -1,14 +1,13 @@
 import { Github, LogIn, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { jsonFetcher } from "../lib/fetcher";
+import { apiClient } from "../lib/api-client";
 import styles from "./AccountSettingsModal.module.css";
 
-interface OAuthIdentity {
-  provider: string;
-  provider_id: string;
-  created_at: number;
-}
+// Tuple key — the typed client builds the URL internally, so SWR's
+// key just needs to be stable and addressable from the `globalMutate`
+// site below.
+const IDENTITIES_KEY = ["auth", "identities"] as const;
 
 const ALL_PROVIDERS = ["github", "google"] as const;
 type ProviderName = (typeof ALL_PROVIDERS)[number];
@@ -69,9 +68,15 @@ export function AccountSettingsModal({
   // catches "user linked a provider in a second tab" without explicit
   // wiring; it doesn't help the primary flow because that flow does a
   // full-page redirect, but it's a free correctness backstop.)
-  const { data: identities, error: loadError } = useSWR<OAuthIdentity[]>(
-    "/auth/identities",
-    jsonFetcher,
+  const { data: identities, error: loadError } = useSWR(
+    IDENTITIES_KEY,
+    async () => {
+      const res = await apiClient.auth.identities.$get();
+      if (!res.ok) {
+        throw new Error(`Request failed (${res.status})`);
+      }
+      return res.json();
+    },
   );
   const { mutate: globalMutate } = useSWRConfig();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -130,28 +135,46 @@ export function AccountSettingsModal({
     setUnlinkingId(rowId);
     setUnlinkError(null);
     try {
-      const res = await fetch(
-        `/auth/identities/${encodeURIComponent(provider)}/${encodeURIComponent(providerId)}`,
-        { method: "DELETE" },
-      );
+      const res = await apiClient.auth.identities[":provider"][
+        ":provider_id"
+      ].$delete({
+        // The typed client narrows `provider` to the worker's
+        // `oauthIdentityRevokeParamSchema` picklist. At runtime the
+        // value comes from `/auth/identities` rows, which only ever
+        // hold providers from the same closed set (the worker
+        // wouldn't have inserted them otherwise), so widening the
+        // string back into the picklist is safe.
+        param: {
+          provider: provider as "github" | "google",
+          provider_id: providerId,
+        },
+      });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          code?: string;
-        };
-        if (res.status === 409 && body.code === "last_identity") {
+        // The typed client gives us a union over every `c.json(...)`
+        // shape on this route. Status narrowing doesn't refine that
+        // union for `.json()` here, so check fields explicitly.
+        const body = await res.json().catch(() => null);
+        if (
+          res.status === 409 &&
+          body &&
+          "code" in body &&
+          body.code === "last_identity"
+        ) {
           setUnlinkError(
             "This is your only sign-in method — link another provider first.",
           );
         } else {
-          setUnlinkError(body.error ?? `Request failed (${res.status}).`);
+          setUnlinkError(
+            (body && "error" in body ? body.error : null) ??
+              `Request failed (${res.status}).`,
+          );
         }
         return;
       }
       // Refresh the SWR cache so the row disappears. mutate() with no
       // value triggers a revalidation against the server, which is the
       // right behavior here — we want the canonical post-delete list.
-      await globalMutate("/auth/identities");
+      await globalMutate(IDENTITIES_KEY);
       setConfirmingId(null);
     } catch (err) {
       setUnlinkError(
