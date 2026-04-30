@@ -1,10 +1,9 @@
 import * as v from "valibot";
 
-// Shared schemas / building blocks used by more than one route file.
-// Endpoint-specific schemas (request bodies, queries, params for a
-// single route) live next to their handlers in `./routes/*.ts` —
-// keeping them here would force readers to jump files to see the
-// wire shape of the route they're reading.
+// Single-route schemas live next to their handlers in `./routes/*.ts`
+// so a reader of a route file sees its wire shape without jumping
+// files. This module is for schemas used across multiple route
+// files.
 
 // Document ids are client-allocated UUIDs (v7, see
 // `0001_initial_schema.sql`'s design note on the documents table).

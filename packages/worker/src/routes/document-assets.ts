@@ -8,9 +8,6 @@ import {
   documentIdSchema,
 } from "../schemas";
 import { MAX_ASSET_SIZE } from "../tldraw-asset-policy";
-// `getDocumentAssetKey` is shared with the asset GC / lifecycle
-// code — see `../tldraw-assets.ts`. Other helpers are file-private
-// below.
 import { getDocumentAssetKey } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 
