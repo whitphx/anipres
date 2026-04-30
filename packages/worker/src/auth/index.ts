@@ -4,10 +4,10 @@ import { registerGitHubAuth } from "./github";
 import { registerGoogleAuth } from "./google";
 import { requireSession } from "./session";
 
-// Non-route helpers for the auth surface. The JSON `/auth/*` routes
-// live in `../routes/auth.ts`; the helpers here are
-// register-mutates-app shims for things that aren't JSON routes
-// (OAuth browser-redirect handlers, the `/api/*` auth middleware).
+// JSON `/auth/*` routes live in `../routes/auth.ts`. The helpers
+// here mutate the Hono app for concerns that don't fit the
+// chained-sub-router pattern (OAuth browser-redirect routes from
+// `@hono/oauth-providers`, and the `/api/*` middleware).
 
 export function registerOAuthProviderRoutes(app: Hono<AppBindings>) {
   registerGitHubAuth(app);

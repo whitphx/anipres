@@ -65,11 +65,9 @@ async function fetchOfflineCache(documentId: string): Promise<{
   if (!res.ok) {
     throw new Error(`Offline cache fetch failed: ${res.status}`);
   }
-  // Cast through `unknown` because the DO's `getCachedSnapshot` returns
-  // an opaque shape from the worker's perspective; the tldraw types
-  // aren't reachable across the package boundary, so the worker schema
-  // can't describe the snapshot precisely. Callers know what they
-  // expect and we narrow here.
+  // The DO's `getCachedSnapshot` is opaque from the worker's side —
+  // tldraw types aren't reachable across the package boundary, so
+  // the worker schema can't describe the snapshot precisely; cast.
   return (await res.json()) as unknown as {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;

@@ -5,14 +5,12 @@ import { AuthContext } from "./useAuth";
 
 const ME_KEY = ["auth", "me"] as const;
 
-// `/auth/me` returns 401 with a JSON error body when not logged in
-// — that's "logged out", not a fetch error — so the fetcher maps it
-// to `null` instead of throwing. Other non-2xx statuses (a 500 from
-// an uncaught server exception, say) DO throw, so SWR's `error`
-// channel surfaces real failures rather than silently logging the
-// user out. The `as Response` cast on the throw branch is the price
-// of TS narrowing `res` to `never` after we've exhausted the typed
-// status union — at runtime `res.status` is still the real number.
+// 401 is "logged out", not an error — mapping to `null` instead of
+// throwing keeps SWR's `error` channel reserved for real server
+// failures (5xx) so they surface to the user rather than silently
+// logging them out. The `as Response` cast is the price of TS
+// narrowing `res` to `never` after the typed status union has been
+// exhausted; at runtime `res.status` is still the real number.
 export async function fetchMe() {
   const res = await apiClient.auth.me.$get();
   if (res.status === 200) return res.json();

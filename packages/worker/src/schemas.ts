@@ -1,9 +1,8 @@
 import * as v from "valibot";
 
-// Single-route schemas live next to their handlers in `./routes/*.ts`
-// so a reader of a route file sees its wire shape without jumping
-// files. This module is for schemas used across multiple route
-// files.
+// Schemas in this file are imported from elsewhere; conventionally
+// it holds schemas used across multiple route files, while
+// single-route schemas live next to their handlers.
 
 // Document ids are client-allocated UUIDs (v7, see
 // `0001_initial_schema.sql`'s design note on the documents table).
