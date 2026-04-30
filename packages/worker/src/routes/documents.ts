@@ -102,13 +102,8 @@ async function userOwnsWorkspace(
   return Boolean(row);
 }
 
-// All JSON endpoints under `/api/documents/*` (excluding the asset
-// sub-resource, which has its own multipart-aware sub-router in
-// `./document-assets.ts`).
 export const documentsRoutes = new Hono<AppBindings>()
-  // List active documents in a workspace, in sort order.
-  //
-  // "Active" means neither soft-deleted nor still initializing — both
+  // "Active" — neither soft-deleted nor still initializing — both
   // states are intermediate steps in multi-step lifecycles (asset GC,
   // create finalization) that the user shouldn't see in the sidebar.
   .get(
@@ -146,8 +141,8 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json(results, 200);
     },
   )
-  // Get a single document's metadata (snapshot is null; the live
-  // state lives in the Durable Object).
+  // `snapshot` is null in this response — the live state lives in
+  // the Durable Object, fetched separately via the WebSocket sync.
   .get(
     "/api/documents/:id",
     vValidator("param", documentIdParamSchema, (result, c) => {
@@ -205,14 +200,13 @@ export const documentsRoutes = new Hono<AppBindings>()
         return c.json({ error: "Not found" }, 404);
       }
 
-      // Branch on existence with a SELECT first. The alternative is a
-      // single SQL upsert (`ON CONFLICT DO UPDATE`), but two queries
-      // here make the insert-vs-update distinction visible to the
-      // handler (different status codes, different state checks)
-      // without piling CASE expressions into the SQL. Two parallel
-      // PUTs for the same id race on the INSERT below; the
-      // UNIQUE-constraint trip surfaces as 409 so the client can
-      // retry.
+      // The alternative to this SELECT-then-branch is a single SQL
+      // upsert (`ON CONFLICT DO UPDATE`), but two queries here make
+      // the insert-vs-update distinction visible to the handler
+      // (different status codes, different state checks) without
+      // piling CASE expressions into the SQL. Two parallel PUTs for
+      // the same id race on the INSERT below; the UNIQUE-constraint
+      // trip surfaces as 409 so the client can retry.
       const existing = await c.env.DB.prepare(
         `SELECT workspace_id, deleting_at, initializing_at
          FROM documents
@@ -226,12 +220,10 @@ export const documentsRoutes = new Hono<AppBindings>()
         }>();
 
       if (existing) {
-        // Update path. Reject any state that means "this row isn't a
-        // user-visible doc the caller can address right now":
-        //   - soft-deleting: row is on its way out.
-        //   - workspace_id mismatch: doc lives in another workspace
-        //     (we don't allow cross-workspace moves).
-        // Both collapse to 404 from the client's perspective.
+        // Soft-deleting rows and cross-workspace mismatches both
+        // collapse to 404 from the client's perspective — there's no
+        // "this lives elsewhere" leak, and we don't support
+        // cross-workspace moves.
         //
         // `initializing_at` is deliberately *not* a rejection
         // condition. PUT-as-upsert needs to be replayable: the
@@ -286,10 +278,10 @@ export const documentsRoutes = new Hono<AppBindings>()
         return c.json(row, 200);
       }
 
-      // Insert path. The row will be invisible to list/get/update
-      // until the client's finalizing snapshot push (or /finalize
-      // call) clears initializing_at. The scheduled sweep cleans up
-      // rows that never get finalized.
+      // The new row will be invisible to list/get/update until the
+      // client's finalizing snapshot push (or /finalize call) clears
+      // initializing_at. The scheduled sweep cleans up rows that
+      // never get finalized.
       const slug = generateDocumentSlug();
       const now = Date.now();
 
@@ -339,9 +331,8 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json(row, 201);
     },
   )
-  // Soft-delete a document. The DO takes over R2 sweep + final row
-  // removal after the grace period (see tldraw-assets.ts
-  // startDocumentDeletion).
+  // The DO takes over R2 sweep + final row removal after the grace
+  // period (see `startDocumentDeletion` in `../tldraw-assets`).
   .delete(
     "/api/documents/:id",
     vValidator("param", documentIdParamSchema, (result, c) => {
@@ -391,14 +382,12 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json({ ok: true as const }, 200);
     },
   )
-  // Finalize a fresh synced document without pushing a snapshot.
   // Fresh creates have no content yet and the DO room can stay
   // un-seeded until the user actually opens the doc — so this just
-  // clears `initializing_at` to make the row visible. Migration and
-  // reconnect-fork flows have a real snapshot to push and finalize
-  // via the snapshot push handler below; this endpoint is for the
-  // empty-doc case where a snapshot push would just need to be
-  // synthesized.
+  // clears `initializing_at` to make the row visible. Flows that
+  // already have a real snapshot finalize via the snapshot push
+  // handler below; this endpoint exists for the empty-doc case
+  // where pushing a synthesized empty snapshot would be wasted work.
   .post(
     "/api/documents/:id/finalize",
     vValidator("param", documentIdParamSchema, (result, c) => {
@@ -452,12 +441,9 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json({ ok: true as const }, 200);
     },
   )
-  // Push a snapshot into the Durable Object room. Used by the
-  // local→synced migration to land a converted doc's content, and by
-  // the push-or-fork reconnect flow to land a returning client's
-  // offline edits. A successful push also clears `initializing_at` if
-  // it was set, finalizing the doc — so a doc whose creation flow
-  // pushes a real snapshot doesn't need to also call /finalize.
+  // A successful push also clears `initializing_at` if it was set,
+  // finalizing the doc — so a creation flow that pushes a real
+  // snapshot here doesn't need to also call /finalize.
   .put(
     "/api/documents/:id/snapshot",
     vValidator("param", documentIdParamSchema, (result, c) => {
@@ -468,11 +454,10 @@ export const documentsRoutes = new Hono<AppBindings>()
         );
       }
     }),
-    // Body-size cap as a separate middleware before the schema
-    // validator. The validator parses the JSON, which means the body
-    // is fully buffered before this point — gating on content-length
-    // here keeps a runaway client from streaming multi-MB blobs into
-    // the parser. Defense in depth: content-length can be omitted, in
+    // The schema validator parses the JSON, which means the body is
+    // fully buffered before it runs — gating on content-length here
+    // keeps a runaway client from streaming multi-MB blobs into the
+    // parser. Defense in depth: content-length can be omitted, in
     // which case the schema validator's own size limits and the
     // platform-level body limit are the next gates.
     async (c, next) => {
@@ -533,14 +518,11 @@ export const documentsRoutes = new Hono<AppBindings>()
         );
       }
 
-      // Finalize the document: bump updated_at and clear
-      // initializing_at (whether or not it was set). Repeating this
-      // UPDATE is harmless — the second UPDATE rewrites the same
-      // value to the column. The `deleting_at IS NULL` guard mirrors
-      // the pre-DO check above and closes the race where a DELETE
-      // landed between that check and here; without it the UPDATE
-      // would briefly clear initializing_at on a row already on its
-      // way out.
+      // The `deleting_at IS NULL` guard mirrors the pre-DO check
+      // above and closes the race where a DELETE landed between that
+      // check and here; without it the UPDATE would briefly clear
+      // initializing_at on a row already on its way out. Repeating
+      // the same clear on a non-initializing row is harmless.
       //
       // updated_at: the trigger would refresh it for any UPDATE, but
       // we want to record the snapshot push time deterministically
