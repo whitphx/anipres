@@ -29,9 +29,6 @@ async function fetchOfflineCache(documentId: string): Promise<{
   if (!res.ok) {
     throw new Error(`Offline cache fetch failed: ${res.status}`);
   }
-  // The DO's `getCachedSnapshot` returns an opaque shape; we narrow to
-  // what callers actually use (`snapshot`, `snapshotVersion`). The
-  // tldraw types aren't reachable from the worker, hence the cast.
   return (await res.json()) as unknown as {
     snapshot: TLStoreSnapshot;
     snapshotVersion: number;
@@ -64,11 +61,9 @@ export async function reconcileOfflineEdits(params: {
     return { action: "noop" };
   }
 
-  // Try to push: the server endpoint rejects with 409 if the DO snapshot
-  // version has advanced since this cached snapshot was written. Cast
-  // the snapshot since tldraw's `StoreSnapshot` lacks the string-index
-  // signature the route's `Record<string, unknown>` schema infers
-  // (structurally compatible — runtime is fine).
+  // Try to push: the server endpoint rejects with 409 if the DO
+  // snapshot version has advanced since this cached snapshot was
+  // written.
   const pushRes = await apiClient.api.documents[":id"].snapshot.$put({
     param: { id: documentId },
     json: {

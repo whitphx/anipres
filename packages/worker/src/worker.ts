@@ -10,15 +10,11 @@ import type { AppBindings, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
-// Entry point. Owns the assembled Hono app: middleware mounts, the
-// chained sub-router that captures `AppType`, the websocket route,
-// and the platform handlers (`fetch`, `scheduled`).
-//
-// All concrete route definitions live under `./routes/<url>.ts`,
-// keyed by their top-level URL segment. To add an endpoint: add it
-// to the matching sub-router (or create a new file under `routes/`
-// for a fresh URL prefix), then chain `.route("/", newRouter)` in
-// the `routes` chain below so its types flow into `AppType`.
+// Concrete route definitions live under `./routes/<url>.ts`, keyed
+// by their top-level URL segment. To add an endpoint: add it to the
+// matching sub-router (or create a new file under `routes/` for a
+// fresh URL prefix), then chain `.route("/", newRouter)` below so
+// its types flow into `AppType`.
 
 const app = new Hono<AppBindings>();
 

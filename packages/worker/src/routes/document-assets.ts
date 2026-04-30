@@ -3,18 +3,33 @@ import { Hono } from "hono";
 import * as v from "valibot";
 import {
   SUPPORTED_ASSET_CONTENT_TYPES,
-  documentAssetParamSchema,
-  documentAssetUploadFieldsSchema,
-  documentAssetUploadFileSchema,
+  assetNameSchema,
   documentIdParamSchema,
+  documentIdSchema,
 } from "../schemas";
 import { MAX_ASSET_SIZE } from "../tldraw-asset-policy";
 // `getDocumentAssetKey` is shared with the asset GC / lifecycle
-// code — see `../tldraw-assets.ts`. The other helpers used here
-// (multipart parsing, range-request math, content-type derivation,
-// the per-doc DB existence check) are file-private below.
+// code — see `../tldraw-assets.ts`. Other helpers are file-private
+// below.
 import { getDocumentAssetKey } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
+
+// --- Schemas ---------------------------------------------------------
+
+const documentAssetParamSchema = v.object({
+  id: documentIdSchema,
+  assetName: assetNameSchema,
+});
+
+export const documentAssetUploadFieldsSchema = v.object({
+  file: v.file("Missing file field"),
+});
+
+export const documentAssetUploadFileSchema = v.pipe(
+  v.file(),
+  v.mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
+  v.maxSize(MAX_ASSET_SIZE),
+);
 
 // --- Content-type derivation -----------------------------------------
 

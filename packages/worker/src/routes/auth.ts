@@ -1,5 +1,6 @@
 import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
+import * as v from "valibot";
 import {
   clearSession,
   getCurrentUser,
@@ -7,14 +8,24 @@ import {
   requireSession,
   revokeOAuthIdentity,
 } from "../auth/session";
-import { oauthIdentityRevokeParamSchema } from "../schemas";
 import type { AppBindings } from "../types";
 
-// All JSON endpoints under `/auth/*` as a single chained sub-router.
-// `typeof authRoutes` flows into the worker's combined `AppType` so
-// the app's `apiClient.auth.*` reaches every route here. The
-// `/auth/{github,google}/*` browser-redirect handlers live outside
-// this chain — see `registerOAuthProviderRoutes` in `../auth`.
+// URL-param schema for `DELETE /auth/identities/:provider/:provider_id`.
+// `provider` is closed-set — only the providers we register OAuth
+// flows for can land in `oauth_identities`, so the API surface stays
+// constrained to the same set. `provider_id` comes from the upstream
+// IdP (numeric for GitHub, opaque `sub` for Google); we don't enforce
+// a specific format, just non-empty + bounded length so a
+// pathological client can't smuggle an unbounded string into a
+// parameterized statement.
+const oauthIdentityRevokeParamSchema = v.object({
+  provider: v.picklist(["github", "google"]),
+  provider_id: v.pipe(v.string(), v.minLength(1), v.maxLength(256)),
+});
+
+// JSON `/auth/*` routes. Browser-redirect handlers for the OAuth
+// providers are off this chain — see `registerOAuthProviderRoutes`
+// in `../auth`.
 export const authRoutes = new Hono<AppBindings>()
   .get("/auth/me", async (c) => {
     const user = await getCurrentUser(c);

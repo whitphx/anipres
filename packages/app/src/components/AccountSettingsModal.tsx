@@ -4,10 +4,9 @@ import useSWR, { useSWRConfig } from "swr";
 import { apiClient } from "../lib/api-client";
 import styles from "./AccountSettingsModal.module.css";
 
-// SWR key for the typed-client `GET /auth/identities` fetch. Tuple
-// rather than the URL string because the typed client is the sole
-// caller — the cache key just needs to be stable across renders and
-// recognizable at the `globalMutate` site.
+// Tuple key — the typed client builds the URL internally, so SWR's
+// key just needs to be stable and addressable from the `globalMutate`
+// site below.
 const IDENTITIES_KEY = ["auth", "identities"] as const;
 
 const ALL_PROVIDERS = ["github", "google"] as const;
@@ -139,9 +138,8 @@ export function AccountSettingsModal({
       const res = await apiClient.auth.identities[":provider"][
         ":provider_id"
       ].$delete({
-        // The typed client narrows `provider` to the picklist
-        // ("github" | "google") that the worker's
-        // `oauthIdentityRevokeParamSchema` declares. At runtime the
+        // The typed client narrows `provider` to the worker's
+        // `oauthIdentityRevokeParamSchema` picklist. At runtime the
         // value comes from `/auth/identities` rows, which only ever
         // hold providers from the same closed set (the worker
         // wouldn't have inserted them otherwise), so widening the
@@ -152,9 +150,9 @@ export function AccountSettingsModal({
         },
       });
       if (!res.ok) {
-        // The typed client gives us a union over all `c.json(...)`
-        // shapes (200, 409, 404). Status narrowing doesn't refine
-        // that union for `.json()` here, so check fields explicitly.
+        // The typed client gives us a union over every `c.json(...)`
+        // shape on this route. Status narrowing doesn't refine that
+        // union for `.json()` here, so check fields explicitly.
         const body = await res.json().catch(() => null);
         if (
           res.status === 409 &&

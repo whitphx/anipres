@@ -1,14 +1,16 @@
 import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
-import { documentConnectParamSchema } from "../schemas";
+import * as v from "valibot";
+import { documentIdSchema } from "../schemas";
 import type { AppBindings } from "../types";
 
-// `/api/connect/:documentId` — WebSocket upgrade for tldraw sync.
-// Kept off the typed RPC chain because the handshake response is a
-// raw `Response` (status 101 with `webSocket: ...`); the typed client
-// doesn't reach websockets either way (clients open them via the
-// browser `WebSocket` constructor with the URL). The handler still
-// lives under `routes/` so the URL→file rule resolves uniformly.
+const documentConnectParamSchema = v.object({
+  documentId: documentIdSchema,
+});
+
+// WebSocket upgrade for tldraw sync. Off the typed RPC chain because
+// the handshake returns a raw `Response`; clients open the socket
+// via `new WebSocket(url)` rather than through the typed client.
 export const connectRoutes = new Hono<AppBindings>().get(
   "/api/connect/:documentId",
   vValidator("param", documentConnectParamSchema, (result, c) => {

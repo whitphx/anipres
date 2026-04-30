@@ -206,12 +206,6 @@ async function defaultPushSnapshot(
   const res = await apiClient.api.documents[":id"].snapshot.$put(
     {
       param: { id: documentId },
-      // `snapshot` is `TLStoreSnapshot` (`StoreSnapshot<TLRecord>`); the
-      // route's schema infers `Record<string, unknown>`. The shapes are
-      // structurally compatible — the snapshot is an object with string
-      // keys — but `StoreSnapshot` lacks the explicit string index
-      // signature TS would need to widen automatically. The cast is
-      // safe; the runtime validator only asserts "is a record".
       json: {
         snapshot: snapshot as unknown as Record<string, unknown>,
         expectedSnapshotVersion: 0,

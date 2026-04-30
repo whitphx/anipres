@@ -1,14 +1,85 @@
 import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
+import * as v from "valibot";
+import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
-import {
-  documentIdParamSchema,
-  documentListQuerySchema,
-  documentUpsertSchema,
-  MAX_SNAPSHOT_BODY_BYTES,
-  snapshotPushBodySchema,
-} from "../schemas";
 import type { AppBindings, AppContext } from "../types";
+
+// --- Schemas ---------------------------------------------------------
+
+const nonNegativeFiniteInteger = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+);
+
+const DOCUMENT_TITLE_MAX_LENGTH = 256;
+
+// Server-side floor for callers that bypass the client's "Untitled"
+// fallback in createNewDocument: empty / whitespace-only titles would
+// render as a blank sidebar row. Null bytes are rejected because D1's
+// TEXT tolerates them but they break grep and leak through raw logs.
+const documentTitleSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.regex(/\S/u, "Title cannot be only whitespace"),
+  v.maxLength(DOCUMENT_TITLE_MAX_LENGTH),
+  v.regex(/^[^\u0000]*$/u, "Title contains a null byte"),
+);
+
+// Sort-order is a fractional-indexing key. The package emits
+// printable-ASCII strings (typically <20 chars); the bound is a
+// sanity cap to reject pathological inputs.
+const SORT_ORDER_MAX_LENGTH = 256;
+const sortOrderSchema = v.pipe(
+  v.string(),
+  v.minLength(1, "sort_order cannot be empty"),
+  v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
+);
+
+// Workspace ids are server-allocated INTEGER autoincrement values
+// passed as decimal strings on the wire. Coerce to JS number after
+// validation so handlers can pass it straight to D1 `.bind()`. The
+// asymmetry with `documents.id` (which stays TEXT end-to-end) is
+// deliberate: workspaces are a server-side concept the user never
+// originates offline, so the INTEGER rowid wins (smaller indexes,
+// sequential inserts); documents need their id to flow unchanged
+// through the local → synced path.
+const workspaceIdSchema = v.pipe(
+  v.string(),
+  v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
+  v.transform(Number),
+);
+
+export const documentListQuerySchema = v.object({
+  workspace_id: workspaceIdSchema,
+});
+
+// Single upsert wire shape — covers both insert and update. The
+// client sends the post-state, so `title` and `sort_order` are
+// required even on re-save (replaying the same body is a no-op).
+// `workspace_id` on update has to match the existing row
+// (cross-workspace moves return 404). `created_at` is an
+// insert-only override used by the local→synced migration to
+// preserve on-device creation time; ignored on update. `updated_at`
+// is always server-stamped via the documents.updated_at trigger;
+// `id` lives in the URL path (see `documentIdParamSchema`).
+export const documentUpsertSchema = v.object({
+  workspace_id: workspaceIdSchema,
+  title: documentTitleSchema,
+  sort_order: sortOrderSchema,
+  created_at: v.optional(nonNegativeFiniteInteger),
+});
+
+// Cap on snapshot push body size. Prevents a runaway client from
+// streaming arbitrary blobs at the DO; sized with headroom over
+// realistic tldraw snapshot sizes (typically well under 1 MB even
+// for docs with embedded references).
+const MAX_SNAPSHOT_BODY_BYTES = 5 * 1024 * 1024;
+export const snapshotPushBodySchema = v.object({
+  snapshot: v.record(v.string(), v.unknown()),
+  expectedSnapshotVersion: nonNegativeFiniteInteger,
+});
 
 // Wire shape of a documents-table row as returned by every JSON
 // endpoint in this file. Ids are TEXT (UUID v7 strings,
@@ -27,8 +98,7 @@ type DocumentRow = {
 // is populated for forward compatibility. `crypto.randomUUID()` is
 // overkill for collision avoidance but keeps it one line and avoids
 // pulling in nanoid. Swap to a shorter format when slugs become
-// user-visible. Named so the INSERT call site reads as "generate a
-// slug" rather than as a generic UUID.
+// user-visible.
 function generateDocumentSlug() {
   return crypto.randomUUID();
 }
@@ -36,8 +106,7 @@ function generateDocumentSlug() {
 // Returns true iff the workspace exists and is owned by `userId`.
 // Phase 1 has 1:1 user:workspace, so this is a presence check;
 // Extension A will replace this with a membership query against
-// `workspaces` ∪ `org_memberships`. Used in two sites below — the
-// list query and the PUT-upsert workspace check.
+// `workspaces` ∪ `org_memberships`.
 async function userOwnsWorkspace(
   c: AppContext,
   userId: number,
@@ -54,20 +123,6 @@ async function userOwnsWorkspace(
 // All JSON endpoints under `/api/documents/*` (excluding the asset
 // sub-resource, which has its own multipart-aware sub-router in
 // `./document-assets.ts`).
-//
-// Path-param validation goes through `vValidator("param", ...)` for
-// consistency with the json/query validators on the same chain. The
-// typed client already exposes `:id` as `string`, so the validator's
-// job is purely a runtime UUID-format guard — but using the same
-// `vValidator` shape across all three targets (`param`, `query`,
-// `json`) keeps every handler's "validate inputs, then read"
-// structure uniform.
-//
-// Status literals (the second arg to `c.json(...)`) are critical:
-// the typed client narrows `res.json()` per status, but only when the
-// server passes the literal. `c.json(payload)` widens to
-// `ContentfulStatusCode` and the narrowing degrades to a flat union
-// over all 2xx bodies.
 export const documentsRoutes = new Hono<AppBindings>()
   // List active documents in a workspace, in sort order.
   //
