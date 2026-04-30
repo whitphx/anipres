@@ -11,7 +11,7 @@
 
 All six implementation phases are landed on `feature/sync-server`. The remaining work is operational (deploy to real Cloudflare resources — see [`TODO.md`](./TODO.md) § Before first deploy) plus deferred follow-ups (merge two accounts on conflict, post-launch hardening). The OAuth flow has been exercised end-to-end locally; the next milestone is a preview deploy.
 
-The implementation diverged from the original spec in a few load-bearing places — workspaces between users and documents (pre-positions Extension A), `oauth_identities` as a separate table for future account linking, INTEGER PKs for server-allocated entities (users, workspaces) but TEXT UUID v7 for documents (client-allocated), `initializing_at` / `deleting_at` lifecycle columns, an `assets` GC table, and a single-endpoint PUT-as-upsert document API. The "Database Schema", "API Design", and "Worker Structure" sections below have been rewritten to match the as-built; the philosophy sections (Dual-Mode, Offline, etc.) describe decisions that survived intact.
+The implementation diverged from the original spec in a few load-bearing places — workspaces between users and documents (pre-positions Extension A), `oauth_identities` as a separate table for future account linking, INTEGER PKs for server-allocated entities (users, workspaces) but TEXT UUID v7 for documents (client-allocated), `initializing_at` / `deleting_at` lifecycle columns, a `tldraw_assets` GC table, and a single-endpoint PUT-as-upsert document API. The "Database Schema", "API Design", and "Worker Structure" sections below have been rewritten to match the as-built; the philosophy sections (Dual-Mode, Offline, etc.) describe decisions that survived intact.
 
 ## Table of Contents
 
@@ -261,7 +261,9 @@ GET    /auth/github                   -> OAuth flow + callback (one route via @h
 GET    /auth/google                   -> OAuth flow
 GET    /auth/google/callback          -> OAuth callback
 POST   /auth/logout                   -> Clear session cookie
-GET    /auth/me                       -> Current user (id, primary provider)
+GET    /auth/me                       -> Current user id
+GET    /auth/identities               -> List the OAuth identities linked to the current user
+DELETE /auth/identities/:provider/:provider_id  -> Unlink an OAuth identity (refused if it's the user's last one)
 
 # Workspaces (Phase 1 invariant: 1:1 user ↔ workspace)
 GET    /api/workspaces                -> List workspaces the user owns
@@ -291,6 +293,8 @@ Notes:
 - **PUT-as-upsert** lets the client mint the doc id (UUID v7) up front and use the same call shape on first save and every later save. The server inserts (with `initializing_at` set) on first sight, updates otherwise. Rejects state transitions (cross-workspace move, save-while-deleting, save-while-initializing) as 404 from the client's perspective.
 - **`workspace_id` is always required on list/save** even though Phase 1 has 1:1 user ↔ workspace. The client passes the workspace id resolved from `GET /api/workspaces`. Per-doc routes (`get`, `delete`, snapshot, finalize) don't need it because the doc id implicitly identifies its workspace; the server still verifies ownership.
 - **`/api/connect/:documentId`** runs through the same `requireSession` middleware as the REST routes — only logged-in users can open a sync session.
+- **Typed client** — every JSON endpoint above is consumed via Hono's `hc<AppType>()` so the app reads response shapes from the worker's compiled `.d.ts`. The worker emits its declarations through a TypeScript project reference (`packages/worker/tsconfig.build.json`); the app's `tsc -b` builds the worker first.
+- **CSRF protection** — Hono's `csrf()` middleware allowlists `Origin` against `PUBLIC_BASE_URL` for state-changing requests. JSON requests are protected by browser-level CORS preflight (the worker emits no `Access-Control-Allow-Origin`); WebSocket upgrades are blocked by `SameSite=Lax` on the session cookie.
 
 ---
 
@@ -298,7 +302,7 @@ Notes:
 
 ### D1 (metadata only — snapshots live in Durable Object SQLite)
 
-The implemented schema is in `packages/worker/migrations/0001_initial_schema.sql` and `0002_create_assets.sql`. The shape:
+The implemented schema is in `packages/worker/migrations/0001_initial_schema.sql` and `0002_create_tldraw_assets.sql`. The shape:
 
 ```
 users (INTEGER PK)
@@ -306,8 +310,8 @@ users (INTEGER PK)
        └─ documents (TEXT UUID v7 PK, workspace_id FK,
                      slug TEXT UNIQUE, sort_order TEXT,
                      deleting_at, initializing_at, created_at, updated_at)
-                          └─ assets (document_id FK, asset_name,
-                                     last_seen_at, stale_at)
+                          └─ tldraw_assets (document_id FK, asset_name,
+                                            last_seen_at, stale_at)
 
 oauth_identities (composite PK (provider, provider_id), user_id FK)
 ```
@@ -319,7 +323,7 @@ Decisions worth knowing:
 - **Workspaces between users and documents** — pre-positions Extension A (org-owned workspaces, multi-member) without rewriting the document handlers. Phase 1 invariant: every user has exactly one personal workspace, created on first login.
 - **`oauth_identities` separate table** — pre-positions account linking (GitHub + Google on one user) without rewriting the OAuth handlers. Composite PK `(provider, provider_id)` enforces global identity uniqueness and gives the parallel-login race a clean failure mode (loser trips the PK, rolls back its orphan user, re-selects the canonical user_id).
 - **`initializing_at` / `deleting_at`** — explicit lifecycle states for multi-step create and delete flows. See [Document Lifecycle](#document-lifecycle).
-- **`assets` GC table** — per-document asset registry with `last_seen_at` (refreshed on every snapshot push that still references the asset) and `stale_at` (set when the asset drops out of the snapshot). A grace period after `stale_at` lets undo/redo recover the asset; afterward the worker GCs the R2 blob.
+- **`tldraw_assets` GC table** — per-document asset registry with `last_seen_at` (refreshed on every snapshot push that still references the asset) and `stale_at` (set when the asset drops out of the snapshot). A grace period after `stale_at` lets undo/redo recover the asset; afterward the worker GCs the R2 blob.
 - **`updated_at` triggers** with a `WHEN NEW.updated_at IS OLD.updated_at` guard — auto-stamp callers who forget, honor callers who pass it explicitly (the local→synced migration preserves on-device timestamps).
 - **`updated_at` is dropped from the wire** — the API never accepts `updated_at` on PUT; the trigger handles it. Clients only decide _what_ changed (title, sortOrder); the server (or repo, on the local side) decides _when_.
 
@@ -344,7 +348,7 @@ Initializing rows are excluded from list/get/update/delete (the partial index `i
 If the client gives up between insert and finalize (tab close, crash, network failure, delete-mid-migration), the row lingers as `initializing_at IS NOT NULL`. A scheduled cron (`*/5 * * * *`, see `wrangler.toml`) runs `sweepInitializingDocuments` (`packages/worker/src/cleanup.ts`) which, after a 10-minute grace window, either:
 
 - **Reconciles** — DO has a snapshot (`peekSnapshotVersion > 0`), meaning the snapshot push succeeded but the D1 UPDATE that should have cleared `initializing_at` never landed. Clear the flag.
-- **Deletes** — DO has no snapshot. Genuinely abandoned; hard-delete the row, FK cascade cleans up `assets`.
+- **Deletes** — DO has no snapshot. Genuinely abandoned; hard-delete the row, FK cascade cleans up `tldraw_assets`.
 
 The fresh-create path uses `/finalize` (no DO touch) instead of pushing an empty snapshot client-side, because synthesizing a valid empty `TLStoreSnapshot` requires reconstructing tldraw's schema descriptor and would pre-seed the DO room — pre-empting `useSync`'s natural "populate on first connect" path.
 
@@ -353,8 +357,8 @@ The fresh-create path uses `/finalize` (no DO touch) instead of pushing an empty
 `DELETE /api/documents/:id` flips `deleting_at = now()` rather than removing the row. The DO claims the document and starts a soft-delete timeline:
 
 1. Stop accepting WebSocket connections (the DO returns an error).
-2. After a short grace, GC the document's R2 assets via the `assets` table.
-3. Hard-delete the D1 row (FK cascade removes the `assets` rows).
+2. After a short grace, GC the document's R2 assets via the `tldraw_assets` table.
+3. Hard-delete the D1 row (FK cascade removes the `tldraw_assets` rows).
 
 This avoids racing R2 cleanup against an in-flight upload from a still-connected client, and handles the case where another client is mid-WebSocket-session against the soon-to-be-deleted doc.
 
@@ -362,7 +366,7 @@ The `deleting_at` and `initializing_at` filters appear in every read path, so th
 
 ### Asset GC
 
-Each `assets` row records `last_seen_at` (refreshed when a snapshot push still references the asset) and `stale_at` (set when the asset drops out of the snapshot). After a grace window past `stale_at`, the GC sweep deletes the R2 blob and removes the row. The grace period exists so undo / redo can still bring a deleted asset back without re-uploading.
+Each `tldraw_assets` row records `last_seen_at` (refreshed when a snapshot push still references the asset) and `stale_at` (set when the asset drops out of the snapshot). After a grace window past `stale_at`, the GC sweep deletes the R2 blob and removes the row. The grace period exists so undo / redo can still bring a deleted asset back without re-uploading.
 
 ---
 
@@ -371,21 +375,30 @@ Each `assets` row records `last_seen_at` (refreshed when a snapshot push still r
 ```
 packages/worker/
   src/
-    worker.ts                # Hono router: workspace + document REST, finalize, snapshot, connect
+    worker.ts                # Hono entry: mounts middleware (csrf, oauth, api-auth) and the chained sub-routers; AppType export for the typed RPC client
+    api-types.ts             # Type-only re-export for the app's hc<AppType>() consumer
     DocumentSyncRoom.ts      # DurableObject wrapping TLSocketRoom + SQLiteSyncStorage; soft-delete timeline
-    assets.ts                # R2 upload/download routes + startDocumentDeletion (asset GC)
+    tldraw-assets.ts         # Asset lifecycle helpers (GC sweeps, snapshot/asset reconciliation, startDocumentDeletion)
+    tldraw-asset-policy.ts   # Cross-package MAX_ASSET_SIZE constant
     cleanup.ts               # sweepInitializingDocuments — runs from the scheduled cron
-    schemas.ts               # valibot schemas for params/bodies (id, workspace_id, upsert body, etc.)
+    schemas.ts               # Cross-cutting valibot schemas (documentIdSchema, assetNameSchema, …); single-route schemas live next to their handlers
     types.ts                 # AppBindings, AppContext, Env type aliases
+    routes/
+      auth.ts                # /auth/me, /auth/logout, /auth/identities, /auth/identities/:provider/:provider_id
+      workspaces.ts          # /api/workspaces
+      documents.ts           # /api/documents (list, get, upsert, delete, finalize, snapshot, …)
+      document-assets.ts     # /api/documents/:id/assets (multipart upload + asset read)
+      connect.ts             # /api/connect/:documentId — WebSocket upgrade
     auth/
-      index.ts               # registerAuthRoutes (delegating), registerApiAuth (JWT middleware)
-      session.ts             # JWT issue + verify, oauth_identities resolve, parallel-login race handling
+      index.ts               # registerOAuthProviderRoutes (browser-redirect handlers), registerApiAuth (JWT middleware)
+      session.ts             # JWT issue + verify, oauth_identities resolve, parallel-login race handling, identity list / revoke
       github.ts              # GitHub OAuth (via @hono/oauth-providers/github)
-      google.ts              # Google OAuth (manual: nonce + id_token verify)
+      google.ts              # Google OAuth (manual: state cookie + access-token + userinfo `sub`)
   migrations/
-    0001_initial_schema.sql  # users, oauth_identities, workspaces, documents
-    0002_create_assets.sql   # assets GC table
-  wrangler.toml              # bindings + scheduled trigger + preview env
+    0001_initial_schema.sql           # users, oauth_identities, workspaces, documents
+    0002_create_tldraw_assets.sql     # tldraw_assets GC table
+  vitest.config.ts                    # @cloudflare/vitest-pool-workers config (DO tests run in workerd)
+  wrangler.toml                       # bindings + scheduled trigger + preview env
 ```
 
 The custom-shape schema for `TLSocketRoom`'s record validation lives in `packages/anipres` and is imported by both the app and the worker — see [Custom Shape Schema Sharing](#custom-shape-schema-sharing).
@@ -432,7 +445,7 @@ The `packages/anipres` library exports the shape schema descriptors via `anipres
 
 ### Phase 3 — Authentication ✅
 
-- OAuth flow for GitHub (via `@hono/oauth-providers`) and Google (manual nonce + id_token verify)
+- OAuth flow for GitHub (via `@hono/oauth-providers`) and Google (hand-rolled: per-provider state cookie + access-token exchange + userinfo `sub` lookup, because the `@hono/oauth-providers` Google flow posts a token payload Google rejects)
 - JWT cookie-session in `auth/session.ts` (HS256, 7-day expiry, HttpOnly + Secure + SameSite=Lax)
 - `AuthContext` + login UI in the app sidebar footer
 - `requireSession` middleware protects every `/api/*` route including the WebSocket upgrade
@@ -440,7 +453,7 @@ The `packages/anipres` library exports the shape schema descriptors via `anipres
 
 ### Phase 4 — Assets + migration ✅
 
-- Document-scoped R2 asset upload/download routes (`assets.ts`)
+- Document-scoped R2 asset upload/download routes (`routes/document-assets.ts`); asset GC + lifecycle helpers in `tldraw-assets.ts`
 - `TLAssetStore` implementation in the app pointing at the Worker
 - `convertLocalDocToSynced` migration: client-allocated UUID v7 means the local id flows unchanged through every step (POST → asset uploads → snapshot push → IDB delete); see `packages/app/src/documents/migration.ts`
 
@@ -461,7 +474,10 @@ The `packages/anipres` library exports the shape schema descriptors via `anipres
 - Account linking — existing OAuth callbacks branch on the session cookie: a logged-in user completing the OAuth dance attaches the new `(provider, provider_id)` to the current `user_id` (via `attachIdentityToCurrentUser` in `auth/session.ts`); a logged-out user follows the existing login flow. Conflict ("provider account already linked to a different user") surfaces as a redirect-flash error.
 - Disconnect a linked provider — `DELETE /auth/identities/:provider/:provider_id` with a server-side "can't remove your last sign-in method" guard (atomic single-statement check via subquery); two-click in-row Confirm/Cancel UI in the settings modal
 - SWR migration of all auth-context fetches (`/auth/me`, `/auth/identities`, `/api/workspaces`); cache-wipe on logout via `globalMutate(() => true, …)` so no auth-scoped data lingers post-session
-- OAuth cookie / redirect_uri robustness: cookies use conditional `secure` attribute (HTTPS-only in prod, accepted on HTTP localhost); Google `redirect_uri` derived from explicit `PUBLIC_BASE_URL` env var (per-environment, see `.dev.vars.example` for local setup); per-failure-path logging in the Google callback for debuggable misconfigurations
+- OAuth cookie / redirect_uri robustness: cookies use conditional `secure` attribute (HTTPS-only in prod, accepted on HTTP localhost); Google `redirect_uri` derived from explicit `PUBLIC_BASE_URL` env var (per-environment, see `.dev.vars.example` for local setup); per-failure-path logging in the Google callback for debuggable misconfigurations; localhost-vs-prod sanity check throws clearly if a developer forgets `.dev.vars`
+- Typed RPC across every JSON endpoint via Hono's `hc<AppType>()`. Worker emits `.d.ts` through a TypeScript project reference (`tsconfig.build.json`) so the app consumes pre-compiled types instead of walking worker source; route files live under `packages/worker/src/routes/<url-segment>.ts` and chain into `worker.ts`'s `app.route(...)`
+- CSRF protection via Hono's built-in `csrf()` middleware, allowlisting `Origin` against `PUBLIC_BASE_URL` for state-changing requests; JSON requests are blocked by browser CORS preflight (no `Access-Control-Allow-Origin` is emitted), and WebSocket upgrades are blocked by `SameSite=Lax` on the session cookie
+- DocumentSyncRoom test pipeline via `@cloudflare/vitest-pool-workers`, exercising the highest-leverage concurrency paths (`peekSnapshotVersion` against an unbound DO, `runRoomTask` ordering, `replaceSnapshot` rejection on active sessions)
 
 Deferred (see [TODO.md](./TODO.md)):
 
