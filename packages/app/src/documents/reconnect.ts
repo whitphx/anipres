@@ -176,7 +176,6 @@ export async function reconcileOfflineEdits(params: {
     snapshot: null,
   });
 
-  // Push the local snapshot into the fork's Durable Object room.
   let forkPushRes;
   try {
     forkPushRes = await apiClient.api.documents[":id"].snapshot.$put({
@@ -196,7 +195,6 @@ export async function reconcileOfflineEdits(params: {
   }
 
   if (!forkPushRes.ok) {
-    // Clean up the fork metadata if the snapshot push fails.
     await repository.delete(forkId).catch(() => {});
     return {
       action: "error",

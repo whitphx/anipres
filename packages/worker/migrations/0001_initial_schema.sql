@@ -1,7 +1,7 @@
 -- All timestamp columns are INTEGER Unix milliseconds. The default
 -- expression `CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER)`
--- gives sub-second precision and stays compact in indexes; aligns
--- with `0002_create_assets.sql` which uses the same convention.
+-- gives sub-second precision and stays compact in indexes;
+-- subsequent migrations use the same convention.
 
 CREATE TABLE users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,7 +162,7 @@ CREATE TABLE documents (
   -- window — covers tab close, browser crash, hung network, and
   -- delete-mid-migration without any client cooperation.
   initializing_at     INTEGER,
-  -- Defaulted to server time, but the convertLocalDocToSynced flow
+  -- Defaulted to server time, but the local→synced migration flow
   -- passes the original local creation timestamp explicitly so the
   -- doc list can sort by "actual creation date" rather than "synced
   -- date". Pure synced-creation (POST /api/documents) omits these
@@ -173,7 +173,7 @@ CREATE TABLE documents (
 
 -- See `trg_users_updated_at` for the design notes; same shape applies.
 -- Callers who pass `updated_at` explicitly (snapshot push, the
--- convertLocalDocToSynced flow that preserves local timestamps) keep
+-- local→synced migration flow that preserves local timestamps) keep
 -- their value because the WHEN guard fails. Callers who forget get
 -- the auto-refresh.
 CREATE TRIGGER trg_documents_updated_at AFTER UPDATE ON documents

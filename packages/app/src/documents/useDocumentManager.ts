@@ -135,9 +135,6 @@ export function useDocumentManager(params: {
     [documents, activeDocumentId],
   );
 
-  // Resolve which repository owns a given document id by consulting the
-  // latest merged list. Falls back to the implicit "local only" repo when
-  // called before the first load settles.
   const getRepository = useCallback(
     (source: DocumentSource | undefined): DocumentRepository | null => {
       if (source === "synced") return syncedRepository ?? null;
@@ -171,8 +168,6 @@ export function useDocumentManager(params: {
         : Promise.resolve([] as DocumentMeta[]),
       localRepository.list(),
     ]);
-    // Synced first, then local. Each group is already ordered by `order`
-    // from its repository.
     return [...syncedList, ...localList];
   }, [localRepository, syncedRepository]);
 
@@ -195,7 +190,6 @@ export function useDocumentManager(params: {
     });
   }, [localRepository]);
 
-  // Initialize: load documents or create first one
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -271,7 +265,6 @@ export function useDocumentManager(params: {
     async (id: string) => {
       if (id === activeDocumentIdRef.current) return;
 
-      // Save current before switching
       await saveCurrentEditor();
 
       const repo = findRepositoryForId(id);
@@ -438,7 +431,6 @@ export function useDocumentManager(params: {
       commitDocuments(remaining);
 
       if (id === activeDocumentIdRef.current) {
-        // Switch to the first remaining document
         const nextMeta = remaining[0];
         const nextRepo = getRepository(nextMeta.source);
         const data = nextRepo ? await nextRepo.get(nextMeta.id) : undefined;

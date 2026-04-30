@@ -1,24 +1,8 @@
 /**
- * Map a raw failure from any of the synced-doc upload paths
- * (`convertLocalDocToSynced`, `finalizeSyncedDocument`,
- * `pushSnapshot` from the reconnect-fork) into a user-facing
- * sentence. The raw `Error.message` strings come from a few
- * well-known sites:
- *
- * - `defaultUploadAsset` throws `"Asset upload failed: <status>"`
- * - `defaultPushSnapshot` / `pushSnapshot` throw `"Snapshot push
- *   failed: <status>"`
- * - `finalizeSyncedDocument` throws `"Document finalize failed:
- *   <status>"`
- * - The shared `composeWithTimeout` produces `AbortSignal.timeout(...)`
- *   which surfaces as `TimeoutError` on the abort signal
- * - User-cancellation / mid-migration delete surfaces as `AbortError`
- * - Network failures (offline, DNS, CORS) surface as `TypeError:
- *   Failed to fetch` in most browsers
- *
- * Anything not recognized falls through to a generic "try again"
- * message — better than exposing internal HTTP / Error vocab to the
- * user.
+ * Map a raw failure from the synced-doc upload paths into a
+ * user-facing sentence. Anything not recognized falls through to a
+ * generic "try again" message — better than exposing internal HTTP
+ * / Error vocab to the user.
  */
 export function getConversionErrorMessage(error: Error): string {
   // `AbortSignal.timeout` produces a `TimeoutError`; user-cancellation

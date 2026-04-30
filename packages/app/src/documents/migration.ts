@@ -79,11 +79,11 @@ export function rewriteAssetSrcs(
   return { ...snapshot, store: newStore as typeof snapshot.store };
 }
 
-// Cap on simultaneous in-flight asset uploads during a migration.
-// Browsers cap parallel HTTP/1.1 connections at 6 per host; the worker
-// also has its own per-request cost. 4 leaves headroom for unrelated
-// requests (the doc-list query, snapshot push, etc.) while still
-// pipelining enough to feel fast on a doc with many embedded images.
+// Cap on simultaneous in-flight asset uploads during a migration —
+// leaves headroom under the browser's per-host parallel-connection
+// limit for unrelated requests (the doc-list query, the snapshot
+// push, etc.) while still pipelining enough to feel fast on a doc
+// with many embedded images.
 const ASSET_UPLOAD_CONCURRENCY = 4;
 
 /**
@@ -138,8 +138,8 @@ export async function uploadAssetDataUrls(
 
   // The File constructor requires a non-empty name, but the server
   // derives the final asset key's extension from the validated MIME
-  // type and ignores this filename entirely (see
-  // packages/worker/src/assets.ts). Passing the record id is enough.
+  // type and ignores the upload filename. Passing the record id
+  // is enough.
   const entries = await pooledMap(
     assets,
     ASSET_UPLOAD_CONCURRENCY,
@@ -152,11 +152,11 @@ export async function uploadAssetDataUrls(
   return rewriteAssetSrcs(snapshot, new Map(entries));
 }
 
-// Migration HTTP calls can stall on a dead connection without this; the
-// rest of the app hits websocket endpoints where RTT limits are
-// enforced differently. 60s is generous for the asset upload case
-// (a 10 MB payload on a slow network takes time) but short enough to
-// surface as a visible failure rather than an indefinite spinner.
+// Migration HTTP calls can stall on a dead connection without this;
+// the rest of the app hits websocket endpoints where RTT limits are
+// enforced differently. Generous enough for a max-sized asset
+// upload on a slow connection but short enough to surface as a
+// visible failure rather than an indefinite spinner.
 const MIGRATION_FETCH_TIMEOUT_MS = 60_000;
 
 // Internal-only signatures use `AbortSignal | undefined` rather than

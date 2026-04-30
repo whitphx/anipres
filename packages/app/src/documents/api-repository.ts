@@ -2,10 +2,8 @@ import { apiClient } from "../lib/api-client";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
-// Document ids are client-allocated UUID v7 strings (see
-// `packages/worker/migrations/0001_initial_schema.sql` design note).
-// The wire shape mirrors the D1 row directly — no per-field coercion
-// needed.
+// Wire shape mirrors the D1 row directly — no per-field coercion
+// needed at the JSON boundary.
 interface DocumentRow {
   id: string;
   slug: string;
@@ -62,16 +60,6 @@ export class ApiDocumentRepository implements DocumentRepository {
     };
   }
 
-  /**
-   * PUT /api/documents/:id — server-side upsert. The body always
-   * carries workspace_id, title, and sort_order; `created_at` is sent
-   * only when the caller explicitly supplies it (the local→synced
-   * migration uses this to preserve the on-device creation time).
-   * The server stamps `updated_at` (via trigger) and the slug (on
-   * insert only) and returns the canonical row.
-   *
-   * The id is in the URL path; it's not duplicated in the body.
-   */
   async save(input: DocumentInput): Promise<DocumentData> {
     const body: {
       workspace_id: string;

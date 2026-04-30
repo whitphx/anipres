@@ -79,7 +79,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   constructor(ctx: DurableObjectState, env: WorkerEnv) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
-      // Ensure the SQLite snapshot table exists.
       ctx.storage.sql.exec(
         "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL)",
       );
@@ -227,10 +226,6 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
     return run;
   }
 
-  /**
-   * Write a room snapshot to SQLite. Uses the given snapshot or falls back to
-   * the current room state. `ctx.storage.sql` ops are synchronous in the DO.
-   */
   private flushSnapshot(snapshot?: RoomSnapshot, incrementVersion = false) {
     if (incrementVersion) {
       this.snapshotVersion += 1;
@@ -503,22 +498,17 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   /**
-   * Read-only "did this room ever receive a snapshot?" probe used by the
-   * initializing-doc cleanup sweep to detect divergence between D1 and DO
-   * state.
-   *
-   * Why a separate method from getSnapshotStatus:
-   * - getSnapshotStatus requires `documentId` to have been claimed (it
-   *   may flush a dirty snapshot, run a room task, etc.). The sweep
-   *   asks about rows where the client may never have completed its
-   *   create flow; the DO instance might have no documentId bound.
-   * - The constructor restores `snapshotVersion` from `snapshot` table
-   *   storage during `blockConcurrencyWhile`, so any caller invoking
-   *   methods on the DO sees the fully-initialized value. Wrapping in
-   *   runRoomTask serializes against concurrent replaceSnapshot calls.
-   *
+   * Read-only "did this room ever receive a snapshot?" probe.
    * Returns 0 when the DO has no stored snapshot yet — the canonical
    * "this doc was never finalized" signal.
+   *
+   * Distinct from `getSnapshotStatus` because that method requires a
+   * claimed `documentId` and may flush a dirty snapshot or run a
+   * room task. This one is safe to call against a DO instance that
+   * has never been bound to a document. The constructor restores
+   * `snapshotVersion` during `blockConcurrencyWhile`, so callers
+   * always see the fully-initialized value; `runRoomTask` serializes
+   * against concurrent `replaceSnapshot` calls.
    */
   async peekSnapshotVersion(): Promise<number> {
     return this.runRoomTask(async () => this.snapshotVersion);

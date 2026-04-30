@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchMe } from "./AuthContext";
+import { fetchMe } from "./me-fetcher";
 
 function jsonResponse(body: unknown, status: number): Response {
   return {
