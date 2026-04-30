@@ -7,15 +7,18 @@ const ME_KEY = ["auth", "me"] as const;
 
 // `/auth/me` returns 401 with a JSON error body when not logged in
 // — that's "logged out", not a fetch error — so the fetcher maps 401
-// to `null` instead of throwing. The typed contract is just 200|401
-// (anything else would be a server bug surfacing as a JSON-parse
-// error from `res.json()` below).
-async function fetchMe() {
+// to `null` instead of throwing. Other non-2xx statuses (a 500 from
+// an uncaught server exception, say) DO throw, so SWR's `error`
+// channel surfaces real failures rather than silently logging the
+// user out. The typed contract is 200|401; the `as Response` cast on
+// the throw branch is the price of TS narrowing `res` to `never`
+// after we've exhausted the typed status union — at runtime
+// `res.status` is still the real number.
+export async function fetchMe() {
   const res = await apiClient.auth.me.$get();
-  if (res.status === 200) {
-    return res.json();
-  }
-  return null;
+  if (res.status === 200) return res.json();
+  if (res.status === 401) return null;
+  throw new Error(`Request failed (${(res as Response).status})`);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

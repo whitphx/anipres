@@ -281,7 +281,9 @@ const documentRoutes = new Hono<AppBindings>()
       // sweep eventually cleans up after a 10-minute grace window, but
       // interactive retry is a minute-zero need). Letting the metadata
       // UPDATE through is harmless — the row stays initializing, the
-      // snapshot push remains the sole finalizer (worker.ts ~554), and
+      // snapshot push remains the sole finalizer (the `PUT
+      // /api/documents/:id/snapshot` handler clears `initializing_at`
+      // on a successful push), and
       // any orphan tldraw_assets rows from the prior attempt get GC'd
       // by the asset sweep at the next push.
       if (
