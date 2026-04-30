@@ -19,6 +19,17 @@ export function registerAuthRoutes(app: Hono<AppBindings>) {
   app.get("/auth/me", async (c) => {
     const user = await getCurrentUser(c);
     if (!user) {
+      // Self-heal stale cookies: a JWT can outlive its underlying
+      // user row (DB reset in dev, or an account deletion once that
+      // ships). Without this, the browser keeps replaying the orphan
+      // cookie on every load — `getCurrentUser` returns null, the
+      // client stays in a logged-out state with a still-present
+      // cookie, and the next OAuth attempt would land in link mode
+      // against a missing user (now caught in `session.ts`, but the
+      // cookie itself is the root cause and worth clearing here).
+      // Safe to call unconditionally: when there's no cookie or the
+      // signature failed, `clearSession` is a no-op for the client.
+      clearSession(c);
       return c.json({ error: "Not authenticated" }, 401);
     }
 
