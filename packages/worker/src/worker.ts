@@ -18,25 +18,18 @@ export { DocumentSyncRoom } from "./DocumentSyncRoom";
 
 const app = new Hono<AppBindings>();
 
-// Side-effect mutations: OAuth provider redirects (browser-only, no
-// app-side fetch — kept off the typed chain) and the `/api/*` auth
-// middleware. Order matters at runtime: middleware must be registered
-// before the sub-routers it gates.
 registerOAuthProviderRoutes(app);
+// Must mount before the /api/* sub-routers below — Hono runs
+// middleware that matches a request's path in registration order.
 registerApiAuth(app);
 
-// `typeof routes` is what the app's `hc<AppType>(...)` client
-// consumes. Each `.route("/", ...)` adds its sub-router's routes to
-// the cumulative type.
+// `typeof routes` is the type the app's `hc<>` client consumes;
+// each `.route()` extends that type with its sub-router's schema.
 const routes = app
   .route("/", authRoutes)
   .route("/", workspacesRoutes)
   .route("/", documentsRoutes)
   .route("/", assetRoutes)
-  // The websocket route is mounted into the chain too — its handler
-  // returns a raw `Response`, which is fine to include in the type
-  // (the typed client just sees a non-JSON response). Keeps the
-  // routes/<url>.ts convention symmetric.
   .route("/", connectRoutes);
 
 export type AppType = typeof routes;

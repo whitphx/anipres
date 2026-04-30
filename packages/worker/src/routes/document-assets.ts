@@ -156,7 +156,7 @@ async function parseAssetUploadFormData(request: Request) {
   }
 }
 
-// --- Range-request math (GET /assets/:assetName) ---------------------
+// --- Range-request math ---------------------------------------------
 
 function normalizeRange(
   size: number,
@@ -329,13 +329,10 @@ async function scheduleDocumentAssetGc(
 
 // --- Routes ----------------------------------------------------------
 
-// Chained Hono sub-router for the per-document asset endpoints.
-// `typeof assetRoutes` flows into the worker's combined `AppType` so
-// the app's typed client can call `apiClient.api.documents[
-// ":id"].assets.$post({...})`. The asset GET returns raw bytes (an
-// untyped `Response`) since browsers consume the asset URL directly
-// via `<img>` etc.; including it in the chain keeps the type story
-// uniform without losing anything.
+// One handler returns raw bytes (browsers consume the asset URL
+// directly via `<img>`, not through the typed client). Including it
+// in the chain alongside the JSON POST is harmless and keeps the
+// routes/ convention uniform.
 export const assetRoutes = new Hono<AppBindings>()
   .post(
     "/api/documents/:id/assets",

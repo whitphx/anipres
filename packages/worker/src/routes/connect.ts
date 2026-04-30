@@ -8,9 +8,9 @@ const documentConnectParamSchema = v.object({
   documentId: documentIdSchema,
 });
 
-// WebSocket upgrade for tldraw sync. Off the typed RPC chain because
-// the handshake returns a raw `Response`; clients open the socket
-// via `new WebSocket(url)` rather than through the typed client.
+// WebSocket upgrade for tldraw sync. The handshake returns a raw
+// `Response`; clients open the socket via `new WebSocket(url)`
+// rather than through the typed client.
 export const connectRoutes = new Hono<AppBindings>().get(
   "/api/connect/:documentId",
   vValidator("param", documentConnectParamSchema, (result, c) => {
