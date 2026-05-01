@@ -356,6 +356,11 @@ export function useDocumentManager(params: {
       }
 
       await repo.delete(id);
+      // Identity comparison rather than a `meta.source` lookup: this
+      // hook controls both branches of `getRepository`, and the local
+      // branch always returns the `localRepository` prop unchanged.
+      // Cross-tab sync for synced docs is handled server-side via the
+      // SSE feed, so the synced branch deliberately skips this.
       if (repo === localRepository) {
         broadcastLocalDocsChanged();
       }

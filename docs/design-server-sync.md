@@ -267,6 +267,7 @@ DELETE /auth/identities/:provider/:provider_id  -> Unlink an OAuth identity (ref
 
 # Workspaces (Phase 1 invariant: 1:1 user ↔ workspace)
 GET    /api/workspaces                -> List workspaces the user owns
+GET    /api/workspaces/:id/events     -> SSE feed of workspace-scoped events ({"type":"documents:changed"})
 
 # Documents (workspace-scoped; PUT-as-upsert)
 GET    /api/documents?workspace_id=:wsid     -> List active docs in a workspace
@@ -295,6 +296,7 @@ Notes:
 - **`/api/connect/:documentId`** runs through the same `requireSession` middleware as the REST routes — only logged-in users can open a sync session.
 - **Typed client** — every JSON endpoint above is consumed via Hono's `hc<AppType>()` so the app reads response shapes from the worker's compiled `.d.ts`. The worker emits its declarations through a TypeScript project reference (`packages/worker/tsconfig.build.json`); the app's `tsc -b` builds the worker first.
 - **CSRF protection** — Hono's `csrf()` middleware allowlists `Origin` against `PUBLIC_BASE_URL` for state-changing requests. JSON requests are protected by browser-level CORS preflight (the worker emits no `Access-Control-Allow-Origin`); WebSocket upgrades are blocked by `SameSite=Lax` on the session cookie.
+- **Workspace SSE feed (`/api/workspaces/:id/events`)** — connects through a `WorkspaceFeedRoom` Durable Object (one DO per workspace, in-memory subscriber set, no persisted storage). Document mutation routes call `bumpWorkspaceFeed` after committing, which fires `c.executionCtx.waitUntil(stub.broadcast(...))` so the response doesn't block on RPC. Subscribers receive `data: {"type":"documents:changed"}` and refetch the doc list. The client provides a per-tab id via `?client_id=` and the matching `X-Anipres-Client-Id` header on mutations; the DO suppresses fanOut to the originating tab so it doesn't refetch its own write. EventSource auto-retry plus a 30 s polling backstop on the client cover stream drops and DO restarts. Snapshot pushes during active editing intentionally don't bump (only the initializing → visible transition does); the doc-list output doesn't change beyond `updated_at` between live edits, and the editor itself syncs via WebSocket.
 
 ---
 
@@ -378,6 +380,7 @@ packages/worker/
     worker.ts                # Hono entry: mounts middleware (csrf, oauth, api-auth) and the chained sub-routers; AppType export for the typed RPC client
     api-types.ts             # Type-only re-export for the app's hc<AppType>() consumer
     DocumentSyncRoom.ts      # DurableObject wrapping TLSocketRoom + SQLiteSyncStorage; soft-delete timeline
+    WorkspaceFeedRoom.ts     # Per-workspace DurableObject backing the SSE feed (subscribers list + fanOut, no persisted storage); bumpWorkspaceFeed helper for mutation routes
     tldraw-assets.ts         # Asset lifecycle helpers (GC sweeps, snapshot/asset reconciliation, startDocumentDeletion)
     tldraw-asset-policy.ts   # Cross-package MAX_ASSET_SIZE constant
     cleanup.ts               # sweepInitializingDocuments — runs from the scheduled cron

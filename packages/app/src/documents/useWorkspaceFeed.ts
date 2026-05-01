@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { CLIENT_ID } from "../lib/client-id";
 
 const POLLING_INTERVAL_MS = 30_000;
 
@@ -32,7 +33,12 @@ export function useWorkspaceFeed(
   useEffect(() => {
     if (workspaceId === null) return;
 
-    const url = `/api/workspaces/${workspaceId}/events`;
+    // EventSource has no custom-header API, so the client id rides
+    // on the URL — the worker uses it to suppress same-client
+    // echoes on its own bumps.
+    const url = `/api/workspaces/${workspaceId}/events?client_id=${encodeURIComponent(
+      CLIENT_ID,
+    )}`;
     const es = new EventSource(url);
     es.onmessage = () => {
       onChangeRef.current();

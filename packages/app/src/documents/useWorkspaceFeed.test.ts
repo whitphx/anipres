@@ -40,10 +40,22 @@ describe("useWorkspaceFeed", () => {
     renderHook(() => useWorkspaceFeed("42", onChange));
 
     expect(FakeEventSource.instances).toHaveLength(1);
-    expect(FakeEventSource.instances[0].url).toBe("/api/workspaces/42/events");
+    // The URL also carries the per-tab client id as a query param —
+    // tested separately below; here we just match the path portion.
+    expect(FakeEventSource.instances[0].url).toMatch(
+      /^\/api\/workspaces\/42\/events\?/u,
+    );
 
     FakeEventSource.instances[0].emit('{"type":"documents:changed"}');
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the client id in the EventSource query string", () => {
+    const onChange = vi.fn();
+    renderHook(() => useWorkspaceFeed("42", onChange));
+
+    const url = new URL(FakeEventSource.instances[0].url, "http://example.com");
+    expect(url.searchParams.get("client_id")).toMatch(/^[0-9a-f-]+$/u);
   });
 
   it("polls the onChange callback as a backstop", () => {
@@ -103,5 +115,25 @@ describe("useWorkspaceFeed", () => {
     FakeEventSource.instances[0].emit('{"type":"documents:changed"}');
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("tears down the old EventSource and opens a new one when workspaceId changes", () => {
+    const onChange = vi.fn();
+    const { rerender } = renderHook(
+      ({ id }: { id: string | null }) => useWorkspaceFeed(id, onChange),
+      { initialProps: { id: "1" as string | null } },
+    );
+
+    const first = FakeEventSource.instances[0];
+    expect(first.url).toMatch(/^\/api\/workspaces\/1\/events\?/u);
+    expect(first.closed).toBe(false);
+
+    rerender({ id: "2" });
+
+    expect(first.closed).toBe(true);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[1].url).toMatch(
+      /^\/api\/workspaces\/2\/events\?/u,
+    );
   });
 });

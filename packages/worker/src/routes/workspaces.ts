@@ -62,9 +62,14 @@ export const workspacesRoutes = new Hono<AppBindings>()
         return c.json({ error: "Not found" }, 404);
       }
 
+      // Per-tab id from the client (`?client_id=`). Used by the DO
+      // to suppress fanOut to the originating tab on its own bumps.
+      // EventSource has no header API, hence the query string.
+      const clientId = c.req.query("client_id") ?? null;
+
       const ns = c.env.WORKSPACE_FEED_ROOM;
       const stub = ns.get(ns.idFromName(`workspace:${workspaceId}`));
-      const stream = await stub.subscribe();
+      const stream = await stub.subscribe(clientId);
 
       return new Response(stream, {
         headers: {
