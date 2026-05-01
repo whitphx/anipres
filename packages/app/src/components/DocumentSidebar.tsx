@@ -1,9 +1,9 @@
-import { Menu, PanelLeftClose, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Menu, PanelLeftClose, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
-import type { DocumentMeta } from "../documents/types";
+import type { DocumentMeta, DocumentSource } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
 import { AccountFooter } from "./AccountFooter";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
@@ -32,28 +32,31 @@ export function DocumentSidebar({
     conversionErrors,
   } = useDocumentManagerContext();
 
-  // The convert action only makes sense when the user is logged in,
-  // i.e. when there is a synced destination to migrate the doc into.
-  // Auth state lives in `AccountFooter`'s subtree for the rest of the
-  // sidebar's account-related UI; the sidebar still needs `user` here
-  // to decide whether to expose the convert affordance per row.
   const { user } = useAuth();
+  const loggedIn = user !== null;
 
   const [collapsed, setCollapsed] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuContainerRef = useRef<HTMLDivElement>(null);
 
-  // Announcement string for the convert-to-synced aria-live region.
-  // The convert-to-synced button itself updates its `title` /
-  // `aria-label` in place, but those only get re-announced when the
-  // button receives focus. The polite live region below announces
-  // start / failure transitions to screen readers as they happen,
-  // without taking focus.
-  //
-  // Errors take precedence over in-flight state: when a doc fails
-  // mid-conversion, useDocumentManager moves it from `converting`
-  // into `conversionErrors`, so the error branch fires on the
-  // failure transition. Successful completions don't appear here
-  // (the doc just moves out of `converting` into the synced group);
-  // the visible badge change is enough.
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!newMenuContainerRef.current?.contains(e.target as Node)) {
+        setNewMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNewMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [newMenuOpen]);
+
   const conversionAnnouncement = useMemo(() => {
     for (const [id, err] of conversionErrors) {
       const doc = documents.find((d) => d.id === id);
@@ -79,8 +82,6 @@ export function DocumentSidebar({
     return { syncedDocs: synced, localDocs: local };
   }, [documents]);
 
-  const showGroupHeaders = syncedDocs.length > 0 && localDocs.length > 0;
-
   if (collapsed) {
     return (
       <button
@@ -95,7 +96,12 @@ export function DocumentSidebar({
     );
   }
 
-  const onConvert = user !== null ? convertToSynced : undefined;
+  const onConvert = loggedIn ? convertToSynced : undefined;
+
+  const handleCreate = (source: DocumentSource) => {
+    setNewMenuOpen(false);
+    void createDocument({ source });
+  };
 
   const renderGroup = (docs: DocumentMeta[]) =>
     docs.map((doc) => (
@@ -116,14 +122,48 @@ export function DocumentSidebar({
     <div className={styles.sidebar}>
       <div className={styles.header}>
         <span className={styles.headerTitle}>Documents</span>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button
-            type="button"
-            className={styles.newButton}
-            onClick={() => createDocument()}
-          >
-            <Plus size={14} /> New
-          </button>
+        <div className={styles.headerActions}>
+          {loggedIn ? (
+            <div ref={newMenuContainerRef} className={styles.newMenuContainer}>
+              <button
+                type="button"
+                className={styles.newButton}
+                onClick={() => setNewMenuOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={newMenuOpen}
+              >
+                <Plus size={14} /> New <ChevronDown size={12} />
+              </button>
+              {newMenuOpen && (
+                <div role="menu" className={styles.newMenu}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.newMenuItem}
+                    onClick={() => handleCreate("synced")}
+                  >
+                    Synced
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.newMenuItem}
+                    onClick={() => handleCreate("local")}
+                  >
+                    Local
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={styles.newButton}
+              onClick={() => handleCreate("local")}
+            >
+              <Plus size={14} /> New
+            </button>
+          )}
           <button
             type="button"
             className={styles.collapseButton}
@@ -136,14 +176,24 @@ export function DocumentSidebar({
         </div>
       </div>
       <div className={styles.list}>
-        {showGroupHeaders && syncedDocs.length > 0 && (
-          <div className={styles.groupHeader}>Synced</div>
+        {loggedIn ? (
+          <>
+            <div className={styles.groupHeader}>Synced</div>
+            {syncedDocs.length > 0 ? (
+              renderGroup(syncedDocs)
+            ) : (
+              <div className={styles.emptyGroup}>No synced documents</div>
+            )}
+            <div className={styles.groupHeader}>Local</div>
+            {localDocs.length > 0 ? (
+              renderGroup(localDocs)
+            ) : (
+              <div className={styles.emptyGroup}>No local documents</div>
+            )}
+          </>
+        ) : (
+          renderGroup(documents)
         )}
-        {renderGroup(syncedDocs)}
-        {showGroupHeaders && localDocs.length > 0 && (
-          <div className={styles.groupHeader}>Local</div>
-        )}
-        {renderGroup(localDocs)}
       </div>
       <div
         role="status"
