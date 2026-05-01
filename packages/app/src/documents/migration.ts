@@ -1,5 +1,6 @@
 import type { TLStoreSnapshot } from "tldraw";
 import { apiClient } from "../lib/api-client";
+import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
 
@@ -324,4 +325,5 @@ export async function convertLocalDocToSynced(
   abortSignal?.throwIfAborted();
 
   await localRepository.delete(documentId);
+  broadcastLocalDocsChanged();
 }

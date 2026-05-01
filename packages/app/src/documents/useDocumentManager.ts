@@ -9,6 +9,10 @@ import type {
   DocumentSource,
 } from "./types";
 import {
+  broadcastLocalDocsChanged,
+  subscribeToLocalDocsChanges,
+} from "./local-docs-broadcast";
+import {
   convertLocalDocToSynced,
   type ConvertLocalDocToSyncedParams,
 } from "./migration";
@@ -215,6 +219,8 @@ export function useDocumentManager(params: {
         if (defaultSource === "synced") {
           await finalizeSyncedDocument(saved.meta.id);
           if (cancelled) return;
+        } else {
+          broadcastLocalDocsChanged();
         }
         commitDocuments([saved.meta]);
         commitActiveDocumentId(saved.meta.id);
@@ -245,6 +251,16 @@ export function useDocumentManager(params: {
     const metas = await listAllDocuments();
     commitDocuments(metas);
   }, [commitDocuments, listAllDocuments]);
+
+  // Other tabs in the same browser broadcast on local IDB writes
+  // (create / rename / reorder / delete / convert-to-synced). The
+  // IDB store itself is shared, so receiving the signal is all this
+  // tab needs to pick up the change.
+  useEffect(() => {
+    return subscribeToLocalDocsChanges(() => {
+      void refreshDocuments();
+    });
+  }, [refreshDocuments]);
 
   // When the syncedRepository identity changes — login, logout, or a
   // logout-then-login cycle — any in-flight migration state is about to
@@ -303,6 +319,8 @@ export function useDocumentManager(params: {
         const saved = await repo.save(input);
         if (source === "synced") {
           await finalizeSyncedDocument(saved.meta.id);
+        } else {
+          broadcastLocalDocsChanged();
         }
 
         editorRef.current = null;
@@ -338,6 +356,9 @@ export function useDocumentManager(params: {
       }
 
       await repo.delete(id);
+      if (repo === localRepository) {
+        broadcastLocalDocsChanged();
+      }
 
       // If the migration's POST already landed before we aborted
       // (step 3 of convertLocalDocToSynced), the server holds a
@@ -397,6 +418,8 @@ export function useDocumentManager(params: {
           saved = await defaultRepo.save(input);
           if (defaultSource === "synced") {
             await finalizeSyncedDocument(saved.meta.id);
+          } else {
+            broadcastLocalDocsChanged();
           }
         } catch (error) {
           console.error(
@@ -410,6 +433,7 @@ export function useDocumentManager(params: {
             );
             try {
               saved = await localRepository.save(localInput);
+              broadcastLocalDocsChanged();
             } catch (localError) {
               console.error(
                 "Failed to create replacement local document",
@@ -463,9 +487,12 @@ export function useDocumentManager(params: {
         ...data,
         meta: { ...data.meta, title },
       });
+      if (repo === localRepository) {
+        broadcastLocalDocsChanged();
+      }
       await refreshDocuments();
     },
-    [findRepositoryForId, refreshDocuments, saveCurrentEditor],
+    [findRepositoryForId, localRepository, refreshDocuments, saveCurrentEditor],
   );
 
   const reorderDocument = useCallback(
@@ -481,9 +508,12 @@ export function useDocumentManager(params: {
         ...data,
         meta: { ...data.meta, sortOrder: newSortOrder },
       });
+      if (repo === localRepository) {
+        broadcastLocalDocsChanged();
+      }
       await refreshDocuments();
     },
-    [findRepositoryForId, refreshDocuments, saveCurrentEditor],
+    [findRepositoryForId, localRepository, refreshDocuments, saveCurrentEditor],
   );
 
   const convertToSynced = useCallback(
