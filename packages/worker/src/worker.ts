@@ -10,6 +10,7 @@ import { workspacesRoutes } from "./routes/workspaces";
 import type { AppBindings, Env } from "./types";
 
 export { DocumentSyncRoom } from "./DocumentSyncRoom";
+export { WorkspaceFeedRoom } from "./WorkspaceFeedRoom";
 
 const app = new Hono<AppBindings>();
 

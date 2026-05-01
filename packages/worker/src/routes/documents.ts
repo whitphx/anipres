@@ -5,6 +5,7 @@ import * as v from "valibot";
 import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
+import { bumpWorkspaceFeed } from "../WorkspaceFeedRoom";
 
 const nonNegativeFiniteInteger = v.pipe(
   v.number(),
@@ -274,6 +275,13 @@ export const documentsRoutes = new Hono<AppBindings>()
           // the workspace it asked for.
           return c.json({ error: "Not found" }, 404);
         }
+        // Initializing rows aren't visible in /api/documents, so an
+        // update on one doesn't change list output for any
+        // subscriber yet. Skip the bump until /finalize or the
+        // finalizing snapshot push transitions the row into view.
+        if (existing.initializing_at === null) {
+          bumpWorkspaceFeed(c, workspaceId);
+        }
         return c.json(row, 200);
       }
 
@@ -346,13 +354,14 @@ export const documentsRoutes = new Hono<AppBindings>()
       const userId = c.get("userId");
       const { id } = c.req.valid("param");
       const document = await c.env.DB.prepare(
-        `SELECT deleting_at, initializing_at
+        `SELECT workspace_id, deleting_at, initializing_at
          FROM documents
          WHERE id = ?
            AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
       )
         .bind(id, userId)
         .first<{
+          workspace_id: number;
           deleting_at: number | null;
           initializing_at: number | null;
         }>();
@@ -378,6 +387,7 @@ export const documentsRoutes = new Hono<AppBindings>()
       }
 
       await startDocumentDeletion(c, userId, id);
+      bumpWorkspaceFeed(c, document.workspace_id);
       return c.json({ ok: true as const }, 200);
     },
   )
@@ -406,35 +416,39 @@ export const documentsRoutes = new Hono<AppBindings>()
       // update path: we don't want a finalize call to revive a
       // soft-deleted doc, and we want a clean 404 for foreign /
       // non-existent ids.
-      const result = await c.env.DB.prepare(
+      const finalized = await c.env.DB.prepare(
         `UPDATE documents
             SET initializing_at = NULL
           WHERE id = ?
             AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
             AND deleting_at IS NULL
-            AND initializing_at IS NOT NULL`,
+            AND initializing_at IS NOT NULL
+        RETURNING workspace_id`,
       )
         .bind(id, userId)
-        .run();
+        .first<{ workspace_id: number }>();
 
-      if ((result.meta.changes ?? 0) === 0) {
-        // Either the doc doesn't exist for this user, or it's already
-        // finalized. Both cases respond with 200 — the caller's intent
-        // ("make sure this doc is finalized") is satisfied either way.
-        // Distinguish the not-found case so the client can surface a
-        // genuine error if the row really doesn't exist.
-        const exists = await c.env.DB.prepare(
-          `SELECT 1
-           FROM documents
-           WHERE id = ?
-             AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-             AND deleting_at IS NULL`,
-        )
-          .bind(id, userId)
-          .first();
-        if (!exists) {
-          return c.json({ error: "Not found" }, 404);
-        }
+      if (finalized) {
+        bumpWorkspaceFeed(c, finalized.workspace_id);
+        return c.json({ ok: true as const }, 200);
+      }
+
+      // Either the doc doesn't exist for this user, or it's already
+      // finalized. Both cases respond with 200 — the caller's intent
+      // ("make sure this doc is finalized") is satisfied either way.
+      // Distinguish the not-found case so the client can surface a
+      // genuine error if the row really doesn't exist.
+      const exists = await c.env.DB.prepare(
+        `SELECT 1
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+           AND deleting_at IS NULL`,
+      )
+        .bind(id, userId)
+        .first();
+      if (!exists) {
+        return c.json({ error: "Not found" }, 404);
       }
 
       return c.json({ ok: true as const }, 200);
@@ -488,14 +502,14 @@ export const documentsRoutes = new Hono<AppBindings>()
       // finalizing it. Only soft-deleting rows are off-limits (their
       // DO state is being torn down).
       const row = await c.env.DB.prepare(
-        `SELECT 1
+        `SELECT workspace_id, initializing_at
          FROM documents
          WHERE id = ?
            AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
            AND deleting_at IS NULL`,
       )
         .bind(id, userId)
-        .first();
+        .first<{ workspace_id: number; initializing_at: number | null }>();
       if (!row) {
         return c.json({ error: "Not found" }, 404);
       }
@@ -537,6 +551,15 @@ export const documentsRoutes = new Hono<AppBindings>()
       )
         .bind(now, id, userId)
         .run();
+
+      // Bump only on the initializing → visible transition. Bumping
+      // on every snapshot push (which the editor issues every few
+      // seconds during active drawing) would flood subscribers with
+      // doc-list refetches that wouldn't see any change in the list
+      // output beyond updated_at.
+      if (row.initializing_at !== null) {
+        bumpWorkspaceFeed(c, row.workspace_id);
+      }
 
       return c.json({ ok: true as const }, 200);
     },
