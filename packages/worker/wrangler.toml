@@ -79,6 +79,9 @@ preview_bucket_name = "anipres-assets-preview"
 [env.preview]
 name = "anipres-worker-preview"
 workers_dev = true
+# Disable inheritance of the top-level `[[routes]]` (anipres.app custom
+# domain) — preview is reached via its workers.dev URL only.
+routes = []
 
 [env.preview.vars]
 # TODO: replace with the real preview-worker URL after the first
