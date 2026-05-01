@@ -113,6 +113,7 @@ function AuthenticatedApp() {
         <DocumentManagerProvider
           localRepository={localRepository}
           syncedRepository={syncedRepository}
+          workspaceId={workspaceId}
         >
           <AppContent />
         </DocumentManagerProvider>
