@@ -1,5 +1,5 @@
-import { ChevronDown, Menu, PanelLeftClose, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Menu, PanelLeftClose, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
@@ -36,26 +36,6 @@ export function DocumentSidebar({
   const loggedIn = user !== null;
 
   const [collapsed, setCollapsed] = useState(false);
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const newMenuContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!newMenuOpen) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (!newMenuContainerRef.current?.contains(e.target as Node)) {
-        setNewMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setNewMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [newMenuOpen]);
 
   const conversionAnnouncement = useMemo(() => {
     for (const [id, err] of conversionErrors) {
@@ -99,7 +79,6 @@ export function DocumentSidebar({
   const onConvert = loggedIn ? convertToSynced : undefined;
 
   const handleCreate = (source: DocumentSource) => {
-    setNewMenuOpen(false);
     void createDocument({ source });
   };
 
@@ -118,82 +97,51 @@ export function DocumentSidebar({
       />
     ));
 
+  const renderSection = (
+    label: string,
+    source: DocumentSource,
+    docs: DocumentMeta[],
+    emptyMessage: string,
+  ) => (
+    <>
+      <div className={styles.groupHeader}>
+        <span className={styles.groupHeaderLabel}>{label}</span>
+        <button
+          type="button"
+          className={styles.groupAddButton}
+          onClick={() => handleCreate(source)}
+          title={`New ${label.toLowerCase()} document`}
+          aria-label={`New ${label.toLowerCase()} document`}
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      {docs.length > 0 ? (
+        renderGroup(docs)
+      ) : (
+        <div className={styles.emptyGroup}>{emptyMessage}</div>
+      )}
+    </>
+  );
+
   return (
     <div className={styles.sidebar}>
       <div className={styles.header}>
         <span className={styles.headerTitle}>Documents</span>
-        <div className={styles.headerActions}>
-          {loggedIn ? (
-            <div ref={newMenuContainerRef} className={styles.newMenuContainer}>
-              <button
-                type="button"
-                className={styles.newButton}
-                onClick={() => setNewMenuOpen((v) => !v)}
-                aria-haspopup="menu"
-                aria-expanded={newMenuOpen}
-              >
-                <Plus size={14} /> New <ChevronDown size={12} />
-              </button>
-              {newMenuOpen && (
-                <div role="menu" className={styles.newMenu}>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={styles.newMenuItem}
-                    onClick={() => handleCreate("synced")}
-                  >
-                    Synced
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={styles.newMenuItem}
-                    onClick={() => handleCreate("local")}
-                  >
-                    Local
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button
-              type="button"
-              className={styles.newButton}
-              onClick={() => handleCreate("local")}
-            >
-              <Plus size={14} /> New
-            </button>
-          )}
-          <button
-            type="button"
-            className={styles.collapseButton}
-            onClick={() => setCollapsed(true)}
-            title="Hide sidebar"
-            aria-label="Hide sidebar"
-          >
-            <PanelLeftClose size={14} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={styles.collapseButton}
+          onClick={() => setCollapsed(true)}
+          title="Hide sidebar"
+          aria-label="Hide sidebar"
+        >
+          <PanelLeftClose size={14} />
+        </button>
       </div>
       <div className={styles.list}>
-        {loggedIn ? (
-          <>
-            <div className={styles.groupHeader}>Synced</div>
-            {syncedDocs.length > 0 ? (
-              renderGroup(syncedDocs)
-            ) : (
-              <div className={styles.emptyGroup}>No synced documents</div>
-            )}
-            <div className={styles.groupHeader}>Local</div>
-            {localDocs.length > 0 ? (
-              renderGroup(localDocs)
-            ) : (
-              <div className={styles.emptyGroup}>No local documents</div>
-            )}
-          </>
-        ) : (
-          renderGroup(documents)
-        )}
+        {loggedIn &&
+          renderSection("Synced", "synced", syncedDocs, "No synced documents")}
+        {renderSection("Local", "local", localDocs, "No local documents")}
       </div>
       <div
         role="status"
