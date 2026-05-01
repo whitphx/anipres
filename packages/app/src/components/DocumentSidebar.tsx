@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
-import type { DocumentMeta } from "../documents/types";
+import type { DocumentMeta, DocumentSource } from "../documents/types";
 import type { ColorSchemePreference } from "../hooks/useColorScheme";
 import { AccountFooter } from "./AccountFooter";
 import { ColorSchemeSwitcher } from "./ColorSchemeSwitcher";
@@ -32,28 +32,11 @@ export function DocumentSidebar({
     conversionErrors,
   } = useDocumentManagerContext();
 
-  // The convert action only makes sense when the user is logged in,
-  // i.e. when there is a synced destination to migrate the doc into.
-  // Auth state lives in `AccountFooter`'s subtree for the rest of the
-  // sidebar's account-related UI; the sidebar still needs `user` here
-  // to decide whether to expose the convert affordance per row.
   const { user } = useAuth();
+  const loggedIn = user !== null;
 
   const [collapsed, setCollapsed] = useState(false);
 
-  // Announcement string for the convert-to-synced aria-live region.
-  // The convert-to-synced button itself updates its `title` /
-  // `aria-label` in place, but those only get re-announced when the
-  // button receives focus. The polite live region below announces
-  // start / failure transitions to screen readers as they happen,
-  // without taking focus.
-  //
-  // Errors take precedence over in-flight state: when a doc fails
-  // mid-conversion, useDocumentManager moves it from `converting`
-  // into `conversionErrors`, so the error branch fires on the
-  // failure transition. Successful completions don't appear here
-  // (the doc just moves out of `converting` into the synced group);
-  // the visible badge change is enough.
   const conversionAnnouncement = useMemo(() => {
     for (const [id, err] of conversionErrors) {
       const doc = documents.find((d) => d.id === id);
@@ -79,8 +62,6 @@ export function DocumentSidebar({
     return { syncedDocs: synced, localDocs: local };
   }, [documents]);
 
-  const showGroupHeaders = syncedDocs.length > 0 && localDocs.length > 0;
-
   if (collapsed) {
     return (
       <button
@@ -95,7 +76,11 @@ export function DocumentSidebar({
     );
   }
 
-  const onConvert = user !== null ? convertToSynced : undefined;
+  const onConvert = loggedIn ? convertToSynced : undefined;
+
+  const handleCreate = (source: DocumentSource) => {
+    void createDocument({ source });
+  };
 
   const renderGroup = (docs: DocumentMeta[]) =>
     docs.map((doc) => (
@@ -112,38 +97,51 @@ export function DocumentSidebar({
       />
     ));
 
+  const renderSection = (
+    label: string,
+    source: DocumentSource,
+    docs: DocumentMeta[],
+    emptyMessage: string,
+  ) => (
+    <>
+      <div className={styles.groupHeader}>
+        <span className={styles.groupHeaderLabel}>{label}</span>
+        <button
+          type="button"
+          className={styles.groupAddButton}
+          onClick={() => handleCreate(source)}
+          title={`New ${label.toLowerCase()} document`}
+          aria-label={`New ${label.toLowerCase()} document`}
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      {docs.length > 0 ? (
+        renderGroup(docs)
+      ) : (
+        <div className={styles.emptyGroup}>{emptyMessage}</div>
+      )}
+    </>
+  );
+
   return (
     <div className={styles.sidebar}>
       <div className={styles.header}>
         <span className={styles.headerTitle}>Documents</span>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button
-            type="button"
-            className={styles.newButton}
-            onClick={() => createDocument()}
-          >
-            <Plus size={14} /> New
-          </button>
-          <button
-            type="button"
-            className={styles.collapseButton}
-            onClick={() => setCollapsed(true)}
-            title="Hide sidebar"
-            aria-label="Hide sidebar"
-          >
-            <PanelLeftClose size={14} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={styles.collapseButton}
+          onClick={() => setCollapsed(true)}
+          title="Hide sidebar"
+          aria-label="Hide sidebar"
+        >
+          <PanelLeftClose size={14} />
+        </button>
       </div>
       <div className={styles.list}>
-        {showGroupHeaders && syncedDocs.length > 0 && (
-          <div className={styles.groupHeader}>Synced</div>
-        )}
-        {renderGroup(syncedDocs)}
-        {showGroupHeaders && localDocs.length > 0 && (
-          <div className={styles.groupHeader}>Local</div>
-        )}
-        {renderGroup(localDocs)}
+        {loggedIn &&
+          renderSection("Synced", "synced", syncedDocs, "No synced documents")}
+        {renderSection("Local", "local", localDocs, "No local documents")}
       </div>
       <div
         role="status"
