@@ -84,11 +84,7 @@ workers_dev = true
 routes = []
 
 [env.preview.vars]
-# TODO: replace with the real preview-worker URL after the first
-# `wrangler deploy --env preview` (the workers.dev subdomain is
-# account-scoped, so it's not knowable until then). The placeholder
-# value will fail Google's redirect_uri check in a clear way.
-PUBLIC_BASE_URL = "https://anipres-worker-preview.preview-todo.workers.dev"
+PUBLIC_BASE_URL = "https://anipres-worker-preview.whitphx.workers.dev"
 
 # Same sweep cadence as prod — preview should exercise the cleanup
 # path so any regression surfaces before deploy.
