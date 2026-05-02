@@ -324,7 +324,10 @@ jobs:
           # Need history back to the PR base to diff
           # `packages/worker/migrations/` for the reset gate below.
           # Only needed on the PR path; harmless on main pushes.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Quoted: GHA `&&`/`||` short-circuit like JS, and numeric `0`
+          # is falsy, so `… && 0 || 1` always yields `1`. Strings `'0'`
+          # / `'1'` are both truthy and pass through unchanged.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
