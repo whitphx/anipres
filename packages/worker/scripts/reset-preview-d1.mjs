@@ -60,8 +60,11 @@ if (objects.length === 0) {
 // their parent tables, but explicit DROPs make the order obvious and
 // keep the script independent of D1's FK-enforcement default.
 const order = { trigger: 0, view: 1, index: 2, table: 3 };
+// `_cf_*` tables are Cloudflare-managed (e.g. `_cf_KV` for D1's
+// session bookkeeping); D1's authorizer rejects DDL on them with
+// `SQLITE_AUTH`, same way SQLite rejects DROP on `sqlite_sequence`.
 const dropSQL = objects
-  .filter((o) => o.name !== "sqlite_sequence") // SQLite-internal
+  .filter((o) => o.name !== "sqlite_sequence" && !o.name.startsWith("_cf_"))
   .sort((a, b) => order[a.type] - order[b.type])
   .map((o) => `DROP ${o.type.toUpperCase()} IF EXISTS "${o.name}";`)
   .join("\n");
