@@ -45,7 +45,8 @@ PUBLIC_BASE_URL = "https://anipres.app"
 
 [durable_objects]
 bindings = [
-  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" },
+  { name = "WORKSPACE_FEED_ROOM", class_name = "WorkspaceFeedRoom" }
 ]
 
 [[d1_databases]]
@@ -60,6 +61,10 @@ database_id = "local"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["DocumentSyncRoom"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["WorkspaceFeedRoom"]
 
 [[r2_buckets]]
 binding = "ASSETS"
@@ -104,15 +109,20 @@ run_worker_first = ["/api/*", "/auth/*"]
 
 [env.preview.durable_objects]
 bindings = [
-  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" }
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" },
+  { name = "WORKSPACE_FEED_ROOM", class_name = "WorkspaceFeedRoom" }
 ]
 
 # DO migrations apply to the script's class definitions, but wrangler
-# tracks them per-env, so the preview env needs its own copy of the v1
-# tag.
+# tracks them per-env, so the preview env needs its own copy of the
+# tags.
 [[env.preview.migrations]]
 tag = "v1"
 new_sqlite_classes = ["DocumentSyncRoom"]
+
+[[env.preview.migrations]]
+tag = "v2"
+new_classes = ["WorkspaceFeedRoom"]
 
 [[env.preview.d1_databases]]
 binding = "DB"

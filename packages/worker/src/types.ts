@@ -1,8 +1,10 @@
 import type { Context } from "hono";
 import type { DocumentSyncRoom } from "./DocumentSyncRoom";
+import type { WorkspaceFeedRoom } from "./WorkspaceFeedRoom";
 
 export interface Env {
   DOCUMENT_SYNC_ROOM: DurableObjectNamespace<DocumentSyncRoom>;
+  WORKSPACE_FEED_ROOM: DurableObjectNamespace<WorkspaceFeedRoom>;
   DB: D1Database;
   GITHUB_ID: string;
   GITHUB_SECRET: string;
