@@ -363,13 +363,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # `git diff --quiet` distinguishes the three outcomes by exit
+        # code (0 unchanged, 1 changed, >1 error), so a real failure
+        # surfaces instead of being silently routed to "skip reset" —
+        # which `if git diff … | grep -q .` would do under `set -e`,
+        # since `if` disables errexit for the condition.
         run: |
-          if git diff --name-only "$BASE_SHA"...HEAD -- migrations/ | grep -q .; then
-            echo "Migrations changed since $BASE_SHA — resetting preview D1."
-            pnpm reset:remote:preview
-          else
-            echo "Migrations unchanged since $BASE_SHA — skipping preview D1 reset."
-          fi
+          set +e
+          git diff --quiet "$BASE_SHA"...HEAD -- migrations/
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "Migrations unchanged since $BASE_SHA — skipping preview D1 reset." ;;
+            1) echo "Migrations changed since $BASE_SHA — resetting preview D1."
+               pnpm reset:remote:preview ;;
+            *) echo "git diff failed (exit $rc); refusing to deploy."
+               exit "$rc" ;;
+          esac
 
       - name: Deploy worker
         env:
