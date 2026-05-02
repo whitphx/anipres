@@ -24,15 +24,31 @@ function wrangler(args, opts = {}) {
   );
 }
 
-const listSQL =
-  "SELECT type, name FROM sqlite_master " +
-  "WHERE name NOT LIKE 'sqlite_%' " +
-  "AND type IN ('table','index','trigger','view')";
+// `wrangler --json` is meant to emit JSON-only on stdout. Try the
+// straight parse first; fall back to extracting from the first line
+// that starts with `[` or `{` if a banner ever sneaks in (vs the
+// looser `indexOf('[')`, which would match a stray `[` inside such a
+// banner and slice at the wrong byte).
+function parseWranglerJSON(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const match = raw.match(/^[[{]/m);
+    if (!match) {
+      throw new Error(`wrangler stdout did not contain JSON:\n${raw}`);
+    }
+    return JSON.parse(raw.slice(match.index));
+  }
+}
+
+const listSQL = `
+  SELECT type, name FROM sqlite_master
+  WHERE name NOT LIKE 'sqlite_%'
+    AND type IN ('table','index','trigger','view')
+`;
 
 const raw = wrangler(["--json", "--command", listSQL]);
-const jsonStart = raw.indexOf("[");
-const objects =
-  (jsonStart >= 0 ? JSON.parse(raw.slice(jsonStart)) : [])[0]?.results ?? [];
+const objects = parseWranglerJSON(raw)[0]?.results ?? [];
 
 if (objects.length === 0) {
   console.log("Preview D1 is already empty — nothing to drop.");
