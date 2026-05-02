@@ -17,6 +17,7 @@
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
+    "reset:remote:preview": "node ./scripts/reset-preview-d1.mjs",
     "build:types": "tsc -b tsconfig.build.json",
     "typecheck": "tsc",
     "test": "vitest"
