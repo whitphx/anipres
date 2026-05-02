@@ -71,8 +71,8 @@ export function OfflineAwareSyncedContainer({
   );
   // Exponential backoff state for "another client holds the room"
   // (`active-session`) reconnect retries: 3 s × 2^attempt, capped at
-  // 60 s. Reset whenever the loop exits (success, fork, non-active
-  // error) or `documentId` changes — see effect below.
+  // 60 s. Reset on every loop-exit path in handleOnline and on
+  // documentId change in the load effect.
   const activeSessionRetryAttemptRef = useRef(0);
   const resetOfflineEditor = useCallback(() => {
     offlineEditorRef.current = null;
@@ -180,6 +180,7 @@ export function OfflineAwareSyncedContainer({
       });
     } catch (error) {
       console.error("Offline reconciliation threw unexpectedly:", error);
+      activeSessionRetryAttemptRef.current = 0;
       setMode({ type: "offline", snapshot, recovery });
       return;
     }
