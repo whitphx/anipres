@@ -130,10 +130,21 @@ export function SyncedAnipresContainer({
     const currentDocumentId = documentId;
     baselineSnapshotRef.current ??= getSnapshot(store).document;
     let retryRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    // Async work in this effect (snapshot-status fetches, the
+    // offline-cache bootstrap, the debounced flush) can resolve after
+    // `documentId` changes and the effect has been cleaned up. IDB
+    // writes use the closed-over `currentDocumentId` so they hit the
+    // correct cache key, but two paths leak past cleanup without a
+    // gate: the writes to component refs (which the next effect's
+    // re-init has already reset) and `onSnapshotUpdate` (which the
+    // parent stores in refs not keyed by docId). The flag short-
+    // circuits both at each post-await checkpoint.
+    let cancelled = false;
 
     const refreshSnapshotVersion = async () => {
       const { snapshotVersion, snapshotFingerprint } =
         await fetchSnapshotStatus(currentDocumentId);
+      if (cancelled) return false;
       const localSnapshot = getSnapshot(store).document;
       const localSnapshotFingerprint = getSnapshotFingerprint(localSnapshot);
 
@@ -167,6 +178,7 @@ export function SyncedAnipresContainer({
     };
 
     const publishSnapshot = () => {
+      if (cancelled) return;
       const snapshot = getSnapshot(store).document;
       const recovery = {
         baselineSnapshot:
@@ -269,6 +281,7 @@ export function SyncedAnipresContainer({
       try {
         const { snapshot, snapshotVersion } =
           await fetchOfflineCache(currentDocumentId);
+        if (cancelled) return;
         const localSnapshot = getSnapshot(store).document;
 
         if (!snapshotsEqual(localSnapshot, snapshot)) {
@@ -323,6 +336,7 @@ export function SyncedAnipresContainer({
     window.addEventListener("pagehide", handlePageHide);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       clearTimeout(retryRefreshTimer);
       stopListening();
