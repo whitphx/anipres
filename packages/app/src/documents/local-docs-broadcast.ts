@@ -1,14 +1,11 @@
+import { CLIENT_ID } from "../lib/client-id";
+
 const CHANNEL_NAME = "anipres:local-docs";
 
-// Stable per-tab id used to filter the listener's own posts. Without
-// this, broadcasting from one channel and listening on another in
-// the same tab (which subscribe + broadcast must do, since
-// BroadcastChannel only suppresses echoes on the *same* instance)
-// would loop the sender's own message back into its receiver.
-const TAB_ID =
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random()}`;
+// BroadcastChannel only suppresses echoes on the *same* instance,
+// but subscribe + broadcast use separate instances (one is long-lived
+// in the listener, one is opened per post). The per-tab CLIENT_ID
+// stamps every payload so the listener can drop its own posts.
 
 interface LocalDocsMessage {
   senderId: string;
@@ -16,7 +13,7 @@ interface LocalDocsMessage {
 
 export function broadcastLocalDocsChanged(): void {
   const channel = new BroadcastChannel(CHANNEL_NAME);
-  const payload: LocalDocsMessage = { senderId: TAB_ID };
+  const payload: LocalDocsMessage = { senderId: CLIENT_ID };
   channel.postMessage(payload);
   channel.close();
 }
@@ -24,7 +21,7 @@ export function broadcastLocalDocsChanged(): void {
 export function subscribeToLocalDocsChanges(handler: () => void): () => void {
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.onmessage = (event: MessageEvent<LocalDocsMessage>) => {
-    if (event.data?.senderId === TAB_ID) return;
+    if (event.data?.senderId === CLIENT_ID) return;
     handler();
   };
   return () => channel.close();

@@ -1,10 +1,12 @@
-// Per-tab client identifier sent on every API request and on the
-// EventSource handshake. The worker stamps it onto each
-// "documents:changed" SSE broadcast and the WorkspaceFeedRoom DO
-// suppresses fanOut to subscribers whose id matches — so a tab
-// doesn't get its own mutations echoed back as a redundant doc-list
-// refetch a moment after the mutation response already updated
-// local state.
+// Per-tab identifier used wherever a self-echo needs to be
+// filtered:
+//
+// - On every API request (header) + the EventSource handshake
+//   (`?client_id=`), so the WorkspaceFeedRoom DO can skip fanOut
+//   to the originating tab on its own bumps.
+// - On BroadcastChannel posts (local-docs-broadcast,
+//   auth-broadcast), so a tab listening on the same channel name
+//   it just posted to ignores its own message.
 //
 // Generated once at module load — fresh tab → fresh id. Generic
 // uniqueness is enough; this is not a security boundary.
