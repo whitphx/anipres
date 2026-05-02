@@ -69,6 +69,11 @@ export function OfflineAwareSyncedContainer({
   const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  // Exponential backoff state for "another client holds the room"
+  // (`active-session`) reconnect retries: 3 s × 2^attempt, capped at
+  // 60 s. Reset whenever the loop exits (success, fork, non-active
+  // error) or `documentId` changes — see effect below.
+  const activeSessionRetryAttemptRef = useRef(0);
   const resetOfflineEditor = useCallback(() => {
     offlineEditorRef.current = null;
     setOfflineEditor(null);
@@ -78,6 +83,7 @@ export function OfflineAwareSyncedContainer({
   // recovery session that belongs to this tab; otherwise the cache remains a
   // plain offline fallback and normal sync starts immediately.
   useEffect(() => {
+    activeSessionRetryAttemptRef.current = 0;
     let cancelled = false;
     Promise.all([
       getSyncCache(documentId),
@@ -179,12 +185,14 @@ export function OfflineAwareSyncedContainer({
     }
 
     if (result.action === "noop") {
+      activeSessionRetryAttemptRef.current = 0;
       await deleteSyncRecovery(documentId, currentSessionId);
       setMode({ type: "synced" });
       return;
     }
 
     if (result.action === "pushed") {
+      activeSessionRetryAttemptRef.current = 0;
       const pushedSnapshotState = {
         snapshot,
         snapshotVersion: snapshotVersionRef.current,
@@ -207,6 +215,7 @@ export function OfflineAwareSyncedContainer({
       await deleteSyncRecovery(documentId, currentSessionId);
       setMode({ type: "synced" });
     } else if (result.action === "forked") {
+      activeSessionRetryAttemptRef.current = 0;
       await deleteSyncRecovery(documentId, currentSessionId);
       await refreshDocuments();
       await selectDocument(result.forkedDocumentId);
@@ -220,9 +229,12 @@ export function OfflineAwareSyncedContainer({
         if (reconnectRetryTimerRef.current) {
           clearTimeout(reconnectRetryTimerRef.current);
         }
+        const attempt = activeSessionRetryAttemptRef.current;
+        const delay = Math.min(3000 * 2 ** attempt, 60000);
+        activeSessionRetryAttemptRef.current = attempt + 1;
         reconnectRetryTimerRef.current = setTimeout(() => {
           retryHandleOnlineRef.current?.();
-        }, 3000);
+        }, delay);
         setMode({
           type: "reconnecting",
           snapshot,
@@ -230,6 +242,7 @@ export function OfflineAwareSyncedContainer({
         });
         return;
       }
+      activeSessionRetryAttemptRef.current = 0;
       setMode({
         type: "offline",
         snapshot,
