@@ -64,10 +64,16 @@ new_sqlite_classes = ["DocumentSyncRoom"]
 
 # `WorkspaceFeedRoom` itself doesn't use `ctx.storage.sql`, but
 # Cloudflare's free Workers plan only allows new DO classes
-# registered with `new_sqlite_classes` (error code 10097: "In order
-# to use Durable Objects with a free plan, you must create a
-# namespace using a `new_sqlite_classes` migration"). The unused
-# SQLite backend is harmless.
+# registered with `new_sqlite_classes` (deploy error code 10097).
+# The unused SQLite backend is harmless.
+#
+# Reference:
+# https://developers.cloudflare.com/durable-objects/platform/pricing/
+#   "Workers Free plan: Only Durable Objects with SQLite storage
+#    backend are available."
+# https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/
+#   maps `new_sqlite_classes` → SQLite backend,
+#        `new_classes`        → legacy key-value backend.
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["WorkspaceFeedRoom"]
