@@ -52,11 +52,7 @@ bindings = [
 [[d1_databases]]
 binding = "DB"
 database_name = "anipres-db"
-# TODO: replace with the real id from `wrangler d1 list` (or
-# `wrangler d1 create anipres-db`) before the first prod deploy. The
-# literal "local" is the convention for `wrangler dev`; `wrangler deploy`
-# (and `pnpm migrate:remote`) need the real production id.
-database_id = "local"
+database_id = "3d3ad7c3-d28a-4df6-8452-0d2d137e50be"
 
 [[migrations]]
 tag = "v1"
