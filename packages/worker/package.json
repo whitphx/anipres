@@ -29,7 +29,7 @@
     "anipres": "workspace:*",
     "hono": "^4.12.15",
     "nanoid": "^5.1.9",
-    "tldraw": "3.15.5",
+    "tldraw": "4.5.10",
     "valibot": "^1.3.1"
   },
   "devDependencies": {
