@@ -2,13 +2,16 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:tldraw.dev)",
+      "WebFetch(domain:hono.dev)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:blog.cloudflare.com)",
       "Bash(pnpm install)",
-      "Bash(pnpm -F * dev)",
-      "Bash(pnpm -F * build)",
-      "Bash(pnpm -F * typecheck)",
-      "Bash(pnpm -F * lint)",
-      "Bash(pnpm -F * format)",
-      "Bash(pnpm -F * test)"
+      "Bash(pnpm --filter * dev)",
+      "Bash(pnpm --filter * build)",
+      "Bash(pnpm --filter * typecheck)",
+      "Bash(pnpm --filter * lint)",
+      "Bash(pnpm --filter * format)",
+      "Bash(pnpm --filter * test)"
     ]
   }
 }
