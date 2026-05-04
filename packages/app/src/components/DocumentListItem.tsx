@@ -1,5 +1,6 @@
-import { X } from "lucide-react";
+import { CloudUpload, Loader2, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import { getConversionErrorMessage } from "../documents/conversion-error-message";
 import type { DocumentMeta } from "../documents/types";
 import styles from "./DocumentListItem.module.css";
 
@@ -9,6 +10,20 @@ interface DocumentListItemProps {
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  /**
+   * When provided and `doc.source === "local"`, the item renders a
+   * "Upload to cloud" affordance that triggers migration to the synced
+   * repository. Absent when the user is logged out (no synced
+   * destination) or when the doc is already synced.
+   */
+  onConvert?: (id: string) => void;
+  /** True while this specific doc is being migrated via onConvert. */
+  isConverting?: boolean;
+  /**
+   * Error from the most recent convert attempt on this doc. Absent when
+   * there is no prior error or the error belongs to a different doc.
+   */
+  conversionError?: Error;
 }
 
 export function DocumentListItem({
@@ -17,6 +32,9 @@ export function DocumentListItem({
   onSelect,
   onRename,
   onDelete,
+  onConvert,
+  isConverting = false,
+  conversionError,
 }: DocumentListItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(doc.title);
@@ -38,6 +56,21 @@ export function DocumentListItem({
     }
     setEditing(false);
   };
+
+  const canConvert = onConvert !== undefined && doc.source === "local";
+  const friendlyError = conversionError
+    ? getConversionErrorMessage(conversionError)
+    : null;
+  const convertTitle = isConverting
+    ? "Uploading…"
+    : friendlyError
+      ? `${friendlyError} Click to retry.`
+      : "Upload to cloud";
+  const convertAriaLabel = isConverting
+    ? `Uploading ${doc.title} to cloud`
+    : friendlyError
+      ? `Retry uploading ${doc.title} to cloud (${friendlyError})`
+      : `Upload ${doc.title} to cloud`;
 
   return (
     <div
@@ -77,6 +110,28 @@ export function DocumentListItem({
         />
       ) : (
         <span className={styles.title}>{doc.title}</span>
+      )}
+      {canConvert && (
+        <button
+          type="button"
+          className={`${styles.convertButton} ${
+            isConverting ? styles.convertButtonBusy : ""
+          } ${conversionError ? styles.convertButtonError : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isConverting) return;
+            onConvert?.(doc.id);
+          }}
+          disabled={isConverting}
+          title={convertTitle}
+          aria-label={convertAriaLabel}
+        >
+          {isConverting ? (
+            <Loader2 size={14} className={styles.spinner} />
+          ) : (
+            <CloudUpload size={14} />
+          )}
+        </button>
       )}
       <button
         type="button"

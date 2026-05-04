@@ -2,15 +2,21 @@ import type { ReactNode } from "react";
 import type { DocumentRepository } from "./repository";
 import { useDocumentManager } from "./useDocumentManager";
 import { DocumentManagerContext } from "./useDocumentManagerContext";
+import { useWorkspaceFeed } from "./useWorkspaceFeed";
 
 export function DocumentManagerProvider({
-  repository,
+  localRepository,
+  syncedRepository,
+  workspaceId,
   children,
 }: {
-  repository: DocumentRepository;
+  localRepository: DocumentRepository;
+  syncedRepository?: DocumentRepository;
+  workspaceId: string | null;
   children: ReactNode;
 }) {
-  const manager = useDocumentManager(repository);
+  const manager = useDocumentManager({ localRepository, syncedRepository });
+  useWorkspaceFeed(workspaceId, manager.refreshDocuments);
   return (
     <DocumentManagerContext.Provider value={manager}>
       {children}

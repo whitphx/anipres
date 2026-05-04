@@ -24,24 +24,6 @@
   color: #666;
 }
 
-.newButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  color: #666;
-}
-
-.newButton:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-
 .collapseButton {
   display: flex;
   align-items: center;
@@ -64,6 +46,49 @@
   flex: 1;
   overflow-y: auto;
   padding: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 6px 4px;
+}
+
+.groupHeaderLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.groupAddButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  color: #888;
+}
+
+.groupAddButton:hover,
+.groupAddButton:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+  color: #333;
+  outline: none;
+}
+
+.emptyGroup {
+  padding: 4px 8px 8px;
+  font-size: 12px;
+  font-style: italic;
+  color: #aaa;
 }
 
 .toggleButton {
@@ -89,6 +114,14 @@
   background: #eee;
 }
 
+.footer {
+  border-top: 1px solid #e8e8e8;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 :global([data-color-scheme="dark"]) .sidebar {
   background: #1e1e1e;
   border-right-color: #333;
@@ -103,13 +136,22 @@
   color: #999;
 }
 
-:global([data-color-scheme="dark"]) .newButton {
-  border-color: #444;
-  color: #999;
+:global([data-color-scheme="dark"]) .groupHeaderLabel {
+  color: #888;
 }
 
-:global([data-color-scheme="dark"]) .newButton:hover {
+:global([data-color-scheme="dark"]) .groupAddButton {
+  color: #888;
+}
+
+:global([data-color-scheme="dark"]) .groupAddButton:hover,
+:global([data-color-scheme="dark"]) .groupAddButton:focus-visible {
   background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .emptyGroup {
+  color: #666;
 }
 
 :global([data-color-scheme="dark"]) .collapseButton {
@@ -128,4 +170,23 @@
 
 :global([data-color-scheme="dark"]) .toggleButton:hover {
   background: #333;
+}
+
+:global([data-color-scheme="dark"]) .footer {
+  border-top-color: #333;
+}
+
+/* Visually hidden but accessible to screen readers. Used for an
+   aria-live region that announces convert-to-synced state changes
+   without taking up visual space. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

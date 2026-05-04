@@ -1,0 +1,28 @@
+# Local-dev secrets and vars for `wrangler dev`. Copy this file to
+# `.dev.vars` (which is git-ignored) and fill in the values below.
+# Restart `wrangler dev` after editing.
+#
+# All values match the `Env` interface in `src/types.ts`.
+
+# OAuth credentials. Create separate dev OAuth apps in the GitHub /
+# Google developer consoles with redirect URIs pointing at
+# http://localhost:5173 (the Vite dev server origin).
+GITHUB_ID=
+GITHUB_SECRET=
+GOOGLE_ID=
+GOOGLE_SECRET=
+
+# Any random string — used to sign the cookie-session JWT. Doesn't
+# need to be secure for local dev; just non-empty.
+JWT_SECRET=local-dev-secret
+
+# Public-facing origin, no trailing slash. Used by the OAuth
+# callbacks to construct the redirect_uri Google sees. Must match
+# what's registered in the Google Console exactly. Locally that's
+# the Vite dev origin (Vite proxies /auth/* and /api/* to wrangler).
+#
+# Setting this here overrides the production value inherited from
+# `wrangler.toml`'s `[vars]` block — wrangler dev applies `[vars]`
+# to local dev too, so without this override the worker emits the
+# production URL and Google rejects the redirect_uri.
+PUBLIC_BASE_URL=http://localhost:5173

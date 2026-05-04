@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type ComponentProps } from "react";
 import { Anipres } from "anipres";
+import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
 import type { TLStoreSnapshot } from "tldraw";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
@@ -38,6 +39,7 @@ export function AnipresContainer({
       snapshot={snapshot ?? undefined}
       onMount={handleMount}
       colorScheme={colorScheme}
+      maxAssetSize={MAX_ASSET_SIZE}
     />
   );
 }

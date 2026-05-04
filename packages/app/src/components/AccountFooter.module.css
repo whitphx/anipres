@@ -1,0 +1,30 @@
+/* Footer-row buttons used by AccountFooter (login / logout / open
+   settings). Match the look the auth buttons had inside DocumentSidebar
+   before this component was extracted. */
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+}
+
+.button:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+:global([data-color-scheme="dark"]) .button {
+  border-color: #444;
+  color: #999;
+}
+
+:global([data-color-scheme="dark"]) .button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}

@@ -13,9 +13,16 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: path.resolve(__dirname, "src/index.ts"),
+      entry: {
+        anipres: path.resolve(__dirname, "src/index.ts"),
+        schema: path.resolve(__dirname, "src/schema.ts"),
+      },
+      // ESM-only. Vite's default for multi-entry libs is `["es", "cjs"]`,
+      // which would emit `.cjs` artifacts despite `package.json` no
+      // longer declaring a `require` resolution. Pin to `["es"]` so
+      // the build matches the package's `exports` map.
+      formats: ["es"],
       name: "Anipres",
-      fileName: "anipres",
     },
     rollupOptions: {
       external: ["react", "react-dom", "tldraw"],

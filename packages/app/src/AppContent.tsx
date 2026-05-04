@@ -2,10 +2,11 @@ import { useDocumentManagerContext } from "./documents/useDocumentManagerContext
 import { AppLayout } from "./components/AppLayout";
 import { DocumentSidebar } from "./components/DocumentSidebar";
 import { AnipresContainer } from "./components/AnipresContainer";
+import { OfflineAwareSyncedContainer } from "./components/OfflineAwareSyncedContainer";
 import { useColorScheme } from "./hooks/useColorScheme";
 
 export function AppContent() {
-  const { activeDocumentId, activeSnapshot, loading } =
+  const { activeDocument, activeSnapshot, loading } =
     useDocumentManagerContext();
 
   const { preference, changePreference } = useColorScheme();
@@ -23,14 +24,21 @@ export function AppContent() {
         />
       }
     >
-      {activeDocumentId && (
-        <AnipresContainer
-          key={activeDocumentId}
-          documentId={activeDocumentId}
-          snapshot={activeSnapshot}
-          colorScheme={preference}
-        />
-      )}
+      {activeDocument &&
+        (activeDocument.source === "synced" ? (
+          <OfflineAwareSyncedContainer
+            key={activeDocument.id}
+            documentId={activeDocument.id}
+            colorScheme={preference}
+          />
+        ) : (
+          <AnipresContainer
+            key={activeDocument.id}
+            documentId={activeDocument.id}
+            snapshot={activeSnapshot}
+            colorScheme={preference}
+          />
+        ))}
     </AppLayout>
   );
 }

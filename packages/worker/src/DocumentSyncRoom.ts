@@ -1,0 +1,576 @@
+import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
+import { createTLSchema, defaultShapeSchemas } from "tldraw";
+import type { TLRecord, TLStoreSnapshot } from "tldraw";
+import { DurableObject } from "cloudflare:workers";
+import {
+  slideShapeProps,
+  SlideShapeType,
+  themeImageShapeProps,
+  ThemeImageShapeType,
+} from "anipres/schema";
+import {
+  finalizeDeletingDocument,
+  getReferencedDocumentAssetNames,
+  isDocumentDeleting,
+  reconcileDocumentAssets,
+  runDocumentAssetGc,
+} from "./tldraw-assets";
+import type { Env as WorkerEnv } from "./types";
+
+const schema = createTLSchema({
+  shapes: {
+    ...defaultShapeSchemas,
+    [SlideShapeType]: { props: slideShapeProps },
+    [ThemeImageShapeType]: { props: themeImageShapeProps },
+  },
+});
+
+const DOCUMENT_DELETE_RETRY_MS = 30_000;
+const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
+const SNAPSHOT_SAVE_DELAY_MS = 3_000;
+
+function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
+  return {
+    store: Object.fromEntries(
+      snapshot.documents.map(({ state }) => [state.id, state as TLRecord]),
+    ) as TLStoreSnapshot["store"],
+    schema: snapshot.schema ?? schema.serialize(),
+  };
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalizeJsonValue(child)]),
+    );
+  }
+
+  return value;
+}
+
+function getSnapshotFingerprint(snapshot: TLStoreSnapshot) {
+  const canonicalJson = JSON.stringify(canonicalizeJsonValue(snapshot));
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let index = 0; index < canonicalJson.length; index += 1) {
+    hash ^= BigInt(canonicalJson.charCodeAt(index));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
+  private room!: TLSocketRoom<TLRecord, void>;
+  private documentId: string | null = null;
+  private snapshotVersion = 0;
+  private lastSyncedAssetNamesJson: string | null = null;
+  private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private snapshotDirty = false;
+  private roomTask: Promise<void> = Promise.resolve();
+
+  constructor(ctx: DurableObjectState, env: WorkerEnv) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      ctx.storage.sql.exec(
+        "CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL)",
+      );
+
+      // getByName(documentId) routes to this DO, but Cloudflare does not expose
+      // that name inside the instance. In-memory fields can be lost when the DO
+      // is evicted/restarted, so restore the previously claimed app document id
+      // from storage. Alarms then still know which D1/R2 document to operate on
+      // even though they run without a request path.
+      this.documentId =
+        (await this.ctx.storage.get<string>("documentId")) ?? null;
+
+      let initialSnapshot: RoomSnapshot | undefined;
+      const rows = ctx.storage.sql
+        .exec("SELECT data, version FROM snapshot WHERE id = 1")
+        .toArray();
+      if (rows.length > 0) {
+        try {
+          initialSnapshot = JSON.parse(rows[0].data as string);
+          const snapshotVersion = Number(rows[0].version);
+          if (Number.isNaN(snapshotVersion)) {
+            throw new Error("Stored snapshot version is not a number");
+          }
+          this.snapshotVersion = snapshotVersion;
+        } catch (error) {
+          console.error(
+            "Failed to parse stored snapshot; deleting corrupted row",
+            error,
+          );
+          ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+          this.snapshotVersion = 0;
+        }
+      }
+
+      // Intentionally not wrapped in try/catch: if room creation fails (e.g.
+      // a transient schema bug), the DO should fail closed rather than delete
+      // the snapshot row and silently replace it with an empty room.
+      this.room = this.createRoom(initialSnapshot);
+    });
+  }
+
+  private createRoom(initialSnapshot?: RoomSnapshot) {
+    return new TLSocketRoom<TLRecord, void>({
+      schema,
+      initialSnapshot,
+      onDataChange: () => {
+        this.scheduleAssetSync();
+        this.scheduleSnapshotSave();
+      },
+      onSessionRemoved: (_room, { numSessionsRemaining }) => {
+        if (numSessionsRemaining !== 0 || !this.documentId) {
+          return;
+        }
+
+        const flushTask = this.runRoomTask(() =>
+          this.syncSnapshotAndReferencedAssets(),
+        ).catch((error) => {
+          console.error(
+            "Failed to flush room snapshot after last disconnect",
+            error,
+          );
+        });
+        this.ctx.waitUntil(flushTask);
+      },
+    });
+  }
+
+  private getDocumentIdFromRequest(request: Request) {
+    return decodeURIComponent(
+      new URL(request.url).pathname.split("/").pop() ?? "",
+    );
+  }
+
+  private async ensureDocumentId(documentId: string) {
+    if (!documentId) {
+      throw new Error("DocumentSyncRoom requires a document id");
+    }
+
+    if (this.documentId) {
+      if (this.documentId !== documentId) {
+        throw new Error(
+          `DocumentSyncRoom documentId mismatch: expected ${this.documentId}, got ${documentId}`,
+        );
+      }
+      return;
+    }
+
+    const storedDocumentId = await this.ctx.storage.get<string>("documentId");
+    if (storedDocumentId) {
+      // The constructor normally preloads this value before requests run. Keep
+      // this defensive branch so future call paths that bypass that preload
+      // still preserve the same mismatch check instead of re-claiming the room.
+      if (storedDocumentId !== documentId) {
+        throw new Error(
+          `DocumentSyncRoom documentId mismatch: expected ${storedDocumentId}, got ${documentId}`,
+        );
+      }
+      this.documentId = storedDocumentId;
+      return;
+    }
+
+    // A room is bound to exactly one document id. The Worker chooses the DO
+    // with getByName(documentId), then claims that document id here so later
+    // accidental calls for a different document fail instead of mutating state.
+    this.documentId = documentId;
+    this.lastSyncedAssetNamesJson = null;
+    await this.ctx.storage.put("documentId", documentId);
+  }
+
+  private requireDocumentId() {
+    if (!this.documentId) {
+      throw new Error("DocumentSyncRoom has not claimed a document id");
+    }
+    return this.documentId;
+  }
+
+  private async scheduleAssetGcAlarm(nextGcAt: number | null) {
+    if (await this.isDeleting()) {
+      // Document deletion owns the single DO alarm slot until final cleanup
+      // finishes. Once `deleting_at` is set, asset-GC reconciles must not
+      // clear or push out that delete retry schedule.
+      return;
+    }
+
+    if (nextGcAt === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+
+    await this.ctx.storage.setAlarm(nextGcAt);
+  }
+
+  private async isDeleting() {
+    return this.documentId
+      ? isDocumentDeleting(this.env, this.documentId)
+      : false;
+  }
+
+  private runRoomTask<T>(task: () => Promise<T>) {
+    const run = this.roomTask.then(task, task);
+    this.roomTask = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private flushSnapshot(snapshot?: RoomSnapshot, incrementVersion = false) {
+    if (incrementVersion) {
+      this.snapshotVersion += 1;
+    }
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO snapshot (id, data, version) VALUES (1, ?, ?)",
+      JSON.stringify(snapshot ?? this.room.getCurrentSnapshot()),
+      this.snapshotVersion,
+    );
+    this.snapshotDirty = false;
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+  }
+
+  private flushSnapshotIfDirty() {
+    if (this.snapshotDirty) {
+      this.flushSnapshot(undefined, true);
+    }
+  }
+
+  /**
+   * Fixed-window throttle: fires {@link SNAPSHOT_SAVE_DELAY_MS} after the
+   * *first* change. Subsequent changes within the window do not reset the
+   * timer, guaranteeing bounded persistence latency.
+   */
+  private scheduleSnapshotSave() {
+    if (!this.documentId) return;
+    this.snapshotDirty = true;
+    if (this.snapshotSaveTimer) return;
+    this.snapshotSaveTimer = setTimeout(() => {
+      this.snapshotSaveTimer = null;
+      const flushTask = this.runRoomTask(async () => {
+        if (await this.isDeleting()) {
+          return;
+        }
+        this.flushSnapshotIfDirty();
+      }).catch(async (error) => {
+        console.error("Failed to persist room snapshot", error);
+        if (!(await this.isDeleting())) {
+          this.scheduleSnapshotSave();
+        }
+      });
+      this.ctx.waitUntil(flushTask);
+    }, SNAPSHOT_SAVE_DELAY_MS);
+  }
+
+  private scheduleAssetSync() {
+    if (!this.documentId) {
+      return;
+    }
+
+    if (this.assetSyncTimer) {
+      clearTimeout(this.assetSyncTimer);
+    }
+
+    this.assetSyncTimer = setTimeout(() => {
+      this.assetSyncTimer = null;
+      const syncTask = this.runRoomTask(() =>
+        this.syncSnapshotAndReferencedAssets(),
+      ).catch((error) => {
+        console.error(
+          "Failed to sync room snapshot and document assets",
+          error,
+        );
+      });
+      this.ctx.waitUntil(syncTask);
+    }, 500);
+  }
+
+  private async syncSnapshotAndReferencedAssets() {
+    if (!this.documentId) {
+      return;
+    }
+    if (await this.isDeleting()) {
+      return;
+    }
+
+    const snapshot = this.room.getCurrentSnapshot();
+    if (this.snapshotDirty) {
+      this.flushSnapshot(snapshot, true);
+    }
+    const documentId = this.documentId;
+    const assetNames = getReferencedDocumentAssetNames(snapshot, documentId);
+    const nextAssetNamesJson = JSON.stringify(assetNames);
+    if (nextAssetNamesJson === this.lastSyncedAssetNamesJson) {
+      return;
+    }
+
+    const nextGcAt = await reconcileDocumentAssets(
+      this.env,
+      documentId,
+      assetNames,
+    );
+    this.lastSyncedAssetNamesJson = nextAssetNamesJson;
+    await this.scheduleAssetGcAlarm(nextGcAt);
+  }
+
+  private async runDocumentAssetGcCycle() {
+    if (!this.documentId) {
+      return;
+    }
+
+    // The room snapshot is now restored from DO storage on startup, so it is
+    // authoritative enough to reconcile before GC even when no sockets are
+    // currently attached. That closes the "upload then quick disconnect"
+    // window where a referenced asset could otherwise stay stale forever.
+    await this.syncSnapshotAndReferencedAssets();
+
+    const nextGcAt = await runDocumentAssetGc(this.env, this.documentId);
+    await this.scheduleAssetGcAlarm(nextGcAt);
+  }
+
+  private async runDocumentDeleteCycle() {
+    if (!this.documentId) {
+      return;
+    }
+
+    try {
+      const cursor =
+        (await this.ctx.storage.get<string>(
+          DOCUMENT_DELETE_CURSOR_STORAGE_KEY,
+        )) ?? undefined;
+      const { completed, nextCursor } = await finalizeDeletingDocument(
+        this.env,
+        this.documentId,
+        cursor,
+      );
+      if (completed) {
+        await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
+        this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+        await this.ctx.storage.delete("documentId");
+        await this.ctx.storage.deleteAlarm();
+        // Reset in-memory state so a warm DO doesn't serve stale data if the
+        // same document UUID is re-created.
+        this.documentId = null;
+        this.snapshotVersion = 0;
+        this.lastSyncedAssetNamesJson = null;
+        this.snapshotDirty = false;
+        this.room = this.createRoom();
+        return;
+      }
+
+      if (!nextCursor) {
+        throw new Error(
+          "Expected a delete cursor for incomplete document deletion",
+        );
+      }
+      await this.ctx.storage.put(
+        DOCUMENT_DELETE_CURSOR_STORAGE_KEY,
+        nextCursor,
+      );
+      await this.ctx.storage.setAlarm(Date.now());
+    } catch (error) {
+      console.error("Failed to finalize document deletion", error);
+      await this.ctx.storage.setAlarm(Date.now() + DOCUMENT_DELETE_RETRY_MS);
+    }
+  }
+
+  async claimDocument(documentId: string): Promise<void> {
+    // Bind the app-level document id to this named DO instance. This is
+    // separate from getByName(documentId): getByName chooses the DO, while the
+    // claim persists the document id for in-instance D1/R2 work and rejects any
+    // future mismatch. On first use this initializes the storage value that the
+    // constructor later restores after eviction/restart.
+    await this.ensureDocumentId(documentId);
+  }
+
+  async scheduleAssetGc(): Promise<void> {
+    this.requireDocumentId();
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
+  }
+
+  private cancelPendingSnapshotSave() {
+    this.snapshotDirty = false;
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+  }
+
+  private cancelPendingAssetSync() {
+    if (this.assetSyncTimer) {
+      clearTimeout(this.assetSyncTimer);
+      this.assetSyncTimer = null;
+    }
+  }
+
+  /**
+   * Replace the room snapshot with a snapshot pushed by an offline client.
+   * Returns `true` on success, `false` if the room currently has active
+   * WebSocket sessions (which means live editing is in progress and overwriting
+   * could clobber unsaved changes).
+   *
+   * The snapshot arrives as a deserialized JSON object via DO RPC, so the
+   * concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
+   * `TLStoreSnapshot` and will validate internally.
+   */
+  async replaceSnapshot(
+    snapshot: unknown,
+    expectedSnapshotVersion: number,
+  ): Promise<{
+    replaced: boolean;
+    snapshotVersion: number;
+    reason?: "active-session" | "version-conflict";
+  }> {
+    this.requireDocumentId();
+    return this.runRoomTask(async () => {
+      this.flushSnapshotIfDirty();
+      if (this.room.getNumActiveSessions() > 0) {
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "active-session",
+        };
+      }
+      if (this.snapshotVersion !== expectedSnapshotVersion) {
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "version-conflict",
+        };
+      }
+      this.room.loadSnapshot(snapshot as RoomSnapshot);
+      this.cancelPendingAssetSync();
+      this.cancelPendingSnapshotSave();
+      this.flushSnapshot(undefined, true);
+      await this.syncSnapshotAndReferencedAssets();
+      return { replaced: true, snapshotVersion: this.snapshotVersion };
+    });
+  }
+
+  async getCachedSnapshot(): Promise<{
+    // This crosses the DO RPC boundary. Keeping it as `unknown` avoids
+    // forcing the full nested TLStoreSnapshot type through the stub/provider
+    // machinery, which otherwise triggers TS2589 at the worker call site.
+    snapshot: unknown;
+    snapshotVersion: number;
+  }> {
+    this.requireDocumentId();
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      return {
+        snapshot: roomSnapshotToStoreSnapshot(this.room.getCurrentSnapshot()),
+        snapshotVersion: this.snapshotVersion,
+      };
+    });
+  }
+
+  async getSnapshotStatus(): Promise<{
+    snapshotVersion: number;
+    snapshotFingerprint: string;
+  }> {
+    this.requireDocumentId();
+    return this.runRoomTask(async () => {
+      if (!(await this.isDeleting())) {
+        this.flushSnapshotIfDirty();
+      }
+      const snapshot = roomSnapshotToStoreSnapshot(
+        this.room.getCurrentSnapshot(),
+      );
+      return {
+        snapshotVersion: this.snapshotVersion,
+        snapshotFingerprint: getSnapshotFingerprint(snapshot),
+      };
+    });
+  }
+
+  /**
+   * Read-only "did this room ever receive a snapshot?" probe.
+   * Returns 0 when the DO has no stored snapshot yet — the canonical
+   * "this doc was never finalized" signal.
+   *
+   * Distinct from `getSnapshotStatus` because that method requires a
+   * claimed `documentId` and may flush a dirty snapshot or run a
+   * room task. This one is safe to call against a DO instance that
+   * has never been bound to a document. The constructor restores
+   * `snapshotVersion` during `blockConcurrencyWhile`, so callers
+   * always see the fully-initialized value; `runRoomTask` serializes
+   * against concurrent `replaceSnapshot` calls.
+   */
+  async peekSnapshotVersion(): Promise<number> {
+    return this.runRoomTask(async () => this.snapshotVersion);
+  }
+
+  async startDelete(): Promise<void> {
+    this.requireDocumentId();
+    await this.runRoomTask(async () => {
+      // Delete owns the document lifecycle from here. Drop any pending asset
+      // reconcile timer so it cannot do unnecessary snapshot/asset work while
+      // the document is already in its retryable deleting state.
+      this.cancelPendingAssetSync();
+      // Cancel any pending save so it cannot re-insert the row after deletion.
+      this.cancelPendingSnapshotSave();
+      // Preserve any in-progress cursor so repeated DELETE requests or retries do
+      // not restart the R2 prefix sweep from the beginning.
+      await this.ctx.storage.setAlarm(Date.now());
+      // Clear the snapshot only after the alarm is durably scheduled so a failed
+      // startDelete call cannot leave an active document without its snapshot.
+      this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
+    });
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const documentId = this.getDocumentIdFromRequest(request);
+    try {
+      await this.ensureDocumentId(documentId);
+    } catch (error) {
+      return new Response(
+        error instanceof Error ? error.message : "Document id mismatch",
+        { status: 409 },
+      );
+    }
+
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId) {
+      return new Response("Missing sessionId", { status: 400 });
+    }
+
+    const { 0: clientWebSocket, 1: serverWebSocket } = new WebSocketPair();
+    serverWebSocket.accept();
+
+    this.room.handleSocketConnect({ sessionId, socket: serverWebSocket });
+
+    return new Response(null, { status: 101, webSocket: clientWebSocket });
+  }
+
+  override async alarm(): Promise<void> {
+    if (!this.documentId) {
+      this.documentId =
+        (await this.ctx.storage.get<string>("documentId")) ?? null;
+    }
+    if (!this.documentId) {
+      return;
+    }
+
+    if (await isDocumentDeleting(this.env, this.documentId)) {
+      await this.runRoomTask(() => this.runDocumentDeleteCycle());
+      return;
+    }
+
+    await this.runRoomTask(() => this.runDocumentAssetGcCycle());
+  }
+}

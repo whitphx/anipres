@@ -1,0 +1,142 @@
+name = "anipres-worker"
+main = "src/worker.ts"
+compatibility_date = "2025-05-08"
+compatibility_flags = ["nodejs_compat"]
+
+# Scheduled trigger for the initializing-doc sweep. A doc creation
+# is a multi-step client flow (POST → asset upload → snapshot push);
+# the server marks rows `initializing_at = now()` on POST and clears
+# it on the finalizing snapshot push. Rows that linger past the
+# grace window are abandoned creates from a tab close, crash, or
+# delete-mid-migration; this cron sweeps them out.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# anipres.app routes entirely through this worker via Cloudflare's
+# Custom Domain feature. The worker is the origin: Hono dispatches
+# /api/* and /auth/*; everything else is served directly by the
+# static-assets handler below — no Pages production deploy for the apex.
+[[routes]]
+pattern = "anipres.app"
+custom_domain = true
+
+# Bundle the React app's dist into the worker so anipres.app/ serves
+# the SPA. Same shape as `[env.preview.assets]` further down — prod
+# and preview are architecturally symmetric. `run_worker_first` carves
+# the Worker out of the static path: only the listed prefixes invoke
+# the Worker; static files and SPA fallback skip it entirely.
+[assets]
+directory = "../app/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/auth/*"]
+
+[vars]
+# Public-facing origin for outbound URL construction (currently the
+# Google OAuth redirect_uri). See `Env.PUBLIC_BASE_URL` in
+# packages/worker/src/types.ts. Don't include a trailing slash.
+#
+# `[vars]` applies to both `wrangler deploy` (prod) AND `wrangler
+# dev` (local), so this prod URL is also what the local worker
+# inherits unless overridden via `.dev.vars`. Local dev MUST
+# override with `PUBLIC_BASE_URL=http://localhost:5173` to match
+# the URL registered in Google Cloud Console — the .dev.vars.example
+# template includes this entry.
+PUBLIC_BASE_URL = "https://anipres.app"
+
+[durable_objects]
+bindings = [
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" },
+  { name = "WORKSPACE_FEED_ROOM", class_name = "WorkspaceFeedRoom" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anipres-db"
+database_id = "3d3ad7c3-d28a-4df6-8452-0d2d137e50be"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DocumentSyncRoom"]
+
+# `WorkspaceFeedRoom` itself doesn't use `ctx.storage.sql`, but
+# Cloudflare's free Workers plan only allows new DO classes
+# registered with `new_sqlite_classes` (deploy error code 10097).
+# The unused SQLite backend is harmless.
+#
+# Reference:
+# https://developers.cloudflare.com/durable-objects/platform/pricing/
+#   "Workers Free plan: Only Durable Objects with SQLite storage
+#    backend are available."
+# https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/
+#   maps `new_sqlite_classes` → SQLite backend,
+#        `new_classes`        → legacy key-value backend.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["WorkspaceFeedRoom"]
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "anipres-assets"
+preview_bucket_name = "anipres-assets-preview"
+
+# --- Preview environment ---
+# Shared preview worker for testing the full auth + sync stack against
+# the latest PR's worker code, with D1 / R2 / DO instances isolated from
+# prod. The per-PR Pages preview is for UI smoke checks only; this env
+# is where login and sync flows are exercised end-to-end. All PRs deploy
+# to the same preview worker URL — last push wins.
+#
+# See docs/TODO.md "Preview architecture" for a note on a potential
+# future change (A4) — wiring the per-PR Pages frontend to talk to
+# this shared preview backend cross-origin. The backend stays shared.
+[env.preview]
+name = "anipres-worker-preview"
+workers_dev = true
+# Disable inheritance of the top-level `[[routes]]` (anipres.app custom
+# domain) — preview is reached via its workers.dev URL only.
+routes = []
+
+[env.preview.vars]
+PUBLIC_BASE_URL = "https://anipres-worker-preview.whitphx.workers.dev"
+
+# Same sweep cadence as prod — preview should exercise the cleanup
+# path so any regression surfaces before deploy.
+[env.preview.triggers]
+crons = ["*/5 * * * *"]
+
+# Bundle the latest PR's frontend so the preview URL is browsable
+# end-to-end without a separate deploy. `run_worker_first` carves the
+# Worker out of the static-asset path: only `/api/*` and `/auth/*` go
+# through the Worker, everything else (and the SPA fallback for
+# unknown routes) is served directly by the assets handler at the
+# edge — no Worker invocation, no programmatic asset-binding needed.
+[env.preview.assets]
+directory = "../app/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/auth/*"]
+
+[env.preview.durable_objects]
+bindings = [
+  { name = "DOCUMENT_SYNC_ROOM", class_name = "DocumentSyncRoom" },
+  { name = "WORKSPACE_FEED_ROOM", class_name = "WorkspaceFeedRoom" }
+]
+
+# DO migrations apply to the script's class definitions, but wrangler
+# tracks them per-env, so the preview env needs its own copy of the
+# tags.
+[[env.preview.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DocumentSyncRoom"]
+
+[[env.preview.migrations]]
+tag = "v2"
+new_sqlite_classes = ["WorkspaceFeedRoom"]
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "anipres-db-preview"
+database_id = "f0af1c4f-0dce-47aa-804f-598061698b4d"
+
+[[env.preview.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "anipres-assets-preview"

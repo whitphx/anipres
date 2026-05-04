@@ -1,22 +1,15 @@
-import {
-  createTLStore,
-  Editor,
-  defaultShapeUtils,
-  defaultBindingUtils,
-} from "tldraw";
+import { createTLStore, Editor } from "tldraw";
 import type {
   TLStoreSnapshot,
   TLEditorSnapshot,
   TLPageId,
   TLStateNodeConstructor,
-  TLAnyShapeUtilConstructor,
-  TLAnyBindingUtilConstructor,
 } from "tldraw";
 
 import { getFrames, getFrameBatches } from "./models";
 import { getGlobalOrder } from "./ordered-track-item";
 
-import { customShapeUtils } from "./shape-utils";
+import { allShapeUtils, allBindingUtils } from "./shape-utils";
 
 interface LoadHeadlessEditorOptions {
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot;
@@ -29,17 +22,12 @@ function loadHeadlessEditor(
 
   const { snapshot, pageId } = opts;
 
-  const shapeUtils: TLAnyShapeUtilConstructor[] = [
-    ...defaultShapeUtils,
-    ...customShapeUtils,
-  ];
-  const bindingUtils: TLAnyBindingUtilConstructor[] = [...defaultBindingUtils];
   const tools: TLStateNodeConstructor[] = []; // We don't need to register tools here because this editor is not intended to have a UI
 
   const store = createTLStore({
     snapshot,
-    shapeUtils,
-    bindingUtils,
+    shapeUtils: allShapeUtils,
+    bindingUtils: allBindingUtils,
   });
 
   const container = document.createElement("div");
@@ -50,8 +38,8 @@ function loadHeadlessEditor(
 
   const editor = new Editor({
     store,
-    shapeUtils,
-    bindingUtils,
+    shapeUtils: allShapeUtils,
+    bindingUtils: allBindingUtils,
     tools,
     getContainer: () => tempElm,
   });
