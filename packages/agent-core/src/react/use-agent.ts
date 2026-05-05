@@ -156,16 +156,28 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
           if (controller.signal.aborted) return;
           setError(err instanceof Error ? err.message : String(err));
         } finally {
-          setLog(finalizeStreamingAgentTurn);
-          if (messageTexts.length > 0) {
-            setHistory([
-              ...historyRef.current,
-              { role: "agent", text: messageTexts.join("\n\n") },
-            ]);
+          // On abort (user clicked Cancel, or ChatPanel called
+          // restore() during a doc switch), we MUST NOT push log/
+          // history state from this turn — restore has already
+          // overwritten them with the *new* doc's content, and our
+          // pushes would silently land doc-A's reply on doc-B's
+          // thread (and ChatPanel would then persist the
+          // contamination to doc-B's localStorage key).
+          //
+          // The running flag teardown still has to run so a subsequent
+          // send can fire — Cancel doesn't reset it on its own.
+          if (!controller.signal.aborted) {
+            setLog(finalizeStreamingAgentTurn);
+            if (messageTexts.length > 0) {
+              setHistory([
+                ...historyRef.current,
+                { role: "agent", text: messageTexts.join("\n\n") },
+              ]);
+            }
           }
           isRunningRef.current = false;
           setIsRunning(false);
-          abortRef.current = null;
+          if (abortRef.current === controller) abortRef.current = null;
         }
       })();
     },
