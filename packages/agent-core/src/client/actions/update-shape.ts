@@ -21,19 +21,28 @@ export const UpdateShapeActionUtil = registerActionUtil<UpdateShapeAction>({
     const shape = editor.getShape(shapeId);
     if (!shape) return;
 
+    // tldraw validates `props` against the shape's prop schema and
+    // throws "Unexpected property" on any unknown key, which would
+    // abort the entire stream/tool call. The schema description for
+    // the update action says w/h are ignored on shapes without them
+    // (line, text, arrow) — honour that by only setting prop keys the
+    // existing shape actually has, instead of trusting the model to
+    // never send an inapplicable field.
+    const props = shape.props as Record<string, unknown>;
     const propUpdates: Record<string, unknown> = {};
-    if (action.w !== undefined) propUpdates.w = action.w;
-    if (action.h !== undefined) propUpdates.h = action.h;
-    if (action.color !== undefined) propUpdates.color = action.color;
+    if (action.w !== undefined && "w" in props) propUpdates.w = action.w;
+    if (action.h !== undefined && "h" in props) propUpdates.h = action.h;
+    if (action.color !== undefined && "color" in props)
+      propUpdates.color = action.color;
     if (action.text !== undefined) {
       // Geo, text, and note shapes carry a TipTap richText doc; the
       // tldraw v3 arrow shape carries a plain `text: string` instead
       // (verified against @tldraw/tlschema@3.15.5 TLArrowShape props).
       // Sending `richText` to an arrow gets dropped silently and the
       // user thinks the recolor "worked" but nothing changed.
-      if (shape.type === "arrow") {
+      if (shape.type === "arrow" && "text" in props) {
         propUpdates.text = action.text;
-      } else {
+      } else if ("richText" in props) {
         propUpdates.richText = toRichText(action.text);
       }
     }

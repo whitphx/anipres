@@ -218,6 +218,57 @@ describe("anipres action utils", () => {
     }
   });
 
+  it("update silently drops props the target shape doesn't have", async () => {
+    // The schema description for `update` says w/h are ignored on
+    // shapes without them (line, text, arrow). Without the per-prop
+    // existence guard, a model that emits `w: 50` for an arrow would
+    // hit tldraw's prop validator with "Unexpected property" and the
+    // entire stream — including any later valid actions — would
+    // throw. This test would have failed previously; now the bogus
+    // field is dropped and the stream completes.
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      editor.createShape({
+        id: "shape:arr1" as never,
+        type: "arrow",
+        x: 0,
+        y: 0,
+        props: {
+          start: { x: 0, y: 0 },
+          end: { x: 100, y: 0 },
+          color: "blue",
+          text: "",
+        },
+      });
+
+      const update: UpdateShapeAction = {
+        _type: "update",
+        intent: "recolor (and accidentally resize) the arrow",
+        shapeId: "shape:arr1",
+        color: "red",
+        w: 200,
+        h: 50,
+      };
+
+      await applyActionStream({
+        editor,
+        actions: fromArray([complete(update)]),
+      });
+
+      const shape = editor.getShape("shape:arr1" as never);
+      const props = shape!.props as {
+        color: string;
+        w?: number;
+        h?: number;
+      };
+      expect(props.color).toBe("red");
+      expect(props.w).toBeUndefined();
+      expect(props.h).toBeUndefined();
+    } finally {
+      dispose();
+    }
+  });
+
   it("delete removes an existing shape from the canvas", async () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
