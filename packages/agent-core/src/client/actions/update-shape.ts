@@ -11,7 +11,13 @@ import { registerActionUtil } from "../action-util.js";
 export const UpdateShapeActionUtil = registerActionUtil<UpdateShapeAction>({
   type: "update",
   apply(action, { editor, helpers }) {
-    const shapeId = helpers.resolveShapeId(action.shapeId);
+    const shapeId = helpers.resolveExistingShapeId(action.shapeId);
+    if (!shapeId) {
+      console.warn(
+        `[update] no existing shape found for id "${action.shapeId}" — skipping.`,
+      );
+      return;
+    }
     const shape = editor.getShape(shapeId);
     if (!shape) return;
 

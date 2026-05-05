@@ -1,4 +1,4 @@
-import type { Editor, TLShapeId } from "tldraw";
+import type { Editor } from "tldraw";
 import {
   cueFrameToJsonObject,
   getFrame,
@@ -16,7 +16,13 @@ export const AttachCueFrameActionUtil =
   registerActionUtil<AttachCueFrameAction>({
     type: "attachCueFrame",
     apply(action, { editor, helpers }) {
-      const shapeId = helpers.resolveShapeId(action.shapeId);
+      const shapeId = helpers.resolveExistingShapeId(action.shapeId);
+      if (!shapeId) {
+        console.warn(
+          `[attachCueFrame] no shape found for id "${action.shapeId}" — skipping.`,
+        );
+        return;
+      }
       const shape = editor.getShape(shapeId);
       if (!shape) return;
 
@@ -49,7 +55,8 @@ function resolveTrackId(
 ): string {
   if (!prevAgentShapeId) return newTrackId();
 
-  const prevShapeId = helpers.resolveShapeId(prevAgentShapeId) as TLShapeId;
+  const prevShapeId = helpers.resolveExistingShapeId(prevAgentShapeId);
+  if (!prevShapeId) return newTrackId();
   const prevShape = editor.getShape(prevShapeId);
   if (!prevShape) return newTrackId();
 

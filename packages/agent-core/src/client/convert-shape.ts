@@ -29,7 +29,7 @@ export function focusedShapeToTldrawShape(
   switch (shape._type) {
     case "rectangle":
       return {
-        id: helpers.resolveShapeId(shape.shapeId),
+        id: helpers.resolveNewShapeId(shape.shapeId),
         type: "geo",
         x: shape.x,
         y: shape.y,
@@ -42,7 +42,7 @@ export function focusedShapeToTldrawShape(
         },
       };
     case "slide": {
-      const id = helpers.resolveShapeId(shape.shapeId);
+      const id = helpers.resolveNewShapeId(shape.shapeId);
       const cueFrame = buildAutoCameraCueFrame(helpers.editor);
       return {
         id,

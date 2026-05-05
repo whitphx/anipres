@@ -234,7 +234,25 @@ function formatActionForLog(
       return `(thinking) ${action.text}`;
     case "create":
       return `create ${action.shape._type} — ${action.intent}`;
+    case "update": {
+      const fields: string[] = [];
+      if (action.color !== undefined) fields.push(`color=${action.color}`);
+      if (action.x !== undefined) fields.push(`x=${action.x}`);
+      if (action.y !== undefined) fields.push(`y=${action.y}`);
+      if (action.w !== undefined) fields.push(`w=${action.w}`);
+      if (action.h !== undefined) fields.push(`h=${action.h}`);
+      if (action.text !== undefined)
+        fields.push(`text=${JSON.stringify(action.text.slice(0, 32))}`);
+      const fieldStr = fields.length > 0 ? ` { ${fields.join(", ")} }` : "";
+      return `update ${action.shapeId}${fieldStr} — ${action.intent}`;
+    }
     case "attachCueFrame":
       return `attachCueFrame ${action.shapeId}${action.prevShapeId ? ` (after ${action.prevShapeId})` : ""} — ${action.intent}`;
+    default: {
+      // Exhaustiveness check — adding a new action _type without
+      // teaching the formatter will fail to typecheck.
+      const _exhaustive: never = action;
+      return `(unrecognised action) ${JSON.stringify(_exhaustive).slice(0, 100)}`;
+    }
   }
 }

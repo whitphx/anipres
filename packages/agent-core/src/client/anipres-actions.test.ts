@@ -129,6 +129,49 @@ describe("anipres action utils", () => {
     }
   });
 
+  it("update can target a shape that came in with the snapshot (not just one created in the same turn)", async () => {
+    // Repro for the bug where `update` couldn't reach existing snapshot
+    // shapes because `resolveShapeId` treated their ids as collisions
+    // and minted a fresh random id, leaving `editor.getShape(id)` empty.
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // Pre-populate via the editor directly — simulates a shape that
+      // arrived via the loaded snapshot rather than via a `create`
+      // action this turn.
+      editor.createShape({
+        id: "shape:preexisting" as never,
+        type: "geo",
+        x: 10,
+        y: 10,
+        props: {
+          w: 50,
+          h: 50,
+          geo: "rectangle",
+          color: "blue",
+        },
+      });
+
+      const update: UpdateShapeAction = {
+        _type: "update",
+        intent: "recolor preexisting",
+        shapeId: "shape:preexisting",
+        color: "orange",
+      };
+
+      await applyActionStream({
+        editor,
+        actions: fromArray([complete(update)]),
+      });
+
+      const shape = editor.getShape("shape:preexisting" as never);
+      expect(shape).toBeTruthy();
+      const props = shape!.props as { color: string };
+      expect(props.color).toBe("orange");
+    } finally {
+      dispose();
+    }
+  });
+
   it("update changes color and position of an existing shape", async () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
