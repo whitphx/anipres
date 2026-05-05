@@ -7,21 +7,41 @@ import {
   type AgentEnv,
 } from "@anipres/agent-core";
 import { loadHeadlessEditor } from "anipres";
-import { getSnapshot } from "tldraw";
+import {
+  getSnapshot,
+  type TLEditorSnapshot,
+  type TLStoreSnapshot,
+} from "tldraw";
 
-export interface EditCommandOptions {
-  inputPath: string;
-  outputPath: string;
+export type SnapshotInput = Partial<TLEditorSnapshot> | TLStoreSnapshot;
+
+export interface EditSnapshotOptions {
+  snapshot: SnapshotInput;
   prompt: string;
   env: AgentEnv;
   modelName?: string;
+  /** Called for each completed action — `message`/`think` text or
+   *  `create`/`attachCueFrame` summaries. Defaults to a no-op. */
+  onAction?: (action: AgentAction) => void;
 }
 
-export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
-  const raw = await readFile(opts.inputPath, "utf-8");
-  const snapshot = JSON.parse(raw);
+export interface EditSnapshotResult {
+  snapshot: TLEditorSnapshot;
+  /** All completed actions, in the order they arrived. */
+  actions: AgentAction[];
+}
 
-  const [editor, dispose] = loadHeadlessEditor({ snapshot });
+/**
+ * Pure(-ish) function: load a snapshot, run the agent against it, and
+ * return the modified snapshot plus the action transcript. No file I/O.
+ * Used by both the CLI's edit subcommand and the MCP edit tool.
+ */
+export async function editSnapshot(
+  opts: EditSnapshotOptions,
+): Promise<EditSnapshotResult> {
+  const [editor, dispose] = loadHeadlessEditor({ snapshot: opts.snapshot });
+
+  const transcript: AgentAction[] = [];
 
   try {
     const prompt = buildPromptFromEditor(editor, opts.prompt);
@@ -35,14 +55,39 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
     await applyActionStream({
       editor,
       actions: stream,
-      onComplete: printActionForUser,
+      onComplete: (action) => {
+        transcript.push(action);
+        opts.onAction?.(action);
+      },
     });
 
-    const out = getSnapshot(editor.store);
-    await writeFile(opts.outputPath, JSON.stringify(out, null, 2));
+    return { snapshot: getSnapshot(editor.store), actions: transcript };
   } finally {
     dispose();
   }
+}
+
+export interface EditCommandOptions {
+  inputPath: string;
+  outputPath: string;
+  prompt: string;
+  env: AgentEnv;
+  modelName?: string;
+}
+
+export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
+  const raw = await readFile(opts.inputPath, "utf-8");
+  const snapshot = JSON.parse(raw);
+
+  const result = await editSnapshot({
+    snapshot,
+    prompt: opts.prompt,
+    env: opts.env,
+    modelName: opts.modelName,
+    onAction: printActionForUser,
+  });
+
+  await writeFile(opts.outputPath, JSON.stringify(result.snapshot, null, 2));
 }
 
 function printActionForUser(action: AgentAction): void {

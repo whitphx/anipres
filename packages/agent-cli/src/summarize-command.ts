@@ -1,11 +1,34 @@
 import { readFile } from "node:fs/promises";
 import { loadHeadlessEditor } from "anipres";
-import { getFrames, getFrameBatches, getGlobalOrder } from "anipres/models";
+import {
+  getFrames,
+  getFrameBatches,
+  getGlobalOrder,
+  type FrameAction,
+} from "anipres/models";
+import type { SnapshotInput } from "./edit-command.js";
 
-export async function runSummarizeCommand(inputPath: string): Promise<void> {
-  const raw = await readFile(inputPath, "utf-8");
-  const snapshot = JSON.parse(raw);
+export interface SnapshotSummary {
+  shapes: number;
+  byType: Record<string, number>;
+  frames: number;
+  totalSteps: number;
+  steps: Array<{
+    index: number;
+    batches: Array<{
+      trackId: string;
+      action: FrameAction;
+      frameCount: number;
+    }>;
+  }>;
+}
 
+/**
+ * Pure function: load a snapshot and return its presentation summary.
+ * No I/O beyond the editor lifecycle. Used by both the CLI's summarize
+ * subcommand and the MCP tool of the same name.
+ */
+export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
   const [editor, dispose] = loadHeadlessEditor({ snapshot });
   try {
     const shapes = editor.getCurrentPageShapes();
@@ -16,30 +39,59 @@ export async function runSummarizeCommand(inputPath: string): Promise<void> {
     const batches = getFrameBatches(frames);
     const ordered = getGlobalOrder(batches);
 
-    process.stdout.write(`Snapshot: ${inputPath}\n`);
-    process.stdout.write(`Shapes: ${shapes.length}\n`);
-    process.stdout.write(
-      `By type: ${Object.entries(byType)
-        .map(([t, n]) => `${t}=${n}`)
-        .join(", ")}\n`,
-    );
-    process.stdout.write(`Frames: ${frames.length}\n`);
-    process.stdout.write(`Steps: ${ordered.length}\n`);
-
-    if (ordered.length === 0) return;
-
-    process.stdout.write(`\nStep summary:\n`);
-    ordered.forEach((step, i) => {
-      const summary = step
-        .map((b) => {
-          const head = b.data[0];
-          const dur = head.action.duration ?? "-";
-          return `track=${b.trackId.slice(0, 12)} action=${head.action.type} dur=${dur} (${b.data.length} frames)`;
-        })
-        .join("; ");
-      process.stdout.write(`  step ${i}: ${summary}\n`);
-    });
+    return {
+      shapes: shapes.length,
+      byType,
+      frames: frames.length,
+      totalSteps: ordered.length,
+      steps: ordered.map((step, i) => ({
+        index: i,
+        batches: step.map((b) => ({
+          trackId: b.trackId,
+          action: b.data[0].action,
+          frameCount: b.data.length,
+        })),
+      })),
+    };
   } finally {
     dispose();
   }
+}
+
+export function formatSnapshotSummary(
+  inputPath: string,
+  s: SnapshotSummary,
+): string {
+  const lines: string[] = [];
+  lines.push(`Snapshot: ${inputPath}`);
+  lines.push(`Shapes: ${s.shapes}`);
+  lines.push(
+    `By type: ${Object.entries(s.byType)
+      .map(([t, n]) => `${t}=${n}`)
+      .join(", ")}`,
+  );
+  lines.push(`Frames: ${s.frames}`);
+  lines.push(`Steps: ${s.totalSteps}`);
+
+  if (s.totalSteps > 0) {
+    lines.push("");
+    lines.push("Step summary:");
+    for (const step of s.steps) {
+      const batchSummary = step.batches
+        .map(
+          (b) =>
+            `track=${b.trackId.slice(0, 12)} action=${b.action.type} dur=${b.action.duration ?? "-"} (${b.frameCount} frames)`,
+        )
+        .join("; ");
+      lines.push(`  step ${step.index}: ${batchSummary}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export async function runSummarizeCommand(inputPath: string): Promise<void> {
+  const raw = await readFile(inputPath, "utf-8");
+  const snapshot = JSON.parse(raw);
+  const summary = summarizeSnapshot(snapshot);
+  process.stdout.write(formatSnapshotSummary(inputPath, summary) + "\n");
 }
