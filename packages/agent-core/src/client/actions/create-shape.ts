@@ -6,7 +6,6 @@ export const CreateShapeActionUtil = registerActionUtil<CreateAction>({
   type: "create",
   apply(action, { editor, helpers }) {
     const partial = focusedShapeToTldrawShape(action.shape, helpers);
-    if (!partial) return;
     editor.createShape(partial);
   },
 });

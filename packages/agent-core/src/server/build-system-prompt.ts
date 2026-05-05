@@ -16,6 +16,26 @@ const RULES = `## Rules
 
 - For \`create\` actions, generate a fresh \`shapeId\` (any short unique string is fine — it will be normalised to a real tldraw id on the client).
 - The same agent-supplied \`shapeId\` always resolves to the same real shape across actions in one turn, so later actions (\`attachCueFrame\`, etc.) can reference shapes you just created.
+- When referring to *existing* shapes (e.g. for \`update\`), use the exact \`shapeId\` from the \`pageShapes\` projection — it begins with \`shape:\`.
+
+### Shape vocabulary
+
+The \`pageShapes\` projection includes these kinds, each with the props you can read or write:
+
+- \`rectangle\` — \`x, y, w, h, color, text\`
+- \`ellipse\` — \`x, y, w, h, color, text\` (axis-aligned oval)
+- \`line\` — \`x, y, color, points\` (polyline; points are local to (x, y))
+- \`arrow\` — \`x, y, color, start, end, text\`
+- \`text\` — \`x, y, color, text\` (free-floating label)
+- \`slide\` — \`x, y, w, h\` (camera region; see Slides section below)
+
+Other shape kinds (groups, images, theme-images) exist on the canvas but aren't projected — you can't directly see or modify them. If the user refers to one of those, say so via a \`message\` action.
+
+### Editing shapes
+
+- Use the \`update\` action to modify an existing shape: \`{ shapeId, color?, text?, x?, y?, w?, h? }\`. Only supplied fields change.
+- Common pattern: recoloring matching shapes — iterate the relevant entries from \`pageShapes\` and emit one \`update\` per shape.
+- There is no delete action yet. If the user asks to remove shapes, send a \`message\` saying so.
 
 ### Slides and the camera
 

@@ -67,6 +67,11 @@ export type FocusedFrameAction = z.infer<typeof FocusedFrameActionSchema>;
 
 /* ------------------------------ Focused shapes ------------------------------ */
 
+const FocusedPointSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+});
+
 export const FocusedRectangleSchema = z
   .object({
     _type: z.literal("rectangle"),
@@ -81,6 +86,74 @@ export const FocusedRectangleSchema = z
   .meta({
     title: "Rectangle",
     description: "An axis-aligned rectangle, optionally with a text label.",
+  });
+
+export const FocusedEllipseSchema = z
+  .object({
+    _type: z.literal("ellipse"),
+    shapeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    w: z.number(),
+    h: z.number(),
+    color: FocusedColorSchema,
+    text: z.string().default(""),
+  })
+  .meta({
+    title: "Ellipse",
+    description:
+      "An axis-aligned ellipse / oval, optionally with a text label. (x, y) is the top-left of its bounding box.",
+  });
+
+export const FocusedLineSchema = z
+  .object({
+    _type: z.literal("line"),
+    shapeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    color: FocusedColorSchema,
+    points: z
+      .array(FocusedPointSchema)
+      .describe(
+        "Points along the line, in shape-local coordinates relative to (x, y). At least two points.",
+      ),
+  })
+  .meta({
+    title: "Line",
+    description:
+      "A polyline / freeform line. The first point is the start, the last is the end. Single-color, no arrowheads.",
+  });
+
+export const FocusedArrowSchema = z
+  .object({
+    _type: z.literal("arrow"),
+    shapeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    color: FocusedColorSchema,
+    start: FocusedPointSchema,
+    end: FocusedPointSchema,
+    text: z.string().default(""),
+  })
+  .meta({
+    title: "Arrow",
+    description:
+      "A straight or bent arrow from `start` to `end`, in shape-local coordinates relative to (x, y). May carry a text label.",
+  });
+
+export const FocusedTextSchema = z
+  .object({
+    _type: z.literal("text"),
+    shapeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    color: FocusedColorSchema,
+    text: z.string(),
+  })
+  .meta({
+    title: "Text",
+    description:
+      "A free-floating text label (not attached to a shape). (x, y) is the top-left.",
   });
 
 export const FocusedSlideShapeSchema = z
@@ -100,9 +173,24 @@ export const FocusedSlideShapeSchema = z
 
 export const FocusedShapeSchema = z.discriminatedUnion("_type", [
   FocusedRectangleSchema,
+  FocusedEllipseSchema,
+  FocusedLineSchema,
+  FocusedArrowSchema,
+  FocusedTextSchema,
   FocusedSlideShapeSchema,
 ]);
 export type FocusedShape = z.infer<typeof FocusedShapeSchema>;
+
+/**
+ * The subset of shape kinds the agent can `create`. Read perception
+ * (`pageShapes`) covers the full `FocusedShape` union; creation is
+ * intentionally narrower until per-kind create logic is added.
+ */
+export const CreatableShapeSchema = z.discriminatedUnion("_type", [
+  FocusedRectangleSchema,
+  FocusedSlideShapeSchema,
+]);
+export type CreatableShape = z.infer<typeof CreatableShapeSchema>;
 
 /* --------------------------------- Actions --------------------------------- */
 
@@ -133,13 +221,45 @@ export const CreateActionSchema = z
   .object({
     _type: z.literal("create"),
     intent: z.string(),
-    shape: FocusedShapeSchema,
+    shape: CreatableShapeSchema,
   })
   .meta({
     title: "Create",
-    description: "Create a new shape on the canvas.",
+    description:
+      "Create a new shape on the canvas. Currently supports `rectangle` and `slide`. To recolor or modify other shape kinds (ellipse, line, arrow, text), use the `update` action.",
   });
 export type CreateAction = z.infer<typeof CreateActionSchema>;
+
+export const UpdateShapeActionSchema = z
+  .object({
+    _type: z.literal("update"),
+    intent: z.string(),
+    shapeId: z
+      .string()
+      .describe("The shape to modify. Use the id from `pageShapes`."),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    w: z
+      .number()
+      .optional()
+      .describe(
+        "New width. Ignored for shape types without a width (line, text, arrow).",
+      ),
+    h: z.number().optional(),
+    color: FocusedColorSchema.optional(),
+    text: z
+      .string()
+      .optional()
+      .describe(
+        "New text content. For text shapes this replaces the body; for geo/arrow shapes it sets the label.",
+      ),
+  })
+  .meta({
+    title: "Update",
+    description:
+      "Modify properties of an existing shape on the canvas. Only the supplied fields change; everything else is left intact. Common use: recoloring (`color`), repositioning (`x`, `y`), resizing (`w`, `h`), relabeling (`text`).",
+  });
+export type UpdateShapeAction = z.infer<typeof UpdateShapeActionSchema>;
 
 export const AttachCueFrameActionSchema = z
   .object({
@@ -168,6 +288,7 @@ export const AgentActionSchema = z.discriminatedUnion("_type", [
   MessageActionSchema,
   ThinkActionSchema,
   CreateActionSchema,
+  UpdateShapeActionSchema,
   AttachCueFrameActionSchema,
 ]);
 export type AgentAction = z.infer<typeof AgentActionSchema>;

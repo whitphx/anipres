@@ -4,8 +4,13 @@ import { loadHeadlessEditor } from "anipres";
 import { getCueFrame } from "anipres/models";
 import "./actions/create-shape.js";
 import "./actions/attach-cue-frame.js";
+import "./actions/update-shape.js";
 import { applyActionStream } from "./apply-action-stream.js";
-import type { AttachCueFrameAction, CreateAction } from "../schemas/actions.js";
+import type {
+  AttachCueFrameAction,
+  CreateAction,
+  UpdateShapeAction,
+} from "../schemas/actions.js";
 import type { Streaming } from "../types.js";
 
 async function* fromArray<T>(items: T[]): AsyncIterable<T> {
@@ -119,6 +124,49 @@ describe("anipres action utils", () => {
       // GlobalIndexes are different — one per step
       const indexes = cues.map((c) => c.globalIndex).sort();
       expect(indexes).toEqual([0, 1]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("update changes color and position of an existing shape", async () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const create: CreateAction = {
+        _type: "create",
+        intent: "rect to recolor",
+        shape: {
+          _type: "rectangle",
+          shapeId: "r",
+          x: 0,
+          y: 0,
+          w: 100,
+          h: 60,
+          color: "blue",
+          text: "",
+        },
+      };
+      const update: UpdateShapeAction = {
+        _type: "update",
+        intent: "make it orange and move it",
+        shapeId: "r",
+        color: "orange",
+        x: 50,
+        y: 80,
+      };
+
+      await applyActionStream({
+        editor,
+        actions: fromArray([complete(create), complete(update)]),
+      });
+
+      const shape = editor
+        .getCurrentPageShapes()
+        .find((s) => s.type === "geo")!;
+      expect(shape.x).toBe(50);
+      expect(shape.y).toBe(80);
+      const props = shape.props as { color: string };
+      expect(props.color).toBe("orange");
     } finally {
       dispose();
     }

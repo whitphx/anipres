@@ -10,21 +10,22 @@ import {
 } from "anipres/models";
 import {
   FocusedColorSchema,
+  type CreatableShape,
   type FocusedColor,
   type FocusedShape,
 } from "../schemas/actions.js";
 import type { AgentHelpers } from "./agent-helpers.js";
 
 /**
- * Convert an agent-emitted FocusedShape into a partial tldraw shape ready for
- * `editor.createShape(...)`. For slides, also attaches a `cameraZoom` cue
- * frame — mirroring the side-effect handler the React `Anipres` component
- * installs in its `onMount`.
+ * Convert an agent-emitted CreatableShape into a partial tldraw shape ready
+ * for `editor.createShape(...)`. For slides, also attaches a `cameraZoom`
+ * cue frame — mirroring the side-effect handler the React `Anipres`
+ * component installs in its `onMount`.
  */
 export function focusedShapeToTldrawShape(
-  shape: FocusedShape,
+  shape: CreatableShape,
   helpers: AgentHelpers,
-): TLShapePartial | null {
+): TLShapePartial {
   switch (shape._type) {
     case "rectangle":
       return {
@@ -109,15 +110,86 @@ export function tldrawShapeToFocusedShape(
       color: string;
       richText?: unknown;
     };
-    if (props.geo !== "rectangle") return null;
+    const text = richTextToPlainText(props.richText);
+    const color = coerceColor(props.color);
+    if (props.geo === "rectangle") {
+      return {
+        _type: "rectangle",
+        shapeId: shape.id,
+        x: shape.x,
+        y: shape.y,
+        w: props.w,
+        h: props.h,
+        color,
+        text,
+      };
+    }
+    if (props.geo === "ellipse" || props.geo === "oval") {
+      return {
+        _type: "ellipse",
+        shapeId: shape.id,
+        x: shape.x,
+        y: shape.y,
+        w: props.w,
+        h: props.h,
+        color,
+        text,
+      };
+    }
+    return null;
+  }
 
+  if (shape.type === "line") {
+    const props = shape.props as {
+      color: string;
+      points: Record<
+        string,
+        { id: string; index: string; x: number; y: number }
+      >;
+    };
+    const points = Object.values(props.points)
+      .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0))
+      .map(({ x, y }) => ({ x, y }));
     return {
-      _type: "rectangle",
+      _type: "line",
       shapeId: shape.id,
       x: shape.x,
       y: shape.y,
-      w: props.w,
-      h: props.h,
+      color: coerceColor(props.color),
+      points,
+    };
+  }
+
+  if (shape.type === "arrow") {
+    const props = shape.props as {
+      color: string;
+      start: { x: number; y: number };
+      end: { x: number; y: number };
+      richText?: unknown;
+    };
+    return {
+      _type: "arrow",
+      shapeId: shape.id,
+      x: shape.x,
+      y: shape.y,
+      color: coerceColor(props.color),
+      start: { x: props.start.x, y: props.start.y },
+      end: { x: props.end.x, y: props.end.y },
+      text: richTextToPlainText(props.richText),
+    };
+  }
+
+  if (shape.type === "text") {
+    const props = shape.props as {
+      color: string;
+      richText?: unknown;
+      // text shapes have no w/h until rendered; we omit them
+    };
+    return {
+      _type: "text",
+      shapeId: shape.id,
+      x: shape.x,
+      y: shape.y,
       color: coerceColor(props.color),
       text: richTextToPlainText(props.richText),
     };
