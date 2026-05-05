@@ -174,6 +174,50 @@ describe("anipres action utils", () => {
     }
   });
 
+  it("update writes arrow labels to props.text (not richText)", async () => {
+    // Regression for the symmetric pair of bugs where the arrow shape
+    // was projected and modified using `richText` (which it doesn't
+    // have in tldraw v3) — labels were perceived as empty strings and
+    // updates to them were silently dropped on the floor.
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      editor.createShape({
+        id: "shape:arrow1" as never,
+        type: "arrow",
+        x: 0,
+        y: 0,
+        props: {
+          start: { x: 0, y: 0 },
+          end: { x: 100, y: 0 },
+          color: "blue",
+          text: "old label",
+        },
+      });
+
+      const update: UpdateShapeAction = {
+        _type: "update",
+        intent: "rename arrow",
+        shapeId: "shape:arrow1",
+        text: "new label",
+      };
+
+      await applyActionStream({
+        editor,
+        actions: fromArray([complete(update)]),
+      });
+
+      const shape = editor.getShape("shape:arrow1" as never);
+      const props = shape!.props as { text: string; richText?: unknown };
+      expect(props.text).toBe("new label");
+      // richText must not be set on arrows — the v3 schema validator
+      // would have rejected an unknown field, but cross-checking
+      // catches a regression where we send both fields by mistake.
+      expect(props.richText).toBeUndefined();
+    } finally {
+      dispose();
+    }
+  });
+
   it("delete removes an existing shape from the canvas", async () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {

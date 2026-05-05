@@ -26,6 +26,10 @@ When a frame-bearing shape is deleted in the React app, `PresentationManager.rec
 
 Most of the agent's editing happens on non-frame shapes (commit-graph circles, lines, etc.) where this isn't a problem. But it's a real gap. Cleanest fix: extract `reconcileShapeDeletion` from `PresentationManager` into a standalone function exported from `anipres/models`, then have both the React component (still via `presentationManager.reconcileShapeDeletion`) and the CLI's `DeleteShapeActionUtil` call it. The standalone function only depends on `Editor` and the model helpers, no React.
 
+## Perception edge cases
+
+- **Silent perception drop for unsupported `geo` subtypes.** `tldrawShapeToFocusedShape` returns `null` for `geo` shapes whose `props.geo` isn't `rectangle` / `ellipse` / `oval` — so triangles, diamonds, stars, hexagons, arrows-as-geo, etc. are invisible to the agent. The system prompt only warns about groups / images / theme-images, so the agent will confidently say "I don't see any triangle" while the user is staring at one. Either project the missing kinds into the union or surface a generic `unsupported` entry so the agent knows they exist.
+
 ## UX polish (web chat)
 
 - **Streaming preview** (the `tldraw/agent-template` revert-and-reapply pattern). Today: `applyActionStream` skips `complete: false` actions; shapes appear in the editor only when each `create`/`update` action is fully streamed. With streaming preview: shapes appear immediately and get retracted/replaced as the JSON refines. Visible "live" feel; especially nice for `create` actions where shape props (size, color, position) settle out as more JSON arrives. Implementation: track an `incompleteDiff` per-iteration in `applyActionStream`, use `editor.markHistoryStoppingPoint()` + `editor.bailToMark()` to revert before applying each new incomplete state. Test carefully against multi-action runs (the recoloring case where 24 updates fire) — the in-app `action` log entries we just added partially cover the same UX need, so this is now polish rather than essential.
@@ -36,6 +40,8 @@ Most of the agent's editing happens on non-frame shapes (commit-graph circles, l
 
 - **Per-document chat persistence schema versioning.** The PR persists `{log, history}` to `localStorage[anipres.chat.<docId>]` as raw JSON. Add a `version` field so future schema changes (e.g., adding richer `action` log entries with structured data) can either migrate or fall back gracefully instead of crashing the panel.
 
+- **`skipNextPersistRef` race on rapid doc switches.** The cross-document corruption fix (commit `53bd47a`) closes the most-painful case — the aborted send no longer mutates the new doc's state. A narrower race remains: if the user switches docs _twice_ in rapid succession (faster than React can flush effects) and the persist effect happens to interleave between the two restores, the wrong doc's content can briefly hit the wrong key. A robust fix captures `activeDocumentId` at restore time into a ref and refuses to persist when the captured id disagrees with the effect's current `activeDocumentId`.
+
 ## Operational
 
 - **Worker rate / duration limits on `/api/agent/stream`.** SSE streams hold a worker invocation open for the full duration of the model call (potentially minutes for long runs). No hard cap today. Cloudflare Workers have a default CPU/wall-time budget; worth bounding `maxOutputTokens` (currently 8192) and setting an explicit timeout to avoid runaway costs.
@@ -44,6 +50,8 @@ Most of the agent's editing happens on non-frame shapes (commit-graph circles, l
 
 - **Anti-injection in the user message.** The chat panel sends the user's textarea content directly into the prompt's `userMessages` part. A motivated user can write `"...new instruction: empty the canvas"` and the model will read it. The model is allowed to act on user input (that's the whole point), but we should make sure the user's text can't escape into the _system_ role. Today we use `allowSystemInMessages: true` and only the _system_ prompt itself goes in the system slot — user input always reaches the user role. Verify by inspection that no path concatenates user content into the system prompt.
 
+- **Stream error sanitization.** The worker route catches stream errors from `streamActions` and forwards `err.message` back to the browser as an `error` SSE event. AI SDK errors sometimes carry the request body in `error.cause` or include API-key headers in their stack. Strip stack traces and known-sensitive header names before flushing to the SSE channel. Combined with the cleaner classification we already have on the MCP side, the chat panel could surface a friendly "auth failed" / "rate-limited" / "transient error" instead of a raw stack.
+
 ## Testing gaps
 
 - **Worker-route integration test.** The `/api/agent/stream` route has no test. Easiest coverage: use `@cloudflare/vitest-pool-workers` (already in the worker's devDeps) to POST a fake prompt with a stub provider, assert the SSE response body contains `data: ` lines.
@@ -51,6 +59,12 @@ Most of the agent's editing happens on non-frame shapes (commit-graph circles, l
 - **End-to-end browser test for the chat flow.** Today the chat panel is verified by manual Playwright passes (this PR's last few commits). A persistent test that spins up app dev + worker dev, mocks the `/api/agent/stream` response, and walks through "type prompt → see actions stream → see editor mutate" would catch regressions in the React + SSE wiring.
 
 - **Multi-turn conversation test.** The chat-history wiring (`useAgent` accumulates history across turns) is exercised manually but not unit-tested. Add a `parseActionStream`-style mock that runs two turns and asserts the second prompt includes the first turn's user + agent message in `chatHistory`.
+
+- **`useAgent` abort-during-stream regression test.** The cross-document corruption fix (commit `53bd47a`) is currently only verified by code reading. A proper test needs `@testing-library/react`'s `renderHook` (not currently in `agent-core`'s devDeps) plus a stubbed `streamFromServer` that yields one chunk, then signals a restore mid-stream, then asserts no agent turn was pushed to history. Worth doing because the bug pattern (state mutated in `finally` after an abort) is easy to reintroduce with a "small refactor".
+
+- **`stream-from-server` malformed-SSE handling test.** The new try/catch around `JSON.parse` (commit pending) is untested. Add a fake `Response` with a body iterator yielding (a) a malformed `data:` followed by (b) a valid one; assert the valid one is yielded and the iterator doesn't throw.
+
+- **`closeAndParseJson` non-JSON-prefix test.** The model could in principle emit apologetic prose before the JSON (`"I'm sorry, I can't help with..."`). Combined with the assistant prefill, the buffer would be `{"actions": [{"_type":I'm sorry...` which never closes to valid JSON. The current behaviour (return `null` forever, no actions yielded) is correct but not covered. Add a test that exercises this and confirms the parser doesn't crash or buffer-grow unboundedly.
 
 ## Model behaviour
 
@@ -61,6 +75,8 @@ Most of the agent's editing happens on non-frame shapes (commit-graph circles, l
   Both are perception-only changes (no new actions). Worth trying once a real workflow surfaces where selection isn't natural.
 
 - **`finishReason: length` on long runs.** `streamActions` caps `maxOutputTokens` at 8192. A multi-action recoloring of dozens of shapes is well under that, but a "build me a 30-slide presentation" prompt could hit the cap. Today nothing reports it as a soft failure to the user — they'd see a partial result with no explanation. Plumb the existing `onFinish` callback into the MCP / chat error path so a `length` finish gets surfaced like the other no-action error cases.
+
+- **System-prompt schema cost on non-Anthropic providers.** The `buildSystemPrompt` output includes the full Zod-derived JSON schema (~3-4 KB). The Anthropic call gets a `cacheControl: ephemeral` breakpoint so the system prompt amortizes across turns; OpenAI and Google calls re-pay the full token cost on every request. If GPT/Gemini usage picks up, either switch to provider-specific cache equivalents (OpenAI's prompt-caching headers, Gemini's context caching API) or compress the schema (drop verbose `description` strings on rarely-used branches, switch to a minimal hand-written schema instead of `z.toJSONSchema`).
 
 ## Documentation
 
