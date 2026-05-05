@@ -145,22 +145,16 @@ export function createAnipresMcpServer(): McpServer {
       // turn produced nothing useful and the caller should treat it as a
       // failure rather than a silent success.
       if (result.actions.length === 0) {
-        const rawJoined = chunkBuffer.join("");
-        const rawSummary = rawJoined
-          ? `Raw model output (${rawJoined.length} chars):\n\`\`\`\n${rawJoined.slice(0, 4000)}${rawJoined.length > 4000 ? "\n…(truncated)" : ""}\n\`\`\``
-          : "Raw model output: (empty — the model returned no text at all)";
-        const finishLine = finishInfo
-          ? `Finish reason: \`${(finishInfo as { finishReason: string }).finishReason}\``
-          : "Finish reason: (unknown — onFinish was not called)";
-        const errorLine = streamError
-          ? `Stream error: ${stringifyError(streamError)}`
-          : "Stream error: (none reported)";
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${finishLine}\n${errorLine}\n\n${rawSummary}`,
+              text: explainNoActionFailure({
+                streamError,
+                finishInfo,
+                rawText: chunkBuffer.join(""),
+              }),
             },
           ],
         };
@@ -186,6 +180,45 @@ export function createAnipresMcpServer(): McpServer {
   );
 
   return server;
+}
+
+/**
+ * Translate the diagnostic signals from a no-action run into a useful
+ * error message. The provider-side error class is the most specific
+ * thing we have — if it points at auth or rate-limiting, say so
+ * directly instead of guessing at model behaviour.
+ */
+function explainNoActionFailure(opts: {
+  streamError: unknown;
+  finishInfo: { finishReason: string; text: string } | null;
+  rawText: string;
+}): string {
+  const { streamError, finishInfo, rawText } = opts;
+
+  if (streamError) {
+    const errStr = stringifyError(streamError);
+    let headline = "The agent stream errored before any actions were emitted.";
+    if (/invalid x-api-key|401|unauthor/i.test(errStr)) {
+      headline =
+        "Authentication failed — the API key the MCP server uses is missing or invalid. " +
+        "Add `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` / `GOOGLE_API_KEY` for the chosen model) to the `env` block of the `anipres` entry in your MCP config, then reconnect the server.";
+    } else if (/rate.?limit|429/i.test(errStr)) {
+      headline =
+        "Provider rate-limited the request. Wait a moment and retry, or switch to a different model.";
+    } else if (/insufficient.?quota|credit|billing/i.test(errStr)) {
+      headline =
+        "Provider rejected the request for billing/quota reasons. Check the relevant provider account.";
+    }
+    return `${headline} Snapshot was not written.\n\nStream error:\n\`\`\`\n${errStr}\n\`\`\``;
+  }
+
+  const finishLine = finishInfo
+    ? `Finish reason: \`${finishInfo.finishReason}\``
+    : "Finish reason: (unknown — onFinish was not called)";
+  const rawSummary = rawText
+    ? `Raw model output (${rawText.length} chars):\n\`\`\`\n${rawText.slice(0, 4000)}${rawText.length > 4000 ? "\n…(truncated)" : ""}\n\`\`\``
+    : "Raw model output: (empty — the model returned no text at all)";
+  return `The agent emitted no actions and the stream completed without erroring. Likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${finishLine}\n\n${rawSummary}`;
 }
 
 function stringifyError(error: unknown): string {
