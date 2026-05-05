@@ -116,12 +116,16 @@ where most of the "what does this thing actually do" confusion lives.
    adapter. The browser doesn't need to know which provider needs
    which SDK or which API URL.
 
-2. **CORS isolation.** Anthropic and Google's APIs don't allow direct
-   browser calls (no `Access-Control-Allow-Origin` for browser
-   origins; CORS preflight fails). OpenAI requires a
-   `dangerouslyAllowBrowser: true` flag the SDK is named to
-   discourage. Calling from the worker means the browser only ever
-   talks to its own origin.
+2. **CORS isolation.** Calling LLM provider APIs directly from the
+   browser requires explicit opt-in flags (`dangerouslyAllowBrowser`
+   in the OpenAI SDK; equivalents in the Anthropic / Google SDKs as
+   they've been added) — the SDKs are named that way for a reason:
+   the API key is bundled into client-side code, where any browser
+   extension or bookmarklet can read it. The provider's CORS posture
+   has been loosening over time, so "you literally can't" is no
+   longer accurate everywhere; the substantive point is that browser-
+   direct is still the wrong default. Calling from the worker means
+   the browser only ever talks to its own origin.
 
 3. **API-key-in-flight isolation.** The key flows browser → your
    worker → provider, never browser → provider. One fewer place the
@@ -157,10 +161,14 @@ where most of the "what does this thing actually do" confusion lives.
    it can't talk to Anthropic-the-API directly.
 
 7. **Error classification and sanitization.** Stream errors from the
-   provider get a chance to be classified (auth / rate-limit /
-   billing) before reaching the user. The MCP path already does this
-   via `explainNoActionFailure`; the web path is on the same
-   trajectory (tracked in [`agent-todo.md`](./agent-todo.md)).
+   provider can be classified (auth / rate-limit / billing) before
+   reaching the user. The MCP path already does this via
+   `explainNoActionFailure`. The web path forwards `err.message`
+   raw today and doesn't even wire the SDK's `onError` callback
+   into the worker route — silent provider errors land as a clean-
+   looking zero-action stream that the chat panel can't distinguish
+   from a model refusal. Both gaps are tracked in
+   [`agent-todo.md`](./agent-todo.md) § Operational.
 
 8. **CSRF protection.** The worker has `csrf({ origin: PUBLIC_BASE_URL })`
    middleware. Same-origin requests from the app pass; cross-origin
@@ -411,18 +419,36 @@ Three things the agent has to know that aren't general tldraw:
 ### Slides auto-attach a `cameraZoom` cue frame
 
 In `Anipres.tsx`, the React component installs a
-`registerBeforeCreateHandler` that adds a `cameraZoom` cue frame
-to any newly-created slide shape. The agent's `CreateActionUtil`
-mirrors this in its slide branch — same logic, called at apply
-time — so slides created via the agent in headless flows
-(CLI, MCP) get the cue frame too, preserving the invariant that
-"creating a slide makes a step in the timeline."
+`registerBeforeCreateHandler` that does two unrelated things in one
+hook: (a) adds a `cameraZoom` cue frame to any newly-created slide
+shape, and (b) reassigns frame ids when a frame-bearing shape is
+duplicated, to preserve the invariant that each frame id is unique.
+Only (a) is mirrored on the agent side — the agent never duplicates
+shapes, so (b) doesn't apply.
 
-The duplication is deliberate: extracting the handler for both
-React and headless to share is a clean refactor (tracked in
+The agent's `CreateActionUtil` mirrors (a) in its slide branch —
+same shape, called at apply time — so slides created via the agent
+in headless flows (CLI, MCP) get the cue frame too, preserving the
+invariant that "creating a slide makes a step in the timeline."
+
+Two divergences worth flagging because the two implementations
+**don't** actually compute the same value, despite the doc-string
+intent:
+
+- `Anipres.tsx`'s handler picks `globalIndex: orderedSteps.length`
+  (count of currently-rendered steps).
+- The agent's `buildAutoCameraCueFrame` and `attachCueFrame` apply
+  paths use `getNextGlobalIndexFromCueFrames`, which is
+  `Math.max(...indexes) + 1`.
+
+These agree on a healthy timeline (no gaps), and differ when there
+_are_ gaps — e.g. after a delete that wasn't reconciled, the React
+side picks the count (skipping the gap), the agent side picks
+max+1 (preserving the gap as a hole). Tracked in
 [`agent-todo.md`](./agent-todo.md) § Headless presentation
-reconciliation), but until that lands, the two implementations
-must stay in sync by hand.
+reconciliation, but listed there under deletion. The right fix is
+to extract a single canonical `nextGlobalIndex` helper and have
+both sides call it; currently the two sides quietly disagree.
 
 ### Each frame lives on a single shape
 
