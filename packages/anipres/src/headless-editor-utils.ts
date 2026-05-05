@@ -1,9 +1,15 @@
-import { createTLStore, Editor } from "tldraw";
+import {
+  createTLStore,
+  defaultAddFontsFromNode,
+  Editor,
+  tipTapDefaultExtensions,
+} from "tldraw";
 import type {
   TLStoreSnapshot,
   TLEditorSnapshot,
   TLPageId,
   TLStateNodeConstructor,
+  TLTextOptions,
 } from "tldraw";
 
 import { getFrames, getFrameBatches } from "./models";
@@ -11,12 +17,17 @@ import { getGlobalOrder } from "./ordered-track-item";
 
 import { allShapeUtils, allBindingUtils } from "./shape-utils";
 
+const defaultTextOptions: TLTextOptions = {
+  tipTapConfig: { extensions: tipTapDefaultExtensions },
+  addFontsFromNode: defaultAddFontsFromNode,
+};
+
 interface LoadHeadlessEditorOptions {
-  snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot;
+  snapshot?: Partial<TLEditorSnapshot> | TLStoreSnapshot;
   pageId?: TLPageId;
 }
-function loadHeadlessEditor(
-  opts: LoadHeadlessEditorOptions,
+export function loadHeadlessEditor(
+  opts: LoadHeadlessEditorOptions = {},
 ): [Editor, () => void] {
   // Ref: https://github.com/tldraw/tldraw/blob/5edd5d63f975522c2d200c3d5d1756042fd585fb/packages/tldraw/src/lib/TldrawImage.tsx
 
@@ -42,6 +53,10 @@ function loadHeadlessEditor(
     bindingUtils: allBindingUtils,
     tools,
     getContainer: () => tempElm,
+    // Required so shapes with rich-text labels (e.g. geo) can be created
+    // headlessly — the GeoShapeUtil's `onBeforeCreate` measures text size,
+    // which calls into the tipTap renderer.
+    textOptions: defaultTextOptions,
   });
 
   if (pageId) editor.setCurrentPage(pageId);
