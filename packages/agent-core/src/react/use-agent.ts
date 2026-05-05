@@ -156,17 +156,27 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
           if (controller.signal.aborted) return;
           setError(err instanceof Error ? err.message : String(err));
         } finally {
-          // On abort (user clicked Cancel, or ChatPanel called
-          // restore() during a doc switch), we MUST NOT push log/
-          // history state from this turn — restore has already
-          // overwritten them with the *new* doc's content, and our
-          // pushes would silently land doc-A's reply on doc-B's
-          // thread (and ChatPanel would then persist the
-          // contamination to doc-B's localStorage key).
+          // Only run teardown if this finally still owns the active
+          // controller. The "stale send" scenario:
           //
-          // The running flag teardown still has to run so a subsequent
-          // send can fire — Cancel doesn't reset it on its own.
-          if (!controller.signal.aborted) {
+          //   1. send #1 starts → isRunningRef = true, abortRef = c1
+          //   2. ChatPanel calls restore() on doc switch:
+          //        - c1.abort()
+          //        - isRunningRef = false, setIsRunning(false)
+          //        - log/history overwritten with the new doc's state
+          //   3. send #2 fires (allowed, isRunningRef just cleared) →
+          //      isRunningRef = true, abortRef = c2
+          //   4. send #1's late `finally` runs.
+          //
+          // If teardown isn't gated, step 4 would clobber send #2's
+          // isRunningRef → false while send #2 is still mid-stream,
+          // letting a third send start concurrently. The guard means
+          // only the controller currently owned by abortRef gets to
+          // tear the running flag down. (The state pushes are also
+          // gated on `aborted` so doc-A's reply doesn't land on
+          // doc-B's thread.)
+          const isActive = abortRef.current === controller;
+          if (isActive && !controller.signal.aborted) {
             setLog(finalizeStreamingAgentTurn);
             if (messageTexts.length > 0) {
               setHistory([
@@ -175,9 +185,11 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
               ]);
             }
           }
-          isRunningRef.current = false;
-          setIsRunning(false);
-          if (abortRef.current === controller) abortRef.current = null;
+          if (isActive) {
+            isRunningRef.current = false;
+            setIsRunning(false);
+            abortRef.current = null;
+          }
         }
       })();
     },
