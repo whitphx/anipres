@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import {
   applyActionStream,
+  getPartUtil,
   getRegisteredActionTypes,
   getRegisteredPartTypes,
   makeDefaultModePart,
@@ -9,7 +10,6 @@ import {
   type AgentAction,
   type AgentPrompt,
 } from "@anipres/agent-core";
-import { getPartUtil } from "@anipres/agent-core";
 import { loadHeadlessEditor } from "anipres";
 import { getSnapshot } from "tldraw";
 
@@ -57,8 +57,7 @@ function buildPrompt(
   const partTypes = getRegisteredPartTypes();
   const mode = makeDefaultModePart({ actionTypes, partTypes });
 
-  const prompt: AgentPrompt = { mode };
-
+  const prompt: Record<string, unknown> = { mode };
   prompt.userMessages = makeUserMessagesPart([userMessage]);
 
   for (const partType of partTypes) {
@@ -66,10 +65,10 @@ function buildPrompt(
     if (!util) continue;
     const part = util.getPart({ editor });
     if (!part) continue;
-    if (part.type === "pageShapes") prompt.pageShapes = part;
+    prompt[part.type] = part;
   }
 
-  return prompt;
+  return prompt as AgentPrompt;
 }
 
 function printActionForUser(action: AgentAction): void {
@@ -83,6 +82,11 @@ function printActionForUser(action: AgentAction): void {
     case "create":
       process.stderr.write(
         `[create] ${action.intent} (${action.shape._type})\n`,
+      );
+      break;
+    case "attachCueFrame":
+      process.stderr.write(
+        `[cue] ${action.intent} (shape=${action.shapeId}, action=${action.action.type})\n`,
       );
       break;
   }

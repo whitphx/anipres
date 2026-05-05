@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FocusedShapeSchema } from "./actions.js";
+import { FocusedFrameActionSchema, FocusedShapeSchema } from "./actions.js";
 
 /**
  * A single user → agent message in the current turn. The agent receives all
@@ -23,6 +23,30 @@ export const PageShapesPartSchema = z.object({
 export type PageShapesPart = z.infer<typeof PageShapesPartSchema>;
 
 /**
+ * The Anipres presentation timeline projected for the agent: total step
+ * count plus, for each step, the parallel frame batches with their shape
+ * ids and frame actions. This is what lets the agent reason about ordering
+ * (e.g. "add a step after step 2").
+ */
+export const PresentationStatePartSchema = z.object({
+  type: z.literal("presentationState"),
+  totalSteps: z.number(),
+  steps: z.array(
+    z.object({
+      index: z.number(),
+      batches: z.array(
+        z.object({
+          trackId: z.string(),
+          shapeIds: z.array(z.string()),
+          frameAction: FocusedFrameActionSchema,
+        }),
+      ),
+    }),
+  ),
+});
+export type PresentationStatePart = z.infer<typeof PresentationStatePartSchema>;
+
+/**
  * Defines what actions and parts are active for this turn. Different modes
  * expose different action subsets.
  */
@@ -34,7 +58,11 @@ export const ModePartSchema = z.object({
 });
 export type ModePart = z.infer<typeof ModePartSchema>;
 
-export type PromptPart = UserMessagesPart | PageShapesPart | ModePart;
+export type PromptPart =
+  | UserMessagesPart
+  | PageShapesPart
+  | PresentationStatePart
+  | ModePart;
 
 /**
  * A complete prompt for one agent turn. Keyed by part `type` so a part of a
@@ -44,4 +72,5 @@ export type AgentPrompt = {
   mode: ModePart;
   userMessages?: UserMessagesPart;
   pageShapes?: PageShapesPart;
+  presentationState?: PresentationStatePart;
 };

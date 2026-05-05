@@ -17,9 +17,56 @@ export const FocusedColorSchema = z.enum([
 export type FocusedColor = z.infer<typeof FocusedColorSchema>;
 
 /**
- * A simplified shape representation that the agent emits. Action utils
- * convert this into a real tldraw shape on apply.
+ * Tldraw easing curves the agent may pick. A small subset chosen to cover
+ * the common shapes (linear, ease-in/out, cubic) without overwhelming the
+ * model's choice space.
  */
+export const FocusedEasingSchema = z.enum([
+  "linear",
+  "easeInCubic",
+  "easeOutCubic",
+  "easeInOutCubic",
+  "easeInExpo",
+  "easeOutExpo",
+  "easeInOutExpo",
+]);
+export type FocusedEasing = z.infer<typeof FocusedEasingSchema>;
+
+/**
+ * Anipres frame action — what kind of animation the frame represents.
+ * `cameraZoom` zooms the viewport to the shape's bounds.
+ * `shapeAnimation` interpolates the shape's transform from its predecessor
+ * (the previous frame in the same track) to its current state.
+ */
+export const FocusedFrameActionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("cameraZoom"),
+      duration: z.number().optional(),
+      inset: z.number().optional(),
+      easing: FocusedEasingSchema.optional(),
+    })
+    .meta({
+      title: "Camera zoom",
+      description:
+        "Pan and zoom the viewport to fit the shape's bounds, optionally with a duration in ms and an inset in canvas-pixels.",
+    }),
+  z
+    .object({
+      type: z.literal("shapeAnimation"),
+      duration: z.number().optional(),
+      easing: FocusedEasingSchema.optional(),
+    })
+    .meta({
+      title: "Shape animation",
+      description:
+        "Interpolate this shape's position/rotation from the predecessor frame's shape to this one over the given duration in ms. If this is the first frame in the track, no animation runs — the shape simply becomes visible.",
+    }),
+]);
+export type FocusedFrameAction = z.infer<typeof FocusedFrameActionSchema>;
+
+/* ------------------------------ Focused shapes ------------------------------ */
+
 export const FocusedRectangleSchema = z
   .object({
     _type: z.literal("rectangle"),
@@ -36,10 +83,28 @@ export const FocusedRectangleSchema = z
     description: "An axis-aligned rectangle, optionally with a text label.",
   });
 
+export const FocusedSlideShapeSchema = z
+  .object({
+    _type: z.literal("slide"),
+    shapeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    w: z.number(),
+    h: z.number(),
+  })
+  .meta({
+    title: "Slide",
+    description:
+      "A rectangular region the camera will zoom to during presentation. Creating a slide automatically attaches a `cameraZoom` cue frame, so the slide becomes a step in the timeline.",
+  });
+
 export const FocusedShapeSchema = z.discriminatedUnion("_type", [
   FocusedRectangleSchema,
+  FocusedSlideShapeSchema,
 ]);
 export type FocusedShape = z.infer<typeof FocusedShapeSchema>;
+
+/* --------------------------------- Actions --------------------------------- */
 
 export const MessageActionSchema = z
   .object({
@@ -76,14 +141,33 @@ export const CreateActionSchema = z
   });
 export type CreateAction = z.infer<typeof CreateActionSchema>;
 
+export const AttachCueFrameActionSchema = z
+  .object({
+    _type: z.literal("attachCueFrame"),
+    intent: z.string(),
+    shapeId: z.string().describe("The shape that will own this cue frame."),
+    prevShapeId: z
+      .string()
+      .optional()
+      .describe(
+        "If supplied, this cue frame is added to the same track as the prev shape's frame, becoming the next step in that track. Otherwise a new track is opened.",
+      ),
+    action: FocusedFrameActionSchema,
+  })
+  .meta({
+    title: "Attach Cue Frame",
+    description:
+      "Attach an animation cue frame to a shape — opens a track in the presentation timeline, or extends one if `prevShapeId` is given. The shape becomes visible at the step this cue lands on.",
+  });
+export type AttachCueFrameAction = z.infer<typeof AttachCueFrameActionSchema>;
+
 /**
- * Discriminated union of every action the agent can emit. The order of
- * schemas in the array is also the order they appear in the JSON-schema
- * union sent to the model — keep general/common actions first.
+ * Discriminated union of every action the agent can emit.
  */
 export const AgentActionSchema = z.discriminatedUnion("_type", [
   MessageActionSchema,
   ThinkActionSchema,
   CreateActionSchema,
+  AttachCueFrameActionSchema,
 ]);
 export type AgentAction = z.infer<typeof AgentActionSchema>;

@@ -4,7 +4,9 @@
 import "./actions/message.js";
 import "./actions/think.js";
 import "./actions/create-shape.js";
+import "./actions/attach-cue-frame.js";
 import "./parts/page-shapes.js";
+import "./parts/presentation-state.js";
 
 export { AgentHelpers } from "./agent-helpers.js";
 export {
