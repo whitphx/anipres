@@ -34,6 +34,10 @@ export interface EditSnapshotOptions {
   /** Diagnostic hook: called when the AI SDK reports a stream-level
    *  error (some of which it swallows instead of throwing). */
   onError?: (error: unknown) => void;
+  /** Aborts the upstream model call. The MCP server wires this from the
+   *  per-request signal so a cancelled tool invocation doesn't keep
+   *  draining the provider stream and burning the user's API quota. */
+  abortSignal?: AbortSignal;
 }
 
 export interface EditSnapshotResult {
@@ -61,6 +65,7 @@ export async function editSnapshot(
       prompt,
       env: opts.env,
       modelName: opts.modelName,
+      abortSignal: opts.abortSignal,
       onChunk: opts.onChunk,
       onFinish: opts.onFinish,
       onError: opts.onError,

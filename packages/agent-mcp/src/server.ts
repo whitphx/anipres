@@ -110,7 +110,7 @@ export function createAnipresMcpServer(): McpServer {
           ),
       },
     },
-    async ({ snapshotPath, prompt, outputPath, modelName }) => {
+    async ({ snapshotPath, prompt, outputPath, modelName }, extra) => {
       const env = readEnvForModel(modelName);
       if (env instanceof Error) {
         return {
@@ -158,6 +158,12 @@ export function createAnipresMcpServer(): McpServer {
         prompt,
         env,
         modelName,
+        // The MCP SDK's per-request `extra.signal` fires when the host
+        // cancels the tool call (Claude Code/Cursor disconnects, user
+        // aborts). Without forwarding it the upstream model call keeps
+        // draining and the user's API quota keeps getting billed for
+        // a response no one will read.
+        abortSignal: extra?.signal,
         onChunk: (chunk) => chunkBuffer.push(chunk),
         onFinish: (info) => {
           finishInfo = info;

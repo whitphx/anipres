@@ -65,16 +65,30 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { values, positionals } = parseArgs({
-    args: argv.slice(1),
-    allowPositionals: true,
-    options: {
-      prompt: { type: "string", short: "p" },
-      out: { type: "string", short: "o" },
-      model: { type: "string", short: "m" },
-      help: { type: "boolean", short: "h" },
-    },
-  });
+  // IIFE keeps the narrowed parseArgs return type (preserves
+  // `values.prompt: string | undefined` rather than collapsing to the
+  // union of all option shapes) while letting us catch the throw and
+  // exit cleanly. Bad flag → usage error (exit 2), not a stack trace.
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: argv.slice(1),
+        allowPositionals: true,
+        options: {
+          prompt: { type: "string", short: "p" },
+          out: { type: "string", short: "o" },
+          model: { type: "string", short: "m" },
+          help: { type: "boolean", short: "h" },
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`${message}\n\n${USAGE}`);
+      return null;
+    }
+  })();
+  if (!parsed) return 2;
+  const { values, positionals } = parsed;
 
   if (values.help) {
     process.stdout.write(USAGE);
