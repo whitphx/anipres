@@ -1,0 +1,29 @@
+{
+  "name": "@anipres/agent-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "anipres-agent-mcp": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint .",
+    "format": "prettier . --write",
+    "start": "node --import tsx/esm src/bin.ts"
+  },
+  "dependencies": {
+    "@anipres/agent-cli": "workspace:*",
+    "@anipres/agent-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.20.0"
+  }
+}
