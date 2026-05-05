@@ -272,7 +272,7 @@ export const DeleteShapeActionSchema = z
   .meta({
     title: "Delete",
     description:
-      "Remove a shape from the canvas. Frames attached to the shape (if any) are reconciled by the presentation manager — adjacent steps will renumber and tracks will heal.",
+      "Remove a shape from the canvas. Tldraw cleans up the shape's bindings and selection state. Cue/sub frames previously attached to the shape may be left behind; if you want them gone, emit explicit follow-up actions to detach or remove them.",
   });
 export type DeleteShapeAction = z.infer<typeof DeleteShapeActionSchema>;
 

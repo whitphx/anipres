@@ -3,9 +3,10 @@ import { registerActionUtil } from "../action-util.js";
 
 /**
  * Remove a shape from the canvas. Tldraw's editor handles reparenting,
- * binding cleanup, and selection updates automatically; the
- * presentation manager's side effects renumber adjacent steps and heal
- * tracks when a frame-bearing shape is removed.
+ * binding cleanup, and selection updates automatically. Frame
+ * bookkeeping (cue/sub frames previously attached to the shape) is the
+ * caller's responsibility — emit follow-up detach/delete actions if the
+ * intent is to wipe those too.
  */
 export const DeleteShapeActionUtil = registerActionUtil<DeleteShapeAction>({
   type: "delete",
