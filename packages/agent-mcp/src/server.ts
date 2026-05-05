@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -5,6 +6,19 @@ import {
   formatSnapshotSummary,
   summarizeSnapshot,
 } from "@anipres/agent-cli";
+
+// When set, raw model text-stream output is appended to this file for
+// diagnosing silent no-op runs. Off by default — enable by exporting
+// `ANIPRES_AGENT_DEBUG_LOG=/tmp/foo.log` in the MCP host's env block.
+const DEBUG_LOG = process.env.ANIPRES_AGENT_DEBUG_LOG;
+function debugLog(line: string): void {
+  if (!DEBUG_LOG) return;
+  try {
+    appendFileSync(DEBUG_LOG, line);
+  } catch {
+    // Best-effort — don't let logging failures break the tool.
+  }
+}
 import {
   DEFAULT_MODEL_NAME,
   getAgentModelDefinition,
@@ -94,12 +108,19 @@ export function createAnipresMcpServer(): McpServer {
 
       const raw = await readFile(snapshotPath, "utf-8");
       const inSnapshot = JSON.parse(raw);
+      debugLog(
+        `\n=== ${new Date().toISOString()} edit ${snapshotPath} ===\nPROMPT: ${prompt}\nMODEL: ${modelName ?? "(default)"}\n--- raw model output ---\n`,
+      );
       const result = await editSnapshot({
         snapshot: inSnapshot,
         prompt,
         env,
         modelName,
+        onChunk: (chunk) => debugLog(chunk),
       });
+      debugLog(
+        `\n--- end stream; ${result.actions.length} action(s) parsed ---\n`,
+      );
 
       // The model is instructed to always emit at least one action — even
       // a `message` explaining a refusal. A truly empty stream means the

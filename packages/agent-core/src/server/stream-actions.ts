@@ -17,6 +17,10 @@ export interface StreamActionsOptions {
   prompt: AgentPrompt;
   env: AgentEnv;
   modelName?: string;
+  /** Optional diagnostic hook invoked for every text chunk the model
+   *  emits, before parsing. Lets callers log raw model output without
+   *  reaching across the streaming machinery. Off by default. */
+  onChunk?: (chunk: string) => void;
 }
 
 /**
@@ -89,7 +93,7 @@ export async function* streamActions(
     },
   });
 
-  yield* parseActionStream(textStream);
+  yield* parseActionStream(textStream, opts.onChunk);
 }
 
 /**
@@ -100,6 +104,7 @@ export async function* streamActions(
  */
 export async function* parseActionStream(
   textStream: AsyncIterable<string>,
+  onChunk?: (chunk: string) => void,
 ): AsyncGenerator<Streaming<AgentAction>> {
   let buffer = '{"actions": [{"_type":';
   let cursor = 0;
@@ -107,6 +112,7 @@ export async function* parseActionStream(
   let startTime = Date.now();
 
   for await (const chunk of textStream) {
+    onChunk?.(chunk);
     buffer += chunk;
 
     const parsed = closeAndParseJson(buffer) as { actions?: unknown } | null;

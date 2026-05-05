@@ -23,6 +23,10 @@ export interface EditSnapshotOptions {
   /** Called for each completed action — `message`/`think` text or
    *  `create`/`attachCueFrame` summaries. Defaults to a no-op. */
   onAction?: (action: AgentAction) => void;
+  /** Diagnostic hook: called for every raw text chunk the model emits,
+   *  before the JSON parser sees it. Useful for capturing model output
+   *  when the parser yields nothing. */
+  onChunk?: (chunk: string) => void;
 }
 
 export interface EditSnapshotResult {
@@ -50,6 +54,7 @@ export async function editSnapshot(
       prompt,
       env: opts.env,
       modelName: opts.modelName,
+      onChunk: opts.onChunk,
     });
 
     await applyActionStream({
