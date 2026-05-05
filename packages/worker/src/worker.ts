@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { registerApiAuth, registerOAuthProviderRoutes } from "./auth";
 import { sweepInitializingDocuments } from "./cleanup";
+import { agentRoutes } from "./routes/agent";
 import { authRoutes } from "./routes/auth";
 import { connectRoutes } from "./routes/connect";
 import { documentsRoutes } from "./routes/documents";
@@ -30,7 +31,8 @@ const routes = app
   .route("/", workspacesRoutes)
   .route("/", documentsRoutes)
   .route("/", assetRoutes)
-  .route("/", connectRoutes);
+  .route("/", connectRoutes)
+  .route("/", agentRoutes);
 
 export type AppType = typeof routes;
 
