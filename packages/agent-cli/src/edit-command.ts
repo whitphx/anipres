@@ -27,6 +27,10 @@ export interface EditSnapshotOptions {
    *  before the JSON parser sees it. Useful for capturing model output
    *  when the parser yields nothing. */
   onChunk?: (chunk: string) => void;
+  /** Diagnostic hook: called once after the model stream finishes with
+   *  the provider's finish reason and joined text. Useful for
+   *  explaining silent no-ops. */
+  onFinish?: (info: import("@anipres/agent-core").StreamFinishInfo) => void;
 }
 
 export interface EditSnapshotResult {
@@ -55,6 +59,7 @@ export async function editSnapshot(
       env: opts.env,
       modelName: opts.modelName,
       onChunk: opts.onChunk,
+      onFinish: opts.onFinish,
     });
 
     await applyActionStream({

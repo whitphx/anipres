@@ -13,6 +13,16 @@ import { buildSystemPrompt } from "./build-system-prompt.js";
 import { closeAndParseJson } from "./close-and-parse-json.js";
 import { getModel } from "./providers.js";
 
+export interface StreamFinishInfo {
+  /** "stop" | "length" | "content-filter" | "tool-calls" | "error" |
+   *  "other" | "unknown" — provider-reported reason the response ended. */
+  finishReason: string;
+  /** Bytes of text the model actually emitted (the same content seen by
+   *  `onChunk`, joined). Useful in error logs when the parser dropped
+   *  everything. */
+  text: string;
+}
+
 export interface StreamActionsOptions {
   prompt: AgentPrompt;
   env: AgentEnv;
@@ -21,6 +31,10 @@ export interface StreamActionsOptions {
    *  emits, before parsing. Lets callers log raw model output without
    *  reaching across the streaming machinery. Off by default. */
   onChunk?: (chunk: string) => void;
+  /** Optional diagnostic hook invoked once after the model finishes,
+   *  with the provider-reported finish reason and joined output text.
+   *  Useful for explaining silent no-ops. Off by default. */
+  onFinish?: (info: StreamFinishInfo) => void;
 }
 
 /**
@@ -90,6 +104,9 @@ export async function* streamActions(
       anthropic: { thinking: { type: "disabled" } },
       google: { thinkingConfig: { thinkingBudget: geminiThinkingBudget } },
       openai: { reasoningEffort: "minimal" },
+    },
+    onFinish: ({ finishReason, text }) => {
+      opts.onFinish?.({ finishReason, text });
     },
   });
 

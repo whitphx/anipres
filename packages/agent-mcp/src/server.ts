@@ -111,11 +111,12 @@ export function createAnipresMcpServer(): McpServer {
       debugLog(
         `\n=== ${new Date().toISOString()} edit ${snapshotPath} ===\nPROMPT: ${prompt}\nMODEL: ${modelName ?? "(default)"}\n--- raw model output ---\n`,
       );
-      // Always capture raw chunks in-memory so we can attach them to a
-      // failure response below if the run produces zero actions. Cheap
-      // (the buffer is discarded on success) and removes the need for
-      // host-side env-var configuration to diagnose silent no-ops.
+      // Always capture raw chunks + finish info in-memory so we can
+      // attach them to a failure response below if the run produces
+      // zero actions. Cheap; removes the need for host-side env-var
+      // configuration to diagnose silent no-ops.
       const chunkBuffer: string[] = [];
+      let finishInfo: { finishReason: string; text: string } | null = null;
       const result = await editSnapshot({
         snapshot: inSnapshot,
         prompt,
@@ -124,6 +125,10 @@ export function createAnipresMcpServer(): McpServer {
         onChunk: (chunk) => {
           debugLog(chunk);
           chunkBuffer.push(chunk);
+        },
+        onFinish: (info) => {
+          finishInfo = info;
+          debugLog(`\n[finishReason=${info.finishReason}]\n`);
         },
       });
       debugLog(
@@ -139,12 +144,15 @@ export function createAnipresMcpServer(): McpServer {
         const rawSummary = rawJoined
           ? `Raw model output (${rawJoined.length} chars):\n\`\`\`\n${rawJoined.slice(0, 4000)}${rawJoined.length > 4000 ? "\n…(truncated)" : ""}\n\`\`\``
           : "Raw model output: (empty — the model returned no text at all)";
+        const finishLine = finishInfo
+          ? `Finish reason: \`${(finishInfo as { finishReason: string }).finishReason}\``
+          : "Finish reason: (unknown — onFinish was not called)";
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${rawSummary}`,
+              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${finishLine}\n\n${rawSummary}`,
             },
           ],
         };

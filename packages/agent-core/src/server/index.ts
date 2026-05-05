@@ -1,7 +1,10 @@
 // Server-only exports — safe to import from a Cloudflare Worker or any
 // other runtime without pulling in tldraw or React.
 export { streamActions, parseActionStream } from "./stream-actions.js";
-export type { StreamActionsOptions } from "./stream-actions.js";
+export type {
+  StreamActionsOptions,
+  StreamFinishInfo,
+} from "./stream-actions.js";
 export { buildSystemPrompt } from "./build-system-prompt.js";
 export { buildMessages } from "./build-messages.js";
 export { closeAndParseJson } from "./close-and-parse-json.js";
