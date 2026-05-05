@@ -65,7 +65,13 @@ export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-5";
 export function isValidModelName(
   value: string | undefined,
 ): value is AgentModelName {
-  return !!value && value in AGENT_MODEL_DEFINITIONS;
+  // Object.hasOwn (not `in`) so untrusted input like "constructor" or
+  // "__proto__" doesn't pass via Object.prototype lookup. With plain
+  // `in`, those keys would also resolve to truthy values from
+  // bracket-access (e.g. `defs["constructor"] === Object`), bypassing
+  // the `!def` guard in getAgentModelDefinition and crashing later
+  // when downstream code reads `.provider`.
+  return !!value && Object.hasOwn(AGENT_MODEL_DEFINITIONS, value);
 }
 
 export function getAgentModelDefinition(
