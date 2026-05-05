@@ -77,6 +77,11 @@ export async function* streamActions(
     messages,
     maxOutputTokens: 8192,
     temperature: 0,
+    // Anthropic needs the system prompt as a `ModelMessage` to attach a
+    // cache breakpoint via `providerOptions`. The default warning about
+    // system-in-messages exists to discourage prompt injection — not a
+    // concern here since the system content is fixed in our own code.
+    allowSystemInMessages: true,
     providerOptions: {
       anthropic: { thinking: { type: "disabled" } },
       google: { thinkingConfig: { thinkingBudget: geminiThinkingBudget } },

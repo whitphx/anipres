@@ -11,6 +11,7 @@ import {
   type AgentModelProvider,
 } from "@anipres/agent-core";
 import { runEditCommand } from "./edit-command.js";
+import { runSummarizeCommand } from "./summarize-command.js";
 
 const MODEL_LIST = Object.keys(AGENT_MODEL_DEFINITIONS).join(", ");
 
@@ -20,9 +21,15 @@ const REQUIRED_ENV_VAR: Record<AgentModelProvider, keyof AgentEnv> = {
   google: "GOOGLE_API_KEY",
 };
 
-const USAGE = `Usage: anipres-agent edit <snapshot.json> --prompt "<message>" [options]
+const USAGE = `Usage:
+  anipres-agent edit <snapshot.json> --prompt "<message>" [options]
+  anipres-agent summarize <snapshot.json>
 
-Options:
+The "edit" subcommand sends the snapshot plus your prompt to the agent
+and writes the modified snapshot back. "summarize" loads a snapshot and
+prints its presentation structure (no LLM call, no API key required).
+
+Edit options:
   --prompt, -p <text>   Required. The instruction to send to the agent.
   --out, -o <path>      Where to write the modified snapshot. Defaults to overwriting <snapshot.json>.
   --model, -m <name>    Model to use (default: ${DEFAULT_MODEL_NAME}).
@@ -43,6 +50,16 @@ async function main(): Promise<number> {
   }
 
   const subcommand = argv[0];
+  if (subcommand === "summarize") {
+    const inputPath = argv[1];
+    if (!inputPath) {
+      process.stderr.write("Missing snapshot path.\n\n" + USAGE);
+      return 2;
+    }
+    await runSummarizeCommand(inputPath);
+    return 0;
+  }
+
   if (subcommand !== "edit") {
     process.stderr.write(`Unknown subcommand: ${subcommand}\n\n${USAGE}`);
     return 2;
