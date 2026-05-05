@@ -45,9 +45,36 @@ export function createAnipresMcpServer(): McpServer {
       },
     },
     async ({ snapshotPath }) => {
-      const raw = await readFile(snapshotPath, "utf-8");
-      const snapshot = JSON.parse(raw);
-      const summary = summarizeSnapshot(snapshot);
+      let snapshot: unknown;
+      try {
+        const raw = await readFile(snapshotPath, "utf-8");
+        try {
+          snapshot = JSON.parse(raw);
+        } catch (parseErr) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: `Couldn't parse the snapshot file as JSON: ${stringifyError(parseErr)}`,
+              },
+            ],
+          };
+        }
+      } catch (readErr) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Couldn't read the snapshot file at ${snapshotPath}: ${stringifyError(readErr)}`,
+            },
+          ],
+        };
+      }
+      const summary = summarizeSnapshot(
+        snapshot as Parameters<typeof summarizeSnapshot>[0],
+      );
       return {
         content: [
           {
@@ -92,8 +119,33 @@ export function createAnipresMcpServer(): McpServer {
         };
       }
 
-      const raw = await readFile(snapshotPath, "utf-8");
-      const inSnapshot = JSON.parse(raw);
+      let inSnapshot: unknown;
+      try {
+        const raw = await readFile(snapshotPath, "utf-8");
+        try {
+          inSnapshot = JSON.parse(raw);
+        } catch (parseErr) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: `Couldn't parse the snapshot file as JSON: ${stringifyError(parseErr)}`,
+              },
+            ],
+          };
+        }
+      } catch (readErr) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Couldn't read the snapshot file at ${snapshotPath}: ${stringifyError(readErr)}`,
+            },
+          ],
+        };
+      }
       // Capture raw chunks + finish info + stream error in-memory so we
       // can attach them to a failure response below if the run produces
       // zero actions. Cheap on success (buffer is discarded), invaluable
@@ -102,7 +154,7 @@ export function createAnipresMcpServer(): McpServer {
       let finishInfo: { finishReason: string; text: string } | null = null;
       let streamError: unknown = null;
       const result = await editSnapshot({
-        snapshot: inSnapshot,
+        snapshot: inSnapshot as Parameters<typeof editSnapshot>[0]["snapshot"],
         prompt,
         env,
         modelName,

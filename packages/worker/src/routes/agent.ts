@@ -45,7 +45,11 @@ export const agentRoutes = new Hono<AppBindings>().post(
 
     const apiKey = c.req.header("X-Anipres-API-Key");
     if (!apiKey) {
-      return c.json({ error: "Missing X-Anipres-API-Key header" }, 401);
+      // 400, not 401: the user IS authenticated (the session middleware
+      // ahead of this route already let them through). The missing
+      // header is a *request-shape* problem on the client. Returning
+      // 401 would trick the SPA's auth handling into a re-login flow.
+      return c.json({ error: "Missing X-Anipres-API-Key header" }, 400);
     }
 
     const env = buildEnv(body.modelName, apiKey);

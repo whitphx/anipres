@@ -53,9 +53,27 @@ export async function* streamFromServer(
       buffer = events.pop() ?? "";
 
       for (const event of events) {
-        const match = event.match(/^data: (.+)$/m);
-        if (!match) continue;
-        const data = JSON.parse(match[1]);
+        // SSE allows multiple `data:` lines per event; the spec
+        // concatenates them with `\n` to form the data payload. Our
+        // worker only emits single-line `data:` today, but matching
+        // the spec keeps us decoupled from that emit style.
+        const dataLines: string[] = [];
+        for (const line of event.split("\n")) {
+          if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5));
+        }
+        if (dataLines.length === 0) continue;
+        const payload = dataLines.join("\n");
+        let data: unknown;
+        try {
+          data = JSON.parse(payload);
+        } catch {
+          // A single malformed event shouldn't kill the whole stream;
+          // skip it and let the next event try. (The protocol's
+          // emit side controls payload shape; this branch only
+          // matters under proxy/network corruption.)
+          continue;
+        }
         if (typeof data === "object" && data !== null && "error" in data) {
           throw new Error(String((data as { error: unknown }).error));
         }
