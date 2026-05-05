@@ -161,11 +161,16 @@ export function tldrawShapeToFocusedShape(
   }
 
   if (shape.type === "arrow") {
+    // Tldraw v3 arrow shapes carry their label as `props.text: string`
+    // — not a TipTap richText doc the way geo/text/note do. Reading
+    // `richText` here would always come back undefined and arrow labels
+    // would silently project as empty strings. Verified against
+    // @tldraw/tlschema@3.15.5 TLArrowShape props.
     const props = shape.props as {
       color: string;
       start: { x: number; y: number };
       end: { x: number; y: number };
-      richText?: unknown;
+      text?: string;
     };
     return {
       _type: "arrow",
@@ -175,7 +180,7 @@ export function tldrawShapeToFocusedShape(
       color: coerceColor(props.color),
       start: { x: props.start.x, y: props.start.y },
       end: { x: props.end.x, y: props.end.y },
-      text: richTextToPlainText(props.richText),
+      text: props.text ?? "",
     };
   }
 

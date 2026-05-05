@@ -26,9 +26,16 @@ export const UpdateShapeActionUtil = registerActionUtil<UpdateShapeAction>({
     if (action.h !== undefined) propUpdates.h = action.h;
     if (action.color !== undefined) propUpdates.color = action.color;
     if (action.text !== undefined) {
-      // tldraw geo/text/arrow shapes carry a TipTap richText document.
-      // Replacing it is the correct way to retitle the shape.
-      propUpdates.richText = toRichText(action.text);
+      // Geo, text, and note shapes carry a TipTap richText doc; the
+      // tldraw v3 arrow shape carries a plain `text: string` instead
+      // (verified against @tldraw/tlschema@3.15.5 TLArrowShape props).
+      // Sending `richText` to an arrow gets dropped silently and the
+      // user thinks the recolor "worked" but nothing changed.
+      if (shape.type === "arrow") {
+        propUpdates.text = action.text;
+      } else {
+        propUpdates.richText = toRichText(action.text);
+      }
     }
 
     const next: {
