@@ -11,7 +11,7 @@ import { useColorScheme } from "./hooks/useColorScheme";
 export function AppContent() {
   const { activeDocument, activeSnapshot, loading } =
     useDocumentManagerContext();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const { preference, changePreference } = useColorScheme();
 
@@ -27,7 +27,12 @@ export function AppContent() {
           onColorSchemeChange={changePreference}
         />
       }
-      chatPanel={user ? <ChatPanel /> : <AgentLoginPromo />}
+      chatPanel={
+        // Hold the slot empty during the brief auth-resolution window
+        // so authenticated users don't flash the sign-in promo on
+        // first paint before their session lands.
+        authLoading ? null : user ? <ChatPanel /> : <AgentLoginPromo />
+      }
     >
       {activeDocument &&
         (activeDocument.source === "synced" ? (

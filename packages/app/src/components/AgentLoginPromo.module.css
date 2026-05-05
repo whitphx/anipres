@@ -87,3 +87,6 @@
 :global([data-color-scheme="dark"]) .button:hover:not(:disabled) {
   background: #333;
 }
+:global([data-color-scheme="dark"]) .button:focus-visible {
+  outline-color: #60a5fa;
+}

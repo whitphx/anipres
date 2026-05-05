@@ -654,6 +654,15 @@ export function useDocumentManager(params: {
       return () => {
         clearTimeout(timer);
         stopListening();
+        // The store-listen above debounces saveCurrentEditor by 500ms,
+        // and saveCurrentEditor reads `editorRef.current` directly.
+        // Without nulling the ref here, a save scheduled just before
+        // unregister can still fire and persist against a stale
+        // editor — the same teardown pattern used everywhere else in
+        // this file (see `editorRef.current = null` on doc switches).
+        if (editorRef.current === nextEditor) {
+          editorRef.current = null;
+        }
         setEditor((current) => (current === nextEditor ? null : current));
       };
     },

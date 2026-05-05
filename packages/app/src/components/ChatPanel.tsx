@@ -89,8 +89,15 @@ export function ChatPanel() {
     localStorage.setItem(STORAGE_MODEL_KEY, modelName);
   }, [modelName]);
 
+  const disabled = !editor || isRunning;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Enter-to-submit fires even though the Send button is disabled
+    // while the agent is running; without this guard the early-return
+    // in `useAgent.send` would still let `setText("")` clear the user's
+    // typed-ahead follow-up message.
+    if (disabled) return;
     const trimmed = text.trim();
     if (!trimmed || !editor) return;
     if (!apiKey) {
@@ -106,8 +113,6 @@ export function ChatPanel() {
     if (next) localStorage.setItem(STORAGE_KEY, next);
     else localStorage.removeItem(STORAGE_KEY);
   };
-
-  const disabled = !editor || isRunning;
 
   return (
     <aside className={styles.panel} aria-label="AI agent chat">
