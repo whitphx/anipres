@@ -111,12 +111,20 @@ export function createAnipresMcpServer(): McpServer {
       debugLog(
         `\n=== ${new Date().toISOString()} edit ${snapshotPath} ===\nPROMPT: ${prompt}\nMODEL: ${modelName ?? "(default)"}\n--- raw model output ---\n`,
       );
+      // Always capture raw chunks in-memory so we can attach them to a
+      // failure response below if the run produces zero actions. Cheap
+      // (the buffer is discarded on success) and removes the need for
+      // host-side env-var configuration to diagnose silent no-ops.
+      const chunkBuffer: string[] = [];
       const result = await editSnapshot({
         snapshot: inSnapshot,
         prompt,
         env,
         modelName,
-        onChunk: (chunk) => debugLog(chunk),
+        onChunk: (chunk) => {
+          debugLog(chunk);
+          chunkBuffer.push(chunk);
+        },
       });
       debugLog(
         `\n--- end stream; ${result.actions.length} action(s) parsed ---\n`,
@@ -127,12 +135,16 @@ export function createAnipresMcpServer(): McpServer {
       // turn produced nothing useful and the caller should treat it as a
       // failure rather than a silent success.
       if (result.actions.length === 0) {
+        const rawJoined = chunkBuffer.join("");
+        const rawSummary = rawJoined
+          ? `Raw model output (${rawJoined.length} chars):\n\`\`\`\n${rawJoined.slice(0, 4000)}${rawJoined.length > 4000 ? "\n…(truncated)" : ""}\n\`\`\``
+          : "Raw model output: (empty — the model returned no text at all)";
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written. Try a more specific prompt or check whether the shapes you're referring to are within the agent's current vocabulary (rectangle, slide).`,
+              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${rawSummary}`,
             },
           ],
         };
