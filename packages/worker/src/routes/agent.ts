@@ -50,6 +50,14 @@ export const agentRoutes = new Hono<AppBindings>().post(
 
     const env = buildEnv(body.modelName, apiKey);
 
+    // Forward the request's abort signal so a client disconnect
+    // (browser closes the SSE, user clicks Cancel and the fetch is
+    // aborted, navigation, tab close) actually stops the upstream
+    // model call. Without this the worker would keep draining the
+    // provider stream and the user's API key would keep getting
+    // billed for the rest of the response after they walked away.
+    const upstreamSignal = c.req.raw.signal;
+
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const encoder = new TextEncoder();
@@ -58,18 +66,30 @@ export const agentRoutes = new Hono<AppBindings>().post(
             prompt: body.prompt,
             env,
             modelName: body.modelName,
+            abortSignal: upstreamSignal,
           })) {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(action)}\n\n`),
             );
           }
         } catch (err) {
+          // If the abort came from the client we don't have anyone to
+          // tell — just close. Otherwise surface the error so the
+          // browser-side parser can render it.
+          if (upstreamSignal.aborted) {
+            controller.close();
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`),
           );
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // Already closed (e.g. on aborted path); ignore.
+          }
         }
       },
     });

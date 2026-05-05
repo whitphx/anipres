@@ -27,6 +27,11 @@ export interface StreamActionsOptions {
   prompt: AgentPrompt;
   env: AgentEnv;
   modelName?: string;
+  /** Aborts the upstream model call when fired. Wire this from the
+   *  request signal (worker) or the user's Cancel control. Without it,
+   *  a client disconnect leaves the model call running and burns the
+   *  user's API quota for the rest of the response. */
+  abortSignal?: AbortSignal;
   /** Optional diagnostic hook invoked for every text chunk the model
    *  emits, before parsing. Lets callers log raw model output without
    *  reaching across the streaming machinery. Off by default. */
@@ -99,6 +104,7 @@ export async function* streamActions(
     messages,
     maxOutputTokens: 8192,
     temperature: 0,
+    abortSignal: opts.abortSignal,
     // Anthropic needs the system prompt as a `ModelMessage` to attach a
     // cache breakpoint via `providerOptions`. The default warning about
     // system-in-messages exists to discourage prompt injection — not a
