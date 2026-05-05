@@ -1,0 +1,45 @@
+{
+  "name": "@anipres/agent-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint .",
+    "format": "prettier . --write",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.2",
+    "ai": "^5.0.63",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "anipres": "workspace:*",
+    "happy-dom": "^20.9.0",
+    "tldraw": "3.15.5"
+  },
+  "peerDependencies": {
+    "tldraw": "3.15.5"
+  }
+}
