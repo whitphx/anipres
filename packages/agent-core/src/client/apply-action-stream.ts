@@ -28,8 +28,14 @@ export async function applyActionStream(
 
     const util = getActionUtil(action._type);
     if (!util) {
-      console.warn(`No action util registered for type: ${action._type}`);
-      continue;
+      // Throwing — not warning — because a missing util means the
+      // registry was never bootstrapped (the side-effect imports in
+      // `client/index.ts` didn't run) and the alternative is silently
+      // dropping every action and reporting success. Callers that
+      // import this module directly need to import the built-ins too.
+      throw new Error(
+        `No action util registered for type "${action._type}". Did you forget to import "@anipres/agent-core/client" before consuming the stream?`,
+      );
     }
 
     util.apply(action, { editor, helpers });

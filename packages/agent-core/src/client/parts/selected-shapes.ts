@@ -11,7 +11,7 @@ export const SelectedShapesPartUtil = registerPartUtil<SelectedShapesPart>({
   getPart({ editor }) {
     return {
       type: "selectedShapes",
-      shapeIds: editor.getSelectedShapeIds() as unknown as string[],
+      shapeIds: [...editor.getSelectedShapeIds()],
     };
   },
 });

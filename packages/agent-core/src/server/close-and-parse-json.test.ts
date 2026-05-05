@@ -19,9 +19,9 @@ describe("closeAndParseJson", () => {
     });
   });
 
-  it("closes a partial string and ignores trailing comma", () => {
-    // Trailing comma inside an array makes the closed result invalid JSON;
-    // we expect null in that case.
+  it("closes an unterminated string inside an array element", () => {
+    // The string value is left open mid-token; the closer should append
+    // `"`, `}`, `]`, `}` to recover a parseable action array.
     expect(
       closeAndParseJson('{"actions":[{"_type":"message","text":"hi'),
     ).toEqual({ actions: [{ _type: "message", text: "hi" }] });

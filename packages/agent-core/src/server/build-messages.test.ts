@@ -72,6 +72,12 @@ describe("buildMessages", () => {
     expect(content).toContain("hi");
   });
 
+  it("emits no user message when only mode is present", () => {
+    // Anthropic rejects empty content; an empty user turn would 4xx.
+    const prompt: AgentPrompt = { mode: baseMode };
+    expect(buildMessages(prompt)).toEqual([]);
+  });
+
   it("interleaves chatHistory before the current user turn", () => {
     const prompt: AgentPrompt = {
       mode: baseMode,

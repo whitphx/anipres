@@ -114,6 +114,7 @@ export const FocusedLineSchema = z
     color: FocusedColorSchema,
     points: z
       .array(FocusedPointSchema)
+      .min(2)
       .describe(
         "Points along the line, in shape-local coordinates relative to (x, y). At least two points.",
       ),

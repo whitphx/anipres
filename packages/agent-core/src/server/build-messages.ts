@@ -51,7 +51,14 @@ export function buildMessages(prompt: AgentPrompt): ModelMessage[] {
     for (const m of prompt.userMessages.messages) lines.push(m);
   }
 
-  out.push({ role: "user", content: lines.join("\n\n") });
+  // All four perception/userMessages guards above are conditional, so a
+  // prompt with only a `mode` part produces zero lines. Anthropic
+  // rejects empty `content`, and an empty user turn is meaningless to
+  // the other providers — skip it rather than letting the request 4xx.
+  const content = lines.join("\n\n");
+  if (content) {
+    out.push({ role: "user", content });
+  }
 
   return out;
 }
