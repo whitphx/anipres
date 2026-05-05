@@ -6,21 +6,35 @@ import { buildPromptFromEditor } from "../client/build-prompt.js";
 import { streamFromServer } from "../client/stream-from-server.js";
 import type { AgentAction } from "../schemas/actions.js";
 import type { ChatHistoryTurn } from "../schemas/parts.js";
+import type { Streaming } from "../types.js";
 
 // Side-effect imports register the built-in action and part utils so the
 // hook can find them. Consumers can register more on top.
 import "../client/index.js";
 
-export interface ChatTurn {
-  /** "user" turns are what the human typed; "agent" turns are message/think
-   *  actions surfaced into the chat log. */
-  role: "user" | "agent";
-  /** Concatenated text. For the agent, this grows as message/think actions
-   *  stream in. */
-  text: string;
-  /** Whether this turn is still streaming (live updating). */
-  streaming: boolean;
-}
+export type ChatTurn =
+  | {
+      /** What the human typed. */
+      role: "user";
+      text: string;
+      streaming: false;
+    }
+  | {
+      /** A `message` or `think` action surfaced into the log.
+       *  `streaming: true` while the text is still arriving. */
+      role: "agent";
+      text: string;
+      streaming: boolean;
+    }
+  | {
+      /** A completed canvas-mutating action (`create`, `update`, `delete`,
+       *  `attachCueFrame`). One entry per action so multi-action runs feel
+       *  responsive — the user sees progress instead of a single stalled
+       *  agent bubble. Does not feed back into the model history. */
+      role: "action";
+      text: string;
+      streaming: false;
+    };
 
 export interface UseAgentOptions {
   editor: Editor | null;
@@ -57,9 +71,10 @@ export interface UseAgentReturn {
  *
  * `send` POSTs the user's message + the editor's perception to the worker,
  * streams actions back, and applies them: visible-state changes
- * (`create`, `attachCueFrame`) hit the editor; `message` and `think`
- * actions surface in the chat log; only `message` text feeds back into
- * the conversation history sent to the model on subsequent turns.
+ * (`create`, `update`, `delete`, `attachCueFrame`) hit the editor and emit
+ * an `action` log entry; `message` and `think` actions surface as `agent`
+ * log entries; only `message` text feeds back into the conversation
+ * history sent to the model on subsequent turns.
  */
 export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   const { editor, endpoint = "/api/agent/stream" } = opts;
@@ -92,19 +107,15 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
       isRunningRef.current = true;
       setError(null);
       setIsRunning(true);
-      setLog((l) => [
-        ...l,
-        { role: "user", text, streaming: false },
-        { role: "agent", text: "", streaming: true },
-      ]);
+      setLog((l) => [...l, { role: "user", text, streaming: false }]);
 
       const controller = new AbortController();
       abortRef.current = controller;
       const helpers = new AgentHelpers(editor);
 
-      // Latest message-action text seen during this turn — what we'll
-      // record as the agent's reply in conversation history.
-      let agentReplyText = "";
+      // Collect every completed `message` action's text so the model sees
+      // the full agent reply on the next turn — not just the last message.
+      const messageTexts: string[] = [];
 
       void (async () => {
         try {
@@ -120,14 +131,24 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
           });
 
           for await (const action of stream) {
-            // Live-stream the agent's words into the trailing turn.
             if (action._type === "message" || action._type === "think") {
-              setLog((l) => updateTrailingAgentText(l, action));
-              if (action._type === "message") agentReplyText = action.text;
+              setLog((l) => writeStreamingAgentTurn(l, action));
+              if (action.complete && action._type === "message") {
+                messageTexts.push(action.text);
+              }
+              continue;
             }
 
             if (!action.complete) continue;
 
+            // Completed canvas-mutating action: log it, then apply.
+            const description = describeMutationAction(action);
+            if (description) {
+              setLog((l) => [
+                ...l,
+                { role: "action", text: description, streaming: false },
+              ]);
+            }
             const util = getActionUtil(action._type);
             if (util) util.apply(action, { editor, helpers });
           }
@@ -135,11 +156,11 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
           if (controller.signal.aborted) return;
           setError(err instanceof Error ? err.message : String(err));
         } finally {
-          setLog((l) => markTrailingAgentDone(l));
-          if (agentReplyText) {
+          setLog(finalizeStreamingAgentTurn);
+          if (messageTexts.length > 0) {
             setHistory([
               ...historyRef.current,
-              { role: "agent", text: agentReplyText },
+              { role: "agent", text: messageTexts.join("\n\n") },
             ]);
           }
           isRunningRef.current = false;
@@ -177,24 +198,58 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   return { send, cancel, reset, restore, isRunning, log, history, error };
 }
 
-function updateTrailingAgentText(
+/**
+ * Append the latest text from a streaming message/think action to the
+ * trailing agent turn. If the trailing turn isn't a streaming agent turn
+ * (e.g. the previous action was a mutation, or this is the first agent
+ * action of the turn), start a new agent entry.
+ */
+function writeStreamingAgentTurn(
   log: ChatTurn[],
-  action: AgentAction & { _type: "message" | "think" },
+  action: Streaming<AgentAction> & { _type: "message" | "think" },
 ): ChatTurn[] {
-  if (log.length === 0) return log;
+  const text = (action._type === "think" ? "💭 " : "") + action.text;
   const last = log[log.length - 1];
-  if (last.role !== "agent" || !last.streaming) return log;
+  const streaming = !action.complete;
 
-  // Replace the trailing turn's text with the latest streamed text. We
-  // overwrite rather than append because the action stream re-emits the
-  // same action incrementally with growing text on each chunk.
-  const prefix = action._type === "think" ? "💭 " : "";
-  return [...log.slice(0, -1), { ...last, text: `${prefix}${action.text}` }];
+  if (last && last.role === "agent" && last.streaming) {
+    return [...log.slice(0, -1), { role: "agent", text, streaming }];
+  }
+  return [...log, { role: "agent", text, streaming }];
 }
 
-function markTrailingAgentDone(log: ChatTurn[]): ChatTurn[] {
-  if (log.length === 0) return log;
+/**
+ * On stream end, mark the trailing agent turn as no longer streaming.
+ * (Other entry types are already non-streaming.)
+ */
+function finalizeStreamingAgentTurn(log: ChatTurn[]): ChatTurn[] {
   const last = log[log.length - 1];
-  if (last.role !== "agent" || !last.streaming) return log;
+  if (!last || last.role !== "agent" || !last.streaming) return log;
   return [...log.slice(0, -1), { ...last, streaming: false }];
+}
+
+function describeMutationAction(action: AgentAction): string | null {
+  switch (action._type) {
+    case "create":
+      return `Created ${action.shape._type} (${action.shape.shapeId})`;
+    case "update": {
+      const fields: string[] = [];
+      if (action.color !== undefined) fields.push(`color=${action.color}`);
+      if (action.x !== undefined) fields.push(`x=${action.x}`);
+      if (action.y !== undefined) fields.push(`y=${action.y}`);
+      if (action.w !== undefined) fields.push(`w=${action.w}`);
+      if (action.h !== undefined) fields.push(`h=${action.h}`);
+      if (action.text !== undefined) fields.push("text");
+      const fieldStr = fields.length > 0 ? ` { ${fields.join(", ")} }` : "";
+      return `Updated ${action.shapeId}${fieldStr}`;
+    }
+    case "delete":
+      return `Deleted ${action.shapeId}`;
+    case "attachCueFrame": {
+      const after = action.prevShapeId ? ` (after ${action.prevShapeId})` : "";
+      return `Attached cue frame to ${action.shapeId}${after}`;
+    }
+    default:
+      return null;
+  }
 }

@@ -148,6 +148,18 @@
   border: 1px solid #fecaca;
 }
 
+.action {
+  align-self: stretch;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: #6b7280;
+  background: transparent;
+  border-left: 2px solid #d1d5db;
+  border-radius: 0;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
@@ -286,6 +298,11 @@
   background: #4a1f1f;
   color: #fca5a5;
   border-color: #6b2a2a;
+}
+
+:global([data-color-scheme="dark"]) .action {
+  color: #888;
+  border-left-color: #444;
 }
 
 :global([data-color-scheme="dark"]) .composer {

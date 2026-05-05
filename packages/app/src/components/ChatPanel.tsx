@@ -177,14 +177,10 @@ export function ChatPanel() {
           </p>
         )}
         {log.map((turn, i) => (
-          <div
-            key={i}
-            className={`${styles.turn} ${
-              turn.role === "user" ? styles.user : styles.agent
-            }`}
-          >
+          <div key={i} className={`${styles.turn} ${turnClassName(turn.role)}`}>
             <div className={styles.turnText}>
-              {turn.text || (turn.streaming ? "…" : "")}
+              {turn.text ||
+                (turn.role === "agent" && turn.streaming ? "…" : "")}
             </div>
           </div>
         ))}
@@ -230,6 +226,17 @@ export function ChatPanel() {
       </form>
     </aside>
   );
+}
+
+function turnClassName(role: "user" | "agent" | "action"): string {
+  switch (role) {
+    case "user":
+      return styles.user;
+    case "agent":
+      return styles.agent;
+    case "action":
+      return styles.action;
+  }
 }
 
 function loadKey(): string {
