@@ -71,4 +71,27 @@ describe("buildMessages", () => {
     expect(content).not.toContain("## Presentation state");
     expect(content).toContain("hi");
   });
+
+  it("interleaves chatHistory before the current user turn", () => {
+    const prompt: AgentPrompt = {
+      mode: baseMode,
+      userMessages: { type: "userMessages", messages: ["follow-up"] },
+      chatHistory: {
+        type: "chatHistory",
+        turns: [
+          { role: "user", text: "first" },
+          { role: "agent", text: "I added a slide." },
+        ],
+      },
+    };
+    const out = buildMessages(prompt);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toMatchObject({ role: "user", content: "first" });
+    expect(out[1]).toMatchObject({
+      role: "assistant",
+      content: "I added a slide.",
+    });
+    expect(out[2].role).toBe("user");
+    expect(out[2].content as string).toContain("follow-up");
+  });
 });

@@ -29,6 +29,7 @@ export {
 } from "./apply-action-stream.js";
 export { makeUserMessagesPart } from "./parts/user-messages.js";
 export { makeDefaultModePart } from "./parts/mode.js";
+export { makeChatHistoryPart } from "./parts/chat-history.js";
 export {
   focusedShapeToTldrawShape,
   tldrawShapeToFocusedShape,

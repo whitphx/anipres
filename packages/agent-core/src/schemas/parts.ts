@@ -47,6 +47,22 @@ export const PresentationStatePartSchema = z.object({
 export type PresentationStatePart = z.infer<typeof PresentationStatePartSchema>;
 
 /**
+ * One turn of prior conversation. The agent's textual reply (concatenated
+ * `message` action text — `think` text is excluded) gets the "agent" role.
+ */
+export const ChatHistoryTurnSchema = z.object({
+  role: z.enum(["user", "agent"]),
+  text: z.string(),
+});
+export type ChatHistoryTurn = z.infer<typeof ChatHistoryTurnSchema>;
+
+export const ChatHistoryPartSchema = z.object({
+  type: z.literal("chatHistory"),
+  turns: z.array(ChatHistoryTurnSchema),
+});
+export type ChatHistoryPart = z.infer<typeof ChatHistoryPartSchema>;
+
+/**
  * Defines what actions and parts are active for this turn. Different modes
  * expose different action subsets.
  */
@@ -62,6 +78,7 @@ export type PromptPart =
   | UserMessagesPart
   | PageShapesPart
   | PresentationStatePart
+  | ChatHistoryPart
   | ModePart;
 
 /**
@@ -73,4 +90,5 @@ export type AgentPrompt = {
   userMessages?: UserMessagesPart;
   pageShapes?: PageShapesPart;
   presentationState?: PresentationStatePart;
+  chatHistory?: ChatHistoryPart;
 };

@@ -2,11 +2,24 @@ import type { ModelMessage } from "ai";
 import type { AgentPrompt } from "../schemas/parts.js";
 
 /**
- * Convert the prompt parts into the user-turn messages the model will see.
- * Order matters: the canvas + presentation projections come first so the
- * user message can refer to them by shape id, step index, etc.
+ * Convert the prompt parts into the model-message sequence for one agent
+ * turn. Prior conversation interleaves as alternating user/assistant
+ * messages; the *current* user turn carries the perception (canvas +
+ * presentation state) plus the user's text, since that's the state the
+ * agent acts against.
  */
 export function buildMessages(prompt: AgentPrompt): ModelMessage[] {
+  const out: ModelMessage[] = [];
+
+  if (prompt.chatHistory) {
+    for (const turn of prompt.chatHistory.turns) {
+      out.push({
+        role: turn.role === "agent" ? "assistant" : "user",
+        content: turn.text,
+      });
+    }
+  }
+
   const lines: string[] = [];
 
   if (prompt.pageShapes && prompt.pageShapes.shapes.length > 0) {
@@ -33,5 +46,7 @@ export function buildMessages(prompt: AgentPrompt): ModelMessage[] {
     for (const m of prompt.userMessages.messages) lines.push(m);
   }
 
-  return [{ role: "user", content: lines.join("\n\n") }];
+  out.push({ role: "user", content: lines.join("\n\n") });
+
+  return out;
 }

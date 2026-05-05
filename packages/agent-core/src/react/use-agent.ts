@@ -5,6 +5,7 @@ import { AgentHelpers } from "../client/agent-helpers.js";
 import { buildPromptFromEditor } from "../client/build-prompt.js";
 import { streamFromServer } from "../client/stream-from-server.js";
 import type { AgentAction } from "../schemas/actions.js";
+import type { ChatHistoryTurn } from "../schemas/parts.js";
 
 // Side-effect imports register the built-in action and part utils so the
 // hook can find them. Consumers can register more on top.
@@ -40,8 +41,9 @@ export interface UseAgentReturn {
  *
  * `send` POSTs the user's message + the editor's perception to the worker,
  * streams actions back, and applies them: visible-state changes
- * (`create`, `attachCueFrame`) hit the editor, while `message` and `think`
- * actions accumulate in the in-memory chat log so the UI can render them.
+ * (`create`, `attachCueFrame`) hit the editor; `message` and `think`
+ * actions surface in the chat log; only `message` text feeds back into
+ * the conversation history sent to the model on subsequent turns.
  */
 export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   const { editor, endpoint = "/api/agent/stream" } = opts;
@@ -49,12 +51,23 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Mirrors of state read inside the async send loop. Read sync here
+  // avoids the stale-closure trap that useState values have inside an
+  // async callback created by useCallback.
+  const historyRef = useRef<ChatHistoryTurn[]>([]);
+  const isRunningRef = useRef(false);
 
   const send = useCallback<UseAgentReturn["send"]>(
     ({ text, modelName, apiKey }) => {
       if (!editor) return;
-      if (isRunning) return;
+      if (isRunningRef.current) return;
 
+      const priorHistory = historyRef.current;
+      // Commit the user turn into the history that will be sent on the
+      // *next* request immediately, so a quick double-send sees this turn.
+      historyRef.current = [...priorHistory, { role: "user", text }];
+
+      isRunningRef.current = true;
       setError(null);
       setIsRunning(true);
       setLog((l) => [
@@ -67,9 +80,15 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
       abortRef.current = controller;
       const helpers = new AgentHelpers(editor);
 
+      // Latest message-action text seen during this turn — what we'll
+      // record as the agent's reply in conversation history.
+      let agentReplyText = "";
+
       void (async () => {
         try {
-          const prompt = buildPromptFromEditor(editor, text);
+          const prompt = buildPromptFromEditor(editor, text, {
+            chatHistory: priorHistory,
+          });
           const stream = streamFromServer({
             endpoint,
             prompt,
@@ -82,6 +101,7 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
             // Live-stream the agent's words into the trailing turn.
             if (action._type === "message" || action._type === "think") {
               setLog((l) => updateTrailingAgentText(l, action));
+              if (action._type === "message") agentReplyText = action.text;
             }
 
             if (!action.complete) continue;
@@ -94,12 +114,19 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
           setError(err instanceof Error ? err.message : String(err));
         } finally {
           setLog((l) => markTrailingAgentDone(l));
+          if (agentReplyText) {
+            historyRef.current = [
+              ...historyRef.current,
+              { role: "agent", text: agentReplyText },
+            ];
+          }
+          isRunningRef.current = false;
           setIsRunning(false);
           abortRef.current = null;
         }
       })();
     },
-    [editor, endpoint, isRunning],
+    [editor, endpoint],
   );
 
   const cancel = useCallback(() => {
@@ -108,6 +135,7 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    historyRef.current = [];
     setLog([]);
     setError(null);
   }, []);

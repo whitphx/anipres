@@ -30,6 +30,10 @@ const RULES = `## Rules
 - A track with multiple cue frames (at different steps) becomes an animation: when navigating from one step to the next, the previous frame's shape interpolates to the new frame's shape.
 - Use \`attachCueFrame { shapeId, action: { type: "shapeAnimation" } }\` to open a new track. To extend that track at the next step, create a new shape and call \`attachCueFrame { shapeId, prevShapeId: <original-shapeId>, action: { type: "shapeAnimation", duration: 1000 } }\`.
 
+### Conversation continuity
+
+- Prior turns of this conversation appear before the current one. The user's earlier requests and your earlier replies are visible to you. Treat them as committed history — don't repeat work you've already done.
+
 ### Worked example: rectangle that flies in
 
 To make a rectangle move from (0, 0) to (200, 0) across two steps:
