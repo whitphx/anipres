@@ -150,9 +150,12 @@ export async function* parseActionStream(
     const actions = parsed.actions as AgentAction[];
     if (actions.length === 0) continue;
 
-    // The array advanced past `cursor` → the previous action is fully
-    // received. Flush it as `complete: true`.
-    if (actions.length > cursor) {
+    // The array advanced past `cursor` → every action before the new
+    // tail is fully received. Loop because a single chunk can deliver
+    // multiple complete actions at once (long pause then a burst), and
+    // the cursor must catch up to the tail or those intermediate
+    // actions never get yielded as `complete: true`.
+    while (actions.length > cursor) {
       const prev = actions[cursor - 1];
       if (prev) {
         yield { ...prev, complete: true, time: Date.now() - startTime };

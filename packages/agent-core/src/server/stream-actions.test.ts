@@ -60,4 +60,23 @@ describe("parseActionStream", () => {
     expect(completes).toHaveLength(1);
     expect(completes[0]).toMatchObject({ _type: "message", text: "only" });
   });
+
+  it("flushes every action when multiple arrive in a single chunk", async () => {
+    // Three complete actions delivered in one chunk — the cursor has to
+    // catch up to the tail or middle actions never reach `complete:
+    // true` and downstream consumers (canvas mutations) gate on that.
+    const chunks = [
+      '"message","text":"a"},{"_type":"message","text":"b"},{"_type":"message","text":"c"}]}',
+    ];
+
+    const out = await collect(parseActionStream(fromChunks(chunks)));
+
+    const completes = out.filter((a) => a.complete);
+    expect(completes).toHaveLength(3);
+    expect(completes.map((a) => (a as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
 });
