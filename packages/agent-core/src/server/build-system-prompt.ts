@@ -31,11 +31,16 @@ The \`pageShapes\` projection includes these kinds, each with the props you can 
 
 Other shape kinds (groups, images, theme-images) exist on the canvas but aren't projected — you can't directly see or modify them. If the user refers to one of those, say so via a \`message\` action.
 
+### User's selection
+
+- The \`selectedShapes\` part lists the shape ids the user has actively selected in the editor. When the user says "these", "the selected ones", "this", "highlighted", etc., **prefer the selection** — it's the strongest disambiguation signal you have. Don't try to spatially infer what the user meant if a selection is present.
+- An empty selection just means the user didn't select anything. In that case fall back to text/spatial reasoning, or send a \`message\` asking for selection.
+
 ### Editing shapes
 
 - Use the \`update\` action to modify an existing shape: \`{ shapeId, color?, text?, x?, y?, w?, h? }\`. Only supplied fields change.
-- Common pattern: recoloring matching shapes — iterate the relevant entries from \`pageShapes\` and emit one \`update\` per shape.
-- There is no delete action yet. If the user asks to remove shapes, send a \`message\` saying so.
+- Use the \`delete\` action to remove a shape: \`{ shapeId }\`. The presentation timeline reconciles automatically — if the shape carried a frame, adjacent steps renumber.
+- Common pattern: recoloring matching shapes — iterate the relevant entries from \`pageShapes\` (or from \`selectedShapes\` if the user selected them) and emit one \`update\` per shape.
 
 ### Slides and the camera
 

@@ -5,10 +5,12 @@ import { getCueFrame } from "anipres/models";
 import "./actions/create-shape.js";
 import "./actions/attach-cue-frame.js";
 import "./actions/update-shape.js";
+import "./actions/delete-shape.js";
 import { applyActionStream } from "./apply-action-stream.js";
 import type {
   AttachCueFrameAction,
   CreateAction,
+  DeleteShapeAction,
   UpdateShapeAction,
 } from "../schemas/actions.js";
 import type { Streaming } from "../types.js";
@@ -167,6 +169,35 @@ describe("anipres action utils", () => {
       expect(shape).toBeTruthy();
       const props = shape!.props as { color: string };
       expect(props.color).toBe("orange");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("delete removes an existing shape from the canvas", async () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      editor.createShape({
+        id: "shape:doomed" as never,
+        type: "geo",
+        x: 0,
+        y: 0,
+        props: { w: 50, h: 50, geo: "rectangle", color: "blue" },
+      });
+      expect(editor.getShape("shape:doomed" as never)).toBeTruthy();
+
+      const del: DeleteShapeAction = {
+        _type: "delete",
+        intent: "remove it",
+        shapeId: "shape:doomed",
+      };
+
+      await applyActionStream({
+        editor,
+        actions: fromArray([complete(del)]),
+      });
+
+      expect(editor.getShape("shape:doomed" as never)).toBeUndefined();
     } finally {
       dispose();
     }

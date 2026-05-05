@@ -27,6 +27,11 @@ export function buildMessages(prompt: AgentPrompt): ModelMessage[] {
     lines.push(JSON.stringify(prompt.pageShapes.shapes, null, 2));
   }
 
+  if (prompt.selectedShapes && prompt.selectedShapes.shapeIds.length > 0) {
+    lines.push("## User's current selection");
+    lines.push(JSON.stringify(prompt.selectedShapes.shapeIds, null, 2));
+  }
+
   if (prompt.presentationState && prompt.presentationState.totalSteps > 0) {
     lines.push("## Presentation state");
     lines.push(

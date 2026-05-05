@@ -246,6 +246,8 @@ function formatActionForLog(
       const fieldStr = fields.length > 0 ? ` { ${fields.join(", ")} }` : "";
       return `update ${action.shapeId}${fieldStr} — ${action.intent}`;
     }
+    case "delete":
+      return `delete ${action.shapeId} — ${action.intent}`;
     case "attachCueFrame":
       return `attachCueFrame ${action.shapeId}${action.prevShapeId ? ` (after ${action.prevShapeId})` : ""} — ${action.intent}`;
     default: {

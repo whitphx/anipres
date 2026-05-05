@@ -261,6 +261,21 @@ export const UpdateShapeActionSchema = z
   });
 export type UpdateShapeAction = z.infer<typeof UpdateShapeActionSchema>;
 
+export const DeleteShapeActionSchema = z
+  .object({
+    _type: z.literal("delete"),
+    intent: z.string(),
+    shapeId: z
+      .string()
+      .describe("The shape to remove. Use the id from `pageShapes`."),
+  })
+  .meta({
+    title: "Delete",
+    description:
+      "Remove a shape from the canvas. Frames attached to the shape (if any) are reconciled by the presentation manager — adjacent steps will renumber and tracks will heal.",
+  });
+export type DeleteShapeAction = z.infer<typeof DeleteShapeActionSchema>;
+
 export const AttachCueFrameActionSchema = z
   .object({
     _type: z.literal("attachCueFrame"),
@@ -289,6 +304,7 @@ export const AgentActionSchema = z.discriminatedUnion("_type", [
   ThinkActionSchema,
   CreateActionSchema,
   UpdateShapeActionSchema,
+  DeleteShapeActionSchema,
   AttachCueFrameActionSchema,
 ]);
 export type AgentAction = z.infer<typeof AgentActionSchema>;

@@ -23,6 +23,19 @@ export const PageShapesPartSchema = z.object({
 export type PageShapesPart = z.infer<typeof PageShapesPartSchema>;
 
 /**
+ * Shape ids the user has currently selected in the editor. Empty for
+ * headless / non-UI surfaces (CLI, MCP). The agent should treat these
+ * as the implicit referent of "these", "the selected", "highlighted",
+ * etc. — selection is the single most reliable disambiguation signal
+ * the user can give it.
+ */
+export const SelectedShapesPartSchema = z.object({
+  type: z.literal("selectedShapes"),
+  shapeIds: z.array(z.string()),
+});
+export type SelectedShapesPart = z.infer<typeof SelectedShapesPartSchema>;
+
+/**
  * The Anipres presentation timeline projected for the agent: total step
  * count plus, for each step, the parallel frame batches with their shape
  * ids and frame actions. This is what lets the agent reason about ordering
@@ -77,6 +90,7 @@ export type ModePart = z.infer<typeof ModePartSchema>;
 export type PromptPart =
   | UserMessagesPart
   | PageShapesPart
+  | SelectedShapesPart
   | PresentationStatePart
   | ChatHistoryPart
   | ModePart;
@@ -89,6 +103,7 @@ export type AgentPrompt = {
   mode: ModePart;
   userMessages?: UserMessagesPart;
   pageShapes?: PageShapesPart;
+  selectedShapes?: SelectedShapesPart;
   presentationState?: PresentationStatePart;
   chatHistory?: ChatHistoryPart;
 };
