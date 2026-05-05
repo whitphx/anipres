@@ -38,6 +38,23 @@ describe("closeAndParseJson", () => {
     });
   });
 
+  it('treats a `"` after an even run of backslashes as a string close', () => {
+    // `{"text":"a\\"}` — the JSON value is `a\` (the `\\` decodes
+    // to one backslash). The closing `"` is genuinely closing, not
+    // escaped, so the parser must NOT keep the string open.
+    expect(closeAndParseJson('{"text":"a\\\\"}')).toEqual({ text: "a\\" });
+  });
+
+  it('keeps treating a `"` after an odd run of backslashes as escaped', () => {
+    // `{"text":"a\\\"` — the value is `a\"` (backslash + quote);
+    // string is still open after the escaped `"`. Closing should
+    // append `"` then `}` and produce `{text: 'a\\"'}` (backslash
+    // followed by quote, i.e. JS string `a\\"`, JSON `"a\\\""`).
+    expect(closeAndParseJson('{"text":"a\\\\\\"')).toEqual({
+      text: 'a\\"',
+    });
+  });
+
   it("handles the prefilled action prefix the streamer uses", () => {
     expect(closeAndParseJson('{"actions": [{"_type":')).toBeNull();
     expect(

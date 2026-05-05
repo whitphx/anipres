@@ -18,7 +18,18 @@ export function closeAndParseJson(input: string): unknown {
     const ch = s[i];
 
     if (ch === '"') {
-      if (i > 0 && s[i - 1] === "\\") continue;
+      // A `"` is escaped iff the immediately preceding run of
+      // backslashes has odd length: `\"` escapes, `\\"` does not
+      // (the `\\` is the escaped backslash and the `"` closes the
+      // string), `\\\"` does, and so on. The previous one-char
+      // check (`s[i-1] === "\\"`) wrongly treated `\\"` as escaped
+      // — so a string ending in an escaped backslash kept the
+      // parser inside the string forever, the rest of the buffer
+      // was eaten as string content, and `JSON.parse` failed,
+      // silently dropping every action that arrived after.
+      let backslashes = 0;
+      for (let j = i - 1; j >= 0 && s[j] === "\\"; j--) backslashes++;
+      if (backslashes % 2 === 1) continue;
       if (top === '"') stack.pop();
       else stack.push('"');
       continue;
