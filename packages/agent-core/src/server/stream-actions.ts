@@ -67,11 +67,21 @@ export async function* streamActions(
     content: '{"actions": [{"_type":',
   });
 
+  // Provider-specific knobs, applied unconditionally — the SDK ignores
+  // options that don't match the active provider. Keeping these in one
+  // place makes it cheaper to retune later.
+  const geminiThinkingBudget = def.thinking ? 256 : 0;
+
   const { textStream } = streamText({
     model,
     messages,
     maxOutputTokens: 8192,
     temperature: 0,
+    providerOptions: {
+      anthropic: { thinking: { type: "disabled" } },
+      google: { thinkingConfig: { thinkingBudget: geminiThinkingBudget } },
+      openai: { reasoningEffort: "minimal" },
+    },
   });
 
   yield* parseActionStream(textStream);

@@ -2,19 +2,30 @@
 import "./setup-dom.js";
 
 import { parseArgs } from "node:util";
+import {
+  AGENT_MODEL_DEFINITIONS,
+  DEFAULT_MODEL_NAME,
+  getAgentModelDefinition,
+  isValidModelName,
+  type AgentEnv,
+} from "@anipres/agent-core";
 import { runEditCommand } from "./edit-command.js";
+
+const MODEL_LIST = Object.keys(AGENT_MODEL_DEFINITIONS).join(", ");
 
 const USAGE = `Usage: anipres-agent edit <snapshot.json> --prompt "<message>" [options]
 
 Options:
-  --prompt, -p <text>      Required. The instruction to send to the agent.
-  --out, -o <path>         Where to write the modified snapshot. Defaults to overwriting <snapshot.json>.
-  --model, -m <name>       Model to use (default: claude-sonnet-4-5).
-  --api-key <key>          Anthropic API key. Defaults to $ANTHROPIC_API_KEY.
-  --help, -h               Show this message.
+  --prompt, -p <text>   Required. The instruction to send to the agent.
+  --out, -o <path>      Where to write the modified snapshot. Defaults to overwriting <snapshot.json>.
+  --model, -m <name>    Model to use (default: ${DEFAULT_MODEL_NAME}).
+                        Available: ${MODEL_LIST}
+  --help, -h            Show this message.
 
-Environment:
-  ANTHROPIC_API_KEY        Used if --api-key is not supplied.
+Environment (the one matching the chosen model's provider must be set):
+  ANTHROPIC_API_KEY     For claude-* models.
+  OPENAI_API_KEY        For gpt-* models.
+  GOOGLE_API_KEY        For gemini-* models.
 `;
 
 async function main(): Promise<number> {
@@ -37,7 +48,6 @@ async function main(): Promise<number> {
       prompt: { type: "string", short: "p" },
       out: { type: "string", short: "o" },
       model: { type: "string", short: "m" },
-      "api-key": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -57,10 +67,24 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const apiKey = values["api-key"] ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const modelName = values.model ?? DEFAULT_MODEL_NAME;
+  if (!isValidModelName(modelName)) {
     process.stderr.write(
-      "No API key provided. Set ANTHROPIC_API_KEY or pass --api-key.\n",
+      `Unknown model "${modelName}". Available: ${MODEL_LIST}\n`,
+    );
+    return 2;
+  }
+  const def = getAgentModelDefinition(modelName);
+
+  const env: AgentEnv = {
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+  };
+  const required = REQUIRED_ENV_VAR[def.provider];
+  if (!env[required]) {
+    process.stderr.write(
+      `Model "${modelName}" needs ${required}. Set it in your environment and re-run.\n`,
     );
     return 2;
   }
@@ -69,12 +93,21 @@ async function main(): Promise<number> {
     inputPath,
     outputPath: values.out ?? inputPath,
     prompt: values.prompt,
-    apiKey,
-    modelName: values.model,
+    env,
+    modelName,
   });
 
   return 0;
 }
+
+const REQUIRED_ENV_VAR: Record<
+  ReturnType<typeof getAgentModelDefinition>["provider"],
+  keyof AgentEnv
+> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_API_KEY",
+};
 
 main().then(
   (code) => process.exit(code),

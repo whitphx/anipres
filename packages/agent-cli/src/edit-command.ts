@@ -17,7 +17,7 @@ export interface EditCommandOptions {
   inputPath: string;
   outputPath: string;
   prompt: string;
-  apiKey: string;
+  env: import("@anipres/agent-core").AgentEnv;
   modelName?: string;
 }
 
@@ -32,7 +32,7 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
 
     const stream = streamActions({
       prompt,
-      env: { ANTHROPIC_API_KEY: opts.apiKey },
+      env: opts.env,
       modelName: opts.modelName,
     });
 

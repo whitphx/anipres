@@ -102,6 +102,12 @@ importers:
       '@ai-sdk/anthropic':
         specifier: ^2.0.2
         version: 2.0.79(zod@4.1.13)
+      '@ai-sdk/google':
+        specifier: ^2.0.14
+        version: 2.0.72(zod@4.1.13)
+      '@ai-sdk/openai':
+        specifier: ^2.0.24
+        version: 2.0.106(zod@4.1.13)
       ai:
         specifier: ^5.0.63
         version: 5.0.184(zod@4.1.13)
@@ -313,6 +319,18 @@ packages:
 
   '@ai-sdk/gateway@2.0.86':
     resolution: {integrity: sha512-pP9F5G7C5sqZtAwquFB+g50lVS/s4Wf/ll2WSm0ODk0Iix27trVgBDpFK5CBletcQXSDlAvSQQi25nBodYLt3g==, tarball: https://registry.npmjs.org/@ai-sdk/gateway/-/gateway-2.0.86.tgz}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/google@2.0.72':
+    resolution: {integrity: sha512-BjDY6l+rV4CmHKjZe4H0uRXW3M2o+g7PaYM8oFpW+9PP1qKNEybnJ6//Si7BSf6DT+86dKARrtEl09lxSSaMaA==, tarball: https://registry.npmjs.org/@ai-sdk/google/-/google-2.0.72.tgz}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/openai@2.0.106':
+    resolution: {integrity: sha512-EFC0rpo1wfe4HIz5KZCE72edP2J7fOeR7wPXzjCDljaTRB1wectKDIKRLowpU4F0mbcJ+XScAsoYNPK/Z20aVQ==, tarball: https://registry.npmjs.org/@ai-sdk/openai/-/openai-2.0.106.tgz}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -7452,6 +7470,18 @@ snapshots:
       '@ai-sdk/provider': 2.0.3
       '@ai-sdk/provider-utils': 3.0.25(zod@4.1.13)
       '@vercel/oidc': 3.1.0
+      zod: 4.1.13
+
+  '@ai-sdk/google@2.0.72(zod@4.1.13)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.3
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.1.13)
+      zod: 4.1.13
+
+  '@ai-sdk/openai@2.0.106(zod@4.1.13)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.3
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.1.13)
       zod: 4.1.13
 
   '@ai-sdk/provider-utils@3.0.25(zod@4.1.13)':

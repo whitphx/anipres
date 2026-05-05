@@ -4,10 +4,18 @@ export interface AgentModelDefinition {
   name: string;
   id: string;
   provider: AgentModelProvider;
+  /** Provider-specific hint that this model benefits from extra thinking
+   *  budget (e.g. Gemini reasoning models). */
   thinking?: boolean;
 }
 
+/**
+ * The agent's model registry. Adding a model is a one-line change here;
+ * the provider switch in `providers.ts` does the rest. Model ids must
+ * match the provider's own naming.
+ */
 export const AGENT_MODEL_DEFINITIONS = {
+  // Anthropic
   "claude-sonnet-4-5": {
     name: "claude-sonnet-4-5",
     id: "claude-sonnet-4-5",
@@ -17,6 +25,36 @@ export const AGENT_MODEL_DEFINITIONS = {
     name: "claude-opus-4-5",
     id: "claude-opus-4-5",
     provider: "anthropic",
+  },
+  "claude-haiku-4-5": {
+    name: "claude-haiku-4-5",
+    id: "claude-haiku-4-5",
+    provider: "anthropic",
+  },
+
+  // OpenAI
+  "gpt-5": {
+    name: "gpt-5",
+    id: "gpt-5",
+    provider: "openai",
+  },
+  "gpt-4o": {
+    name: "gpt-4o",
+    id: "gpt-4o",
+    provider: "openai",
+  },
+
+  // Google
+  "gemini-2.5-pro": {
+    name: "gemini-2.5-pro",
+    id: "gemini-2.5-pro",
+    provider: "google",
+    thinking: true,
+  },
+  "gemini-2.5-flash": {
+    name: "gemini-2.5-flash",
+    id: "gemini-2.5-flash",
+    provider: "google",
   },
 } as const satisfies Record<string, AgentModelDefinition>;
 

@@ -1,4 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { getAgentModelDefinition, type AgentModelName } from "../models.js";
 import type { AgentEnv } from "../types.js";
@@ -17,12 +19,19 @@ export function getModel(
       if (!env.ANTHROPIC_API_KEY) {
         throw new Error("ANTHROPIC_API_KEY is required for Anthropic models.");
       }
-      const provider = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY });
-      return provider(def.id);
+      return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(def.id);
     }
-    case "openai":
-      throw new Error("OpenAI provider is not enabled in this build.");
-    case "google":
-      throw new Error("Google provider is not enabled in this build.");
+    case "openai": {
+      if (!env.OPENAI_API_KEY) {
+        throw new Error("OPENAI_API_KEY is required for OpenAI models.");
+      }
+      return createOpenAI({ apiKey: env.OPENAI_API_KEY })(def.id);
+    }
+    case "google": {
+      if (!env.GOOGLE_API_KEY) {
+        throw new Error("GOOGLE_API_KEY is required for Google models.");
+      }
+      return createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY })(def.id);
+    }
   }
 }
