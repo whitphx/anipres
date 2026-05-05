@@ -16,6 +16,14 @@ dist-ssr
 .dev.vars
 .wrangler/
 
+# Local MCP config — may contain API keys per-host. Track a templated
+# version manually if/when the team wants to share an `mcp.json`.
+.mcp.json
+
+# Local dev caches that pnpm / Playwright MCP create alongside the repo.
+.pnpm-store/
+.playwright-mcp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
