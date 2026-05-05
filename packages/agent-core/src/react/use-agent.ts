@@ -27,12 +27,28 @@ export interface UseAgentOptions {
   endpoint?: string;
 }
 
+export interface AgentChatState {
+  /** The visible chat log — what the UI renders. */
+  log: ChatTurn[];
+  /** The clean history sent to the model on the next turn — only
+   *  user / agent message text, no think text. */
+  history: ChatHistoryTurn[];
+}
+
 export interface UseAgentReturn {
   send: (input: { text: string; modelName: string; apiKey: string }) => void;
   cancel: () => void;
   reset: () => void;
+  /** Replace both the visible log and the model-facing history at once.
+   *  Aborts any in-flight request first. Used by callers that persist
+   *  conversations across mounts (e.g. per-document chat history). */
+  restore: (state: AgentChatState) => void;
   isRunning: boolean;
   log: ChatTurn[];
+  /** Snapshot of the model-facing history. Reactive; changes whenever a
+   *  user or agent turn commits. Surfaced for callers that want to
+   *  persist it. */
+  history: ChatHistoryTurn[];
   error: string | null;
 }
 
@@ -48,6 +64,7 @@ export interface UseAgentReturn {
 export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   const { editor, endpoint = "/api/agent/stream" } = opts;
   const [log, setLog] = useState<ChatTurn[]>([]);
+  const [history, setHistoryState] = useState<ChatHistoryTurn[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -57,6 +74,11 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
   const historyRef = useRef<ChatHistoryTurn[]>([]);
   const isRunningRef = useRef(false);
 
+  const setHistory = useCallback((next: ChatHistoryTurn[]) => {
+    historyRef.current = next;
+    setHistoryState(next);
+  }, []);
+
   const send = useCallback<UseAgentReturn["send"]>(
     ({ text, modelName, apiKey }) => {
       if (!editor) return;
@@ -65,7 +87,7 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
       const priorHistory = historyRef.current;
       // Commit the user turn into the history that will be sent on the
       // *next* request immediately, so a quick double-send sees this turn.
-      historyRef.current = [...priorHistory, { role: "user", text }];
+      setHistory([...priorHistory, { role: "user", text }]);
 
       isRunningRef.current = true;
       setError(null);
@@ -115,10 +137,10 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
         } finally {
           setLog((l) => markTrailingAgentDone(l));
           if (agentReplyText) {
-            historyRef.current = [
+            setHistory([
               ...historyRef.current,
               { role: "agent", text: agentReplyText },
-            ];
+            ]);
           }
           isRunningRef.current = false;
           setIsRunning(false);
@@ -126,7 +148,7 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
         }
       })();
     },
-    [editor, endpoint],
+    [editor, endpoint, setHistory],
   );
 
   const cancel = useCallback(() => {
@@ -135,12 +157,24 @@ export function useAgent(opts: UseAgentOptions): UseAgentReturn {
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
-    historyRef.current = [];
+    setHistory([]);
     setLog([]);
     setError(null);
-  }, []);
+  }, [setHistory]);
 
-  return { send, cancel, reset, isRunning, log, error };
+  const restore = useCallback<UseAgentReturn["restore"]>(
+    (state) => {
+      abortRef.current?.abort();
+      isRunningRef.current = false;
+      setIsRunning(false);
+      setError(null);
+      setLog(state.log);
+      setHistory(state.history);
+    },
+    [setHistory],
+  );
+
+  return { send, cancel, reset, restore, isRunning, log, history, error };
 }
 
 function updateTrailingAgentText(

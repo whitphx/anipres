@@ -4,7 +4,7 @@ import {
   DEFAULT_MODEL_NAME,
   type AgentModelName,
 } from "@anipres/agent-core";
-import { useAgent } from "@anipres/agent-core/react";
+import { useAgent, type AgentChatState } from "@anipres/agent-core/react";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 import styles from "./ChatPanel.module.css";
 
@@ -12,10 +12,67 @@ const MODEL_OPTIONS = Object.keys(AGENT_MODEL_DEFINITIONS) as AgentModelName[];
 
 const STORAGE_KEY = "anipres.agent.apiKey";
 const STORAGE_MODEL_KEY = "anipres.agent.modelName";
+const chatStorageKey = (docId: string) => `anipres.chat.${docId}`;
 
 export function ChatPanel() {
-  const { editor } = useDocumentManagerContext();
-  const { send, cancel, reset, isRunning, log, error } = useAgent({ editor });
+  const { editor, activeDocumentId } = useDocumentManagerContext();
+  const { send, cancel, reset, restore, isRunning, log, history, error } =
+    useAgent({ editor });
+
+  // Restore-vs-persist coordination: when the active document changes we
+  // load that doc's history into the hook (writing to log/history). The
+  // persist effect below would then immediately re-write the loaded
+  // content to localStorage — harmless but wasteful, and risks a race
+  // where an in-flight log mutation from the *previous* doc gets
+  // persisted under the *new* doc's key. The flag tells the persist
+  // effect to skip exactly one cycle right after a restore.
+  const skipNextPersistRef = useRef(false);
+
+  // On document switch, load that doc's chat from localStorage and feed
+  // it into the hook. No active doc → keep the chat empty (anything the
+  // user typed without a doc was already useless).
+  useEffect(() => {
+    skipNextPersistRef.current = true;
+    if (!activeDocumentId) {
+      restore({ log: [], history: [] });
+      return;
+    }
+    const stored = localStorage.getItem(chatStorageKey(activeDocumentId));
+    if (!stored) {
+      restore({ log: [], history: [] });
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as Partial<AgentChatState>;
+      restore({
+        log: Array.isArray(parsed.log) ? parsed.log : [],
+        history: Array.isArray(parsed.history) ? parsed.history : [],
+      });
+    } catch {
+      restore({ log: [], history: [] });
+    }
+  }, [activeDocumentId, restore]);
+
+  // Persist on log/history change. Skip during in-flight streaming so
+  // we only commit completed turns; skip immediately after restore so
+  // we don't write back what we just read.
+  useEffect(() => {
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+    if (!activeDocumentId) return;
+    const lastTurn = log[log.length - 1];
+    if (lastTurn?.streaming) return;
+    if (log.length === 0 && history.length === 0) {
+      localStorage.removeItem(chatStorageKey(activeDocumentId));
+      return;
+    }
+    localStorage.setItem(
+      chatStorageKey(activeDocumentId),
+      JSON.stringify({ log, history }),
+    );
+  }, [activeDocumentId, log, history]);
 
   const [text, setText] = useState("");
   const [apiKey, setApiKey] = useState<string>(() => loadKey());
