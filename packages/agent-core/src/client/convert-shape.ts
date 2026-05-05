@@ -1,4 +1,4 @@
-import { toRichText, type Editor, type TLShapePartial } from "tldraw";
+import { toRichText, uniqueId, type Editor, type TLShapePartial } from "tldraw";
 import {
   cueFrameToJsonObject,
   newTrackId,
@@ -17,11 +17,9 @@ import type { AgentHelpers } from "./agent-helpers.js";
 
 /**
  * Convert an agent-emitted FocusedShape into a partial tldraw shape ready for
- * `editor.createShape(...)`. Returns `null` if the shape kind is unrecognised.
- *
- * For slides, this also auto-attaches a `cameraZoom` cue frame so the slide
- * shows up as a step in the timeline — mirroring the side-effect handler the
- * React `Anipres` component installs in its `onMount`.
+ * `editor.createShape(...)`. For slides, also attaches a `cameraZoom` cue
+ * frame — mirroring the side-effect handler the React `Anipres` component
+ * installs in its `onMount`.
  */
 export function focusedShapeToTldrawShape(
   shape: FocusedShape,
@@ -81,7 +79,7 @@ function buildAutoCameraCueFrame(
     );
 
   return {
-    id: cryptoRandomId(),
+    id: uniqueId(),
     type: "cue",
     globalIndex: getNextGlobalIndexFromCueFrames(allCueFrames),
     trackId: lastCameraCue?.trackId ?? newTrackId(),
@@ -92,20 +90,9 @@ function buildAutoCameraCueFrame(
   };
 }
 
-function cryptoRandomId(): string {
-  // tldraw exposes uniqueId() but importing it here just to keep ids short
-  // doesn't pay off; use the platform RNG and a base36 encode instead.
-  const buf = new Uint8Array(12);
-  crypto.getRandomValues(buf);
-  let s = "";
-  for (const b of buf) s += b.toString(36);
-  return s.slice(0, 21);
-}
-
 /**
  * Project a tldraw shape into a FocusedShape so the agent can perceive it.
- * Returns `null` for shapes the agent doesn't model — those are dropped from
- * the perception layer in v0.
+ * Returns `null` for shape kinds the agent doesn't model.
  */
 export function tldrawShapeToFocusedShape(
   editor: Editor,

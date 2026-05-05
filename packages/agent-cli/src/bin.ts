@@ -8,10 +8,17 @@ import {
   getAgentModelDefinition,
   isValidModelName,
   type AgentEnv,
+  type AgentModelProvider,
 } from "@anipres/agent-core";
 import { runEditCommand } from "./edit-command.js";
 
 const MODEL_LIST = Object.keys(AGENT_MODEL_DEFINITIONS).join(", ");
+
+const REQUIRED_ENV_VAR: Record<AgentModelProvider, keyof AgentEnv> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_API_KEY",
+};
 
 const USAGE = `Usage: anipres-agent edit <snapshot.json> --prompt "<message>" [options]
 
@@ -99,15 +106,6 @@ async function main(): Promise<number> {
 
   return 0;
 }
-
-const REQUIRED_ENV_VAR: Record<
-  ReturnType<typeof getAgentModelDefinition>["provider"],
-  keyof AgentEnv
-> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GOOGLE_API_KEY",
-};
 
 main().then(
   (code) => process.exit(code),

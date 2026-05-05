@@ -8,16 +8,17 @@ import {
   makeUserMessagesPart,
   streamActions,
   type AgentAction,
+  type AgentEnv,
   type AgentPrompt,
 } from "@anipres/agent-core";
 import { loadHeadlessEditor } from "anipres";
-import { getSnapshot } from "tldraw";
+import { getSnapshot, type Editor } from "tldraw";
 
 export interface EditCommandOptions {
   inputPath: string;
   outputPath: string;
   prompt: string;
-  env: import("@anipres/agent-core").AgentEnv;
+  env: AgentEnv;
   modelName?: string;
 }
 
@@ -39,7 +40,7 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
     await applyActionStream({
       editor,
       actions: stream,
-      onComplete: (action) => printActionForUser(action),
+      onComplete: printActionForUser,
     });
 
     const out = getSnapshot(editor.store);
@@ -49,10 +50,7 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
   }
 }
 
-function buildPrompt(
-  editor: import("tldraw").Editor,
-  userMessage: string,
-): AgentPrompt {
+function buildPrompt(editor: Editor, userMessage: string): AgentPrompt {
   const actionTypes = getRegisteredActionTypes();
   const partTypes = getRegisteredPartTypes();
   const mode = makeDefaultModePart({ actionTypes, partTypes });

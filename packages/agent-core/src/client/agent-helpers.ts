@@ -16,23 +16,21 @@ export class AgentHelpers {
 
   /**
    * Resolve an agent-supplied id to a tldraw `shape:` id. Returns the
-   * previously-minted id if the agent has referenced this string before; on
-   * a collision with an existing shape, falls back to a randomised id.
+   * previously-minted id if the agent has referenced this string before;
+   * on a collision with an existing shape, falls back to a randomised id.
    */
   resolveShapeId(agentId: string): TLShapeId {
     const cached = this.idMap.get(agentId);
     if (cached) return cached;
 
-    let id = createShapeId(safeSuffix(agentId));
+    const suffix = agentId.startsWith("shape:")
+      ? agentId.slice("shape:".length)
+      : agentId;
+    let id = createShapeId(suffix || undefined);
     if (this.editor.getShape(id)) {
       id = createShapeId();
     }
     this.idMap.set(agentId, id);
     return id;
   }
-}
-
-function safeSuffix(s: string): string {
-  const stripped = s.startsWith("shape:") ? s.slice("shape:".length) : s;
-  return stripped.slice(0, 32) || "agent";
 }

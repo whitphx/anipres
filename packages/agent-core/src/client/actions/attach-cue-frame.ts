@@ -1,7 +1,6 @@
 import type { Editor, TLShapeId } from "tldraw";
 import {
   cueFrameToJsonObject,
-  getCueFrame,
   getFrame,
   getFrames,
   getNextGlobalIndexFromCueFrames,
@@ -54,14 +53,18 @@ function resolveTrackId(
   const prevShape = editor.getShape(prevShapeId);
   if (!prevShape) return newTrackId();
 
-  const prevFrame = getCueFrame(prevShape) ?? getFrame(prevShape);
-  if (!prevFrame || prevFrame.type !== "cue") return newTrackId();
+  // We only chain off cue frames; if the prev shape carries a sub-frame
+  // we'd need to walk back to its root cue, which we don't currently
+  // emit from the agent. Defensive fallback to a new track.
+  const prevFrame = getFrame(prevShape);
+  if (prevFrame?.type !== "cue") return newTrackId();
 
   return prevFrame.trackId;
 }
 
 function nextGlobalIndex(editor: Editor): number {
-  const allFrames = getFrames(editor.getCurrentPageShapes());
-  const allCueFrames = allFrames.filter((f): f is CueFrame => f.type === "cue");
+  const allCueFrames = getFrames(editor.getCurrentPageShapes()).filter(
+    (f): f is CueFrame => f.type === "cue",
+  );
   return getNextGlobalIndexFromCueFrames(allCueFrames);
 }
