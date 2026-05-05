@@ -43,6 +43,9 @@ export interface DocumentManager {
   activeDocument: DocumentMeta | null;
   activeDocumentId: string | null;
   activeSnapshot: TLStoreSnapshot | null;
+  /** The currently mounted tldraw editor, or null when no document is
+   *  active. Set by `registerEditor` and cleared on its returned cleanup. */
+  editor: Editor | null;
   loading: boolean;
   /** Document ids currently being migrated via convertToSynced. */
   converting: ReadonlySet<string>;
@@ -85,6 +88,7 @@ export function useDocumentManager(params: {
     null,
   );
   const [loading, setLoading] = useState(true);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [converting, setConverting] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -627,15 +631,16 @@ export function useDocumentManager(params: {
   );
 
   const registerEditor = useCallback(
-    (editor: Editor) => {
-      editorRef.current = editor;
+    (nextEditor: Editor) => {
+      editorRef.current = nextEditor;
+      setEditor(nextEditor);
 
       // Synced documents are persisted by useSync; this auto-save path is
       // only for local-source docs. The check is re-evaluated on every
       // store event below so switching the active doc takes effect without
       // re-registering.
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const stopListening = editor.store.listen(
+      const stopListening = nextEditor.store.listen(
         () => {
           if (activeDocumentSourceRef.current !== "local") return;
           clearTimeout(timer);
@@ -649,6 +654,7 @@ export function useDocumentManager(params: {
       return () => {
         clearTimeout(timer);
         stopListening();
+        setEditor((current) => (current === nextEditor ? null : current));
       };
     },
     [saveCurrentEditor],
@@ -691,6 +697,7 @@ export function useDocumentManager(params: {
     activeDocument,
     activeDocumentId,
     activeSnapshot,
+    editor,
     loading,
     converting,
     conversionErrors,

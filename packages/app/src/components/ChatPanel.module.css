@@ -1,0 +1,180 @@
+.panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-divider, #e0e0e0);
+  background: var(--color-panel, #fafafa);
+  font-size: 13px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider, #e0e0e0);
+  background: var(--color-panel-header, #f0f0f0);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modelSelect {
+  font-size: 12px;
+  padding: 2px 4px;
+  background: var(--color-panel, #fff);
+  border: 1px solid var(--color-divider, #ccc);
+  border-radius: 3px;
+}
+
+.iconBtn {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.iconBtn:hover {
+  border-color: var(--color-divider, #ccc);
+}
+.iconBtn:focus-visible {
+  outline: 2px solid var(--color-focus, #2563eb);
+  outline-offset: 1px;
+}
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-divider, #e0e0e0);
+  background: var(--color-panel-elevated, #fff);
+}
+
+.settingsLabel {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.settingsInput {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid var(--color-divider, #ccc);
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.settingsHint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--color-muted, #6b7280);
+}
+
+.log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty {
+  color: var(--color-muted, #6b7280);
+  font-style: italic;
+  margin: 0;
+}
+
+.turn {
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user {
+  background: var(--color-user-turn, #e0f2fe);
+  align-self: flex-end;
+  max-width: 90%;
+}
+
+.agent {
+  background: var(--color-agent-turn, #f3f4f6);
+  align-self: flex-start;
+  max-width: 95%;
+}
+
+.errorTurn {
+  background: var(--color-error-bg, #fee2e2);
+  color: var(--color-error-text, #991b1b);
+  align-self: stretch;
+}
+
+.turnText {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-divider, #e0e0e0);
+  background: var(--color-panel, #fafafa);
+}
+
+.input {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--color-divider, #ccc);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.input:disabled {
+  opacity: 0.5;
+}
+
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sendBtn,
+.cancelBtn {
+  padding: 4px 12px;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.sendBtn {
+  background: var(--color-accent, #2563eb);
+  color: white;
+}
+.sendBtn:disabled {
+  background: var(--color-muted, #9ca3af);
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  background: var(--color-cancel, #dc2626);
+  color: white;
+}
