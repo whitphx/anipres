@@ -117,6 +117,7 @@ export function createAnipresMcpServer(): McpServer {
       // configuration to diagnose silent no-ops.
       const chunkBuffer: string[] = [];
       let finishInfo: { finishReason: string; text: string } | null = null;
+      let streamError: unknown = null;
       const result = await editSnapshot({
         snapshot: inSnapshot,
         prompt,
@@ -129,6 +130,10 @@ export function createAnipresMcpServer(): McpServer {
         onFinish: (info) => {
           finishInfo = info;
           debugLog(`\n[finishReason=${info.finishReason}]\n`);
+        },
+        onError: (error) => {
+          streamError = error;
+          debugLog(`\n[error=${stringifyError(error)}]\n`);
         },
       });
       debugLog(
@@ -147,12 +152,15 @@ export function createAnipresMcpServer(): McpServer {
         const finishLine = finishInfo
           ? `Finish reason: \`${(finishInfo as { finishReason: string }).finishReason}\``
           : "Finish reason: (unknown — onFinish was not called)";
+        const errorLine = streamError
+          ? `Stream error: ${stringifyError(streamError)}`
+          : "Stream error: (none reported)";
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${finishLine}\n\n${rawSummary}`,
+              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written.\n\n${finishLine}\n${errorLine}\n\n${rawSummary}`,
             },
           ],
         };
@@ -178,6 +186,18 @@ export function createAnipresMcpServer(): McpServer {
   );
 
   return server;
+}
+
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) {
+    const stack = error.stack ? `\n${error.stack}` : "";
+    return `${error.name}: ${error.message}${stack}`;
+  }
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
 }
 
 function readEnvForModel(modelName: string | undefined): AgentEnv | Error {

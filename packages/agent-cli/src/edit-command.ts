@@ -31,6 +31,9 @@ export interface EditSnapshotOptions {
    *  the provider's finish reason and joined text. Useful for
    *  explaining silent no-ops. */
   onFinish?: (info: import("@anipres/agent-core").StreamFinishInfo) => void;
+  /** Diagnostic hook: called when the AI SDK reports a stream-level
+   *  error (some of which it swallows instead of throwing). */
+  onError?: (error: unknown) => void;
 }
 
 export interface EditSnapshotResult {
@@ -60,6 +63,7 @@ export async function editSnapshot(
       modelName: opts.modelName,
       onChunk: opts.onChunk,
       onFinish: opts.onFinish,
+      onError: opts.onError,
     });
 
     await applyActionStream({

@@ -35,6 +35,10 @@ export interface StreamActionsOptions {
    *  with the provider-reported finish reason and joined output text.
    *  Useful for explaining silent no-ops. Off by default. */
   onFinish?: (info: StreamFinishInfo) => void;
+  /** Optional diagnostic hook invoked if the model stream errors. The
+   *  AI SDK swallows some errors instead of throwing them out of the
+   *  textStream iterator, so this is the only way to see them. */
+  onError?: (error: unknown) => void;
 }
 
 /**
@@ -107,6 +111,9 @@ export async function* streamActions(
     },
     onFinish: ({ finishReason, text }) => {
       opts.onFinish?.({ finishReason, text });
+    },
+    onError: ({ error }) => {
+      opts.onError?.(error);
     },
   });
 
