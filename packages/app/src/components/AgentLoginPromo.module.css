@@ -1,0 +1,89 @@
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 20px;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.icon {
+  color: #2563eb;
+  margin-bottom: 4px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 240px;
+  margin-top: 8px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+:global([data-color-scheme="dark"]) .icon {
+  color: #60a5fa;
+}
+:global([data-color-scheme="dark"]) .heading {
+  color: #e5e7eb;
+}
+:global([data-color-scheme="dark"]) .lede {
+  color: #cbd5e1;
+}
+:global([data-color-scheme="dark"]) .detail {
+  color: #9ca3af;
+}
+:global([data-color-scheme="dark"]) .button {
+  background: #2a2a2a;
+  color: #e5e7eb;
+  border-color: #444;
+}
+:global([data-color-scheme="dark"]) .button:hover:not(:disabled) {
+  background: #333;
+}

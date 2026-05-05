@@ -1,5 +1,7 @@
 import { useDocumentManagerContext } from "./documents/useDocumentManagerContext";
+import { useAuth } from "./auth/useAuth";
 import { AppLayout } from "./components/AppLayout";
+import { AgentLoginPromo } from "./components/AgentLoginPromo";
 import { ChatPanel } from "./components/ChatPanel";
 import { DocumentSidebar } from "./components/DocumentSidebar";
 import { AnipresContainer } from "./components/AnipresContainer";
@@ -9,6 +11,7 @@ import { useColorScheme } from "./hooks/useColorScheme";
 export function AppContent() {
   const { activeDocument, activeSnapshot, loading } =
     useDocumentManagerContext();
+  const { user } = useAuth();
 
   const { preference, changePreference } = useColorScheme();
 
@@ -24,7 +27,7 @@ export function AppContent() {
           onColorSchemeChange={changePreference}
         />
       }
-      chatPanel={<ChatPanel />}
+      chatPanel={user ? <ChatPanel /> : <AgentLoginPromo />}
     >
       {activeDocument &&
         (activeDocument.source === "synced" ? (
