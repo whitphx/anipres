@@ -2,6 +2,8 @@
 
 Items deferred during the initial agent build (this PR) that are worth tracking but don't block shipping. Grouped by leverage. Each entry explains the gap, what observably breaks today, and what the implementation would touch.
 
+For the architectural rationale behind the agent (why the worker exists, the auth posture, why JSON-action streaming over native tool-use, etc.), see [`design-agent.md`](./design-agent.md).
+
 ## Perception extensions
 
 - **Group projection.** `tldrawShapeToFocusedShape` returns `null` for `group` shapes today, so the agent can't address grouped clusters as units. Real diagrams (e.g., the user's Git-remote-fork deck) lean on groups to bundle "this commit graph" or "this branch label + nodes" into one logical thing. With group projection the agent could say "recolor the main-branch group" rather than enumerating every line and ellipse inside. Implementation: add a `FocusedGroup` schema with `childShapeIds` and bounds, project from tldraw's `GroupShapeUtil`, and teach the system prompt to expand a group reference into its members at apply time.
@@ -41,6 +43,20 @@ Most of the agent's editing happens on non-frame shapes (commit-graph circles, l
 - **Per-document chat persistence schema versioning.** The PR persists `{log, history}` to `localStorage[anipres.chat.<docId>]` as raw JSON. Add a `version` field so future schema changes (e.g., adding richer `action` log entries with structured data) can either migrate or fall back gracefully instead of crashing the panel.
 
 - **`skipNextPersistRef` race on rapid doc switches.** The cross-document corruption fix (commit `53bd47a`) closes the most-painful case — the aborted send no longer mutates the new doc's state. A narrower race remains: if the user switches docs _twice_ in rapid succession (faster than React can flush effects) and the persist effect happens to interleave between the two restores, the wrong doc's content can briefly hit the wrong key. A robust fix captures `activeDocumentId` at restore time into a ref and refuses to persist when the captured id disagrees with the effect's current `activeDocumentId`.
+
+## Anonymous agent access (try-it entry point)
+
+Today the chat panel sits behind login because the worker route is mounted under `/api/*` and inherits that prefix's session middleware. Architecturally that's incidental rather than deliberate ([`design-agent.md`](./design-agent.md) § Authentication Posture covers the trade), and there's a clear product reason to make a _separate_, deliberately-scoped anonymous path: a first-time visitor should be able to feel what the agent can do without first creating an account. Best showcase we have for the feature.
+
+Concrete shape:
+
+- A new route outside `/api/*` (e.g. `/agent/try-stream`) — or a special-case in `registerApiAuth` — so it's reachable without a session cookie.
+- IP-based rate limit (token bucket, e.g. 5 prompts / hour / IP) since there's no per-user identity to pin a quota against. Cloudflare's built-in rate-limiting rules can do the heavy lifting; no per-user state needed in the worker.
+- The chat panel detects "no session" and routes to the anonymous endpoint. A banner above the composer ("Sign in to save this conversation, build presentations of your own…") makes the upgrade path obvious without nagging.
+- Per-doc localStorage chat persistence still works for the visitor's anonymous "scratch" doc, but only that one doc — they have no account to scope chats across.
+- Anonymous users must still bring their own API key, since we don't want to be on the hook for unbounded provider bills from drive-by traffic. The chat panel's BYO-key UI works as-is; only the auth gate goes away.
+
+The auth-required path stays the default for serious use; the anonymous path is the demo wedge. They aren't in tension because they target different user states.
 
 ## Operational
 
