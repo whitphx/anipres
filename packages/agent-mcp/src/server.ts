@@ -101,6 +101,22 @@ export function createAnipresMcpServer(): McpServer {
         modelName,
       });
 
+      // The model is instructed to always emit at least one action — even
+      // a `message` explaining a refusal. A truly empty stream means the
+      // turn produced nothing useful and the caller should treat it as a
+      // failure rather than a silent success.
+      if (result.actions.length === 0) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `The agent emitted no actions for this prompt — likely a model refusal or a perception/vocabulary mismatch. Snapshot was not written. Try a more specific prompt or check whether the shapes you're referring to are within the agent's current vocabulary (rectangle, slide).`,
+            },
+          ],
+        };
+      }
+
       const finalPath = outputPath ?? snapshotPath;
       await writeFile(finalPath, JSON.stringify(result.snapshot, null, 2));
 
@@ -110,7 +126,7 @@ export function createAnipresMcpServer(): McpServer {
         `Wrote modified snapshot to ${finalPath}.`,
         "",
         "## Agent transcript",
-        ...(transcriptLines.length > 0 ? transcriptLines : ["(no actions)"]),
+        ...transcriptLines,
         "",
         "## Resulting presentation",
         formatSnapshotSummary(finalPath, summary),
