@@ -167,8 +167,9 @@ export function ChatPanel() {
             autoComplete="off"
           />
           <p className={styles.settingsHint}>
-            Stored in your browser&apos;s localStorage. Sent only to your own
-            anipres worker, never to a third party.
+            Stored in your browser&apos;s localStorage. The anipres worker
+            forwards it to the selected model&apos;s provider (Anthropic,
+            OpenAI, or Google) for each request and does not persist it.
           </p>
         </div>
       )}
