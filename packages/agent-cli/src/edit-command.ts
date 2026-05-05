@@ -1,18 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 import {
   applyActionStream,
-  getPartUtil,
-  getRegisteredActionTypes,
-  getRegisteredPartTypes,
-  makeDefaultModePart,
-  makeUserMessagesPart,
+  buildPromptFromEditor,
   streamActions,
   type AgentAction,
   type AgentEnv,
-  type AgentPrompt,
 } from "@anipres/agent-core";
 import { loadHeadlessEditor } from "anipres";
-import { getSnapshot, type Editor } from "tldraw";
+import { getSnapshot } from "tldraw";
 
 export interface EditCommandOptions {
   inputPath: string;
@@ -29,7 +24,7 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
   const [editor, dispose] = loadHeadlessEditor({ snapshot });
 
   try {
-    const prompt = buildPrompt(editor, opts.prompt);
+    const prompt = buildPromptFromEditor(editor, opts.prompt);
 
     const stream = streamActions({
       prompt,
@@ -48,25 +43,6 @@ export async function runEditCommand(opts: EditCommandOptions): Promise<void> {
   } finally {
     dispose();
   }
-}
-
-function buildPrompt(editor: Editor, userMessage: string): AgentPrompt {
-  const actionTypes = getRegisteredActionTypes();
-  const partTypes = getRegisteredPartTypes();
-  const mode = makeDefaultModePart({ actionTypes, partTypes });
-
-  const prompt: Record<string, unknown> = { mode };
-  prompt.userMessages = makeUserMessagesPart([userMessage]);
-
-  for (const partType of partTypes) {
-    const util = getPartUtil(partType);
-    if (!util) continue;
-    const part = util.getPart({ editor });
-    if (!part) continue;
-    prompt[part.type] = part;
-  }
-
-  return prompt as AgentPrompt;
 }
 
 function printActionForUser(action: AgentAction): void {

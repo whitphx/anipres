@@ -18,6 +18,10 @@
     "./client": {
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
     }
   },
   "main": "./dist/index.js",
@@ -37,11 +41,19 @@
     "zod": "^4.1.8"
   },
   "devDependencies": {
+    "@types/react": "^18.3.18",
     "anipres": "workspace:*",
     "happy-dom": "^20.9.0",
+    "react": "^18.3.1",
     "tldraw": "3.15.5"
   },
   "peerDependencies": {
+    "react": "^18.3.1",
     "tldraw": "3.15.5"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

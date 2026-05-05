@@ -33,3 +33,8 @@ export {
   focusedShapeToTldrawShape,
   tldrawShapeToFocusedShape,
 } from "./convert-shape.js";
+export { buildPromptFromEditor } from "./build-prompt.js";
+export {
+  streamFromServer,
+  type StreamFromServerOptions,
+} from "./stream-from-server.js";
