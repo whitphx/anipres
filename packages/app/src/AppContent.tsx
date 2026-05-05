@@ -1,5 +1,6 @@
 import { useDocumentManagerContext } from "./documents/useDocumentManagerContext";
 import { AppLayout } from "./components/AppLayout";
+import { ChatPanel } from "./components/ChatPanel";
 import { DocumentSidebar } from "./components/DocumentSidebar";
 import { AnipresContainer } from "./components/AnipresContainer";
 import { OfflineAwareSyncedContainer } from "./components/OfflineAwareSyncedContainer";
@@ -23,6 +24,7 @@ export function AppContent() {
           onColorSchemeChange={changePreference}
         />
       }
+      chatPanel={<ChatPanel />}
     >
       {activeDocument &&
         (activeDocument.source === "synced" ? (
