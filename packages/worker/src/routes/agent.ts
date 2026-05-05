@@ -1,17 +1,18 @@
 import { Hono } from "hono";
 import {
+  AgentPromptSchema,
   getAgentModelDefinition,
   isValidModelName,
   streamActions,
   type AgentEnv,
-  type AgentPrompt,
 } from "@anipres/agent-core/server";
+import { z } from "zod";
 import type { AppBindings } from "../types";
 
-interface AgentStreamRequest {
-  prompt: AgentPrompt;
-  modelName?: string;
-}
+const AgentStreamRequestSchema = z.object({
+  prompt: AgentPromptSchema,
+  modelName: z.string().optional(),
+});
 
 /**
  * Streams agent actions for the in-app chat panel.
@@ -28,16 +29,24 @@ interface AgentStreamRequest {
 export const agentRoutes = new Hono<AppBindings>().post(
   "/api/agent/stream",
   async (c) => {
-    let body: AgentStreamRequest;
+    let raw: unknown;
     try {
-      body = (await c.req.json()) as AgentStreamRequest;
+      raw = await c.req.json();
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    if (!body.prompt || !body.prompt.mode) {
-      return c.json({ error: "Missing prompt.mode" }, 400);
+    const parsed = AgentStreamRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: "Invalid request body",
+          issues: parsed.error.issues,
+        },
+        400,
+      );
     }
+    const body = parsed.data;
 
     if (body.modelName && !isValidModelName(body.modelName)) {
       return c.json({ error: `Unknown model: ${body.modelName}` }, 400);

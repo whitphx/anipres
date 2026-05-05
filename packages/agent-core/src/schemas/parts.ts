@@ -98,12 +98,18 @@ export type PromptPart =
 /**
  * A complete prompt for one agent turn. Keyed by part `type` so a part of a
  * given kind is unique per prompt.
+ *
+ * Validated at every untrusted entry point (the worker SSE route) so the
+ * downstream pipeline can rely on shape and not redo per-field defensive
+ * checks. Trusted callers (CLI, MCP server) construct prompts in-process
+ * and may skip parsing.
  */
-export type AgentPrompt = {
-  mode: ModePart;
-  userMessages?: UserMessagesPart;
-  pageShapes?: PageShapesPart;
-  selectedShapes?: SelectedShapesPart;
-  presentationState?: PresentationStatePart;
-  chatHistory?: ChatHistoryPart;
-};
+export const AgentPromptSchema = z.object({
+  mode: ModePartSchema,
+  userMessages: UserMessagesPartSchema.optional(),
+  pageShapes: PageShapesPartSchema.optional(),
+  selectedShapes: SelectedShapesPartSchema.optional(),
+  presentationState: PresentationStatePartSchema.optional(),
+  chatHistory: ChatHistoryPartSchema.optional(),
+});
+export type AgentPrompt = z.infer<typeof AgentPromptSchema>;
