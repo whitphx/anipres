@@ -1,24 +1,33 @@
+/* Light defaults match the sidebar palette (DocumentSidebar.module.css)
+   so the right and left columns share a coherent look. Dark-mode
+   overrides at the bottom of the file mirror the sidebar's choices. */
+
 .panel {
   width: 360px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--color-divider, #e0e0e0);
-  background: var(--color-panel, #fafafa);
+  border-left: 1px solid #e8e8e8;
+  background: #f9f9f9;
+  color: #333;
   font-size: 13px;
+  overflow: hidden;
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-divider, #e0e0e0);
-  background: var(--color-panel-header, #f0f0f0);
+  padding: 8px;
+  border-bottom: 1px solid #e8e8e8;
 }
 
 .title {
+  font-size: 12px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
 }
 
 .headerActions {
@@ -30,24 +39,32 @@
 .modelSelect {
   font-size: 12px;
   padding: 2px 4px;
-  background: var(--color-panel, #fff);
-  border: 1px solid var(--color-divider, #ccc);
+  background: #fff;
+  color: #333;
+  border: 1px solid #ccc;
   border-radius: 3px;
 }
 
 .iconBtn {
-  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
   cursor: pointer;
   font-size: 14px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  color: #666;
 }
-.iconBtn:hover {
-  border-color: var(--color-divider, #ccc);
+.iconBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  color: #333;
 }
 .iconBtn:focus-visible {
-  outline: 2px solid var(--color-focus, #2563eb);
+  outline: 2px solid #2563eb;
   outline-offset: 1px;
 }
 .iconBtn:disabled {
@@ -57,29 +74,33 @@
 
 .settings {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--color-divider, #e0e0e0);
-  background: var(--color-panel-elevated, #fff);
+  border-bottom: 1px solid #e8e8e8;
+  background: #fff;
 }
 
 .settingsLabel {
   display: block;
   font-size: 12px;
   margin-bottom: 4px;
+  color: #333;
 }
 
 .settingsInput {
   width: 100%;
-  padding: 4px 6px;
+  padding: 6px 8px;
   font-size: 12px;
-  border: 1px solid var(--color-divider, #ccc);
+  background: #fff;
+  color: #333;
+  border: 1px solid #ccc;
   border-radius: 3px;
   font-family: inherit;
+  box-sizing: border-box;
 }
 
 .settingsHint {
   margin: 6px 0 0;
   font-size: 11px;
-  color: var(--color-muted, #6b7280);
+  color: #888;
 }
 
 .log {
@@ -92,7 +113,7 @@
 }
 
 .empty {
-  color: var(--color-muted, #6b7280);
+  color: #888;
   font-style: italic;
   margin: 0;
 }
@@ -102,29 +123,29 @@
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.4;
 }
 
 .user {
-  background: var(--color-user-turn, #e0f2fe);
+  background: #dbeafe;
+  color: #1e3a8a;
   align-self: flex-end;
   max-width: 90%;
 }
 
 .agent {
-  background: var(--color-agent-turn, #f3f4f6);
+  background: #ffffff;
+  color: #333;
+  border: 1px solid #e8e8e8;
   align-self: flex-start;
   max-width: 95%;
 }
 
 .errorTurn {
-  background: var(--color-error-bg, #fee2e2);
-  color: var(--color-error-text, #991b1b);
+  background: #fee2e2;
+  color: #991b1b;
   align-self: stretch;
-}
-
-.turnText {
-  font-size: 13px;
-  line-height: 1.4;
+  border: 1px solid #fecaca;
 }
 
 .composer {
@@ -132,8 +153,8 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-top: 1px solid var(--color-divider, #e0e0e0);
-  background: var(--color-panel, #fafafa);
+  border-top: 1px solid #e8e8e8;
+  background: #f9f9f9;
 }
 
 .input {
@@ -143,12 +164,20 @@
   padding: 6px 8px;
   font-size: 13px;
   font-family: inherit;
-  border: 1px solid var(--color-divider, #ccc);
+  background: #fff;
+  color: #333;
+  border: 1px solid #ccc;
   border-radius: 4px;
   box-sizing: border-box;
 }
+.input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  border-color: transparent;
+}
 .input:disabled {
-  opacity: 0.5;
+  background: #f3f3f3;
+  color: #888;
 }
 
 .composerActions {
@@ -158,23 +187,123 @@
 
 .sendBtn,
 .cancelBtn {
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 13px;
+  font-weight: 500;
   border-radius: 4px;
   cursor: pointer;
   border: 1px solid transparent;
 }
 
 .sendBtn {
-  background: var(--color-accent, #2563eb);
-  color: white;
+  background: #2563eb;
+  color: #fff;
+}
+.sendBtn:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 .sendBtn:disabled {
-  background: var(--color-muted, #9ca3af);
+  background: #cbd5e1;
+  color: #fff;
   cursor: not-allowed;
 }
 
 .cancelBtn {
-  background: var(--color-cancel, #dc2626);
-  color: white;
+  background: #dc2626;
+  color: #fff;
+}
+.cancelBtn:hover {
+  background: #b91c1c;
+}
+
+/* ----------------------------- Dark mode ----------------------------- */
+/* Mirrors DocumentSidebar's dark palette: bg #1e1e1e, border #333,
+   text #ccc, muted #999/#888. */
+
+:global([data-color-scheme="dark"]) .panel {
+  background: #1e1e1e;
+  border-left-color: #333;
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .header {
+  border-bottom-color: #333;
+}
+
+:global([data-color-scheme="dark"]) .title {
+  color: #999;
+}
+
+:global([data-color-scheme="dark"]) .modelSelect {
+  background: #2a2a2a;
+  color: #ccc;
+  border-color: #444;
+}
+
+:global([data-color-scheme="dark"]) .iconBtn {
+  color: #999;
+}
+:global([data-color-scheme="dark"]) .iconBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .settings {
+  background: #181818;
+  border-bottom-color: #333;
+}
+
+:global([data-color-scheme="dark"]) .settingsLabel {
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .settingsInput {
+  background: #2a2a2a;
+  color: #ccc;
+  border-color: #444;
+}
+
+:global([data-color-scheme="dark"]) .settingsHint {
+  color: #888;
+}
+
+:global([data-color-scheme="dark"]) .empty {
+  color: #777;
+}
+
+:global([data-color-scheme="dark"]) .user {
+  background: #1e3a5f;
+  color: #dbeafe;
+}
+
+:global([data-color-scheme="dark"]) .agent {
+  background: #2a2a2a;
+  color: #ccc;
+  border-color: #383838;
+}
+
+:global([data-color-scheme="dark"]) .errorTurn {
+  background: #4a1f1f;
+  color: #fca5a5;
+  border-color: #6b2a2a;
+}
+
+:global([data-color-scheme="dark"]) .composer {
+  background: #1e1e1e;
+  border-top-color: #333;
+}
+
+:global([data-color-scheme="dark"]) .input {
+  background: #2a2a2a;
+  color: #ccc;
+  border-color: #444;
+}
+:global([data-color-scheme="dark"]) .input:disabled {
+  background: #232323;
+  color: #666;
+}
+
+:global([data-color-scheme="dark"]) .sendBtn:disabled {
+  background: #3a3a3a;
+  color: #666;
 }
