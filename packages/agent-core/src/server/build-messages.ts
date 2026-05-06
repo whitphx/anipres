@@ -1,3 +1,16 @@
+// `buildMessages` — function name, signature
+// (`(prompt: AgentPrompt) => ModelMessage[]`), and role (assemble the
+// model-message sequence for one agent turn from the prompt parts) all
+// come from tldraw/agent-template (MIT, © 2024 tldraw Inc.)'s
+// [`worker/prompt/buildMessages.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/buildMessages.ts).
+// The body here is a simpler hard-coded sequence (chatHistory →
+// pageShapes → selectedShapes → presentationState → userMessages)
+// rather than upstream's polymorphic part-definition pattern with
+// per-part `buildContent` / `buildMessages` callbacks and priority
+// sorting — that machinery exists to compose many optional parts,
+// which Anipres' single-mode setup doesn't need yet. Same load-bearing
+// design (parts → ModelMessages), simpler implementation. See
+// THIRD_PARTY_NOTICES.md at the repo root.
 import type { ModelMessage } from "ai";
 import type { AgentPrompt } from "../schemas/parts.js";
 

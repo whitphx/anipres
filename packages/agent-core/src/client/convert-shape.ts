@@ -1,3 +1,14 @@
+// `tldrawShapeToFocusedShape` — name, role (project a tldraw shape
+// into the model-facing simplified form), and switch-on-`shape.type`
+// structure come from tldraw/agent-template (MIT, © 2024 tldraw
+// Inc.)'s
+// [`shared/format/convertTldrawShapeToFocusedShape.ts`](https://github.com/tldraw/agent-template/blob/main/shared/format/convertTldrawShapeToFocusedShape.ts).
+// The supported shape kinds and the inverse direction
+// (`focusedShapeToTldrawShape`, plus the slide / cameraZoom auto-cue
+// handling) are Anipres-specific. The pattern of having a focused
+// shape vocabulary distinct from tldraw's full schema, with a
+// projection function, is upstream's. See THIRD_PARTY_NOTICES.md at
+// the repo root.
 import { toRichText, uniqueId, type Editor, type TLShapePartial } from "tldraw";
 import {
   cueFrameToJsonObject,

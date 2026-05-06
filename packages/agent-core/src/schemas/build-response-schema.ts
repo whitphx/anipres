@@ -1,3 +1,12 @@
+// `buildResponseSchema` — function name and core pattern (`z.object({
+// actions: z.array(actionSchema) })` then `z.toJSONSchema(...)`) come
+// from tldraw/agent-template (MIT, © 2024 tldraw Inc.)'s
+// [`shared/schema/buildResponseSchema.ts`](https://github.com/tldraw/agent-template/blob/main/shared/schema/buildResponseSchema.ts).
+// Upstream additionally accepts `actionTypes`/`mode` arguments and
+// strips internal `_systemPromptCategory` meta keys before emitting
+// the JSON Schema; Anipres has a single mode and no internal meta
+// keys yet, so neither parameterisation is needed here. See
+// THIRD_PARTY_NOTICES.md at the repo root.
 import { z } from "zod";
 import { AgentActionSchema } from "./actions.js";
 

@@ -61,6 +61,36 @@ credit the upstream work honestly, not to limit our obligation:
   the Vercel `ai` SDK and adds Anipres-specific bits (provider
   switching, the abort-signal forwarding, the multi-action-per-chunk
   cursor fix), but the protocol itself is theirs.
+- **`Streaming<T>` type** — `packages/agent-core/src/types.ts` —
+  the name and the "wrap any T with a `complete` boolean (and a
+  `time` field) so consumers can distinguish in-flight from
+  completed values" concept **come from upstream's**
+  [`shared/types/Streaming.ts`](https://github.com/tldraw/agent-template/blob/main/shared/types/Streaming.ts).
+  Their version is a discriminated union (`Partial<T> & { complete:
+false } | T & { complete: true }`); mine is a flat shape with a
+  boolean discriminator. Same protocol, simpler type.
+- **`buildMessages` prompt → ModelMessage assembly** — `packages/agent-core/src/server/build-messages.ts`'s
+  function name, signature (`(prompt: AgentPrompt) => ModelMessage[]`),
+  and role **come from upstream's**
+  [`worker/prompt/buildMessages.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/buildMessages.ts).
+  My body is a hard-coded sequence over the known parts; upstream
+  composes per-part `buildContent` / `buildMessages` callbacks with
+  a priority sort. Same load-bearing design, simpler implementation.
+- **`buildResponseSchema` JSON-Schema export** — `packages/agent-core/src/schemas/build-response-schema.ts`'s
+  function name and core pattern (build a Zod schema with `{ actions:
+z.array(actionSchema) }` then call `z.toJSONSchema(...)`) **come
+  from upstream's**
+  [`shared/schema/buildResponseSchema.ts`](https://github.com/tldraw/agent-template/blob/main/shared/schema/buildResponseSchema.ts).
+  Upstream additionally accepts `actionTypes`/`mode` arguments and
+  strips internal meta keys; Anipres has neither yet.
+- **Tldraw → focused-shape projection** — `packages/agent-core/src/client/convert-shape.ts`'s
+  `tldrawShapeToFocusedShape` function (name, role, switch-on-
+  `shape.type` structure, returns a discriminated union of
+  `_type`-tagged simplified shapes) **comes from upstream's**
+  [`shared/format/convertTldrawShapeToFocusedShape.ts`](https://github.com/tldraw/agent-template/blob/main/shared/format/convertTldrawShapeToFocusedShape.ts).
+  The Anipres set of focused shapes is smaller and adds a `slide`
+  kind; the inverse direction (`focusedShapeToTldrawShape`, with
+  the cameraZoom auto-cue handling for slides) is original.
 - **System-prompt scaffolding** — `packages/agent-core/src/server/build-system-prompt.ts`
   takes the section structure (intro + rules with `###` sub-sections),
   the JSON-actions self-description, the "always emit at least one
@@ -94,6 +124,17 @@ credit the upstream work honestly, not to limit our obligation:
   `savesToHistory` methods), but the registry concept is theirs:
   - `packages/agent-core/src/client/action-util.ts`
   - `packages/agent-core/src/client/part-util.ts`
+- **Per-`_type` util files (file-per-util layout, naming)** — the
+  layout under `packages/agent-core/src/client/actions/` and
+  `packages/agent-core/src/client/parts/` (one file per `_type`,
+  each registering itself with names like `MessageActionUtil`,
+  `CreateActionUtil`, `SelectedShapesPartUtil`,
+  `ChatHistoryPartUtil`) **comes from upstream's** [`client/actions/`](https://github.com/tldraw/agent-template/tree/main/client/actions)
+  and [`client/parts/`](https://github.com/tldraw/agent-template/tree/main/client/parts)
+  directories. The Anipres set is narrower (only the actions / parts
+  the presentation model needs); the individual implementations are
+  object literals rather than upstream's class hierarchy. Directory
+  shape and naming are theirs.
 - **`buildPromptFromEditor` perception assembly** — iterate the
   registered part utils and project editor state into prompt parts:
   the design **comes from upstream**'s prompt-part architecture.

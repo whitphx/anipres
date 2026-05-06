@@ -1,3 +1,16 @@
+// The per-`_type` action / part util pattern below — file-per-util,
+// each file calling `registerActionUtil` / `registerPartUtil` for one
+// `_type`, with names like `MessageActionUtil`, `CreateActionUtil`,
+// `SelectedShapesPartUtil`, `ChatHistoryPartUtil` — comes from tldraw/
+// agent-template (MIT, © 2024 tldraw Inc.)'s `client/actions/` and
+// `client/parts/` directories. The Anipres set is smaller (only the
+// actions / parts the presentation model actually needs), and the
+// individual util implementations are simpler (object literals with
+// `apply` / `getPart` rather than upstream's class hierarchy with
+// `getInfo` / `sanitizeAction` / `savesToHistory` machinery), but the
+// directory shape and naming are theirs. See THIRD_PARTY_NOTICES.md
+// at the repo root.
+
 // Side-effect imports register action and part utils into the global
 // registries. Anyone importing this barrel ends up with all built-in utils
 // available; downstream code can register more on top.
