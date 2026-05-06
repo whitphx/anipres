@@ -10,6 +10,25 @@
 // (slides, cue frames, tracks, steps, the worked example), but the
 // scaffolding and several phrasings are clearly indebted to those
 // files. See THIRD_PARTY_NOTICES.md at the repo root.
+//
+// Why one static template instead of upstream's per-section files +
+// `SystemPromptFlags`?  Upstream parameterises by capability
+// (`canEdit`, `hasMove`, `hasReview`, `hasTodoList`, …) because
+// different agent modes turn different action subsets on and off.
+// Anipres has a single mode with a fixed action set (create, update,
+// delete, attachCueFrame, message, think), so every flag would be a
+// hard-coded `true` and the section split would buy nothing — the
+// reader still has to read all of it to know what the model sees.
+// The Anipres-specific guidance (slides → cue frames → tracks, the
+// worked "fly-in" example) also cuts across upstream's section
+// boundaries, so the split wouldn't have mapped cleanly even if we
+// kept it.
+//
+// TODO: when Anipres grows a second agent mode (e.g. a perception-
+// only review mode, or an authoring mode that exposes a different
+// action subset), reintroduce the per-section + `SystemPromptFlags`
+// pattern from upstream rather than ad-hoc'ing branches into this
+// file.
 import { buildResponseSchema } from "../schemas/build-response-schema.js";
 
 const INTRO = `You are an AI assistant collaborating with a user on an Anipres presentation built on top of a tldraw whiteboard.
