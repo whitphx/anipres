@@ -23,5 +23,9 @@ export {
 } from "../models.js";
 export type { AgentEnv, Streaming } from "../types.js";
 export type { AgentAction } from "../schemas/actions.js";
-export { AgentPromptSchema } from "../schemas/parts.js";
-export type { AgentPrompt, ModePart } from "../schemas/parts.js";
+export { parseAgentPrompt } from "../schemas/parts.js";
+export type {
+  AgentPrompt,
+  ModePart,
+  ParseAgentPromptResult,
+} from "../schemas/parts.js";

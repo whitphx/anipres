@@ -1,3 +1,12 @@
+// Why zod (and not valibot like the rest of the worker)?
+// The action schemas are exported as JSON Schema and embedded in the
+// LLM's system prompt — `.meta({ description })` annotations carry the
+// human-readable docs each action shows the model. zod has first-class
+// JSON-Schema export, that's the upstream pattern in tldraw's
+// agent-template we mirror, and the model's vocabulary is the single
+// most load-bearing artefact in this package, so it dictates the tool
+// choice. Worker callers don't need to know — they import a typed
+// helper (`parseAgentPrompt` below), not `z` itself.
 import { z } from "zod";
 import { FocusedFrameActionSchema, FocusedShapeSchema } from "./actions.js";
 
@@ -113,3 +122,19 @@ export const AgentPromptSchema = z.object({
   chatHistory: ChatHistoryPartSchema.optional(),
 });
 export type AgentPrompt = z.infer<typeof AgentPromptSchema>;
+
+export type ParseAgentPromptResult =
+  | { success: true; data: AgentPrompt }
+  | { success: false; issues: unknown };
+
+/**
+ * Validate an untrusted prompt at a network boundary (the worker's SSE
+ * route) and return a discriminated result. Wraps zod's safeParse so
+ * callers can render a 400 without taking on a direct zod import or
+ * leaking the upstream error class shape across the package boundary.
+ */
+export function parseAgentPrompt(value: unknown): ParseAgentPromptResult {
+  const result = AgentPromptSchema.safeParse(value);
+  if (result.success) return { success: true, data: result.data };
+  return { success: false, issues: result.error.issues };
+}
