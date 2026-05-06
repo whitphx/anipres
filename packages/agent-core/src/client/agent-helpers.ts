@@ -1,6 +1,11 @@
-// The shape-id resolution model (agent-supplied placeholders mapped to
-// tldraw-minted ids per turn, with collision avoidance) is adapted
-// from tldraw/agent-template (MIT, © 2024 tldraw Inc.). See
+// The class itself — name (`AgentHelpers`), role (per-request
+// shape-id mapping with collision avoidance), the `Map<string, ...>`
+// data structure, the "look up first, mint a new one if missing"
+// resolution flow — comes from tldraw/agent-template (MIT, © 2024
+// tldraw Inc.)'s `client/AgentHelpers.ts`. The version here is a
+// simplified reimplementation (interface-free, no offset/rounding
+// helpers, two narrower resolver methods specialised for
+// new-vs-existing intent), but the design is theirs. See
 // THIRD_PARTY_NOTICES.md at the repo root.
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 

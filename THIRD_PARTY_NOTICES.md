@@ -37,60 +37,94 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### What's inspired by it
+### What we owe the upstream
 
-Each line below points at a concept in this repo whose design comes
-directly from `agent-template`. The implementations here are
-independent reimplementations rather than verbatim copies, but the
-shape of each piece — the patterns, the names, the structural
-choices — is owed to the upstream:
+The list below is calibrated by how directly the borrowing happens —
+"largely a port" for files that follow upstream code closely, "the
+design is theirs" for shape-and-naming-but-rewritten-implementation,
+"informed by" for the lighter conceptual inheritance. The intent is to
+credit the upstream work honestly, not to limit our obligation:
 
-- **JSON-action streaming protocol** — assistant prefill of the
-  opening `{"actions":[{"_type":` plus a cursor-based partial-JSON
-  parser that yields each action twice (`complete: false` then
-  `complete: true`):
-  - `packages/agent-core/src/server/stream-actions.ts`
-  - `packages/agent-core/src/server/close-and-parse-json.ts`
-- **System-prompt scaffolding** — split into intro + rules with
-  `###` sub-sections, the JSON-actions self-description, the "always
-  emit at least one action" rule, and the user-selection
-  disambiguation idiom ("when the user says 'this' / 'these',
-  prefer the selection"). Text was rewritten end-to-end for the
-  Anipres vocabulary (slides, cue frames, tracks, steps, worked
-  example), but the structure and several idioms came from upstream's
+- **`closeAndParseJson` partial-JSON parser** — `packages/agent-core/src/server/close-and-parse-json.ts`
+  is **largely a port of** [`worker/do/closeAndParseJson.ts`](https://github.com/tldraw/agent-template/blob/main/worker/do/closeAndParseJson.ts)
+  — same algorithm, same stack representation (`{`, `[`, `"`),
+  same JSON.parse-or-null contract. The version here is in
+  TypeScript, uses a for-loop instead of while+i++, and adds a fix
+  for an escape-detection bug (counting consecutive backslashes
+  rather than checking the immediately-previous character). The
+  technique itself is upstream's.
+- **JSON-action streaming protocol** — `packages/agent-core/src/server/stream-actions.ts`'s
+  shape (assistant prefill of the opening `{"actions":[{"_type":`,
+  cursor-driven partial-JSON parsing, yielding each action twice
+  with `complete: false` then `complete: true`) **comes from
+  upstream**. The implementation here threads the design through
+  the Vercel `ai` SDK and adds Anipres-specific bits (provider
+  switching, the abort-signal forwarding, the multi-action-per-chunk
+  cursor fix), but the protocol itself is theirs.
+- **System-prompt scaffolding** — `packages/agent-core/src/server/build-system-prompt.ts`
+  takes the section structure (intro + rules with `###` sub-sections),
+  the JSON-actions self-description, the "always emit at least one
+  action" rule, and the user-selection disambiguation idiom ("when
+  the user says 'this' / 'these', prefer the selection") **directly
+  from upstream's**
   [`intro-section.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/intro-section.ts)
   and
-  [`rules-section.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/rules-section.ts):
-  - `packages/agent-core/src/server/build-system-prompt.ts`
-- **Action / part registry pattern** — pluggable per-`_type` utils
-  registered via `registerActionUtil` / `registerPartUtil`:
+  [`rules-section.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/rules-section.ts).
+  The body of each section is rewritten for Anipres' vocabulary
+  (slides, cue frames, tracks, steps, the worked example), but the
+  scaffolding and several phrasings are clearly indebted to upstream.
+- **`AgentHelpers` shape-id resolution** — `packages/agent-core/src/client/agent-helpers.ts`'s
+  class name, role (per-request agent-id ↔ tldraw-id mapping with
+  collision avoidance), `Map<string, ...>` data structure, and
+  resolution flow ("look up first, mint a new one if missing")
+  **come from upstream's**
+  [`AgentHelpers.ts`](https://github.com/tldraw/agent-template/blob/main/client/AgentHelpers.ts).
+  The version here is a simplified reimplementation (interface-free,
+  no offset/rounding helpers, two narrower resolver methods
+  specialised for new-vs-existing intent), but the design is theirs.
+- **Action / part registry pattern** — the per-`_type` registry
+  (`registerActionUtil` / `getActionUtil`, with the symmetric pair
+  for prompt parts) is **patterned after upstream's**
+  [`AgentActionUtil.ts`](https://github.com/tldraw/agent-template/blob/main/client/actions/AgentActionUtil.ts)
+  and
+  [`PromptPartUtil.ts`](https://github.com/tldraw/agent-template/blob/main/client/parts/PromptPartUtil.ts).
+  My versions are simpler (a flat `Map<type, util>` rather than
+  default + mode-specific registries; interfaces rather than the
+  abstract-class hierarchy with `getInfo` / `sanitizeAction` /
+  `savesToHistory` methods), but the registry concept is theirs:
   - `packages/agent-core/src/client/action-util.ts`
   - `packages/agent-core/src/client/part-util.ts`
-- **AgentHelpers shape-id resolution** — collision-aware id minting
-  - lookup so model-supplied placeholder ids and live tldraw ids
-    coexist:
-  * `packages/agent-core/src/client/agent-helpers.ts`
-- **`buildPromptFromEditor` perception assembly** — gather
-  `pageShapes` / `selectedShapes` / `presentationState` parts from
-  an `Editor` instance:
+- **`buildPromptFromEditor` perception assembly** — iterate the
+  registered part utils and project editor state into prompt parts:
+  the design **comes from upstream**'s prompt-part architecture.
+  Anipres-specific parts (`pageShapes`, `selectedShapes`,
+  `presentationState`) are mine; the assembly pattern is theirs:
   - `packages/agent-core/src/client/build-prompt.ts`
-- **`applyActionStream` consumer loop** — iterate the streaming
-  iterable, gate on `complete: true`, dispatch via the action util
-  registry:
+- **`applyActionStream` consumer loop** — the iterate-streaming-
+  iterable + gate-on-`complete: true` + dispatch-through-registry
+  shape is **patterned after upstream's** action-applying flow:
   - `packages/agent-core/src/client/apply-action-stream.ts`
 - **Zod action schemas with `.meta({ description })`** — the
-  schemas double as the LLM's vocabulary via JSON-Schema export:
+  pattern of letting one schema double as both runtime validator
+  and the LLM-facing JSON-Schema vocabulary (with descriptions
+  carried by `.meta()`) is **adopted from upstream**. The Anipres
+  schemas (slide, attachCueFrame, focused frame actions, etc.) are
+  original; the dual-purpose-schema technique is theirs:
   - `packages/agent-core/src/schemas/actions.ts`
-- **`useAgent` React hook shape** — `send` / `cancel` / `reset` /
-  `restore` plus the streaming chat-log model:
+- **`useAgent` React hook surface** — the surface area of the
+  hook (`send`, `cancel`, `reset`, plus the chat-log + history
+  model) is **informed by upstream's** agent API. The
+  implementation here is structurally different (a React hook with
+  refs, not a class with managers); the inherited bit is the
+  shape of the public API:
   - `packages/agent-core/src/react/use-agent.ts`
 
-For completeness, the Anipres-specific pieces — the
-`attachCueFrame` action and presentation-aware schemas (slides, cue
-frames, tracks, steps); the BYO-key worker route and SSE plumbing;
-the per-document chat persistence; the CLI / MCP surfaces — are
-original to this repo. They're noted not to minimise the upstream
-debt but to make the boundary legible to readers tracing concepts.
+The Anipres-specific pieces — the `attachCueFrame` action and
+presentation-aware schemas (slides, cue frames, tracks, steps); the
+BYO-key worker route and SSE plumbing; the per-document chat
+persistence; the CLI / MCP surfaces — are original to this repo.
+This boundary is documented for readers tracing concepts back, not
+to minimise the upstream contribution.
 
 For the design rationale and how these pieces fit together in the
 context of Anipres' presentation model, see `docs/design-agent.md`.

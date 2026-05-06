@@ -1,7 +1,11 @@
-// Inspired by tldraw/agent-template (MIT, © 2024 tldraw Inc.) — the
-// "balance the open braces/brackets/quotes and re-parse the partial
-// JSON" technique comes from there. See THIRD_PARTY_NOTICES.md at
-// the repo root.
+// Largely a port of `worker/do/closeAndParseJson.ts` from tldraw/
+// agent-template (MIT, © 2024 tldraw Inc.) — same algorithm, same
+// stack representation, same JSON.parse-or-null contract. The
+// changes here are stylistic (TypeScript types, a for-loop instead
+// of a while-i++) plus one behavioural fix: counting consecutive
+// backslashes when detecting an escaped `"`, so a string ending in
+// an escaped backslash (`\\"`) doesn't trap the parser inside a
+// string forever. See THIRD_PARTY_NOTICES.md at the repo root.
 /**
  * Given a potentially-incomplete JSON string, append closing braces, brackets,
  * and quotation marks until it parses, then return the parsed value.
