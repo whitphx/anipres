@@ -49,6 +49,17 @@ analogous concept in this repo:
   `complete: true`):
   - `packages/agent-core/src/server/stream-actions.ts`
   - `packages/agent-core/src/server/close-and-parse-json.ts`
+- **System-prompt scaffolding** — split into intro + rules with
+  `###` sub-sections, the JSON-actions self-description, the "always
+  emit at least one action" rule, and the user-selection
+  disambiguation idiom ("when the user says 'this' / 'these',
+  prefer the selection"). Text was rewritten end-to-end for the
+  Anipres vocabulary (slides, cue frames, tracks, steps, worked
+  example), but the structure and several idioms came from upstream's
+  [`intro-section.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/intro-section.ts)
+  and
+  [`rules-section.ts`](https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/rules-section.ts):
+  - `packages/agent-core/src/server/build-system-prompt.ts`
 - **Action / part registry pattern** — pluggable per-`_type` utils
   registered via `registerActionUtil` / `registerPartUtil`:
   - `packages/agent-core/src/client/action-util.ts`
