@@ -2,6 +2,10 @@ packages:
   - packages/*
 
 onlyBuiltDependencies:
+  # koffi is a transitive dependency of cn-font-split — it's the FFI
+  # bridge cn-font-split uses to call its bundled native libffi binary
+  # for font subsetting. Listed here so pnpm runs its postinstall and
+  # the native bits land alongside the JS shim.
   - cn-font-split
   - esbuild
   - koffi
