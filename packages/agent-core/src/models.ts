@@ -16,14 +16,14 @@ export interface AgentModelDefinition {
  */
 export const AGENT_MODEL_DEFINITIONS = {
   // Anthropic
-  "claude-sonnet-4-5": {
-    name: "claude-sonnet-4-5",
-    id: "claude-sonnet-4-5",
+  "claude-sonnet-4-6": {
+    name: "claude-sonnet-4-6",
+    id: "claude-sonnet-4-6",
     provider: "anthropic",
   },
-  "claude-opus-4-5": {
-    name: "claude-opus-4-5",
-    id: "claude-opus-4-5",
+  "claude-opus-4-7": {
+    name: "claude-opus-4-7",
+    id: "claude-opus-4-7",
     provider: "anthropic",
   },
   "claude-haiku-4-5": {
@@ -38,13 +38,12 @@ export const AGENT_MODEL_DEFINITIONS = {
     id: "gpt-5",
     provider: "openai",
   },
-  "gpt-4o": {
-    name: "gpt-4o",
-    id: "gpt-4o",
-    provider: "openai",
-  },
 
   // Google
+  // TODO: revisit. The 2.5 generation was current when the agent
+  // landed; verify against the current Generative Language API model
+  // catalog (https://ai.google.dev/gemini-api/docs/models) before
+  // each release, and bump the ids if Google's stable line has moved.
   "gemini-2.5-pro": {
     name: "gemini-2.5-pro",
     id: "gemini-2.5-pro",
@@ -60,7 +59,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 
 export type AgentModelName = keyof typeof AGENT_MODEL_DEFINITIONS;
 
-export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-5";
+export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-6";
 
 export function isValidModelName(
   value: string | undefined,
