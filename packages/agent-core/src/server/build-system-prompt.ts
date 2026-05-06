@@ -1,16 +1,15 @@
-// The structure of this prompt — split into an intro section + a rules
-// section with `###` sub-sections, the JSON-actions self-description,
-// the "always emit at least one action" rule, and the user-selection
-// disambiguation guidance ("when the user says 'this' / 'these',
-// prefer the selection") — is adapted from tldraw/agent-template
-// (MIT, © 2024 tldraw Inc.):
+// Inspired by tldraw/agent-template (MIT, © 2024 tldraw Inc.) — the
+// section structure (intro + rules with `###` sub-sections), the
+// JSON-actions self-description, the "always emit at least one
+// action" rule, and the user-selection disambiguation idiom ("when
+// the user says 'this' / 'these', prefer the selection") all come
+// from upstream:
 //   - https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/intro-section.ts
 //   - https://github.com/tldraw/agent-template/blob/main/worker/prompt/sections/rules-section.ts
-// The text was rewritten end-to-end for Anipres (presentation-aware
-// vocabulary: slides, cue frames, tracks, steps; the worked example;
-// the per-shape projected vocabulary; the conversation-continuity
-// guidance), but the scaffolding and several idioms came from those
-// upstream files. See THIRD_PARTY_NOTICES.md at the repo root.
+// The body of each section is rewritten for Anipres' vocabulary
+// (slides, cue frames, tracks, steps, the worked example), but the
+// scaffolding and several phrasings are clearly indebted to those
+// files. See THIRD_PARTY_NOTICES.md at the repo root.
 import { buildResponseSchema } from "../schemas/build-response-schema.js";
 
 const INTRO = `You are an AI assistant collaborating with a user on an Anipres presentation built on top of a tldraw whiteboard.

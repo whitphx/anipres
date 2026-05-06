@@ -1,11 +1,11 @@
 # Third-party notices
 
-Anipres is MIT-licensed (see `LICENSE`). Some parts of the agent
-feature were influenced — in pattern, naming, and structure — by the
-following third-party project. The originals are reimplemented from
-scratch in this repo rather than copy-pasted, but the design lineage
-is significant enough that the upstream copyright notice is preserved
-here as required by the MIT license.
+Anipres is MIT-licensed (see `LICENSE`). The agent feature draws
+significant inspiration from the third-party project listed below —
+in design, structure, naming, and several specific patterns. We owe
+that work a real intellectual debt; this notice exists both to thank
+the upstream authors and to satisfy the attribution requirements of
+their license.
 
 ---
 
@@ -37,11 +37,13 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### What was adapted
+### What's inspired by it
 
-The agent feature mirrors several architectural patterns from tldraw's
-`agent-template`. Each line below points at the structurally
-analogous concept in this repo:
+Each line below points at a concept in this repo whose design comes
+directly from `agent-template`. The implementations here are
+independent reimplementations rather than verbatim copies, but the
+shape of each piece — the patterns, the names, the structural
+choices — is owed to the upstream:
 
 - **JSON-action streaming protocol** — assistant prefill of the
   opening `{"actions":[{"_type":` plus a cursor-based partial-JSON
@@ -83,11 +85,12 @@ analogous concept in this repo:
   `restore` plus the streaming chat-log model:
   - `packages/agent-core/src/react/use-agent.ts`
 
-Anipres-specific pieces (the `attachCueFrame` action, the
-`presentationState` / `slide` projections, the BYO-key worker route,
-the per-document chat persistence, the CLI / MCP surfaces, the
-parser's escape-counting fix, the multi-action-per-chunk cursor fix,
-and the rest of the schema vocabulary) are original to this repo.
+For completeness, the Anipres-specific pieces — the
+`attachCueFrame` action and presentation-aware schemas (slides, cue
+frames, tracks, steps); the BYO-key worker route and SSE plumbing;
+the per-document chat persistence; the CLI / MCP surfaces — are
+original to this repo. They're noted not to minimise the upstream
+debt but to make the boundary legible to readers tracing concepts.
 
 For the design rationale and how these pieces fit together in the
 context of Anipres' presentation model, see `docs/design-agent.md`.

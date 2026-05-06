@@ -27,13 +27,13 @@ provider-agnostic `ai`-SDK adapter). Anipres-specific concerns
 layered on top.
 
 `agent-template` is MIT-licensed (© 2024 tldraw Inc.). The full
-upstream notice and a per-file map of which patterns were adapted
-where are kept in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)
-at the repo root; the most pattern-derived files also carry a
-top-of-file pointer back to that notice. The implementations in this
-repo are independent reimplementations rather than direct copies, but
-the structural lineage is real and worth flagging both for legal
-hygiene and for readers tracing concepts back to their source.
+upstream notice and a per-file map of which concepts came from
+where live in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)
+at the repo root; the most clearly inspired files also carry a
+top-of-file pointer back to it. The intellectual debt is real and
+worth flagging — both as a thank-you to the upstream authors whose
+design work this feature builds on, and so future readers can trace
+the lineage back to the original.
 
 ## Table of Contents
 
