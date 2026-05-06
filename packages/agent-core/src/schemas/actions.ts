@@ -1,3 +1,9 @@
+// The "zod schemas with `.meta({ description })` doubling as the LLM's
+// JSON-Schema vocabulary" pattern is from tldraw/agent-template (MIT,
+// © 2024 tldraw Inc.). The Anipres-specific schemas (slide,
+// attachCueFrame, focused frame actions, etc.) are original; the
+// pattern of using zod meta for model-facing descriptions is the
+// adopted bit. See THIRD_PARTY_NOTICES.md at the repo root.
 import { z } from "zod";
 
 /**

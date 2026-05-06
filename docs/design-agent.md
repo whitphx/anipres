@@ -26,6 +26,15 @@ provider-agnostic `ai`-SDK adapter). Anipres-specific concerns
 (slides, frames, presentation steps, the per-shape track model) are
 layered on top.
 
+`agent-template` is MIT-licensed (© 2024 tldraw Inc.). The full
+upstream notice and a per-file map of which patterns were adapted
+where are kept in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)
+at the repo root; the most pattern-derived files also carry a
+top-of-file pointer back to that notice. The implementations in this
+repo are independent reimplementations rather than direct copies, but
+the structural lineage is real and worth flagging both for legal
+hygiene and for readers tracing concepts back to their source.
+
 ## Table of Contents
 
 1. [Goal](#goal)

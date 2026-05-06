@@ -1,3 +1,9 @@
+// The `useAgent` hook surface (`send` / `cancel` / `reset` plus the
+// streaming chat-log reducer model) is patterned after tldraw/agent-
+// template (MIT, © 2024 tldraw Inc.). The Anipres-specific bits
+// (per-document `restore`, the action-log entry type, the stale-send
+// teardown gate) are original. See THIRD_PARTY_NOTICES.md at the
+// repo root.
 import { useCallback, useRef, useState } from "react";
 import type { Editor } from "tldraw";
 import { getActionUtil } from "../client/action-util.js";

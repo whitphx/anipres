@@ -1,3 +1,6 @@
+// Symmetric counterpart to `action-util.ts` — the per-`type` part-util
+// registry is also patterned after tldraw/agent-template (MIT, © 2024
+// tldraw Inc.). See THIRD_PARTY_NOTICES.md at the repo root.
 import type { Editor } from "tldraw";
 import type { PromptPart } from "../schemas/parts.js";
 

@@ -1,3 +1,7 @@
+// The shape-id resolution model (agent-supplied placeholders mapped to
+// tldraw-minted ids per turn, with collision avoidance) is adapted
+// from tldraw/agent-template (MIT, © 2024 tldraw Inc.). See
+// THIRD_PARTY_NOTICES.md at the repo root.
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 
 /**

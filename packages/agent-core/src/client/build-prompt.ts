@@ -1,3 +1,7 @@
+// `buildPromptFromEditor` follows the perception-assembly pattern
+// from tldraw/agent-template (MIT, © 2024 tldraw Inc.) — iterate the
+// registered part utils, project editor state into prompt parts. See
+// THIRD_PARTY_NOTICES.md at the repo root.
 import type { Editor } from "tldraw";
 import { getRegisteredActionTypes } from "./action-util.js";
 import { getPartUtil, getRegisteredPartTypes } from "./part-util.js";

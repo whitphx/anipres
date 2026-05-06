@@ -1,3 +1,8 @@
+// `applyActionStream`'s consume-and-dispatch loop is patterned after
+// tldraw/agent-template (MIT, © 2024 tldraw Inc.) — iterate the
+// streaming iterable, gate on `complete: true`, dispatch through the
+// per-`_type` action-util registry. See THIRD_PARTY_NOTICES.md at the
+// repo root.
 import type { Editor } from "tldraw";
 import type { AgentAction } from "../schemas/actions.js";
 import type { Streaming } from "../types.js";

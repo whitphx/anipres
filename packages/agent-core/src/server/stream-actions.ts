@@ -1,3 +1,9 @@
+// The streaming protocol in this file (assistant-prefill seed +
+// cursor-driven partial-JSON parser yielding each action twice) is
+// modeled on tldraw/agent-template (MIT, © 2024 tldraw Inc.). Re-
+// implemented from scratch — not a copy — but the structural lineage
+// is preserved here for license attribution. See THIRD_PARTY_NOTICES.md
+// at the repo root.
 import { streamText, type ModelMessage } from "ai";
 import type { AgentAction } from "../schemas/actions.js";
 import type { AgentPrompt } from "../schemas/parts.js";

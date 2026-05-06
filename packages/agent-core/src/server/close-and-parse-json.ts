@@ -1,3 +1,8 @@
+// The "balance the open braces/brackets/quotes and re-parse" idea
+// originates with tldraw/agent-template (MIT, © 2024 tldraw Inc.).
+// Implementation here is independent (incl. the consecutive-backslash
+// escape detection fix), but the technique is borrowed; see
+// THIRD_PARTY_NOTICES.md at the repo root.
 /**
  * Given a potentially-incomplete JSON string, append closing braces, brackets,
  * and quotation marks until it parses, then return the parsed value.
