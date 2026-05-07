@@ -10,19 +10,16 @@
 // time, not module-load time, which is why a function-call API
 // works here — callers just need to invoke `installDomGlobals()`
 // before instantiating an `Editor` (i.e. before
-// `loadHeadlessEditor()`). The function is idempotent, so the
-// pattern is to call it at the top of any public entry point
-// (e.g. `editSnapshot`, `summarizeSnapshot`).
+// `loadHeadlessEditor()`). The function is idempotent.
 //
-// `disposeDomGlobals()` is the matching teardown. happy-dom's
-// `Window` keeps internal Timeouts / MessagePorts / Immediates
-// alive that the Node event loop won't drain on its own, so a
-// CLI invocation that completes its work successfully would still
-// hang waiting for those handles. Per happy-dom's docs, calling
-// `Window.close()` releases them. Public entry points should
-// dispose in a `finally` so single-shot processes (the CLI) exit
-// cleanly; long-lived hosts (the MCP server) just pay the cost
-// of recreating the Window on each request, which is cheap.
+// We don't expose a corresponding `disposeDomGlobals()`. happy-dom's
+// `Window.close()` is async and only partially drains its internal
+// handles even when awaited, and `import "anipres"` itself installs
+// process-level handles (timers from tldraw's transitive deps) that
+// no DOM-side teardown can reach. Single-shot CLIs need to call
+// `process.exit(0)` at the end of their flow to exit cleanly;
+// long-lived hosts (MCP server) just leave the install in place
+// across requests.
 //
 // We intentionally don't use vitest's `// @vitest-environment
 // happy-dom` magic comment for this surface — those tests run in
@@ -58,12 +55,6 @@ export function installDomGlobals(): void {
   setIfAbsent(g, "cancelAnimationFrame", (id: number) =>
     clearTimeout(id as unknown as ReturnType<typeof setTimeout>),
   );
-}
-
-export function disposeDomGlobals(): void {
-  if (!win) return;
-  void win.close();
-  win = null;
 }
 
 function setIfAbsent(

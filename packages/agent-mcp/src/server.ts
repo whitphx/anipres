@@ -4,7 +4,7 @@ import {
   editSnapshot,
   formatSnapshotSummary,
   summarizeSnapshot,
-} from "@anipres/agent-cli";
+} from "@anipres/agent-core/runtime";
 import {
   DEFAULT_MODEL_NAME,
   getAgentModelDefinition,

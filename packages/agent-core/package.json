@@ -22,6 +22,10 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
     }
   },
   "main": "./dist/index.js",
@@ -38,12 +42,12 @@
     "@ai-sdk/google": "^2.0.14",
     "@ai-sdk/openai": "^2.0.24",
     "ai": "^5.0.63",
+    "anipres": "workspace:*",
+    "happy-dom": "^20.9.0",
     "zod": "^4.1.8"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",
-    "anipres": "workspace:*",
-    "happy-dom": "^20.9.0",
     "react": "^18.3.1",
     "tldraw": "3.15.5"
   },

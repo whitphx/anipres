@@ -118,4 +118,9 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+// Force-exit on success. The headless-tldraw / anipres imports
+// register process-level handles (timers from transitive deps,
+// happy-dom workers from `installDomGlobals`) that the Node event
+// loop won't drain on its own; without this the process would
+// print its output then hang. citty already handles error exits.
+runMain(main).then(() => process.exit(0));

@@ -3,14 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
   "bin": {
     "anipres-agent": "./dist/bin.js"
   },
@@ -26,10 +18,7 @@
   },
   "dependencies": {
     "@anipres/agent-core": "workspace:*",
-    "anipres": "workspace:*",
-    "citty": "^0.1.6",
-    "happy-dom": "^20.9.0",
-    "tldraw": "3.15.5"
+    "citty": "^0.1.6"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

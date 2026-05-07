@@ -83,18 +83,9 @@ importers:
       '@anipres/agent-core':
         specifier: workspace:*
         version: link:../agent-core
-      anipres:
-        specifier: workspace:*
-        version: link:../anipres
       citty:
         specifier: ^0.1.6
         version: 0.1.6
-      happy-dom:
-        specifier: ^20.9.0
-        version: 20.9.0
-      tldraw:
-        specifier: 3.15.5
-        version: 3.15.5(@types/react-dom@18.3.5(@types/react@18.3.18))(@types/react@18.3.18)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.13.10
@@ -117,6 +108,12 @@ importers:
       ai:
         specifier: ^5.0.63
         version: 5.0.184(zod@4.1.13)
+      anipres:
+        specifier: workspace:*
+        version: link:../anipres
+      happy-dom:
+        specifier: ^20.9.0
+        version: 20.9.0
       zod:
         specifier: ^4.1.8
         version: 4.1.13
@@ -124,12 +121,6 @@ importers:
       '@types/react':
         specifier: ^18.3.18
         version: 18.3.18
-      anipres:
-        specifier: workspace:*
-        version: link:../anipres
-      happy-dom:
-        specifier: ^20.9.0
-        version: 20.9.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -139,9 +130,6 @@ importers:
 
   packages/agent-mcp:
     dependencies:
-      '@anipres/agent-cli':
-        specifier: workspace:*
-        version: link:../agent-cli
       '@anipres/agent-core':
         specifier: workspace:*
         version: link:../agent-core

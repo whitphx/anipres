@@ -17,7 +17,6 @@
     "start": "node --import tsx/esm src/bin.ts"
   },
   "dependencies": {
-    "@anipres/agent-cli": "workspace:*",
     "@anipres/agent-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.1.8"
