@@ -7,7 +7,7 @@ import {
   type FrameAction,
 } from "anipres/models";
 import type { SnapshotInput } from "./edit-command.js";
-import { installDomGlobals } from "./install-dom-globals.js";
+import { disposeDomGlobals, installDomGlobals } from "./install-dom-globals.js";
 
 export interface SnapshotSummary {
   shapes: number;
@@ -30,38 +30,39 @@ export interface SnapshotSummary {
  * subcommand and the MCP tool of the same name.
  */
 export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
-  // tldraw's `Editor` reaches for `document` / `HTMLElement` from
-  // its constructor; under Node those globals don't exist by
-  // default. Install happy-dom-backed shims before the headless
-  // editor is built. Idempotent — calling again is a no-op.
+  // See editSnapshot for why install + dispose are paired around the
+  // headless-editor lifecycle.
   installDomGlobals();
-
-  const [editor, dispose] = loadHeadlessEditor({ snapshot });
   try {
-    const shapes = editor.getCurrentPageShapes();
-    const byType: Record<string, number> = {};
-    for (const s of shapes) byType[s.type] = (byType[s.type] ?? 0) + 1;
+    const [editor, dispose] = loadHeadlessEditor({ snapshot });
+    try {
+      const shapes = editor.getCurrentPageShapes();
+      const byType: Record<string, number> = {};
+      for (const s of shapes) byType[s.type] = (byType[s.type] ?? 0) + 1;
 
-    const frames = getFrames(shapes);
-    const batches = getFrameBatches(frames);
-    const ordered = getGlobalOrder(batches);
+      const frames = getFrames(shapes);
+      const batches = getFrameBatches(frames);
+      const ordered = getGlobalOrder(batches);
 
-    return {
-      shapes: shapes.length,
-      byType,
-      frames: frames.length,
-      totalSteps: ordered.length,
-      steps: ordered.map((step, i) => ({
-        index: i,
-        batches: step.map((b) => ({
-          trackId: b.trackId,
-          action: b.data[0].action,
-          frameCount: b.data.length,
+      return {
+        shapes: shapes.length,
+        byType,
+        frames: frames.length,
+        totalSteps: ordered.length,
+        steps: ordered.map((step, i) => ({
+          index: i,
+          batches: step.map((b) => ({
+            trackId: b.trackId,
+            action: b.data[0].action,
+            frameCount: b.data.length,
+          })),
         })),
-      })),
-    };
+      };
+    } finally {
+      dispose();
+    }
   } finally {
-    dispose();
+    disposeDomGlobals();
   }
 }
 

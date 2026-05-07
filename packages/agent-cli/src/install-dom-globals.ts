@@ -12,8 +12,17 @@
 // before instantiating an `Editor` (i.e. before
 // `loadHeadlessEditor()`). The function is idempotent, so the
 // pattern is to call it at the top of any public entry point
-// (e.g. `editSnapshot`, `summarizeSnapshot`); calling it in nested
-// helpers is harmless.
+// (e.g. `editSnapshot`, `summarizeSnapshot`).
+//
+// `disposeDomGlobals()` is the matching teardown. happy-dom's
+// `Window` keeps internal Timeouts / MessagePorts / Immediates
+// alive that the Node event loop won't drain on its own, so a
+// CLI invocation that completes its work successfully would still
+// hang waiting for those handles. Per happy-dom's docs, calling
+// `Window.close()` releases them. Public entry points should
+// dispose in a `finally` so single-shot processes (the CLI) exit
+// cleanly; long-lived hosts (the MCP server) just pay the cost
+// of recreating the Window on each request, which is cheap.
 //
 // We intentionally don't use vitest's `// @vitest-environment
 // happy-dom` magic comment for this surface — those tests run in
@@ -22,13 +31,11 @@
 
 import { Window } from "happy-dom";
 
-let installed = false;
+let win: Window | null = null;
 
 export function installDomGlobals(): void {
-  if (installed) return;
-  installed = true;
-
-  const win = new Window({ url: "http://localhost/" });
+  if (win) return;
+  win = new Window({ url: "http://localhost/" });
   const g = globalThis as unknown as Record<string, unknown>;
 
   // Force the DOM-shaped globals tldraw actually uses.
@@ -51,6 +58,12 @@ export function installDomGlobals(): void {
   setIfAbsent(g, "cancelAnimationFrame", (id: number) =>
     clearTimeout(id as unknown as ReturnType<typeof setTimeout>),
   );
+}
+
+export function disposeDomGlobals(): void {
+  if (!win) return;
+  void win.close();
+  win = null;
 }
 
 function setIfAbsent(

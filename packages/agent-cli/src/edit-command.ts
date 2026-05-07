@@ -12,7 +12,7 @@ import {
   type TLEditorSnapshot,
   type TLStoreSnapshot,
 } from "tldraw";
-import { installDomGlobals } from "./install-dom-globals.js";
+import { disposeDomGlobals, installDomGlobals } from "./install-dom-globals.js";
 
 export type SnapshotInput = Partial<TLEditorSnapshot> | TLStoreSnapshot;
 
@@ -58,38 +58,44 @@ export async function editSnapshot(
   // tldraw's `Editor` reaches for `document` / `HTMLElement` from
   // its constructor; under Node those globals don't exist by
   // default. Install happy-dom-backed shims before the headless
-  // editor is built. Idempotent — calling again is a no-op.
+  // editor is built, and dispose them in `finally` so the Node
+  // event loop can drain (happy-dom's Window keeps internal
+  // Timeouts / MessagePorts alive that would otherwise hang a
+  // single-shot CLI process). Both calls are idempotent /
+  // re-entrant against repeated invocations.
   installDomGlobals();
 
-  const [editor, dispose] = loadHeadlessEditor({ snapshot: opts.snapshot });
-
-  const transcript: AgentAction[] = [];
-
   try {
-    const prompt = buildPromptFromEditor(editor, opts.prompt);
+    const [editor, dispose] = loadHeadlessEditor({ snapshot: opts.snapshot });
+    const transcript: AgentAction[] = [];
+    try {
+      const prompt = buildPromptFromEditor(editor, opts.prompt);
 
-    const stream = streamActions({
-      prompt,
-      env: opts.env,
-      modelName: opts.modelName,
-      abortSignal: opts.abortSignal,
-      onChunk: opts.onChunk,
-      onFinish: opts.onFinish,
-      onError: opts.onError,
-    });
+      const stream = streamActions({
+        prompt,
+        env: opts.env,
+        modelName: opts.modelName,
+        abortSignal: opts.abortSignal,
+        onChunk: opts.onChunk,
+        onFinish: opts.onFinish,
+        onError: opts.onError,
+      });
 
-    await applyActionStream({
-      editor,
-      actions: stream,
-      onComplete: (action) => {
-        transcript.push(action);
-        opts.onAction?.(action);
-      },
-    });
+      await applyActionStream({
+        editor,
+        actions: stream,
+        onComplete: (action) => {
+          transcript.push(action);
+          opts.onAction?.(action);
+        },
+      });
 
-    return { snapshot: getSnapshot(editor.store), actions: transcript };
+      return { snapshot: getSnapshot(editor.store), actions: transcript };
+    } finally {
+      dispose();
+    }
   } finally {
-    dispose();
+    disposeDomGlobals();
   }
 }
 
