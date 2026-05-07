@@ -297,26 +297,16 @@ function loadApiKeys(): ApiKeys {
     out[provider] = localStorage.getItem(apiKeyStorageKey(provider)) ?? "";
   }
 
-  // One-shot migration from the pre-multi-provider single-key
-  // storage. The user entered that key while some model was
-  // selected; the most likely intended provider is the one the
-  // currently-stored model belongs to. Only migrate when the target
-  // slot is empty so a freshly-entered per-provider key isn't
-  // overwritten.
-  const legacy = localStorage.getItem(LEGACY_API_KEY_STORAGE);
-  if (legacy) {
-    const storedModelName = localStorage.getItem(STORAGE_MODEL_KEY);
-    const candidateName =
-      storedModelName && storedModelName in AGENT_MODEL_DEFINITIONS
-        ? (storedModelName as AgentModelName)
-        : DEFAULT_MODEL_NAME;
-    const candidateProvider = AGENT_MODEL_DEFINITIONS[candidateName].provider;
-    if (!out[candidateProvider]) {
-      out[candidateProvider] = legacy;
-      localStorage.setItem(apiKeyStorageKey(candidateProvider), legacy);
-    }
-    localStorage.removeItem(LEGACY_API_KEY_STORAGE);
-  }
+  // Drop the pre-multi-provider single-key entry if it's still
+  // around. An earlier draft of this PR migrated the value across to
+  // the right per-provider slot, but CodeQL flagged the cross-key
+  // data flow as "clear-text storage of sensitive information" —
+  // which is in fact the design's premise (see the disclosure in
+  // the settings panel) but not worth flagging on every static
+  // analysis run. The single-key storage was only briefly the
+  // shape; affected users re-enter their key once and then load
+  // the per-provider entries as normal.
+  localStorage.removeItem(LEGACY_API_KEY_STORAGE);
   return out;
 }
 

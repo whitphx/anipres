@@ -1,6 +1,14 @@
 packages:
   - packages/*
 
+# `ip-address` 10.1.0 has a moderate XSS advisory in its
+# Address6 HTML-emitting methods (GHSA-v2v4-37r5-5v8g, patched in
+# 10.1.1). It comes in as a transitive of @modelcontextprotocol/sdk
+# → express-rate-limit. Pin to the patched range until the SDK ships
+# an update that uses it directly.
+overrides:
+  ip-address: ">=10.1.1"
+
 # pnpm 11 replaced the older `onlyBuiltDependencies` /
 # `ignoredBuiltDependencies` arrays with a single `allowBuilds` map
 # of `package: boolean`. `true` runs the package's install scripts;
