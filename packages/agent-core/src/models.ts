@@ -7,6 +7,10 @@ export interface AgentModelDefinition {
   /** Provider-specific hint that this model benefits from extra thinking
    *  budget (e.g. Gemini reasoning models). */
   thinking?: boolean;
+  /** This model is a reasoning model that rejects the `temperature`
+   *  parameter (e.g. OpenAI gpt-5). Sending temperature returns a 400
+   *  from the provider. */
+  reasoning?: boolean;
 }
 
 /**
@@ -52,6 +56,7 @@ export const AGENT_MODEL_DEFINITIONS = {
     name: "gpt-5",
     id: "gpt-5",
     provider: "openai",
+    reasoning: true,
   },
 
   // Google

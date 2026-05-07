@@ -118,7 +118,10 @@ export async function* streamActions(
     model,
     messages,
     maxOutputTokens: 8192,
-    temperature: 0,
+    // Reasoning models (OpenAI gpt-5 today, future ones likely too)
+    // reject `temperature` outright with a 400. Skip it for those;
+    // pass our usual deterministic 0 for everything else.
+    ...(def.reasoning ? {} : { temperature: 0 }),
     abortSignal: opts.abortSignal,
     // Anthropic needs the system prompt as a `ModelMessage` to attach a
     // cache breakpoint via `providerOptions`. The default warning about

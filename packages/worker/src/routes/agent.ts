@@ -88,7 +88,16 @@ export const agentRoutes = new Hono<AppBindings>().post(
         // 200 OK with an empty body — a confusing "silent failure"
         // mode. Stash the first such error and surface it as a `data`
         // event before closing.
+        //
+        // Also stash the finishInfo so we can synthesise a diagnostic
+        // error event when the stream completes cleanly with zero
+        // actions (a separate silent-failure mode: provider says it's
+        // done but never emitted any usable text — e.g. when an output
+        // policy or some prompt rejection truncates the response
+        // before the JSON shape is reached).
         let asyncError: unknown = null;
+        let actionsYielded = 0;
+        let finishInfo: { finishReason: string; text: string } | null = null;
         try {
           for await (const action of streamActions({
             prompt,
@@ -98,19 +107,34 @@ export const agentRoutes = new Hono<AppBindings>().post(
             onError: (error) => {
               if (asyncError === null) asyncError = error;
             },
+            onFinish: (info) => {
+              finishInfo = info;
+            },
           })) {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(action)}\n\n`),
             );
+            actionsYielded++;
           }
-          if (asyncError !== null && !upstreamSignal.aborted) {
-            const message =
-              asyncError instanceof Error
-                ? asyncError.message
-                : String(asyncError);
+          if (upstreamSignal.aborted) {
+            // Client went away — no one to tell.
+          } else if (asyncError !== null) {
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ error: message })}\n\n`,
+                `data: ${JSON.stringify({ error: stringifyError(asyncError) })}\n\n`,
+              ),
+            );
+          } else if (actionsYielded === 0) {
+            // Stream ended cleanly without yielding anything. Most
+            // likely a provider refusal or a prompt-shape mismatch the
+            // SDK didn't classify as an error. Synthesise a diagnostic
+            // event with the finish reason and a snippet of the raw
+            // text so the browser sees *something*.
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  error: describeNoActionFailure(finishInfo),
+                })}\n\n`,
               ),
             );
           }
@@ -122,9 +146,10 @@ export const agentRoutes = new Hono<AppBindings>().post(
             controller.close();
             return;
           }
-          const message = err instanceof Error ? err.message : String(err);
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`),
+            encoder.encode(
+              `data: ${JSON.stringify({ error: stringifyError(err) })}\n\n`,
+            ),
           );
         } finally {
           try {
@@ -146,6 +171,56 @@ export const agentRoutes = new Hono<AppBindings>().post(
     });
   },
 );
+
+/**
+ * Pull a human-readable string out of whatever the AI SDK / provider
+ * threw or reported. The SDK frequently surfaces error objects that
+ * aren't `Error` instances — e.g. `{ name, message, statusCode, …}`
+ * or `{ type: "error", error: { message } }` — and `String(obj)`
+ * collapses those to `"[object Object]"`, which is what the user
+ * ends up seeing in the chat panel. Walk the common shapes; fall
+ * back to a JSON dump (capped) when nothing matches.
+ */
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null) {
+    const obj = error as { message?: unknown; error?: unknown };
+    if (typeof obj.message === "string") return obj.message;
+    // Some SDK-level reports nest the real error one level deep:
+    // `{ type: "error", error: { message: "…" } }`.
+    if (obj.error !== undefined) {
+      const nested = stringifyError(obj.error);
+      if (nested && nested !== "[object Object]") return nested;
+    }
+    try {
+      return JSON.stringify(error).slice(0, 500);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+/**
+ * Compose a diagnostic message for the "stream completed cleanly,
+ * yielded zero actions" path. `finishInfo.finishReason` (when
+ * present) is the most useful signal — the provider tells us why it
+ * stopped (`stop`, `length`, `content-filter`, etc.). The raw text
+ * snippet helps when the model emitted prose preamble that the JSON
+ * parser couldn't classify.
+ */
+function describeNoActionFailure(
+  finishInfo: { finishReason: string; text: string } | null,
+): string {
+  const reasonPart = finishInfo
+    ? `finishReason=${finishInfo.finishReason}`
+    : "finishReason=unknown";
+  const textPart = finishInfo?.text
+    ? `; raw output: ${finishInfo.text.slice(0, 200)}${finishInfo.text.length > 200 ? "…" : ""}`
+    : "; raw output empty";
+  return `The model stream ended without producing any actions (${reasonPart}${textPart}). Likely a refusal, a prompt-shape mismatch, or an unsupported request parameter for the chosen model.`;
+}
 
 function buildEnv(modelName: string | undefined, apiKey: string): AgentEnv {
   if (!modelName || !isValidModelName(modelName)) {
