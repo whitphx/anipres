@@ -56,7 +56,7 @@ jobs:
           path: packages/anipres/dist
           name: anipres-dist
 
-  test-agent-core:
+  build-agent-core:
     needs: [build-anipres]
     runs-on: ubuntu-latest
     defaults:
@@ -97,41 +97,6 @@ jobs:
 
       - name: Test
         run: pnpm test
-
-  build-agent-core:
-    # Runs in parallel with test-agent-core; intentionally not gated
-    # on it. Downstream artifact consumers (test-worker, build-app)
-    # only need the build, not the lint/test verdict — those gate at
-    # the deploy step instead, mirroring how lint-app / test-worker
-    # split off from build-app / deploy-worker elsewhere in this file.
-    needs: [build-anipres]
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/agent-core
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          version: latest
-          run_install: false
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
 
       - name: Build
         run: pnpm build
@@ -400,15 +365,7 @@ jobs:
   # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
   # the preview worker is for exercising auth + sync end-to-end.
   deploy-worker:
-    needs:
-      [
-        build-anipres,
-        build-agent-core,
-        test-agent-core,
-        build-app,
-        lint-app,
-        test-worker,
-      ]
+    needs: [build-anipres, build-agent-core, build-app, lint-app, test-worker]
 
     if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
 
