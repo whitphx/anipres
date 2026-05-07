@@ -1,11 +1,38 @@
 packages:
   - packages/*
 
-onlyBuiltDependencies:
-  # koffi is a transitive dependency of cn-font-split — it's the FFI
-  # bridge cn-font-split uses to call its bundled native libffi binary
-  # for font subsetting. Listed here so pnpm runs its postinstall and
-  # the native bits land alongside the JS shim.
-  - cn-font-split
-  - esbuild
-  - koffi
+# pnpm 11 replaced the older `onlyBuiltDependencies` /
+# `ignoredBuiltDependencies` arrays with a single `allowBuilds` map
+# of `package: boolean`. `true` runs the package's install scripts;
+# `false` explicitly acknowledges the script and skips it. Unlisted
+# packages with build scripts are a hard install error in pnpm 11.
+# When adding a dep that has a build script (the install error names
+# them), add an entry here with the right boolean.
+allowBuilds:
+  # Native libffi binary used by cn-font-split for font subsetting.
+  # cn-font-split is the JS shim; koffi is the FFI bridge that loads
+  # the bundled .dylib/.so/.dll. Both must build together.
+  cn-font-split: true
+  koffi: true
+  # esbuild and workerd ship native binaries for the runtime they
+  # target (vite/wrangler bundling and Cloudflare worker dev).
+  esbuild: true
+  workerd: true
+  # sharp and protobufjs ship native binaries we let pnpm fetch on
+  # install. core-js's "build" is just a postinstall sponsorship
+  # banner — harmless to run, but still has to be acknowledged.
+  sharp: true
+  protobufjs: true
+  core-js: true
+  # @parcel/watcher's prebuilt native fs-watcher is a perf
+  # optimisation for sass file watching via vite; sass falls back
+  # to a JS polling watcher when it's missing, which is fine for
+  # both CI and our dev workflow.
+  "@parcel/watcher": false
+  # Playwright's postinstall downloads ~150 MB of Chromium. It's a
+  # transitive dep (via @cloudflare/vitest-pool-workers); nothing
+  # here needs Playwright's bundled browser, so skipping the
+  # download is the right call. The Playwright MCP plugin used
+  # during local development has its own browser install separate
+  # from this package.
+  playwright-chromium: false
