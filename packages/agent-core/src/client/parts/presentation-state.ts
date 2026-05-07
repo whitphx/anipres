@@ -9,9 +9,9 @@ import {
 import {
   FocusedEasingSchema,
   type FocusedEasing,
-  type FocusedFrameAction,
-} from "../../schemas/actions.js";
-import type { PresentationStatePart } from "../../schemas/parts.js";
+} from "../../format/focused-easing.js";
+import type { FocusedFrameAction } from "../../format/focused-frame-action.js";
+import type { PresentationStatePart } from "../../schemas/prompt-part.js";
 import { registerPartUtil } from "../part-util.js";
 
 /**

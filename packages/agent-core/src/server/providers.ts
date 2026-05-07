@@ -3,7 +3,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { getAgentModelDefinition, type AgentModelName } from "../models.js";
-import type { AgentEnv } from "../types.js";
+import type { AgentEnv } from "../types/agent-env.js";
 
 /**
  * Resolve a model name to an `ai`-SDK `LanguageModel` using the supplied env

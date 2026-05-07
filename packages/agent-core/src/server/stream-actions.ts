@@ -5,15 +5,16 @@
 // the implementation here owes much to it. See THIRD_PARTY_NOTICES.md
 // at the repo root.
 import { streamText, type ModelMessage } from "ai";
-import type { AgentAction } from "../schemas/actions.js";
-import type { AgentPrompt } from "../schemas/parts.js";
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { AgentPrompt } from "../schemas/prompt-part.js";
 import {
   DEFAULT_MODEL_NAME,
   getAgentModelDefinition,
   isValidModelName,
   type AgentModelName,
 } from "../models.js";
-import type { AgentEnv, Streaming } from "../types.js";
+import type { AgentEnv } from "../types/agent-env.js";
+import type { Streaming } from "../types/streaming.js";
 import { buildMessages } from "./build-messages.js";
 import { buildSystemPrompt } from "./build-system-prompt.js";
 import { closeAndParseJson } from "./close-and-parse-json.js";

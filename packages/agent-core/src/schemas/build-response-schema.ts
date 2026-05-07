@@ -8,7 +8,7 @@
 // keys yet, so neither parameterisation is needed here. See
 // THIRD_PARTY_NOTICES.md at the repo root.
 import { z } from "zod";
-import { AgentActionSchema } from "./actions.js";
+import { AgentActionSchema } from "./agent-action.js";
 
 /**
  * Build the JSON schema injected into the system prompt. The model is

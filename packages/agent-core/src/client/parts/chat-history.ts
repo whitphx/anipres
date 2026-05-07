@@ -1,4 +1,7 @@
-import type { ChatHistoryPart, ChatHistoryTurn } from "../../schemas/parts.js";
+import type {
+  ChatHistoryPart,
+  ChatHistoryTurn,
+} from "../../schemas/prompt-part.js";
 
 /**
  * Build a ChatHistoryPart from in-memory turns. Like `userMessages`, this

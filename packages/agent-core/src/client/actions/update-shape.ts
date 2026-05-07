@@ -1,5 +1,5 @@
 import { toRichText } from "tldraw";
-import type { UpdateShapeAction } from "../../schemas/actions.js";
+import type { UpdateShapeAction } from "../../schemas/agent-action.js";
 import { registerActionUtil } from "../action-util.js";
 
 /**

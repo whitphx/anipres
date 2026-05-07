@@ -1,4 +1,4 @@
-import type { MessageAction } from "../../schemas/actions.js";
+import type { MessageAction } from "../../schemas/agent-action.js";
 import { registerActionUtil } from "../action-util.js";
 
 export const MessageActionUtil = registerActionUtil<MessageAction>({

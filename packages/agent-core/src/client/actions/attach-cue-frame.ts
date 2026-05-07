@@ -8,7 +8,7 @@ import {
   type CueFrame,
   type FrameAction,
 } from "anipres/models";
-import type { AttachCueFrameAction } from "../../schemas/actions.js";
+import type { AttachCueFrameAction } from "../../schemas/agent-action.js";
 import { registerActionUtil } from "../action-util.js";
 import type { AgentHelpers } from "../agent-helpers.js";
 

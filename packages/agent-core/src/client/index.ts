@@ -46,10 +46,8 @@ export {
 export { makeUserMessagesPart } from "./parts/user-messages.js";
 export { makeDefaultModePart } from "./parts/mode.js";
 export { makeChatHistoryPart } from "./parts/chat-history.js";
-export {
-  focusedShapeToTldrawShape,
-  tldrawShapeToFocusedShape,
-} from "./convert-shape.js";
+export { focusedShapeToTldrawShape } from "./convert-shape.js";
+export { tldrawShapeToFocusedShape } from "../format/convert-tldraw-shape-to-focused-shape.js";
 export { buildPromptFromEditor } from "./build-prompt.js";
 export {
   streamFromServer,

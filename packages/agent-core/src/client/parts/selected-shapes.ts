@@ -1,4 +1,4 @@
-import type { SelectedShapesPart } from "../../schemas/parts.js";
+import type { SelectedShapesPart } from "../../schemas/prompt-part.js";
 import { registerPartUtil } from "../part-util.js";
 
 /**

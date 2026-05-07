@@ -61,7 +61,7 @@ credit the upstream work honestly, not to limit our obligation:
   the Vercel `ai` SDK and adds Anipres-specific bits (provider
   switching, the abort-signal forwarding, the multi-action-per-chunk
   cursor fix), but the protocol itself is theirs.
-- **`Streaming<T>` type** — `packages/agent-core/src/types.ts` —
+- **`Streaming<T>` type** — `packages/agent-core/src/types/streaming.ts` —
   the name and the "wrap any T with a `complete` boolean (and a
   `time` field) so consumers can distinguish in-flight from
   completed values" concept **come from upstream's**
@@ -83,14 +83,22 @@ z.array(actionSchema) }` then call `z.toJSONSchema(...)`) **come
   [`shared/schema/buildResponseSchema.ts`](https://github.com/tldraw/agent-template/blob/main/shared/schema/buildResponseSchema.ts).
   Upstream additionally accepts `actionTypes`/`mode` arguments and
   strips internal meta keys; Anipres has neither yet.
-- **Tldraw → focused-shape projection** — `packages/agent-core/src/client/convert-shape.ts`'s
+- **Tldraw → focused-shape projection** — `packages/agent-core/src/format/convert-tldraw-shape-to-focused-shape.ts`'s
   `tldrawShapeToFocusedShape` function (name, role, switch-on-
   `shape.type` structure, returns a discriminated union of
   `_type`-tagged simplified shapes) **comes from upstream's**
   [`shared/format/convertTldrawShapeToFocusedShape.ts`](https://github.com/tldraw/agent-template/blob/main/shared/format/convertTldrawShapeToFocusedShape.ts).
   The Anipres set of focused shapes is smaller and adds a `slide`
   kind; the inverse direction (`focusedShapeToTldrawShape`, with
-  the cameraZoom auto-cue handling for slides) is original.
+  the cameraZoom auto-cue handling for slides) lives in
+  `packages/agent-core/src/client/convert-shape.ts` and is original.
+- **`format/` directory layout** — the split between `format/`
+  (visual-primitive schemas: focused color / easing / frame action
+  / shape, plus the tldraw-shape projection) and `schemas/` (the
+  agent-facing schemas: action, prompt-part, response-schema)
+  **mirrors upstream's** `shared/format/` vs `shared/schema/` split.
+  Going file-by-file (rather than collapsing into one `actions.ts`
+  god-file) makes future syncing against upstream changes easier.
 - **System-prompt scaffolding** — `packages/agent-core/src/server/build-system-prompt.ts`
   takes the section structure (intro + rules with `###` sub-sections),
   the JSON-actions self-description, the "always emit at least one

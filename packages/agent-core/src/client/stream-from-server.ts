@@ -1,6 +1,6 @@
-import type { AgentAction } from "../schemas/actions.js";
-import type { AgentPrompt } from "../schemas/parts.js";
-import type { Streaming } from "../types.js";
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { AgentPrompt } from "../schemas/prompt-part.js";
+import type { Streaming } from "../types/streaming.js";
 
 export interface StreamFromServerOptions {
   endpoint: string;

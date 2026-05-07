@@ -1,3 +1,10 @@
+// Mirrors tldraw/agent-template (MIT, © 2024 tldraw Inc.)'s
+// [`shared/schema/PromptPartDefinitions.ts`](https://github.com/tldraw/agent-template/blob/main/shared/schema/PromptPartDefinitions.ts).
+// The Anipres-specific parts (`presentationState`) are original; the
+// pattern of one schema per prompt part keyed by a `type`
+// discriminator, plus an `AgentPrompt` envelope object, is upstream's.
+// See THIRD_PARTY_NOTICES.md at the repo root.
+//
 // Why zod (and not valibot like the rest of the worker)?
 // The action schemas are exported as JSON Schema and embedded in the
 // LLM's system prompt — `.meta({ description })` annotations carry the
@@ -8,7 +15,8 @@
 // choice. Worker callers don't need to know — they import a typed
 // helper (`parseAgentPrompt` below), not `z` itself.
 import { z } from "zod";
-import { FocusedFrameActionSchema, FocusedShapeSchema } from "./actions.js";
+import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
+import { FocusedShapeSchema } from "../format/focused-shape.js";
 
 /**
  * A single user → agent message in the current turn. The agent receives all

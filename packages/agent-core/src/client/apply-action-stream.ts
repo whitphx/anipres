@@ -4,8 +4,8 @@
 // per-`_type` action-util registry. See THIRD_PARTY_NOTICES.md at the
 // repo root.
 import type { Editor } from "tldraw";
-import type { AgentAction } from "../schemas/actions.js";
-import type { Streaming } from "../types.js";
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { Streaming } from "../types/streaming.js";
 import { AgentHelpers } from "./agent-helpers.js";
 import { getActionUtil } from "./action-util.js";
 

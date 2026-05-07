@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMessages } from "./build-messages.js";
-import type { AgentPrompt } from "../schemas/parts.js";
+import type { AgentPrompt } from "../schemas/prompt-part.js";
 
 const baseMode: AgentPrompt["mode"] = {
   type: "mode",

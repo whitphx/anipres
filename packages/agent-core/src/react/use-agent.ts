@@ -10,9 +10,9 @@ import { getActionUtil } from "../client/action-util.js";
 import { AgentHelpers } from "../client/agent-helpers.js";
 import { buildPromptFromEditor } from "../client/build-prompt.js";
 import { streamFromServer } from "../client/stream-from-server.js";
-import type { AgentAction } from "../schemas/actions.js";
-import type { ChatHistoryTurn } from "../schemas/parts.js";
-import type { Streaming } from "../types.js";
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { ChatHistoryTurn } from "../schemas/prompt-part.js";
+import type { Streaming } from "../types/streaming.js";
 
 // Side-effect imports register the built-in action and part utils so the
 // hook can find them. Consumers can register more on top.

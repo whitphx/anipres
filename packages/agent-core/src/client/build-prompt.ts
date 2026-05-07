@@ -8,7 +8,7 @@ import { getPartUtil, getRegisteredPartTypes } from "./part-util.js";
 import { makeChatHistoryPart } from "./parts/chat-history.js";
 import { makeDefaultModePart } from "./parts/mode.js";
 import { makeUserMessagesPart } from "./parts/user-messages.js";
-import type { AgentPrompt, ChatHistoryTurn } from "../schemas/parts.js";
+import type { AgentPrompt, ChatHistoryTurn } from "../schemas/prompt-part.js";
 
 export interface BuildPromptOptions {
   /** Prior turns to include as conversation history. */

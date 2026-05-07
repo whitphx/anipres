@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseActionStream } from "./stream-actions.js";
-import type { Streaming } from "../types.js";
-import type { AgentAction } from "../schemas/actions.js";
+import type { Streaming } from "../types/streaming.js";
+import type { AgentAction } from "../schemas/agent-action.js";
 
 async function* fromChunks(chunks: string[]): AsyncIterable<string> {
   for (const c of chunks) yield c;

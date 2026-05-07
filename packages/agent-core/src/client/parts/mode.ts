@@ -1,4 +1,4 @@
-import type { ModePart } from "../../schemas/parts.js";
+import type { ModePart } from "../../schemas/prompt-part.js";
 
 /**
  * v0 ships with a single mode that exposes every registered action and the

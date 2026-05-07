@@ -1,4 +1,4 @@
-import type { DeleteShapeAction } from "../../schemas/actions.js";
+import type { DeleteShapeAction } from "../../schemas/agent-action.js";
 import { registerActionUtil } from "../action-util.js";
 
 /**

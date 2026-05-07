@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { loadHeadlessEditor } from "anipres";
 import { applyActionStream } from "./apply-action-stream.js";
 import "./actions/create-shape.js";
-import type { CreateAction } from "../schemas/actions.js";
-import type { Streaming } from "../types.js";
+import type { CreateAction } from "../schemas/agent-action.js";
+import type { Streaming } from "../types/streaming.js";
 
 async function* once<T>(value: T): AsyncIterable<T> {
   yield value;

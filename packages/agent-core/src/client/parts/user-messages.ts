@@ -1,4 +1,4 @@
-import type { UserMessagesPart } from "../../schemas/parts.js";
+import type { UserMessagesPart } from "../../schemas/prompt-part.js";
 
 /**
  * Build a UserMessagesPart from a plain list of strings. Not a registered

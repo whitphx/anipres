@@ -1,5 +1,5 @@
-import type { PageShapesPart } from "../../schemas/parts.js";
-import { tldrawShapeToFocusedShape } from "../convert-shape.js";
+import type { PageShapesPart } from "../../schemas/prompt-part.js";
+import { tldrawShapeToFocusedShape } from "../../format/convert-tldraw-shape-to-focused-shape.js";
 import { registerPartUtil } from "../part-util.js";
 
 export const PageShapesPartUtil = registerPartUtil<PageShapesPart>({

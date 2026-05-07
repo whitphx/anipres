@@ -3,8 +3,8 @@
 // tldraw/agent-template (MIT, © 2024 tldraw Inc.). See
 // THIRD_PARTY_NOTICES.md at the repo root.
 import type { Editor } from "tldraw";
-import type { AgentAction } from "../schemas/actions.js";
-import type { Streaming } from "../types.js";
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { Streaming } from "../types/streaming.js";
 import { AgentHelpers } from "./agent-helpers.js";
 
 export interface ApplyContext {

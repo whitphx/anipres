@@ -2,7 +2,7 @@
 // registry is also patterned after tldraw/agent-template (MIT, © 2024
 // tldraw Inc.). See THIRD_PARTY_NOTICES.md at the repo root.
 import type { Editor } from "tldraw";
-import type { PromptPart } from "../schemas/parts.js";
+import type { PromptPart } from "../schemas/prompt-part.js";
 
 export interface PartContext {
   editor: Editor;

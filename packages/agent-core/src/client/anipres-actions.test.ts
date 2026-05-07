@@ -12,8 +12,8 @@ import type {
   CreateAction,
   DeleteShapeAction,
   UpdateShapeAction,
-} from "../schemas/actions.js";
-import type { Streaming } from "../types.js";
+} from "../schemas/agent-action.js";
+import type { Streaming } from "../types/streaming.js";
 
 async function* fromArray<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;

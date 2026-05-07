@@ -1,4 +1,4 @@
-import type { ThinkAction } from "../../schemas/actions.js";
+import type { ThinkAction } from "../../schemas/agent-action.js";
 import { registerActionUtil } from "../action-util.js";
 
 export const ThinkActionUtil = registerActionUtil<ThinkAction>({

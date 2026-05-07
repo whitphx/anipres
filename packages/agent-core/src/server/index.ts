@@ -21,11 +21,12 @@ export {
   type AgentModelName,
   type AgentModelProvider,
 } from "../models.js";
-export type { AgentEnv, Streaming } from "../types.js";
-export type { AgentAction } from "../schemas/actions.js";
-export { parseAgentPrompt } from "../schemas/parts.js";
+export type { Streaming } from "../types/streaming.js";
+export type { AgentEnv } from "../types/agent-env.js";
+export type { AgentAction } from "../schemas/agent-action.js";
+export { parseAgentPrompt } from "../schemas/prompt-part.js";
 export type {
   AgentPrompt,
   ModePart,
   ParseAgentPromptResult,
-} from "../schemas/parts.js";
+} from "../schemas/prompt-part.js";

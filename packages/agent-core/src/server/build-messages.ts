@@ -12,7 +12,7 @@
 // design (parts → ModelMessages), simpler implementation. See
 // THIRD_PARTY_NOTICES.md at the repo root.
 import type { ModelMessage } from "ai";
-import type { AgentPrompt } from "../schemas/parts.js";
+import type { AgentPrompt } from "../schemas/prompt-part.js";
 
 /**
  * Convert the prompt parts into the model-message sequence for one agent
