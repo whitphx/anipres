@@ -229,10 +229,27 @@ export function ChatPanel() {
           <div key={i} className={`${styles.turn} ${turnClassName(turn.role)}`}>
             <div className={styles.turnText}>
               {turn.text ||
-                (turn.role === "agent" && turn.streaming ? "…" : "")}
+                (turn.role === "agent" && turn.streaming ? <TypingDots /> : "")}
             </div>
           </div>
         ))}
+        {/* Pre-first-token spinner: while a request is in flight but
+          the agent hasn't started a streaming bubble yet (so the
+          inline TypingDots above isn't shown), surface a placeholder
+          bubble so the user sees something is happening. Particularly
+          important for reasoning models (gpt-5) where the latency to
+          first token can be 5–30s. */}
+        {isRunning && !isLatestAgentStreaming(log) && (
+          <div
+            className={`${styles.turn} ${styles.agent}`}
+            role="status"
+            aria-label="Agent is responding"
+          >
+            <div className={styles.turnText}>
+              <TypingDots />
+            </div>
+          </div>
+        )}
         {error && (
           <div className={`${styles.turn} ${styles.errorTurn}`} role="alert">
             <div className={styles.turnText}>Error: {error}</div>
@@ -275,6 +292,27 @@ export function ChatPanel() {
       </form>
     </aside>
   );
+}
+
+function TypingDots() {
+  return (
+    <span className={styles.typingDots} aria-hidden>
+      <span className={styles.typingDot} />
+      <span className={styles.typingDot} />
+      <span className={styles.typingDot} />
+    </span>
+  );
+}
+
+/** Whether the current trailing log entry is a streaming agent
+ *  message — i.e. the inline TypingDots placeholder is already
+ *  rendered there and the standalone pre-first-token bubble would
+ *  duplicate it. */
+function isLatestAgentStreaming(
+  log: readonly { role: string; streaming?: boolean }[],
+): boolean {
+  const last = log[log.length - 1];
+  return last?.role === "agent" && last.streaming === true;
 }
 
 function turnClassName(role: "user" | "agent" | "action"): string {

@@ -172,6 +172,63 @@
   border-radius: 0;
 }
 
+.typingDots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* Tighten vertical alignment so the dots sit on the text baseline
+     of the surrounding bubble. */
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.typingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  opacity: 0.3;
+  animation: chatTypingPulse 1.4s infinite ease-in-out;
+}
+.typingDot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typingDot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes chatTypingPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Respect reduced-motion: still flicker (the user needs to know the
+   request is alive) but stop the scale pulsing, which is the part
+   that triggers vestibular sensitivity. */
+@media (prefers-reduced-motion: reduce) {
+  .typingDot {
+    animation: chatTypingFade 1.4s infinite ease-in-out;
+  }
+  @keyframes chatTypingFade {
+    0%,
+    80%,
+    100% {
+      opacity: 0.3;
+    }
+    40% {
+      opacity: 1;
+    }
+  }
+}
+
 .composer {
   display: flex;
   flex-direction: column;
