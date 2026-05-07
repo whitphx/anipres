@@ -1,34 +1,7 @@
-/* Light defaults match the sidebar palette (DocumentSidebar.module.css)
-   so the right and left columns share a coherent look. Dark-mode
-   overrides at the bottom of the file mirror the sidebar's choices. */
-
-.panel {
-  width: 360px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid #e8e8e8;
-  background: #f9f9f9;
-  color: #333;
-  font-size: 13px;
-  overflow: hidden;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px;
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #666;
-}
+/* Chat-specific styling. Outer panel chrome (.panel, .header,
+   .title) lives in AgentPanel.module.css and is shared with
+   AgentLoginPromo via the AgentPanel shell component. Dark-mode
+   overrides at the bottom mirror DocumentSidebar's palette. */
 
 .headerActions {
   display: flex;
@@ -299,21 +272,8 @@
 
 /* ----------------------------- Dark mode ----------------------------- */
 /* Mirrors DocumentSidebar's dark palette: bg #1e1e1e, border #333,
-   text #ccc, muted #999/#888. */
-
-:global([data-color-scheme="dark"]) .panel {
-  background: #1e1e1e;
-  border-left-color: #333;
-  color: #ccc;
-}
-
-:global([data-color-scheme="dark"]) .header {
-  border-bottom-color: #333;
-}
-
-:global([data-color-scheme="dark"]) .title {
-  color: #999;
-}
+   text #ccc, muted #999/#888. (.panel, .header, .title dark-mode
+   overrides live in AgentPanel.module.css.) */
 
 :global([data-color-scheme="dark"]) .modelSelect {
   background: #2a2a2a;

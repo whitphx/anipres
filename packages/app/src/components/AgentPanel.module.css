@@ -1,0 +1,48 @@
+/* Shared chrome for the right-rail agent slot. Light defaults match
+   the sidebar palette (DocumentSidebar.module.css) so the right and
+   left columns share a coherent look. Dark-mode overrides at the
+   bottom mirror the sidebar's choices. Per-feature styling
+   (ChatPanel's log/composer, AgentLoginPromo's body) lives in those
+   components' own .module.css files. */
+
+.panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #e8e8e8;
+  background: #f9f9f9;
+  color: #333;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+}
+
+:global([data-color-scheme="dark"]) .panel {
+  background: #1e1e1e;
+  border-left-color: #333;
+  color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .header {
+  border-bottom-color: #333;
+}
+
+:global([data-color-scheme="dark"]) .title {
+  color: #999;
+}

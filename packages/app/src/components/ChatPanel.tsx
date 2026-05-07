@@ -8,6 +8,7 @@ import {
 } from "@anipres/agent-core";
 import { useAgent, type AgentChatState } from "@anipres/agent-core/react";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
+import { AgentPanel } from "./AgentPanel";
 import styles from "./ChatPanel.module.css";
 
 const MODEL_OPTIONS = Object.keys(AGENT_MODEL_DEFINITIONS) as AgentModelName[];
@@ -146,9 +147,9 @@ export function ChatPanel() {
   };
 
   return (
-    <aside className={styles.panel} aria-label="AI agent chat">
-      <header className={styles.header}>
-        <span className={styles.title}>Agent</span>
+    <AgentPanel
+      ariaLabel="AI agent chat"
+      headerActions={
         <div className={styles.headerActions}>
           <select
             aria-label="Model"
@@ -181,8 +182,8 @@ export function ChatPanel() {
             ↺
           </button>
         </div>
-      </header>
-
+      }
+    >
       {showSettings && (
         <div className={styles.settings}>
           {ENABLED_PROVIDERS.map((provider) => {
@@ -290,7 +291,7 @@ export function ChatPanel() {
           )}
         </div>
       </form>
-    </aside>
+    </AgentPanel>
   );
 }
 
