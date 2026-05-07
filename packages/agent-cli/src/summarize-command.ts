@@ -1,9 +1,3 @@
-// Side-effect: install happy-dom globals before tldraw is touched
-// (loadHeadlessEditor below pulls in tldraw transitively). Co-located
-// here so any consumer that calls summarizeSnapshot gets the setup
-// automatically — no manual ordering required at the entry point.
-import "./setup-dom.js";
-
 import { readFile } from "node:fs/promises";
 import { loadHeadlessEditor } from "anipres";
 import {
@@ -13,6 +7,7 @@ import {
   type FrameAction,
 } from "anipres/models";
 import type { SnapshotInput } from "./edit-command.js";
+import { installDomGlobals } from "./install-dom-globals.js";
 
 export interface SnapshotSummary {
   shapes: number;
@@ -35,6 +30,12 @@ export interface SnapshotSummary {
  * subcommand and the MCP tool of the same name.
  */
 export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
+  // tldraw's `Editor` reaches for `document` / `HTMLElement` from
+  // its constructor; under Node those globals don't exist by
+  // default. Install happy-dom-backed shims before the headless
+  // editor is built. Idempotent — calling again is a no-op.
+  installDomGlobals();
+
   const [editor, dispose] = loadHeadlessEditor({ snapshot });
   try {
     const shapes = editor.getCurrentPageShapes();

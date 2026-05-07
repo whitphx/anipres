@@ -1,10 +1,3 @@
-// Side-effect: install happy-dom globals before tldraw is touched.
-// Tldraw's headless `Editor` reaches for `document` during construction,
-// so this has to run before `tldraw` and `anipres` are imported below.
-// Co-located here (rather than in entry points) so any consumer that
-// pulls in `editSnapshot` gets the setup automatically.
-import "./setup-dom.js";
-
 import { readFile, writeFile } from "node:fs/promises";
 import {
   applyActionStream,
@@ -19,6 +12,7 @@ import {
   type TLEditorSnapshot,
   type TLStoreSnapshot,
 } from "tldraw";
+import { installDomGlobals } from "./install-dom-globals.js";
 
 export type SnapshotInput = Partial<TLEditorSnapshot> | TLStoreSnapshot;
 
@@ -61,6 +55,12 @@ export interface EditSnapshotResult {
 export async function editSnapshot(
   opts: EditSnapshotOptions,
 ): Promise<EditSnapshotResult> {
+  // tldraw's `Editor` reaches for `document` / `HTMLElement` from
+  // its constructor; under Node those globals don't exist by
+  // default. Install happy-dom-backed shims before the headless
+  // editor is built. Idempotent — calling again is a no-op.
+  installDomGlobals();
+
   const [editor, dispose] = loadHeadlessEditor({ snapshot: opts.snapshot });
 
   const transcript: AgentAction[] = [];
