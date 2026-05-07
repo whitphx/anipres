@@ -43,8 +43,14 @@ function summarise(editor: Editor): {
   const frameBatches = getFrameBatches(allFrames);
   const ordered = getGlobalOrder(frameBatches);
 
-  const steps = ordered.map((batchesAtStep, stepIndex) => ({
-    index: stepIndex,
+  // 1-indexed: Anipres' UI numbers steps from 1 ("Step 1", "Step 2"
+  // …) but the underlying array is 0-based. The agent's perception
+  // matches the user-facing numbering so messages like "I added a
+  // slide as step 7" line up with what the user sees in the
+  // timeline; the system prompt also describes steps as 1-numbered
+  // to keep the vocabulary consistent.
+  const steps = ordered.map((batchesAtStep, zeroBased) => ({
+    index: zeroBased + 1,
     batches: batchesAtStep.map((batch) => ({
       trackId: batch.trackId,
       shapeIds: batch.data
