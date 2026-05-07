@@ -78,11 +78,23 @@
   background: #fff;
 }
 
+.settingsRow {
+  margin-bottom: 8px;
+}
+.settingsRow:last-of-type {
+  margin-bottom: 0;
+}
+
 .settingsLabel {
   display: block;
   font-size: 12px;
   margin-bottom: 4px;
   color: #333;
+}
+
+.settingsActive {
+  color: #2563eb;
+  font-weight: 500;
 }
 
 .settingsInput {
@@ -267,6 +279,10 @@
 
 :global([data-color-scheme="dark"]) .settingsLabel {
   color: #ccc;
+}
+
+:global([data-color-scheme="dark"]) .settingsActive {
+  color: #60a5fa;
 }
 
 :global([data-color-scheme="dark"]) .settingsInput {

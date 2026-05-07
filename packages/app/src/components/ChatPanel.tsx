@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   AGENT_MODEL_DEFINITIONS,
   DEFAULT_MODEL_NAME,
+  getAgentModelDefinition,
   type AgentModelName,
+  type AgentModelProvider,
 } from "@anipres/agent-core";
 import { useAgent, type AgentChatState } from "@anipres/agent-core/react";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
@@ -10,9 +12,32 @@ import styles from "./ChatPanel.module.css";
 
 const MODEL_OPTIONS = Object.keys(AGENT_MODEL_DEFINITIONS) as AgentModelName[];
 
-const STORAGE_KEY = "anipres.agent.apiKey";
+// Distinct providers represented in the registry — drives the settings
+// panel's per-provider key inputs. Derived (rather than hard-coded) so
+// adding a new provider to the model registry surfaces the input
+// without a second edit here.
+const ENABLED_PROVIDERS: AgentModelProvider[] = Array.from(
+  new Set(Object.values(AGENT_MODEL_DEFINITIONS).map((d) => d.provider)),
+);
+
+const PROVIDER_DISPLAY: Record<
+  AgentModelProvider,
+  { label: string; placeholder: string }
+> = {
+  anthropic: { label: "Anthropic", placeholder: "sk-ant-..." },
+  openai: { label: "OpenAI", placeholder: "sk-..." },
+  google: { label: "Google AI", placeholder: "AIza..." },
+};
+
 const STORAGE_MODEL_KEY = "anipres.agent.modelName";
+// Pre-multi-provider single-key storage. Read once at startup for
+// migration into the per-provider slots, then deleted.
+const LEGACY_API_KEY_STORAGE = "anipres.agent.apiKey";
+const apiKeyStorageKey = (provider: AgentModelProvider) =>
+  `anipres.agent.apiKey.${provider}`;
 const chatStorageKey = (docId: string) => `anipres.chat.${docId}`;
+
+type ApiKeys = Record<AgentModelProvider, string>;
 
 export function ChatPanel() {
   const { editor, activeDocumentId } = useDocumentManagerContext();
@@ -75,7 +100,7 @@ export function ChatPanel() {
   }, [activeDocumentId, log, history]);
 
   const [text, setText] = useState("");
-  const [apiKey, setApiKey] = useState<string>(() => loadKey());
+  const [apiKeys, setApiKeys] = useState<ApiKeys>(() => loadApiKeys());
   const [modelName, setModelName] = useState<AgentModelName>(() => loadModel());
   const [showSettings, setShowSettings] = useState(false);
 
@@ -89,6 +114,12 @@ export function ChatPanel() {
     localStorage.setItem(STORAGE_MODEL_KEY, modelName);
   }, [modelName]);
 
+  // The provider whose key we'll send with the next request — derived
+  // from the currently-selected model rather than typed directly, so
+  // switching the model dropdown automatically routes to the right key.
+  const activeProvider = getAgentModelDefinition(modelName).provider;
+  const activeApiKey = apiKeys[activeProvider] ?? "";
+
   const disabled = !editor || isRunning;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -100,18 +131,18 @@ export function ChatPanel() {
     if (disabled) return;
     const trimmed = text.trim();
     if (!trimmed || !editor) return;
-    if (!apiKey) {
+    if (!activeApiKey) {
       setShowSettings(true);
       return;
     }
-    send({ text: trimmed, modelName, apiKey });
+    send({ text: trimmed, modelName, apiKey: activeApiKey });
     setText("");
   };
 
-  const handleSaveKey = (next: string) => {
-    setApiKey(next);
-    if (next) localStorage.setItem(STORAGE_KEY, next);
-    else localStorage.removeItem(STORAGE_KEY);
+  const handleSaveKey = (provider: AgentModelProvider, next: string) => {
+    setApiKeys((prev) => ({ ...prev, [provider]: next }));
+    if (next) localStorage.setItem(apiKeyStorageKey(provider), next);
+    else localStorage.removeItem(apiKeyStorageKey(provider));
   };
 
   return (
@@ -154,22 +185,34 @@ export function ChatPanel() {
 
       {showSettings && (
         <div className={styles.settings}>
-          <label className={styles.settingsLabel} htmlFor="agent-api-key">
-            API key for the selected model&apos;s provider
-          </label>
-          <input
-            id="agent-api-key"
-            type="password"
-            className={styles.settingsInput}
-            placeholder="sk-..."
-            value={apiKey}
-            onChange={(e) => handleSaveKey(e.target.value)}
-            autoComplete="off"
-          />
+          {ENABLED_PROVIDERS.map((provider) => {
+            const display = PROVIDER_DISPLAY[provider];
+            const inputId = `agent-api-key-${provider}`;
+            return (
+              <div key={provider} className={styles.settingsRow}>
+                <label className={styles.settingsLabel} htmlFor={inputId}>
+                  {display.label} API key
+                  {provider === activeProvider && (
+                    <span className={styles.settingsActive}> (in use)</span>
+                  )}
+                </label>
+                <input
+                  id={inputId}
+                  type="password"
+                  className={styles.settingsInput}
+                  placeholder={display.placeholder}
+                  value={apiKeys[provider] ?? ""}
+                  onChange={(e) => handleSaveKey(provider, e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+            );
+          })}
           <p className={styles.settingsHint}>
             Stored in your browser&apos;s localStorage. The anipres worker
-            forwards it to the selected model&apos;s provider (Anthropic,
-            OpenAI, or Google) for each request and does not persist it.
+            forwards the key matching the selected model&apos;s provider
+            (Anthropic, OpenAI, or Google) for each request and does not persist
+            it.
           </p>
         </div>
       )}
@@ -245,9 +288,36 @@ function turnClassName(role: "user" | "agent" | "action"): string {
   }
 }
 
-function loadKey(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(STORAGE_KEY) ?? "";
+function loadApiKeys(): ApiKeys {
+  const empty: ApiKeys = { anthropic: "", openai: "", google: "" };
+  if (typeof window === "undefined") return empty;
+
+  const out: ApiKeys = { ...empty };
+  for (const provider of ENABLED_PROVIDERS) {
+    out[provider] = localStorage.getItem(apiKeyStorageKey(provider)) ?? "";
+  }
+
+  // One-shot migration from the pre-multi-provider single-key
+  // storage. The user entered that key while some model was
+  // selected; the most likely intended provider is the one the
+  // currently-stored model belongs to. Only migrate when the target
+  // slot is empty so a freshly-entered per-provider key isn't
+  // overwritten.
+  const legacy = localStorage.getItem(LEGACY_API_KEY_STORAGE);
+  if (legacy) {
+    const storedModelName = localStorage.getItem(STORAGE_MODEL_KEY);
+    const candidateName =
+      storedModelName && storedModelName in AGENT_MODEL_DEFINITIONS
+        ? (storedModelName as AgentModelName)
+        : DEFAULT_MODEL_NAME;
+    const candidateProvider = AGENT_MODEL_DEFINITIONS[candidateName].provider;
+    if (!out[candidateProvider]) {
+      out[candidateProvider] = legacy;
+      localStorage.setItem(apiKeyStorageKey(candidateProvider), legacy);
+    }
+    localStorage.removeItem(LEGACY_API_KEY_STORAGE);
+  }
+  return out;
 }
 
 function loadModel(): AgentModelName {
