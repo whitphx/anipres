@@ -20,6 +20,13 @@
 export function closeAndParseJson(input: string): unknown {
   let s = input;
   const stack: Array<"{" | "[" | '"'> = [];
+  // Position immediately after the most recent point at which the
+  // structure stack returned to empty (i.e. the end of a top-level
+  // JSON value). When the model wraps its response — e.g. in a
+  // markdown code fence — there's content trailing the balanced
+  // JSON; we use this index to slice that off before parsing.
+  let topLevelClosedAt = -1;
+  let topLevelDepth = 0;
 
   for (let i = 0; i < s.length; i++) {
     const top = stack.at(-1);
@@ -47,18 +54,30 @@ export function closeAndParseJson(input: string): unknown {
 
     if (ch === "{" || ch === "[") {
       stack.push(ch);
+      topLevelDepth++;
     } else if (ch === "}" && top === "{") {
       stack.pop();
+      topLevelDepth--;
+      if (topLevelDepth === 0) topLevelClosedAt = i + 1;
     } else if (ch === "]" && top === "[") {
       stack.pop();
+      topLevelDepth--;
+      if (topLevelDepth === 0) topLevelClosedAt = i + 1;
     }
   }
 
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const opening = stack[i];
-    if (opening === "{") s += "}";
-    else if (opening === "[") s += "]";
-    else if (opening === '"') s += '"';
+  if (topLevelClosedAt !== -1 && topLevelClosedAt < s.length) {
+    // A complete top-level JSON value ended before the buffer did.
+    // Slice off the trailing content so JSON.parse doesn't choke on
+    // it (e.g. the closing `\`\`\`` of a markdown code fence).
+    s = s.slice(0, topLevelClosedAt);
+  } else {
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const opening = stack[i];
+      if (opening === "{") s += "}";
+      else if (opening === "[") s += "]";
+      else if (opening === '"') s += '"';
+    }
   }
 
   try {

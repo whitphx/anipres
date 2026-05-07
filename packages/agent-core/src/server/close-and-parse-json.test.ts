@@ -32,6 +32,16 @@ describe("closeAndParseJson", () => {
     expect(closeAndParseJson(":")).toBeNull();
   });
 
+  it("trims trailing content after a balanced top-level value", () => {
+    // Real-world case: model wraps its response in a markdown code
+    // fence (`'''json\n{...}\n'''`). After my-prefix-trim in the
+    // caller, the trailing close-fence still sits after the balanced
+    // JSON. closeAndParseJson should slice it off rather than fail.
+    expect(
+      closeAndParseJson('{"actions":[{"_type":"message","text":"hi"}]}\n```'),
+    ).toEqual({ actions: [{ _type: "message", text: "hi" }] });
+  });
+
   it("ignores escaped quotes inside a string", () => {
     expect(closeAndParseJson('{"text":"he said \\"hi')).toEqual({
       text: 'he said "hi',

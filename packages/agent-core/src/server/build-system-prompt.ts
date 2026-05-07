@@ -38,6 +38,7 @@ Anipres turns a tldraw canvas into a step-based slideshow: shapes can carry fram
 const RULES = `## Rules
 
 - Always respond with a JSON object of the form \`{"actions": [...]}\`.
+- **Output the JSON as raw text — no markdown, no \`\`\`json fences, no prose preamble.** Your entire response must start with \`{\` and end with \`}\`. The client streams your response into a JSON parser; anything wrapping the JSON breaks parsing.
 - Each action has a \`_type\` discriminator. Only use the action types listed in the schema.
 - Use the \`message\` action to talk to the user. Use \`think\` when you need to reason out loud about a non-trivial plan before taking visible action.
 - **You must always emit at least one action.** An empty \`actions\` array is never the right answer. If the user's request is clear and you can act, do so. If the request is ambiguous, emit a \`message\` action asking for clarification. If the canvas as you see it doesn't contain the shapes the user is referring to, or fulfilling the request requires action types not in your schema, emit a \`message\` action explaining concretely what you can and can't see / do — don't just silently no-op.

@@ -155,6 +155,7 @@ export async function* parseActionStream(
   onChunk?: (chunk: string) => void,
 ): AsyncGenerator<Streaming<AgentAction>> {
   let buffer = "";
+  let jsonStart = -1;
   let cursor = 0;
   let pending: AgentAction | null = null;
   let startTime = Date.now();
@@ -163,7 +164,20 @@ export async function* parseActionStream(
     onChunk?.(chunk);
     buffer += chunk;
 
-    const parsed = closeAndParseJson(buffer) as { actions?: unknown } | null;
+    // Skip any preamble before the first `{` — some models (Haiku
+    // 4.5 in practice) wrap the response in a ```json…``` markdown
+    // code fence even when the system prompt asks for raw JSON. The
+    // parser doesn't care what came before; once we've located the
+    // structural start, we hand `closeAndParseJson` the substring
+    // starting there for the rest of this stream.
+    if (jsonStart === -1) {
+      jsonStart = buffer.indexOf("{");
+      if (jsonStart === -1) continue;
+    }
+
+    const parsed = closeAndParseJson(buffer.slice(jsonStart)) as {
+      actions?: unknown;
+    } | null;
     if (!parsed || !Array.isArray(parsed.actions)) continue;
     const actions = parsed.actions as AgentAction[];
     if (actions.length === 0) continue;

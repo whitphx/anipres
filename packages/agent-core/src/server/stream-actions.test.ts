@@ -63,6 +63,24 @@ describe("parseActionStream", () => {
     expect(completes[0]).toMatchObject({ _type: "message", text: "only" });
   });
 
+  it("tolerates a markdown code fence wrapping the JSON", async () => {
+    // Haiku 4.5 was observed to wrap the response in ```json…```.
+    // The parser should skip the leading prefix until the first `{`
+    // and trim the trailing close-fence (handled by
+    // closeAndParseJson's "balanced top-level" detection).
+    const chunks = [
+      "```json\n",
+      '{"actions":[{"_type":"message","text":"hi"}]}',
+      "\n```",
+    ];
+
+    const out = await collect(parseActionStream(fromChunks(chunks)));
+
+    const completes = out.filter((a) => a.complete);
+    expect(completes).toHaveLength(1);
+    expect(completes[0]).toMatchObject({ _type: "message", text: "hi" });
+  });
+
   it("flushes every action when multiple arrive in a single chunk", async () => {
     // Three complete actions delivered in one chunk — the cursor has to
     // catch up to the tail or middle actions never reach `complete:
