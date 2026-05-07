@@ -17,10 +17,12 @@ async function collect(
 
 describe("parseActionStream", () => {
   it("yields each action as incomplete then complete", async () => {
-    // The stream-actions seed buffer is `'{"actions": [{"_type":'`, so the
-    // chunks here pick up from immediately after that opening.
+    // The model now emits the full `{"actions": [...]}` envelope itself
+    // (assistant prefill is gone — Anthropic 4.6+ rejects it). Chunks
+    // here arrive in roughly the same shape a provider would stream.
     const chunks = [
-      '"message","text":"hello"}',
+      '{"actions":[',
+      '{"_type":"message","text":"hello"}',
       ',{"_type":"message","text":"world"}',
       "]}",
     ];
@@ -54,7 +56,7 @@ describe("parseActionStream", () => {
   });
 
   it("flushes the final action as complete on stream end", async () => {
-    const chunks = ['"message","text":"only"}'];
+    const chunks = ['{"actions":[{"_type":"message","text":"only"}]}'];
     const out = await collect(parseActionStream(fromChunks(chunks)));
     const completes = out.filter((a) => a.complete);
     expect(completes).toHaveLength(1);
@@ -66,7 +68,7 @@ describe("parseActionStream", () => {
     // catch up to the tail or middle actions never reach `complete:
     // true` and downstream consumers (canvas mutations) gate on that.
     const chunks = [
-      '"message","text":"a"},{"_type":"message","text":"b"},{"_type":"message","text":"c"}]}',
+      '{"actions":[{"_type":"message","text":"a"},{"_type":"message","text":"b"},{"_type":"message","text":"c"}]}',
     ];
 
     const out = await collect(parseActionStream(fromChunks(chunks)));

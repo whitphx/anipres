@@ -61,10 +61,9 @@ export interface StreamActionsOptions {
  * (or the stream ends). The double-yield is what enables the client-side
  * "revert and reapply" optimistic rendering.
  *
- * The model is instructed to emit `{"actions": [...]}` matching the schema
- * in the system prompt. We prefill the assistant turn with the opening of
- * that object so the model is committed to the JSON shape from the first
- * token.
+ * The model is instructed (via the system prompt) to emit `{"actions": [...]}`
+ * directly, no preamble. The parser below tolerates the transient invalid
+ * states the partial JSON walks through during streaming.
  */
 export async function* streamActions(
   opts: StreamActionsOptions,
@@ -93,13 +92,22 @@ export async function* streamActions(
 
   messages.push(...buildMessages(opts.prompt));
 
-  // Force the model to start emitting the JSON-action shape immediately.
-  // Anthropic and Google honour this; for other providers we still seed the
-  // buffer below so the parser sees a well-formed prefix.
-  messages.push({
-    role: "assistant",
-    content: '{"actions": [{"_type":',
-  });
+  // Earlier versions of this protocol prefilled an assistant turn
+  // (`{"actions": [{"_type":`) so the model committed to the JSON
+  // shape from the first token. Anthropic 4.6+ rejects assistant
+  // prefill outright ("This model does not support assistant message
+  // prefill. The conversation must end with a user message."), and
+  // OpenAI never honoured the prefix the way Anthropic <=4.5 did
+  // anyway — it would emit a fresh `{"actions": ...}` object that the
+  // parser then concatenated to the seeded prefix and fed garbage
+  // into the action consumer (the P1 from an earlier review).
+  //
+  // Drop the prefill globally and trust the system prompt's "always
+  // respond with `{"actions": [...]}`" instruction. The parser below
+  // starts with an empty buffer and consumes whatever the model
+  // emits — slightly more transient invalid-state iterations during
+  // streaming, but no functional break, and the protocol now works
+  // uniformly across providers.
 
   // Provider-specific knobs, applied unconditionally — the SDK ignores
   // options that don't match the active provider. Keeping these in one
@@ -143,7 +151,7 @@ export async function* parseActionStream(
   textStream: AsyncIterable<string>,
   onChunk?: (chunk: string) => void,
 ): AsyncGenerator<Streaming<AgentAction>> {
-  let buffer = '{"actions": [{"_type":';
+  let buffer = "";
   let cursor = 0;
   let pending: AgentAction | null = null;
   let startTime = Date.now();
