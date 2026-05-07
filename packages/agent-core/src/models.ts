@@ -16,14 +16,21 @@ export interface AgentModelDefinition {
  */
 export const AGENT_MODEL_DEFINITIONS = {
   // Anthropic
-  "claude-sonnet-4-6": {
-    name: "claude-sonnet-4-6",
-    id: "claude-sonnet-4-6",
+  // TODO: bumping these IDs needs verification against Anthropic's
+  // current model catalog (https://docs.anthropic.com/en/docs/about-claude/models/overview)
+  // — the API rejects unrecognised aliases with a stream-level error
+  // that the AI SDK swallows, surfacing as a 200 OK with empty body
+  // (the silent-failure mode that broke chat after a previous bump
+  // to 4-6 / 4-7 went unverified). When bumping, smoke-test against
+  // a real key before committing.
+  "claude-sonnet-4-5": {
+    name: "claude-sonnet-4-5",
+    id: "claude-sonnet-4-5",
     provider: "anthropic",
   },
-  "claude-opus-4-7": {
-    name: "claude-opus-4-7",
-    id: "claude-opus-4-7",
+  "claude-opus-4-5": {
+    name: "claude-opus-4-5",
+    id: "claude-opus-4-5",
     provider: "anthropic",
   },
   "claude-haiku-4-5": {
@@ -59,7 +66,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 
 export type AgentModelName = keyof typeof AGENT_MODEL_DEFINITIONS;
 
-export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-6";
+export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-5";
 
 export function isValidModelName(
   value: string | undefined,

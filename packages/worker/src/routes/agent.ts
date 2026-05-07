@@ -80,15 +80,38 @@ export const agentRoutes = new Hono<AppBindings>().post(
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const encoder = new TextEncoder();
+        // The Vercel ai SDK reports some stream-level errors (provider
+        // 4xx, model-not-found, partial-stream interruption) via the
+        // `onError` callback rather than throwing them out of the
+        // for-await iterator. Without forwarding that, the route would
+        // exit cleanly with zero events and the browser would see a
+        // 200 OK with an empty body — a confusing "silent failure"
+        // mode. Stash the first such error and surface it as a `data`
+        // event before closing.
+        let asyncError: unknown = null;
         try {
           for await (const action of streamActions({
             prompt,
             env,
             modelName: body.modelName,
             abortSignal: upstreamSignal,
+            onError: (error) => {
+              if (asyncError === null) asyncError = error;
+            },
           })) {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(action)}\n\n`),
+            );
+          }
+          if (asyncError !== null && !upstreamSignal.aborted) {
+            const message =
+              asyncError instanceof Error
+                ? asyncError.message
+                : String(asyncError);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ error: message })}\n\n`,
+              ),
             );
           }
         } catch (err) {
