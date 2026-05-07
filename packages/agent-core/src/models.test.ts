@@ -3,7 +3,7 @@ import { isValidModelName } from "./models.js";
 
 describe("isValidModelName", () => {
   it("accepts a real model name", () => {
-    expect(isValidModelName("claude-sonnet-4-5")).toBe(true);
+    expect(isValidModelName("claude-sonnet-4-6")).toBe(true);
   });
 
   it("rejects undefined / empty", () => {

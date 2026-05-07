@@ -16,21 +16,29 @@ export interface AgentModelDefinition {
  */
 export const AGENT_MODEL_DEFINITIONS = {
   // Anthropic
-  // TODO: bumping these IDs needs verification against Anthropic's
-  // current model catalog (https://docs.anthropic.com/en/docs/about-claude/models/overview)
-  // — the API rejects unrecognised aliases with a stream-level error
-  // that the AI SDK swallows, surfacing as a 200 OK with empty body
-  // (the silent-failure mode that broke chat after a previous bump
-  // to 4-6 / 4-7 went unverified). When bumping, smoke-test against
-  // a real key before committing.
-  "claude-sonnet-4-5": {
-    name: "claude-sonnet-4-5",
-    id: "claude-sonnet-4-5",
+  //
+  // IDs verified against
+  // https://docs.anthropic.com/en/docs/about-claude/models/overview.
+  // Per the docs, starting with the 4.6 generation the dateless
+  // string IS the canonical model ID (a pinned snapshot, not an
+  // evergreen alias) — that's why `claude-sonnet-4-6` and
+  // `claude-opus-4-7` have no date suffix here. `claude-haiku-4-5`
+  // is the alias to `claude-haiku-4-5-20251001`; both work, the
+  // alias is shorter and fine to use.
+  //
+  // When bumping in the future, smoke-test against a real key —
+  // the provider's "model not found" arrives as a stream-level
+  // error the AI SDK swallows, which used to surface as a 200 OK
+  // with empty body. The worker route now wires `onError` so that
+  // failure mode at least becomes visible in the SSE body.
+  "claude-opus-4-7": {
+    name: "claude-opus-4-7",
+    id: "claude-opus-4-7",
     provider: "anthropic",
   },
-  "claude-opus-4-5": {
-    name: "claude-opus-4-5",
-    id: "claude-opus-4-5",
+  "claude-sonnet-4-6": {
+    name: "claude-sonnet-4-6",
+    id: "claude-sonnet-4-6",
     provider: "anthropic",
   },
   "claude-haiku-4-5": {
@@ -66,7 +74,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 
 export type AgentModelName = keyof typeof AGENT_MODEL_DEFINITIONS;
 
-export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-5";
+export const DEFAULT_MODEL_NAME: AgentModelName = "claude-sonnet-4-6";
 
 export function isValidModelName(
   value: string | undefined,
