@@ -1,3 +1,10 @@
+// Side-effect: install happy-dom globals before tldraw is touched.
+// Tldraw's headless `Editor` reaches for `document` during construction,
+// so this has to run before `tldraw` and `anipres` are imported below.
+// Co-located here (rather than in entry points) so any consumer that
+// pulls in `editSnapshot` gets the setup automatically.
+import "./setup-dom.js";
+
 import { readFile, writeFile } from "node:fs/promises";
 import {
   applyActionStream,

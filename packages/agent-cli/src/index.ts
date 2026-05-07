@@ -3,9 +3,11 @@
 // `bin.ts` keeps using the same functions internally — there's no
 // command-only logic that isn't also useful as a library API.
 //
-// Importing this module also installs the DOM polyfills tldraw needs to
-// run headlessly under Node, via the side-effect import below.
-import "./setup-dom.js";
+// The DOM polyfills tldraw needs at headless runtime are installed by
+// `edit-command.ts` and `summarize-command.ts` themselves (their
+// top-of-file `import "./setup-dom.js"`), so any consumer that pulls
+// in either function gets the setup automatically — no manual
+// ordering at the entry point required.
 
 export {
   editSnapshot,

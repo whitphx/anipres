@@ -1,3 +1,9 @@
+// Side-effect: install happy-dom globals before tldraw is touched
+// (loadHeadlessEditor below pulls in tldraw transitively). Co-located
+// here so any consumer that calls summarizeSnapshot gets the setup
+// automatically — no manual ordering required at the entry point.
+import "./setup-dom.js";
+
 import { readFile } from "node:fs/promises";
 import { loadHeadlessEditor } from "anipres";
 import {

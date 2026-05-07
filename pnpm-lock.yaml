@@ -86,6 +86,9 @@ importers:
       anipres:
         specifier: workspace:*
         version: link:../anipres
+      citty:
+        specifier: ^0.1.6
+        version: 0.1.6
       happy-dom:
         specifier: ^20.9.0
         version: 20.9.0

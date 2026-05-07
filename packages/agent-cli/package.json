@@ -9,10 +9,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./setup-dom": {
-      "types": "./dist/setup-dom.d.ts",
-      "default": "./dist/setup-dom.js"
     }
   },
   "bin": {
@@ -31,6 +27,7 @@
   "dependencies": {
     "@anipres/agent-core": "workspace:*",
     "anipres": "workspace:*",
+    "citty": "^0.1.6",
     "happy-dom": "^20.9.0",
     "tldraw": "3.15.5"
   },
