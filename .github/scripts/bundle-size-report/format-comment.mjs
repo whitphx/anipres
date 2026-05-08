@@ -166,7 +166,7 @@ function renderSummary(currentByKey, baseByKey) {
   const lines = [];
   if (significantCount > 0) {
     lines.push(
-      `⚠️ ${significantCount} bundle${significantCount === 1 ? "" : "s"} changed by ≥${SIGNIFICANT_GZIP_PCT * 100}% gzip (and ≥${formatBytes(SIGNIFICANT_GZIP_BYTES)}).`,
+      `⚠️ ${significantCount} bundle${significantCount === 1 ? "" : "s"} changed by ≥${Math.round(SIGNIFICANT_GZIP_PCT * 100)}% gzip (and ≥${formatBytes(SIGNIFICANT_GZIP_BYTES)}).`,
     );
     lines.push("");
   }
