@@ -3,7 +3,7 @@
 // The Anipres palette is a subset of tldraw's; the upstream's wider
 // palette is the reference. See THIRD_PARTY_NOTICES.md at the repo
 // root.
-import { z } from "zod";
+import * as z from "zod";
 
 /**
  * The set of tldraw colors the agent is allowed to use. A subset of tldraw's

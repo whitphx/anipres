@@ -12,7 +12,7 @@ import {
   type AgentEnv,
   type AgentModelProvider,
 } from "@anipres/agent-core";
-import { z } from "zod";
+import * as z from "zod";
 
 const REQUIRED_ENV_VAR: Record<AgentModelProvider, keyof AgentEnv> = {
   anthropic: "ANTHROPIC_API_KEY",

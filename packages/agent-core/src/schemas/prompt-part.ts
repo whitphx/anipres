@@ -12,7 +12,7 @@
 // zod (the upstream pattern in tldraw/agent-template uses it for the
 // same reason). Worker callers don't need to know — they import a
 // typed helper (`parseAgentPrompt` below), not `z` itself.
-import { z } from "zod";
+import * as z from "zod";
 import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
 import { FocusedShapeSchema } from "../format/focused-shape.js";
 

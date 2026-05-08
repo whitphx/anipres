@@ -7,7 +7,7 @@
 // the JSON Schema; Anipres has a single mode and no internal meta
 // keys yet, so neither parameterisation is needed here. See
 // THIRD_PARTY_NOTICES.md at the repo root.
-import { z } from "zod";
+import * as z from "zod";
 import { AgentActionSchema } from "./agent-action.js";
 
 /**

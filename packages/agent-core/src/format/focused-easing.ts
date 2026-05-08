@@ -3,7 +3,7 @@
 // concept lives in Anipres' presentation/animation layer. Kept under
 // `format/` for symmetry with the other focused-* primitives the
 // agent-template style organises here.
-import { z } from "zod";
+import * as z from "zod";
 
 /**
  * Tldraw easing curves the agent may pick. A small subset chosen to cover
