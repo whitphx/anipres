@@ -435,8 +435,13 @@ jobs:
       # `--dry-run` skips Cloudflare API calls; `--outdir` writes the
       # bundled worker JS for measurement. Uses `--env preview` so the
       # bindings shape matches what the preview deploy ships.
+      # CF Workers don't deploy sourcemaps by default, so drop them
+      # before measuring — otherwise the report shows the sourcemap
+      # weight (often 2× the JS) and looks broken.
       - name: Build worker bundle
-        run: pnpm wrangler deploy --env preview --dry-run --outdir dist
+        run: |
+          pnpm wrangler deploy --env preview --dry-run --outdir dist
+          rm -f dist/*.map
 
       - name: Measure bundle size
         uses: ./.github/actions/measure-bundle-size
