@@ -1,0 +1,46 @@
+# Patterned after whitphx/stlite's .github/actions/set-package-stats
+# (Apache-2.0). This version measures a directory directly (no tarball
+# staging) and produces a JSON shape the report job consumes.
+# Upstream: https://github.com/whitphx/stlite/blob/main/.github/actions/set-package-stats/action.yml
+name: Measure bundle size
+description: Walk a built directory and upload a bundle-stats.<key> artifact for downstream PR reporting.
+inputs:
+  key:
+    required: true
+    description: Stable identifier for this bundle (e.g. 'anipres', 'app'). Used as the artifact suffix and to match against the base run.
+  name:
+    required: false
+    description: Human-readable name for the bundle in the comment. Defaults to key.
+  input-path:
+    required: true
+    description: Path to the built directory to measure.
+
+runs:
+  using: composite
+  steps:
+    - name: Measure bundle
+      shell: bash
+      # Pin to the repo root so input-path is interpreted from there
+      # regardless of the calling job's defaults.run.working-directory.
+      working-directory: ${{ github.workspace }}
+      env:
+        KEY: ${{ inputs.key }}
+        NAME: ${{ inputs.name }}
+        INPUT_PATH: ${{ inputs.input-path }}
+      run: |
+        out_dir="$RUNNER_TEMP/bundle-stats/$KEY"
+        mkdir -p "$out_dir"
+        out_file="$out_dir/bundle-stats.json"
+        node "$GITHUB_WORKSPACE/.github/scripts/bundle-size-report/measure.mjs" \
+          --input "$INPUT_PATH" \
+          --output "$out_file" \
+          --key "$KEY" \
+          ${NAME:+--name "$NAME"}
+        echo "BUNDLE_STATS_FILE=$out_file" >> "$GITHUB_ENV"
+
+    - name: Upload bundle-stats artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: bundle-stats.${{ inputs.key }}
+        path: ${{ env.BUNDLE_STATS_FILE }}
+        if-no-files-found: error
