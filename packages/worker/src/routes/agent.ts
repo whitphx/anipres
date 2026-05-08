@@ -80,14 +80,18 @@ export const agentRoutes = new Hono<AppBindings>().post(
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const encoder = new TextEncoder();
-        // The Vercel ai SDK reports some stream-level errors (provider
-        // 4xx, model-not-found, partial-stream interruption) via the
-        // `onError` callback rather than throwing them out of the
-        // for-await iterator. Without forwarding that, the route would
-        // exit cleanly with zero events and the browser would see a
-        // 200 OK with an empty body — a confusing "silent failure"
-        // mode. Stash the first such error and surface it as a `data`
-        // event before closing.
+        // `streamActions` (in @anipres/agent-core/server, see
+        // stream-actions.ts) is the SDK boundary — it wraps Vercel
+        // `ai`'s `streamText`. That SDK reports some stream-level
+        // errors (provider 4xx, model-not-found, partial-stream
+        // interruption) via the `onError` callback rather than
+        // throwing them out of the for-await iterator, so
+        // `streamActions` re-exposes the same callback for us to
+        // forward. Without forwarding it, the route would exit
+        // cleanly with zero events and the browser would see a 200 OK
+        // with an empty body — a confusing "silent failure" mode.
+        // Stash the first such error and surface it as a `data` event
+        // before closing.
         //
         // Also stash the finishInfo so we can synthesise a diagnostic
         // error event when the stream completes cleanly with zero

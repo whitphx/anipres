@@ -31,9 +31,6 @@ const PROVIDER_DISPLAY: Record<
 };
 
 const STORAGE_MODEL_KEY = "anipres.agent.modelName";
-// Pre-multi-provider single-key storage. Read once at startup for
-// migration into the per-provider slots, then deleted.
-const LEGACY_API_KEY_STORAGE = "anipres.agent.apiKey";
 const apiKeyStorageKey = (provider: AgentModelProvider) =>
   `anipres.agent.apiKey.${provider}`;
 const chatStorageKey = (docId: string) => `anipres.chat.${docId}`;
@@ -335,17 +332,6 @@ function loadApiKeys(): ApiKeys {
   for (const provider of ENABLED_PROVIDERS) {
     out[provider] = localStorage.getItem(apiKeyStorageKey(provider)) ?? "";
   }
-
-  // Drop the pre-multi-provider single-key entry if it's still
-  // around. An earlier draft of this PR migrated the value across to
-  // the right per-provider slot, but CodeQL flagged the cross-key
-  // data flow as "clear-text storage of sensitive information" —
-  // which is in fact the design's premise (see the disclosure in
-  // the settings panel) but not worth flagging on every static
-  // analysis run. The single-key storage was only briefly the
-  // shape; affected users re-enter their key once and then load
-  // the per-provider entries as normal.
-  localStorage.removeItem(LEGACY_API_KEY_STORAGE);
   return out;
 }
 
