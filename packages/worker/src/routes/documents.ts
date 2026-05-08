@@ -34,10 +34,15 @@ const sortOrderSchema = z
 // Workspace ids are INTEGER on the server side (see the migration);
 // clients pass them as decimal strings on the wire. Coerce to JS
 // number after validation so handlers can pass it straight to D1
-// `.bind()`.
+// `.bind()`. The `Number.isSafeInteger` refine rejects digit strings
+// above 2^53-1: the regex would happily accept them, and `Number(s)`
+// would silently round, leaving the validator + transform out of
+// sync. Realistically auto-incremented ids never approach the bound,
+// but the cheap refine keeps the contract honest.
 const workspaceIdSchema = z
   .string()
   .regex(/^[1-9]\d*$/u, "Invalid workspace id")
+  .refine((s) => Number.isSafeInteger(Number(s)), "Invalid workspace id")
   .transform(Number);
 
 export const documentListQuerySchema = z.object({

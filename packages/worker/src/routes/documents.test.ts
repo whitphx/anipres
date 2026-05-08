@@ -32,6 +32,16 @@ describe("documentListQuerySchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("rejects a workspace_id larger than Number.MAX_SAFE_INTEGER", () => {
+    // 2^53 itself is the first integer that round-trips through
+    // Number lossily — its string form is still all digits, so the
+    // regex passes; only the safe-integer refine rejects it.
+    const result = documentListQuerySchema.safeParse({
+      workspace_id: "9007199254740993",
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("documentUpsertSchema", () => {

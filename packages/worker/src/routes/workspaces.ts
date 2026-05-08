@@ -11,9 +11,13 @@ type WorkspaceRow = {
 };
 
 const workspaceIdParamSchema = z.object({
+  // See the corresponding schema in routes/documents.ts for why the
+  // regex isn't enough on its own — the safe-integer refine closes
+  // the precision-loss gap between regex acceptance and `Number`.
   id: z
     .string()
     .regex(/^[1-9]\d*$/u, "Invalid workspace id")
+    .refine((s) => Number.isSafeInteger(Number(s)), "Invalid workspace id")
     .transform(Number),
 });
 
