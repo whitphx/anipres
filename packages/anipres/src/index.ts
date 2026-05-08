@@ -1,5 +1,8 @@
 export * from "./Anipres.tsx";
-export { calculateTotalSteps } from "./headless-editor-utils.ts";
+export {
+  calculateTotalSteps,
+  loadHeadlessEditor,
+} from "./headless-editor-utils.ts";
 export {
   customShapeUtils,
   allShapeUtils,

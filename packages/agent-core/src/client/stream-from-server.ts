@@ -1,0 +1,86 @@
+import type { AgentAction } from "../schemas/agent-action.js";
+import type { AgentPrompt } from "../schemas/prompt-part.js";
+import type { Streaming } from "../types/streaming.js";
+
+export interface StreamFromServerOptions {
+  endpoint: string;
+  prompt: AgentPrompt;
+  modelName?: string;
+  apiKey: string;
+  signal?: AbortSignal;
+  /** Override the header name carrying the API key. Defaults to
+   *  `X-Anipres-API-Key` to match the worker route's expectation. */
+  apiKeyHeader?: string;
+}
+
+/**
+ * POST a prompt to a worker endpoint and yield streaming actions parsed
+ * from its `text/event-stream` response. Pairs with the worker route in
+ * `packages/worker/src/routes/agent.ts`.
+ */
+export async function* streamFromServer(
+  opts: StreamFromServerOptions,
+): AsyncGenerator<Streaming<AgentAction>> {
+  const res = await fetch(opts.endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      [opts.apiKeyHeader ?? "X-Anipres-API-Key"]: opts.apiKey,
+    },
+    body: JSON.stringify({ prompt: opts.prompt, modelName: opts.modelName }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => res.statusText);
+    throw new Error(
+      `Agent stream HTTP ${res.status}: ${errBody.slice(0, 200)}`,
+    );
+  }
+  if (!res.body) throw new Error("Agent stream returned no body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+
+      for (const event of events) {
+        // SSE allows multiple `data:` lines per event; the spec
+        // concatenates them with `\n` to form the data payload. Our
+        // worker only emits single-line `data:` today, but matching
+        // the spec keeps us decoupled from that emit style.
+        const dataLines: string[] = [];
+        for (const line of event.split("\n")) {
+          if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5));
+        }
+        if (dataLines.length === 0) continue;
+        const payload = dataLines.join("\n");
+        let data: unknown;
+        try {
+          data = JSON.parse(payload);
+        } catch {
+          // A single malformed event shouldn't kill the whole stream;
+          // skip it and let the next event try. (The protocol's
+          // emit side controls payload shape; this branch only
+          // matters under proxy/network corruption.)
+          continue;
+        }
+        if (typeof data === "object" && data !== null && "error" in data) {
+          throw new Error(String((data as { error: unknown }).error));
+        }
+        yield data as Streaming<AgentAction>;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

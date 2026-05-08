@@ -16,6 +16,10 @@ export default defineConfig({
       entry: {
         anipres: path.resolve(__dirname, "src/index.ts"),
         schema: path.resolve(__dirname, "src/schema.ts"),
+        "models-and-tracks": path.resolve(
+          __dirname,
+          "src/models-and-tracks.ts",
+        ),
       },
       // ESM-only. Vite's default for multi-entry libs is `["es", "cjs"]`,
       // which would emit `.cjs` artifacts despite `package.json` no
