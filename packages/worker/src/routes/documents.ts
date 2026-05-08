@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
-import { z } from "zod";
+import * as z from "zod";
 import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";

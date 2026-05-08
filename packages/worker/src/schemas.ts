@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 
 // Reject malformed document ids at the wire boundary so they never
 // reach D1 (the table's own CHECK constraint is the second line of
