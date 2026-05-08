@@ -1,6 +1,6 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
+import { z } from "zod";
 import type { AppBindings } from "../types";
 
 type WorkspaceRow = {
@@ -10,12 +10,11 @@ type WorkspaceRow = {
   updated_at: number;
 };
 
-const workspaceIdParamSchema = v.object({
-  id: v.pipe(
-    v.string(),
-    v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
-    v.transform(Number),
-  ),
+const workspaceIdParamSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[1-9]\d*$/u, "Invalid workspace id")
+    .transform(Number),
 });
 
 export const workspacesRoutes = new Hono<AppBindings>()
@@ -41,10 +40,10 @@ export const workspacesRoutes = new Hono<AppBindings>()
   // refreshInterval polling backstop covers any drop.
   .get(
     "/api/workspaces/:id/events",
-    vValidator("param", workspaceIdParamSchema, (result, c) => {
+    zValidator("param", workspaceIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid workspace id", details: result.issues },
+          { error: "Invalid workspace id", details: result.error.issues },
           400,
         );
       }

@@ -1,6 +1,6 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
+import { z } from "zod";
 import {
   getAgentModelDefinition,
   isValidModelName,
@@ -12,12 +12,10 @@ import type { AppBindings } from "../types";
 
 // Outer envelope only — the inner `prompt` is handed off to
 // `parseAgentPrompt`, which re-uses the zod schema agent-core already
-// owns for LLM JSON-Schema export. Keeps the worker on valibot for
-// every other route while letting the prompt schema live next to the
-// rest of the model vocabulary.
-const AgentStreamRequestEnvelope = v.object({
-  prompt: v.unknown(),
-  modelName: v.optional(v.string()),
+// owns for LLM JSON-Schema export.
+const AgentStreamRequestEnvelope = z.object({
+  prompt: z.unknown(),
+  modelName: z.string().optional(),
 });
 
 /**
@@ -34,10 +32,10 @@ const AgentStreamRequestEnvelope = v.object({
  */
 export const agentRoutes = new Hono<AppBindings>().post(
   "/api/agent/stream",
-  vValidator("json", AgentStreamRequestEnvelope, (result, c) => {
+  zValidator("json", AgentStreamRequestEnvelope, (result, c) => {
     if (!result.success) {
       return c.json(
-        { error: "Invalid request body", issues: result.issues },
+        { error: "Invalid request body", issues: result.error.issues },
         400,
       );
     }

@@ -135,8 +135,9 @@ CREATE TABLE documents (
   slug                TEXT    NOT NULL UNIQUE CHECK (length(slug) > 0),
   -- title and `workspaces.name` use `length(trim(...)) > 0` (vs the
   -- plain length CHECK on slug/sort_order) because they're user-
-  -- typed: whitespace-only inputs are a real hazard. valibot rejects
-  -- these at the API layer too; this is the schema-layer backstop.
+  -- typed: whitespace-only inputs are a real hazard. The API-layer
+  -- schema validator rejects these too; this is the schema-layer
+  -- backstop.
   title               TEXT    NOT NULL DEFAULT 'Untitled' CHECK (length(trim(title)) > 0),
   -- sort_order is a fractional-indexing key (the `fractional-indexing`
   -- npm package). Non-empty by construction; the CHECK enforces the

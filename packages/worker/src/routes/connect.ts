@@ -1,10 +1,10 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
+import { z } from "zod";
 import { documentIdSchema } from "../schemas";
 import type { AppBindings } from "../types";
 
-const documentConnectParamSchema = v.object({
+const documentConnectParamSchema = z.object({
   documentId: documentIdSchema,
 });
 
@@ -13,10 +13,10 @@ const documentConnectParamSchema = v.object({
 // rather than through the typed client.
 export const connectRoutes = new Hono<AppBindings>().get(
   "/api/connect/:documentId",
-  vValidator("param", documentConnectParamSchema, (result, c) => {
+  zValidator("param", documentConnectParamSchema, (result, c) => {
     if (!result.success) {
       return c.json(
-        { error: "Invalid document id", details: result.issues },
+        { error: "Invalid document id", details: result.error.issues },
         400,
       );
     }

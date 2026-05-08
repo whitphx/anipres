@@ -1,6 +1,6 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
+import { z } from "zod";
 import {
   clearSession,
   getCurrentUser,
@@ -15,9 +15,9 @@ import type { AppBindings } from "../types";
 // upstream IdP and formats vary, so no specific format is enforced
 // — just a length bound so a pathological client can't smuggle an
 // unbounded string into the parameterized statement.
-const oauthIdentityRevokeParamSchema = v.object({
-  provider: v.picklist(["github", "google"]),
-  provider_id: v.pipe(v.string(), v.minLength(1), v.maxLength(256)),
+const oauthIdentityRevokeParamSchema = z.object({
+  provider: z.enum(["github", "google"]),
+  provider_id: z.string().min(1).max(256),
 });
 
 export const authRoutes = new Hono<AppBindings>()
@@ -61,10 +61,10 @@ export const authRoutes = new Hono<AppBindings>()
   // safety guarantee.
   .delete(
     "/auth/identities/:provider/:provider_id",
-    vValidator("param", oauthIdentityRevokeParamSchema, (result, c) => {
+    zValidator("param", oauthIdentityRevokeParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid identity", details: result.issues },
+          { error: "Invalid identity", details: result.error.issues },
           400,
         );
       }
