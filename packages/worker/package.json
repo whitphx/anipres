@@ -13,8 +13,8 @@
   "scripts": {
     "predev": "mkdir -p ../app/dist",
     "dev": "pnpm run migrate:local && wrangler dev",
-    "deploy:prod": "pnpm run migrate:remote && wrangler deploy",
-    "deploy:preview": "pnpm run migrate:remote:preview && wrangler deploy --env preview",
+    "deploy:prod": "pnpm run migrate:remote && wrangler deploy --outdir dist",
+    "deploy:preview": "pnpm run migrate:remote:preview && wrangler deploy --env preview --outdir dist",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:remote:preview": "wrangler d1 migrations apply DB --remote --env preview",
