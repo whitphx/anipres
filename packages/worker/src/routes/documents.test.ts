@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import * as v from "valibot";
 import {
   documentListQuerySchema,
   documentUpsertSchema,
@@ -8,28 +7,38 @@ import {
 
 describe("documentListQuerySchema", () => {
   it("accepts a positive integer workspace_id", () => {
-    const result = v.safeParse(documentListQuerySchema, {
+    const result = documentListQuerySchema.safeParse({
       workspace_id: "7",
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.output.workspace_id).toBe(7);
+      expect(result.data.workspace_id).toBe(7);
     }
   });
 
   it("rejects a missing workspace_id", () => {
-    const result = v.safeParse(documentListQuerySchema, {});
+    const result = documentListQuerySchema.safeParse({});
     expect(result.success).toBe(false);
   });
 
   it("rejects zero", () => {
-    const result = v.safeParse(documentListQuerySchema, { workspace_id: "0" });
+    const result = documentListQuerySchema.safeParse({ workspace_id: "0" });
     expect(result.success).toBe(false);
   });
 
   it("rejects a non-numeric workspace_id", () => {
-    const result = v.safeParse(documentListQuerySchema, {
+    const result = documentListQuerySchema.safeParse({
       workspace_id: "personal",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a workspace_id larger than Number.MAX_SAFE_INTEGER", () => {
+    // 2^53 itself is the first integer that round-trips through
+    // Number lossily — its string form is still all digits, so the
+    // regex passes; only the safe-integer refine rejects it.
+    const result = documentListQuerySchema.safeParse({
+      workspace_id: "9007199254740993",
     });
     expect(result.success).toBe(false);
   });
@@ -47,12 +56,12 @@ describe("documentUpsertSchema", () => {
   };
 
   it("accepts a minimal body", () => {
-    const result = v.safeParse(documentUpsertSchema, validBody);
+    const result = documentUpsertSchema.safeParse(validBody);
     expect(result.success).toBe(true);
   });
 
   it("accepts a body with the optional created_at override", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       created_at: 1700000000000,
     });
@@ -60,7 +69,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a missing workspace_id", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       title: "x",
       sort_order: "a0",
     });
@@ -68,7 +77,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a non-numeric workspace_id", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       workspace_id: "default",
     });
@@ -76,7 +85,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a missing title", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       workspace_id: "1",
       sort_order: "a0",
     });
@@ -84,7 +93,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects an empty title", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       title: "",
     });
@@ -92,7 +101,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a whitespace-only title", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       title: "   \t\n",
     });
@@ -100,7 +109,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a title longer than 256 characters", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       title: "x".repeat(257),
     });
@@ -108,7 +117,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a title with a null byte", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       title: "hello\u0000world",
     });
@@ -116,7 +125,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a missing sort_order", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       workspace_id: "1",
       title: "x",
     });
@@ -124,7 +133,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects an empty sort_order", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       sort_order: "",
     });
@@ -132,7 +141,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a sort_order longer than 256 characters", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       sort_order: "a".repeat(257),
     });
@@ -140,7 +149,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a non-string sort_order", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       sort_order: 1.5,
     });
@@ -148,7 +157,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a non-integer created_at", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       created_at: 1700000000000.5,
     });
@@ -156,7 +165,7 @@ describe("documentUpsertSchema", () => {
   });
 
   it("rejects a negative created_at", () => {
-    const result = v.safeParse(documentUpsertSchema, {
+    const result = documentUpsertSchema.safeParse({
       ...validBody,
       created_at: -1,
     });
@@ -171,12 +180,12 @@ describe("snapshotPushBodySchema", () => {
   };
 
   it("accepts a well-formed body", () => {
-    const result = v.safeParse(snapshotPushBodySchema, validBody);
+    const result = snapshotPushBodySchema.safeParse(validBody);
     expect(result.success).toBe(true);
   });
 
   it("accepts an empty snapshot record", () => {
-    const result = v.safeParse(snapshotPushBodySchema, {
+    const result = snapshotPushBodySchema.safeParse({
       ...validBody,
       snapshot: {},
     });
@@ -184,7 +193,7 @@ describe("snapshotPushBodySchema", () => {
   });
 
   it("rejects a negative expectedSnapshotVersion", () => {
-    const result = v.safeParse(snapshotPushBodySchema, {
+    const result = snapshotPushBodySchema.safeParse({
       ...validBody,
       expectedSnapshotVersion: -1,
     });
@@ -192,7 +201,7 @@ describe("snapshotPushBodySchema", () => {
   });
 
   it("rejects a non-integer expectedSnapshotVersion", () => {
-    const result = v.safeParse(snapshotPushBodySchema, {
+    const result = snapshotPushBodySchema.safeParse({
       ...validBody,
       expectedSnapshotVersion: 1.5,
     });
@@ -200,7 +209,7 @@ describe("snapshotPushBodySchema", () => {
   });
 
   it("rejects a NaN expectedSnapshotVersion", () => {
-    const result = v.safeParse(snapshotPushBodySchema, {
+    const result = snapshotPushBodySchema.safeParse({
       ...validBody,
       expectedSnapshotVersion: Number.NaN,
     });
@@ -208,7 +217,7 @@ describe("snapshotPushBodySchema", () => {
   });
 
   it("rejects a non-object snapshot", () => {
-    const result = v.safeParse(snapshotPushBodySchema, {
+    const result = snapshotPushBodySchema.safeParse({
       snapshot: "not an object",
       expectedSnapshotVersion: 0,
     });

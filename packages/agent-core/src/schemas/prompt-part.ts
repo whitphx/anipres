@@ -5,16 +5,14 @@
 // discriminator, plus an `AgentPrompt` envelope object, is upstream's.
 // See THIRD_PARTY_NOTICES.md at the repo root.
 //
-// Why zod (and not valibot like the rest of the worker)?
 // The action schemas are exported as JSON Schema and embedded in the
-// LLM's system prompt — `.meta({ description })` annotations carry the
-// human-readable docs each action shows the model. zod has first-class
-// JSON-Schema export, that's the upstream pattern in tldraw's
-// agent-template we mirror, and the model's vocabulary is the single
-// most load-bearing artefact in this package, so it dictates the tool
-// choice. Worker callers don't need to know — they import a typed
-// helper (`parseAgentPrompt` below), not `z` itself.
-import { z } from "zod";
+// LLM's system prompt — `.meta({ description })` annotations carry
+// the human-readable docs each action shows the model. zod's
+// first-class JSON-Schema export is what makes this package commit to
+// zod (the upstream pattern in tldraw/agent-template uses it for the
+// same reason). Worker callers don't need to know — they import a
+// typed helper (`parseAgentPrompt` below), not `z` itself.
+import * as z from "zod";
 import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
 import { FocusedShapeSchema } from "../format/focused-shape.js";
 

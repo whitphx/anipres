@@ -4,7 +4,7 @@
 // JSON-Schema vocabulary" pattern is from upstream. The Anipres
 // schemas (slide-aware create, attachCueFrame for the presentation
 // timeline) are original. See THIRD_PARTY_NOTICES.md at the repo root.
-import { z } from "zod";
+import * as z from "zod";
 import { FocusedColorSchema } from "../format/focused-color.js";
 import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
 import { CreatableShapeSchema } from "../format/focused-shape.js";

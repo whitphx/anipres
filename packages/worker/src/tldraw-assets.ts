@@ -1,4 +1,3 @@
-import * as v from "valibot";
 import { assetNameSchema } from "./schemas";
 import type { AppContext } from "./types";
 
@@ -31,7 +30,7 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
 
     const encodedAssetName = url.pathname.slice(prefix.length);
     const assetName = decodeURIComponent(encodedAssetName);
-    return v.safeParse(assetNameSchema, assetName).success ? assetName : null;
+    return assetNameSchema.safeParse(assetName).success ? assetName : null;
   } catch {
     return null;
   }
