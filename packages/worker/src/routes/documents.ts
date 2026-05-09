@@ -1,17 +1,13 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
-import * as v from "valibot";
+import * as z from "zod";
 import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 import { bumpWorkspaceFeed } from "../WorkspaceFeedRoom";
 
-const nonNegativeFiniteInteger = v.pipe(
-  v.number(),
-  v.integer(),
-  v.minValue(0),
-);
+const nonNegativeFiniteInteger = z.number().int().min(0);
 
 const DOCUMENT_TITLE_MAX_LENGTH = 256;
 
@@ -19,35 +15,37 @@ const DOCUMENT_TITLE_MAX_LENGTH = 256;
 // fallback: empty / whitespace-only titles would render as a blank
 // sidebar row. Null bytes are rejected because D1's TEXT tolerates
 // them but they break grep and leak through raw logs.
-const documentTitleSchema = v.pipe(
-  v.string(),
-  v.minLength(1),
-  v.regex(/\S/u, "Title cannot be only whitespace"),
-  v.maxLength(DOCUMENT_TITLE_MAX_LENGTH),
-  v.regex(/^[^\u0000]*$/u, "Title contains a null byte"),
-);
+const documentTitleSchema = z
+  .string()
+  .min(1)
+  .regex(/\S/u, "Title cannot be only whitespace")
+  .max(DOCUMENT_TITLE_MAX_LENGTH)
+  .regex(/^[^\u0000]*$/u, "Title contains a null byte");
 
 // Sort-order is a fractional-indexing key (printable-ASCII string;
 // see https://www.npmjs.com/package/fractional-indexing). The bound
 // is a sanity cap to reject pathological inputs.
 const SORT_ORDER_MAX_LENGTH = 256;
-const sortOrderSchema = v.pipe(
-  v.string(),
-  v.minLength(1, "sort_order cannot be empty"),
-  v.maxLength(SORT_ORDER_MAX_LENGTH, "sort_order too long"),
-);
+const sortOrderSchema = z
+  .string()
+  .min(1, "sort_order cannot be empty")
+  .max(SORT_ORDER_MAX_LENGTH, "sort_order too long");
 
 // Workspace ids are INTEGER on the server side (see the migration);
 // clients pass them as decimal strings on the wire. Coerce to JS
 // number after validation so handlers can pass it straight to D1
-// `.bind()`.
-const workspaceIdSchema = v.pipe(
-  v.string(),
-  v.regex(/^[1-9]\d*$/u, "Invalid workspace id"),
-  v.transform(Number),
-);
+// `.bind()`. The `Number.isSafeInteger` refine rejects digit strings
+// above 2^53-1: the regex would happily accept them, and `Number(s)`
+// would silently round, leaving the validator + transform out of
+// sync. Realistically auto-incremented ids never approach the bound,
+// but the cheap refine keeps the contract honest.
+const workspaceIdSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/u, "Invalid workspace id")
+  .refine((s) => Number.isSafeInteger(Number(s)), "Invalid workspace id")
+  .transform(Number);
 
-export const documentListQuerySchema = v.object({
+export const documentListQuerySchema = z.object({
   workspace_id: workspaceIdSchema,
 });
 
@@ -60,19 +58,19 @@ export const documentListQuerySchema = v.object({
 // preserve on-device creation time; ignored on update. `updated_at`
 // is always server-stamped via the documents.updated_at trigger;
 // `id` lives in the URL path (see `documentIdParamSchema`).
-export const documentUpsertSchema = v.object({
+export const documentUpsertSchema = z.object({
   workspace_id: workspaceIdSchema,
   title: documentTitleSchema,
   sort_order: sortOrderSchema,
-  created_at: v.optional(nonNegativeFiniteInteger),
+  created_at: nonNegativeFiniteInteger.optional(),
 });
 
 // Cap on snapshot push body size. Prevents a runaway client from
 // streaming arbitrary blobs at the DO; sized with headroom over
 // realistic tldraw snapshot sizes.
 const MAX_SNAPSHOT_BODY_BYTES = 5 * 1024 * 1024;
-export const snapshotPushBodySchema = v.object({
-  snapshot: v.record(v.string(), v.unknown()),
+export const snapshotPushBodySchema = z.object({
+  snapshot: z.record(z.string(), z.unknown()),
   expectedSnapshotVersion: nonNegativeFiniteInteger,
 });
 
@@ -108,10 +106,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   // create finalization) that the user shouldn't see in the sidebar.
   .get(
     "/api/documents",
-    vValidator("query", documentListQuerySchema, (result, c) => {
+    zValidator("query", documentListQuerySchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid workspace_id", details: result.issues },
+          { error: "Invalid workspace_id", details: result.error.issues },
           400,
         );
       }
@@ -145,10 +143,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   // the Durable Object, fetched separately via the WebSocket sync.
   .get(
     "/api/documents/:id",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -174,18 +172,18 @@ export const documentsRoutes = new Hono<AppBindings>()
   )
   .put(
     "/api/documents/:id",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
     }),
-    vValidator("json", documentUpsertSchema, (result, c) => {
+    zValidator("json", documentUpsertSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document metadata", details: result.issues },
+          { error: "Invalid document metadata", details: result.error.issues },
           400,
         );
       }
@@ -342,10 +340,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   // period (see `startDocumentDeletion` in `../tldraw-assets`).
   .delete(
     "/api/documents/:id",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -399,10 +397,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   // where pushing a synthesized empty snapshot would be wasted work.
   .post(
     "/api/documents/:id/finalize",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -459,10 +457,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   // snapshot here doesn't need to also call /finalize.
   .put(
     "/api/documents/:id/snapshot",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -483,10 +481,10 @@ export const documentsRoutes = new Hono<AppBindings>()
       }
       await next();
     },
-    vValidator("json", snapshotPushBodySchema, (result, c) => {
+    zValidator("json", snapshotPushBodySchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid request body", details: result.issues },
+          { error: "Invalid request body", details: result.error.issues },
           400,
         );
       }
@@ -566,10 +564,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   )
   .get(
     "/api/documents/:id/offline-cache",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -603,10 +601,10 @@ export const documentsRoutes = new Hono<AppBindings>()
   )
   .get(
     "/api/documents/:id/snapshot-status",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }

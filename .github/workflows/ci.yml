@@ -16,6 +16,12 @@ permissions: {}
 jobs:
   build-anipres:
     runs-on: ubuntu-latest
+    # `pull-requests: write` so the measure-bundle-size action can update
+    # the sticky comment; `actions: read` for cross-run baseline downloads.
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     defaults:
       run:
         working-directory: packages/anipres
@@ -56,9 +62,20 @@ jobs:
           path: packages/anipres/dist
           name: anipres-dist
 
+      - name: Measure bundle size
+        uses: ./.github/actions/measure-bundle-size
+        with:
+          key: anipres
+          name: anipres
+          input-path: packages/anipres/dist
+
   build-agent-core:
     needs: [build-anipres]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     defaults:
       run:
         working-directory: packages/agent-core
@@ -107,6 +124,13 @@ jobs:
           path: packages/agent-core/dist
           name: agent-core-dist
 
+      - name: Measure bundle size
+        uses: ./.github/actions/measure-bundle-size
+        with:
+          key: agent-core
+          name: agent-core
+          input-path: packages/agent-core/dist
+
   test-slidev-addon-anipres:
     runs-on: ubuntu-latest
     defaults:
@@ -142,6 +166,10 @@ jobs:
 
   build-slidev-addon-anipres-preview:
     needs: [test-slidev-addon-anipres, build-anipres]
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     defaults:
       run:
         working-directory: packages/slidev-addon-anipres
@@ -188,6 +216,14 @@ jobs:
         with:
           name: slidev-addon-anipres-dist
           path: packages/slidev-addon-anipres/dist/
+
+      - name: Measure bundle size
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: ./.github/actions/measure-bundle-size
+        with:
+          key: slidev-addon-anipres
+          name: slidev-addon-anipres
+          input-path: packages/slidev-addon-anipres/dist
 
   deploy-slidev-addon-anipres-preview:
     needs: [build-slidev-addon-anipres-preview]
@@ -287,6 +323,10 @@ jobs:
     needs: [build-anipres, build-agent-core, lint-app]
 
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     defaults:
       run:
         working-directory: packages/app
@@ -330,6 +370,13 @@ jobs:
           name: app-dist
           path: packages/app/dist/
 
+      - name: Measure bundle size
+        uses: ./.github/actions/measure-bundle-size
+        with:
+          key: app
+          name: app
+          input-path: packages/app/dist
+
   # Per-PR Pages deploy — UI smoke check at <branch>.anipres.pages.dev.
   # Pages production (anipres.app) is now served by the unified worker
   # (`deploy-worker` below), so this job is gated to PRs only.
@@ -372,6 +419,8 @@ jobs:
     permissions:
       contents: read
       deployments: write
+      pull-requests: write
+      actions: read
 
     runs-on: ubuntu-latest
     defaults:
@@ -454,7 +503,23 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # `deploy:preview` / `deploy:prod` pass `--outdir dist` to
+        # wrangler so this same step writes the deployed bundle to
+        # disk for the measurement step below.
         run: pnpm ${{ github.event_name == 'pull_request' && 'deploy:preview' || 'deploy:prod' }}
+
+      # CF Workers don't deploy sourcemaps by default, so drop them
+      # before measuring — otherwise the report shows the sourcemap
+      # weight (often 2× the JS) and looks broken.
+      - name: Strip sourcemaps from worker bundle
+        run: rm -f dist/*.map
+
+      - name: Measure bundle size
+        uses: ./.github/actions/measure-bundle-size
+        with:
+          key: worker
+          name: worker
+          input-path: packages/worker/dist
 
   release:
     needs: [build-anipres, test-slidev-addon-anipres, build-slidev-addon-anipres-preview]

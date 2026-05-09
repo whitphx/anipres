@@ -3,7 +3,7 @@
 // agent-template has no equivalent because their canvas is not
 // presentation-aware. Kept under `format/` for symmetry with the
 // other focused-* primitives.
-import { z } from "zod";
+import * as z from "zod";
 import { FocusedEasingSchema } from "./focused-easing.js";
 
 /**

@@ -1,6 +1,6 @@
-import { vValidator } from "@hono/valibot-validator";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import * as v from "valibot";
+import * as z from "zod";
 import {
   SUPPORTED_ASSET_CONTENT_TYPES,
   assetNameSchema,
@@ -11,20 +11,27 @@ import { MAX_ASSET_SIZE } from "../tldraw-asset-policy";
 import { getDocumentAssetKey } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 
-const documentAssetParamSchema = v.object({
+const documentAssetParamSchema = z.object({
   id: documentIdSchema,
   assetName: assetNameSchema,
 });
 
-export const documentAssetUploadFieldsSchema = v.object({
-  file: v.file("Missing file field"),
+export const documentAssetUploadFieldsSchema = z.object({
+  file: z.instanceof(File, { message: "Missing file field" }),
 });
 
-export const documentAssetUploadFileSchema = v.pipe(
-  v.file(),
-  v.mimeType(SUPPORTED_ASSET_CONTENT_TYPES),
-  v.maxSize(MAX_ASSET_SIZE),
+const SUPPORTED_ASSET_CONTENT_TYPE_SET = new Set<string>(
+  SUPPORTED_ASSET_CONTENT_TYPES,
 );
+
+export const documentAssetUploadFileSchema = z
+  .instanceof(File)
+  .refine((file) => SUPPORTED_ASSET_CONTENT_TYPE_SET.has(file.type), {
+    message: "Unsupported asset content type",
+  })
+  .refine((file) => file.size <= MAX_ASSET_SIZE, {
+    message: "File too large",
+  });
 
 const ASSET_EXTENSION_BY_CONTENT_TYPE = {
   "image/jpeg": ".jpg",
@@ -317,10 +324,10 @@ async function scheduleDocumentAssetGc(
 export const assetRoutes = new Hono<AppBindings>()
   .post(
     "/api/documents/:id/assets",
-    vValidator("param", documentIdParamSchema, (result, c) => {
+    zValidator("param", documentIdParamSchema, (result, c) => {
       if (!result.success) {
         return c.json(
-          { error: "Invalid document id", details: result.issues },
+          { error: "Invalid document id", details: result.error.issues },
           400,
         );
       }
@@ -355,27 +362,22 @@ export const assetRoutes = new Hono<AppBindings>()
         throw error;
       }
 
-      const uploadFieldsResult = v.safeParse(
-        documentAssetUploadFieldsSchema,
-        {
-          file: formData.get("file"),
-        },
-      );
+      const uploadFieldsResult = documentAssetUploadFieldsSchema.safeParse({
+        file: formData.get("file"),
+      });
       if (!uploadFieldsResult.success) {
         return c.json(
           {
             error: "Invalid asset upload fields",
-            details: uploadFieldsResult.issues,
+            details: uploadFieldsResult.error.issues,
           },
           400,
         );
       }
 
-      const { file: uploadFile } = uploadFieldsResult.output;
-      const uploadFileResult = v.safeParse(
-        documentAssetUploadFileSchema,
-        uploadFile,
-      );
+      const { file: uploadFile } = uploadFieldsResult.data;
+      const uploadFileResult =
+        documentAssetUploadFileSchema.safeParse(uploadFile);
       if (!uploadFileResult.success) {
         return c.json(
           {
@@ -383,7 +385,7 @@ export const assetRoutes = new Hono<AppBindings>()
               uploadFile.size > MAX_ASSET_SIZE
                 ? "File too large"
                 : "Unsupported asset type",
-            details: uploadFileResult.issues,
+            details: uploadFileResult.error.issues,
           },
           uploadFile.size > MAX_ASSET_SIZE ? 413 : 400,
         );
@@ -438,7 +440,7 @@ export const assetRoutes = new Hono<AppBindings>()
     // 404 not 400 on validator failure: a malformed asset name can't
     // address an asset, so "not found" matches the route's external
     // contract better than "bad request".
-    vValidator("param", documentAssetParamSchema, (result, c) => {
+    zValidator("param", documentAssetParamSchema, (result, c) => {
       if (!result.success) {
         return c.json({ error: "Not found" }, 404);
       }

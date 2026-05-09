@@ -6,7 +6,7 @@
 // shape vocabulary distinct from tldraw's full schema, with a
 // discriminated union by `_type`, is upstream's. See
 // THIRD_PARTY_NOTICES.md at the repo root.
-import { z } from "zod";
+import * as z from "zod";
 import { FocusedColorSchema } from "./focused-color.js";
 
 const FocusedPointSchema = z.object({
