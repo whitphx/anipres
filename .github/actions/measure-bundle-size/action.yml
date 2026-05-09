@@ -138,14 +138,9 @@ runs:
         cat "$RUNNER_TEMP/bsr-comment.md"
         echo "::endgroup::"
 
-    # Retry handles the race where two jobs read "no existing comment"
-    # simultaneously and one's create wins (the loser sees 422/409 from
-    # GitHub validating against the now-updated state). 403 covers the
-    # secondary rate limit.
-    #
-    # Caveat: if both jobs successfully POST in the same window (no
-    # error to retry on), we can end up with duplicate comments. Stlite
-    # has the same edge case; rare enough not to engineer around.
+    # Caveat: if two jobs both successfully POST in the same window
+    # (no error to retry on), we can end up with duplicate comments.
+    # Stlite has the same edge case; rare enough not to engineer around.
     - name: Update sticky PR comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -154,62 +149,13 @@ runs:
         COMMENT_PATH: ${{ runner.temp }}/bsr-comment.md
       with:
         script: |
-          const fs = require("fs");
-          const MARKER = "<!-- bundle-size-report -->";
-          const prNumber = parseInt(process.env.PR_NUMBER, 10);
-          const body = `${MARKER}\n${fs.readFileSync(process.env.COMMENT_PATH, "utf8")}`;
-
-          const MAX_RETRIES = 3;
-          const RETRY_DELAY_MS = 1000;
-
-          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-              const comments = await github.paginate(
-                github.rest.issues.listComments,
-                {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber,
-                },
-              );
-              const existing = comments.find(
-                (c) =>
-                  c.body?.startsWith(MARKER) &&
-                  c.user?.login === "github-actions[bot]",
-              );
-
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body,
-                });
-                core.info(
-                  `Updated bundle-size comment ${existing.id} on PR #${prNumber}`,
-                );
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber,
-                  body,
-                });
-                core.info(`Created bundle-size comment on PR #${prNumber}`);
-              }
-              break;
-            } catch (error) {
-              const isRetryable =
-                error.status === 409 ||
-                error.status === 422 ||
-                error.status === 403;
-              if (isRetryable && attempt < MAX_RETRIES) {
-                core.warning(
-                  `Attempt ${attempt} failed with status ${error.status}, retrying in ${RETRY_DELAY_MS}ms…`,
-                );
-                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-                continue;
-              }
-              throw error;
-            }
-          }
+          const { pathToFileURL } = require("node:url");
+          const path = require("node:path");
+          const url = pathToFileURL(
+            path.join(
+              process.env.GITHUB_WORKSPACE,
+              ".github/scripts/bundle-size-report/update-sticky-comment.mjs",
+            ),
+          ).href;
+          const { default: run } = await import(url);
+          await run({ github, context, core });
