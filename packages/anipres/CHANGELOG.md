@@ -1,5 +1,40 @@
 # anipres
 
+## 0.13.0
+
+### Minor Changes
+
+- [#409](https://github.com/whitphx/anipres/pull/409) [`ba8fb42`](https://github.com/whitphx/anipres/commit/ba8fb42f034efabd82556d1db860c8ca12040f09) Thanks [@whitphx](https://github.com/whitphx)! - ESM-only — drop the CJS build.
+
+  The package now ships only an ESM build. The `./schema` subpath was already ESM-only (no `require` branch in `exports`) since it was added; consolidating the main entry to match.
+
+  Drops from `package.json`:
+  - `main` field (was the `.cjs` artifact)
+  - `module` field (redundant now that `exports` is the single source)
+  - The `require` branch in `exports."."`
+
+  The `vite.config.ts` lib config now pins `formats: ["es"]` so vite stops emitting `.cjs` outputs alongside the ESM ones.
+
+  This is a breaking change for consumers using `require("anipres")` from a CJS context. ESM consumers (the dominant pattern in modern React tooling — Vite, Next.js 13+, Webpack 5+, Cloudflare Workers, etc.) are unaffected. Internal consumers in this repo (`packages/app` via Vite, `packages/worker` via workerd) already use ESM.
+
+- [#409](https://github.com/whitphx/anipres/pull/409) [`ba8fb42`](https://github.com/whitphx/anipres/commit/ba8fb42f034efabd82556d1db860c8ca12040f09) Thanks [@whitphx](https://github.com/whitphx)! - Three cleanups from PR review.
+
+  **`<Anipres>` accepts a `maxAssetSize` prop.** Previously the component hardcoded a 10 MB cap derived from a `MAX_ASSET_SIZE` constant exported from `anipres/schema`. Asset-size policy is a deployment concern (the consumer needs to keep client and server in sync), not a UI-library concern, so the constant has been removed from `anipres` and the limit is now passed in by the caller. If you don't supply `maxAssetSize`, the editor inherits tldraw's built-in default.
+
+  **`anipres/schema` no longer exports `MAX_ASSET_SIZE`.** Consumers that imported it should host it in their own deployment-policy module — for example, this repo moved it to `packages/worker` (the canonical source for server-side enforcement) and exposes it via the worker's `exports["./asset-policy"]` so the app can import the same value.
+
+  **`anipres/schema` now also exports the shape types**: `SlideShape`, `ThemeImageShape`, `ThemeImageShapeProps`, `ThemeDimension` — useful for non-React consumers that need to type their snapshot data, alongside the existing runtime exports (`slideShapeProps`, `SlideShapeType`, `themeImageShapeProps`, `ThemeImageShapeType`).
+
+  **Internal cleanup**: the pattern `<Tldraw {...(store ? { store } : { snapshot })}>` was replaced with `<Tldraw store={store} snapshot={snapshot}>`. tldraw's discriminated-union types handle the resolution; the parent now passes both props transparently and tldraw decides which initialization path to use.
+
+- [#409](https://github.com/whitphx/anipres/pull/409) [`ba8fb42`](https://github.com/whitphx/anipres/commit/ba8fb42f034efabd82556d1db860c8ca12040f09) Thanks [@whitphx](https://github.com/whitphx)! - Expose anipres' shape building blocks for advanced consumers:
+  - The `anipres/schema` subpath now also exports `slideShapeProps`, `SlideShapeType`, `themeImageShapeProps`, and `ThemeImageShapeType` — pure-TS values usable outside React (e.g. validating snapshots on a server).
+  - The main entry now exports `customShapeUtils`, `allShapeUtils`, and `allBindingUtils` for embedders that build a tldraw editor with anipres' shapes plus their own.
+
+### Patch Changes
+
+- [#409](https://github.com/whitphx/anipres/pull/409) [`ba8fb42`](https://github.com/whitphx/anipres/commit/ba8fb42f034efabd82556d1db860c8ca12040f09) Thanks [@whitphx](https://github.com/whitphx)! - Tighten the `tldraw` peer dependency from `^3.15.5` to exact `3.15.5`. Anipres' shape schemas are now shared across the editor and the new `anipres/schema` subpath; minor tldraw versions can change shape internals, so pinning keeps the contract stable. Consumers should align their own `tldraw` install to the same exact version.
+
 ## 0.12.1
 
 ### Patch Changes
