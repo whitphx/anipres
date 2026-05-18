@@ -6,28 +6,34 @@
     "dist"
   ],
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/anipres.js"
-    },
-    "./anipres.css": "./dist/anipres.css",
-    "./schema": {
-      "types": "./dist/schema.d.ts",
-      "default": "./dist/schema.js"
-    },
-    "./models": {
-      "types": "./dist/models-and-tracks.d.ts",
-      "default": "./dist/models-and-tracks.js"
-    }
+    ".": "./src/index.ts",
+    "./anipres.css": "./src/styles.ts",
+    "./schema": "./src/schema.ts",
+    "./models": "./src/models-and-tracks.ts"
   },
-  "types": "./dist/index.d.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/whitphx/anipres.git",
     "directory": "packages/anipres"
   },
   "publishConfig": {
-    "provenance": true
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/anipres.js"
+      },
+      "./anipres.css": "./dist/anipres.css",
+      "./schema": {
+        "types": "./dist/schema.d.ts",
+        "default": "./dist/schema.js"
+      },
+      "./models": {
+        "types": "./dist/models-and-tracks.d.ts",
+        "default": "./dist/models-and-tracks.js"
+      }
+    },
+    "types": "./dist/index.d.ts"
   },
   "scripts": {
     "dev": "vite",

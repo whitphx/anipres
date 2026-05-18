@@ -70,7 +70,6 @@ jobs:
           input-path: packages/anipres/dist
 
   test-agent-core:
-    needs: [build-anipres]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -93,11 +92,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
 
       - name: Lint
         run: pnpm lint
@@ -145,7 +139,7 @@ jobs:
       #   run: pnpm test
 
   build-slidev-addon-anipres-preview:
-    needs: [test-slidev-addon-anipres, build-anipres]
+    needs: [test-slidev-addon-anipres]
     permissions:
       contents: read
       pull-requests: write
@@ -182,11 +176,6 @@ jobs:
 
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
 
       - name: Build the sample slides for preview
         run: pnpm slidev build
@@ -258,7 +247,7 @@ jobs:
         run: pnpm format --check
 
   test-worker:
-    needs: [build-anipres, test-agent-core]
+    needs: [test-agent-core]
 
     runs-on: ubuntu-latest
     defaults:
@@ -283,11 +272,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
       - name: Typecheck
         run: pnpm typecheck
 
@@ -295,7 +279,7 @@ jobs:
         run: pnpm test
 
   build-app:
-    needs: [build-anipres, test-agent-core, lint-app]
+    needs: [test-agent-core, lint-app]
 
     runs-on: ubuntu-latest
     permissions:
@@ -326,11 +310,6 @@ jobs:
 
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
 
       - name: Build
         run: pnpm build
@@ -382,7 +361,7 @@ jobs:
   # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
   # the preview worker is for exercising auth + sync end-to-end.
   deploy-worker:
-    needs: [build-anipres, test-agent-core, build-app, lint-app, test-worker]
+    needs: [test-agent-core, build-app, lint-app, test-worker]
 
     if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
 
@@ -421,11 +400,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
