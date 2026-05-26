@@ -348,15 +348,17 @@ jobs:
           name: app
           input-path: packages/app/dist
 
-  # Worker bundle build — produces the worker dist for bundle-size
-  # measurement only. The actual `wrangler deploy` (plus the D1
-  # migration reset gate) needs `CLOUDFLARE_*` secrets and lives in
-  # `post-build.yml`, which runs from `workflow_run` so it can access
-  # secrets even when the trigger was a Dependabot PR.
+  # Worker bundle build — produces the dist for both bundle-size
+  # measurement and the post-build deploy. The actual `wrangler deploy`
+  # (plus the D1 migration reset gate) needs `CLOUDFLARE_*` secrets and
+  # lives in `post-build.yml`, which runs from `workflow_run` so it can
+  # access secrets even when the trigger was a Dependabot PR.
   #
   # `wrangler deploy --dry-run --outdir dist` bundles via esbuild
   # without contacting the Cloudflare API, so this step works without
-  # secrets and produces the same artifact the deploy will upload.
+  # secrets and produces the same JS the deploy will upload via
+  # `--no-bundle`. Bundling here also keeps the privileged post-build
+  # job free of `pnpm install` on PR-controlled deps.
   build-worker:
     needs: [test-agent-core, build-app, lint-app, test-worker]
 
@@ -374,6 +376,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # Need history back to the PR base for the reset-gate diff.
+          # Harmless on main pushes.
+          # Quoted: GHA `&&`/`||` short-circuit like JS, and numeric `0`
+          # is falsy, so `… && 0 || 1` always yields `1`. Strings `'0'`
+          # / `'1'` are both truthy and pass through unchanged.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
         with:
@@ -393,9 +401,8 @@ jobs:
           name: app-dist
           path: packages/app/dist
 
-      # On PR we measure the preview build; on push to main we measure
-      # the prod build. Matches what `post-build.yml` will actually
-      # deploy via `pnpm deploy:preview` / `deploy:prod`.
+      # On PR we build the preview env; on push to main we build prod.
+      # Matches what `post-build.yml` will deploy via `--no-bundle`.
       - name: Build worker bundle (dry-run)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -416,6 +423,55 @@ jobs:
           key: worker
           name: worker
           input-path: packages/worker/dist
+
+      # Compute the reset-gate flag here (where the PR diff context is
+      # available); `post-build.yml` reads the flag without needing the
+      # repo history.
+      - name: Compute migrations-changed flag
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # `git diff --quiet` distinguishes the three outcomes by exit
+        # code (0 unchanged, 1 changed, >1 error), so a real failure
+        # surfaces instead of being silently routed to "skip reset" —
+        # which `if git diff … | grep -q .` would do under `set -e`,
+        # since `if` disables errexit for the condition.
+        run: |
+          set +e
+          git diff --quiet "$BASE_SHA"...HEAD -- migrations/
+          rc=$?
+          set -e
+          case "$rc" in
+            0) printf 'false' > migrations-changed ;;
+            1) printf 'true' > migrations-changed ;;
+            *) echo "git diff failed (exit $rc)"; exit "$rc" ;;
+          esac
+
+      - name: Default migrations-changed (push)
+        if: github.event_name != 'pull_request'
+        run: printf 'false' > migrations-changed
+
+      # Repoint `main` at the prebuilt bundle so `post-build.yml` can
+      # `wrangler deploy --no-bundle` without re-running esbuild
+      # against the PR's source (which is what was avoiding privileged
+      # PR-code execution in the first place). The grep after the sed
+      # turns a failed substitution (wrangler.toml schema changed) into
+      # a deploy-blocking error instead of a silent deploy with `main`
+      # still pointing at `src/worker.ts`.
+      - name: Repoint main in wrangler.toml for --no-bundle deploy
+        run: |
+          sed -i -E 's|^main[[:space:]]*=.*|main = "./dist/index.js"|' wrangler.toml
+          grep -Fxq 'main = "./dist/index.js"' wrangler.toml
+
+      - name: Upload worker deploy package
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: worker-deploy-package
+          path: |
+            packages/worker/dist/
+            packages/worker/migrations/
+            packages/worker/wrangler.toml
+            packages/worker/migrations-changed
 
   release:
     needs: [build-anipres, test-slidev-addon-anipres, build-slidev-addon-anipres-preview]

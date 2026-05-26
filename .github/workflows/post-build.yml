@@ -109,12 +109,12 @@ jobs:
   # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
   # the preview worker is for exercising auth + sync end-to-end.
   #
-  # SECURITY: This job checks out the PR HEAD and runs `pnpm install`
-  # with `CLOUDFLARE_*` secrets in the environment. A malicious PR
-  # could exfiltrate those via a postinstall script. The mitigation is
-  # repo-level: only the maintainer merges, and PRs from new external
-  # contributors require manual workflow approval in repo settings
-  # (Settings → Actions → "Require approval for first-time contributors").
+  # Artifact-only deploy: the worker bundle, the (CI-rewritten)
+  # wrangler.toml, the migrations directory, and the reset-gate flag
+  # all come from CI artifacts. No `actions/checkout` of PR code, no
+  # `pnpm install` against PR-controlled deps — so no PR-controlled
+  # script ever executes in this privileged (secrets-bearing) context.
+  # Wrangler runs via `npx` at a pinned version.
   deploy-worker:
     needs: [get-build-info]
     if: ${{ needs.get-build-info.outputs.pr-number != '' || needs.get-build-info.outputs.branch == github.event.repository.default_branch }}
@@ -124,35 +124,14 @@ jobs:
       deployments: write
 
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/worker
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          ref: ${{ needs.get-build-info.outputs.head-sha }}
-          persist-credentials: false
-          # Need history back to the PR base to diff
-          # `packages/worker/migrations/` for the reset gate below.
-          # Only needed on the PR path; harmless on main pushes.
-          # Quoted: GHA `&&`/`||` short-circuit like JS, and numeric `0`
-          # is falsy, so `… && 0 || 1` always yields `1`. Strings `'0'`
-          # / `'1'` are both truthy and pass through unchanged.
-          fetch-depth: ${{ needs.get-build-info.outputs.pr-number && '0' || '1' }}
-
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
-        with:
-          version: latest
-          run_install: false
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
+          name: worker-deploy-package
+          path: packages/worker
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -167,34 +146,65 @@ jobs:
       # as done and silently skips the new contents — preview's schema
       # then drifts permanently from the file. When this PR's
       # `migrations/` differs from the base, wipe preview D1 first so
-      # the subsequent `migrate:remote:preview` rebuilds from scratch.
+      # the subsequent `d1 migrations apply` rebuilds from scratch.
       # Skipped on main pushes (preview isn't deployed there).
+      #
+      # The drop SQL is generated inline here — we don't invoke
+      # `packages/worker/scripts/reset-preview-d1.mjs` from the
+      # artifact, since that would re-introduce execution of
+      # PR-controlled code. Logic mirrors the script on `main`.
       - name: Reset preview D1 if migrations changed
         if: ${{ needs.get-build-info.outputs.pr-number != '' }}
+        working-directory: packages/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          BASE_SHA: ${{ needs.get-build-info.outputs.base-sha }}
-        # `git diff --quiet` distinguishes the three outcomes by exit
-        # code (0 unchanged, 1 changed, >1 error), so a real failure
-        # surfaces instead of being silently routed to "skip reset" —
-        # which `if git diff … | grep -q .` would do under `set -e`,
-        # since `if` disables errexit for the condition.
+          WRANGLER_VERSION: 4.85.0
         run: |
-          set +e
-          git diff --quiet "$BASE_SHA"...HEAD -- migrations/
-          rc=$?
-          set -e
-          case "$rc" in
-            0) echo "Migrations unchanged since $BASE_SHA — skipping preview D1 reset." ;;
-            1) echo "Migrations changed since $BASE_SHA — resetting preview D1."
-               pnpm reset:remote:preview ;;
-            *) echo "git diff failed (exit $rc); refusing to deploy."
-               exit "$rc" ;;
-          esac
+          if [ "$(cat migrations-changed 2>/dev/null)" != "true" ]; then
+            echo "Migrations unchanged — skipping preview D1 reset."
+            exit 0
+          fi
+          echo "Migrations changed — resetting preview D1."
+          # `_cf_*` and `sqlite_sequence` are SQLite/D1-managed and
+          # reject DROP with SQLITE_AUTH; exclude them from the list.
+          npx -y -p "wrangler@${WRANGLER_VERSION}" wrangler d1 execute DB \
+            --remote --env preview --json --command \
+            "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'sqlite_sequence' AND type IN ('table','index','trigger','view')" \
+            > objects.json
+          drop_sql=$(jq -r '
+            (.[0].results // [])
+            | sort_by(({trigger:0, view:1, index:2, table:3})[.type] // 99)
+            | map("DROP \(.type | ascii_upcase) IF EXISTS \"\(.name)\";")
+            | join(" ")
+          ' objects.json)
+          if [ -n "$drop_sql" ]; then
+            echo "Dropping: $drop_sql"
+            npx -y -p "wrangler@${WRANGLER_VERSION}" wrangler d1 execute DB \
+              --remote --env preview --command "$drop_sql"
+          else
+            echo "No D1 objects to drop."
+          fi
 
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/worker
+          wranglerVersion: '4.85.0'
+          command: d1 migrations apply DB --remote ${{ needs.get-build-info.outputs.pr-number != '' && '--env preview' || '' }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # `--no-bundle` uploads `dist/index.js` as-is; CI rewrote `main`
+      # in the bundled wrangler.toml to point at it. Same `--env`
+      # selector as the migrations step picks preview vs prod.
       - name: Deploy worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm ${{ needs.get-build-info.outputs.pr-number != '' && 'deploy:preview' || 'deploy:prod' }}
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/worker
+          wranglerVersion: '4.85.0'
+          command: deploy --no-bundle ${{ needs.get-build-info.outputs.pr-number != '' && '--env preview' || '' }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
