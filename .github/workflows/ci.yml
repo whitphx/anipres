@@ -410,14 +410,27 @@ jobs:
       # Repoint `main` at the prebuilt bundle so `post-build.yml` can
       # `wrangler deploy --no-bundle` without re-running esbuild
       # against the PR's source (which is what was avoiding privileged
-      # PR-code execution in the first place). The grep after the sed
-      # turns a failed substitution (wrangler.toml schema changed) into
-      # a deploy-blocking error instead of a silent deploy with `main`
-      # still pointing at `src/worker.ts`.
+      # PR-code execution in the first place). Wrangler writes the
+      # bundle to `dist/<basename(main)>.js` — for our `src/worker.ts`
+      # that's `dist/worker.js`, but rather than hardcode the name we
+      # discover whatever wrangler actually emitted so a PR-side
+      # rename of `main` doesn't silently break the deploy.
       - name: Repoint main in wrangler.toml for --no-bundle deploy
         run: |
-          sed -i -E 's|^main[[:space:]]*=.*|main = "./dist/index.js"|' wrangler.toml
-          grep -Fxq 'main = "./dist/index.js"' wrangler.toml
+          js_files=$(find dist -maxdepth 1 -type f -name '*.js')
+          count=$(printf '%s\n' "$js_files" | grep -c .)
+          if [ "$count" -ne 1 ]; then
+            echo "Expected exactly 1 .js file in dist/, found $count:"
+            printf '%s\n' "$js_files"
+            exit 1
+          fi
+          # The filename can't contain `"` or newlines (filesystem-
+          # allowed but wrangler-rejected for `main`), so plain
+          # double-quoting in the sed replacement and the verify grep
+          # is safe.
+          new_main="./$js_files"
+          sed -i -E "s|^main[[:space:]]*=.*|main = \"${new_main}\"|" wrangler.toml
+          grep -Fxq "main = \"${new_main}\"" wrangler.toml
 
       - name: Upload worker deploy package
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
