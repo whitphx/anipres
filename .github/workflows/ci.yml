@@ -14,50 +14,6 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Hand off the event metadata to `post-build.yml` (workflow_run).
-  # `workflow_run.head_sha` is the merge commit on PRs, not the PR HEAD
-  # we want to deploy, and `pull_requests` is empty for forks — so this
-  # job captures the values authoritatively here and ships them as an
-  # artifact instead.
-  set-build-info:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Save build info (pull_request)
-        if: github.event_name == 'pull_request'
-        env:
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TRIGGER_SHA: ${{ github.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          printf '%s\n' "$BRANCH" > branch
-          printf '%s\n' "$HEAD_SHA" > head-sha
-          printf '%s\n' "$TRIGGER_SHA" > trigger-sha
-          printf '%s\n' "$BASE_SHA" > base-sha
-          printf '%s\n' "$PR_NUMBER" > pr-number
-      - name: Save build info (push)
-        if: github.event_name == 'push'
-        env:
-          BRANCH: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
-        run: |
-          printf '%s\n' "$BRANCH" > branch
-          printf '%s\n' "$SHA" > head-sha
-          printf '%s\n' "$SHA" > trigger-sha
-          : > base-sha
-          : > pr-number
-      - name: Upload build info
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: build-info
-          path: |
-            branch
-            head-sha
-            trigger-sha
-            base-sha
-            pr-number
-
   build-anipres:
     runs-on: ubuntu-latest
     # `pull-requests: write` so the measure-bundle-size action can update
