@@ -16,7 +16,6 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "noEmit": false,
-    "allowImportingTsExtensions": false,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.build.tsbuildinfo"
   },
   "include": ["src"]

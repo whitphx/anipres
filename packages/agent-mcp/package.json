@@ -10,19 +10,27 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsup",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "format": "prettier . --write",
     "start": "node --import tsx/esm src/bin.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.2",
+    "@ai-sdk/google": "^2.0.14",
+    "@ai-sdk/openai": "^2.0.24",
     "@anipres/agent-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "ai": "^5.0.63",
+    "anipres": "workspace:*",
+    "happy-dom": "^20.9.0",
+    "tldraw": "3.15.5",
     "zod": "^4.1.8"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "tsup": "^8.5.0",
     "tsx": "^4.20.0"
   }
 }
