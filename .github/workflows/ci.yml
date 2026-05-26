@@ -31,7 +31,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -80,7 +80,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -116,7 +116,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -161,7 +161,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -227,7 +227,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -259,7 +259,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -295,7 +295,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -388,7 +388,7 @@ jobs:
           # / `'1'` are both truthy and pass through unchanged.
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
@@ -476,7 +476,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           version: latest
           run_install: false
