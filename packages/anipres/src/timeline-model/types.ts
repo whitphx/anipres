@@ -1,0 +1,139 @@
+// Animation Data Model v2 — core types.
+// Spec: docs/design-animation-data-model.md
+//
+// This module tree (src/timeline-model/) is self-contained: it never
+// imports from ../models (the v1 surface), so the v1 module can later
+// re-export from here without a cycle.
+
+import type { EASINGS } from "tldraw";
+import type { JsonObject } from "tldraw";
+
+export interface FrameActionBase extends JsonObject {
+  type: string;
+}
+export interface ShapeAnimationFrameAction extends FrameActionBase {
+  type: "shapeAnimation";
+  duration?: number;
+  easing?: keyof typeof EASINGS;
+}
+export interface CameraZoomFrameAction extends FrameActionBase {
+  type: "cameraZoom";
+  inset?: number;
+  duration?: number;
+  easing?: keyof typeof EASINGS;
+}
+export type FrameAction = ShapeAnimationFrameAction | CameraZoomFrameAction;
+
+/**
+ * v2 cue frame — triggered by the user's "next" action.
+ * Cue frames sharing a `stepId` are *intentionally* simultaneous (one step).
+ * `stepOrderKey` is a fractional index key giving the step's position;
+ * key coincidence has NO grouping meaning.
+ */
+export interface CueFrame<T extends FrameAction = FrameAction> {
+  v: 2;
+  id: string;
+  type: "cue";
+  trackId: string;
+  stepId: string;
+  stepOrderKey: string;
+  action: T;
+}
+
+/**
+ * v2 sub frame — auto-chained after its batch's preceding frames.
+ * `cueFrameId` is batch membership (the id of the batch's cue frame),
+ * not chain position; `orderKey` orders sub frames within the batch.
+ */
+export interface SubFrame<T extends FrameAction = FrameAction> {
+  v: 2;
+  id: string;
+  type: "sub";
+  cueFrameId: string;
+  orderKey: string;
+  action: T;
+}
+
+export type Frame<T extends FrameAction = FrameAction> =
+  | CueFrame<T>
+  | SubFrame<T>;
+
+/** A frame together with the shape record that carries it. */
+export interface ShapeFrame {
+  shapeId: string;
+  frame: Frame;
+}
+
+// ---------------------------------------------------------------------------
+// Derived output — TimelineDoc. Not a source of truth; the versioned output
+// type of the derivation pipeline (and the future compiled-export format).
+// ---------------------------------------------------------------------------
+
+export interface FrameData {
+  /** The stored frame id — data that duplicate-id corruption can affect. */
+  frameId: string;
+  /** The carrying shape's id — the identity tldraw guarantees unique. */
+  shapeId: string;
+  action: FrameAction;
+}
+
+export interface BatchData {
+  trackId: string;
+  /** frames[0] is the cue; the rest are sub frames in batch order. */
+  frames: FrameData[];
+}
+
+export interface StepData {
+  /**
+   * For a normal step: the stored stepId (stable identity across reorders).
+   * For a rule-2 recovery step: a deterministic derived id (see
+   * `makeSyntheticStepId`); `synthetic` is set in that case.
+   */
+  id: string;
+  /** Canonical stepOrderKey of the step (the representative member's key). */
+  orderKey: string;
+  batches: BatchData[];
+  /** Present ONLY on rule-2 recovery steps. */
+  synthetic?: {
+    reason: "same-track-split";
+    sourceStepId: string;
+  };
+}
+
+export type TimelineDiagnostic =
+  | { type: "step-key-divergence"; stepId: string; shapeIds: string[] }
+  | {
+      type: "same-track-split";
+      stepId: string;
+      trackId: string;
+      shapeIds: string[];
+    }
+  | { type: "detached-sub-frame"; shapeId: string; cueFrameId: string }
+  | { type: "duplicate-frame-id"; frameId: string; shapeIds: string[] }
+  | { type: "invalid-frame"; shapeId: string };
+
+export interface TimelineDoc {
+  version: 1;
+  /** Array order = presentation order. */
+  steps: StepData[];
+  /** Rule-3 orphans (dangling `cueFrameId`) — surfaced, never dropped. */
+  detachedFrames: FrameData[];
+  diagnostics: TimelineDiagnostic[];
+}
+
+// ---------------------------------------------------------------------------
+// Structural editing interchange — what UI mutations (Timeline drag & drop,
+// ControlPanel operations) produce; reconciled back into per-shape v2 metas.
+// ---------------------------------------------------------------------------
+
+export interface EditedFrameRef {
+  id: string;
+  action: FrameAction;
+}
+export interface EditedBatch {
+  trackId: string;
+  /** frames[0] takes the cue role; the rest become sub frames, in order. */
+  frames: EditedFrameRef[];
+}
+/** One presentation step: batches that fire simultaneously. */
+export type EditedStep = EditedBatch[];
