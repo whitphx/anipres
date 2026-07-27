@@ -1,10 +1,10 @@
-import type { Editor } from "tldraw";
+import { uniqueId, type Editor } from "tldraw";
 import {
-  cueFrameToJsonObject,
-  getFrame,
-  getFrames,
-  getNextGlobalIndexFromCueFrames,
+  deriveTimeline,
+  frameToMetaJson,
+  interactiveKeyAbove,
   newTrackId,
+  parseFrameMeta,
   type CueFrame,
   type FrameAction,
 } from "anipres/models";
@@ -27,13 +27,22 @@ export const AttachCueFrameActionUtil =
       if (!shape) return;
 
       const trackId = resolveTrackId(editor, action.prevShapeId, helpers);
-      const globalIndex = nextGlobalIndex(editor);
 
+      // A fresh step appended at the end of the presentation.
+      const doc = deriveTimeline({
+        shapes: editor.getCurrentPageShapes().map((s) => ({
+          shapeId: s.id,
+          frameMeta: s.meta?.frame,
+        })),
+        pageId: editor.getCurrentPageId(),
+      });
       const cueFrame: CueFrame = {
+        v: 2,
         id: shapeId,
         type: "cue",
-        globalIndex,
         trackId,
+        stepId: uniqueId(),
+        stepOrderKey: interactiveKeyAbove(doc.steps.at(-1)?.orderKey ?? null),
         action: action.action as FrameAction,
       };
 
@@ -42,7 +51,7 @@ export const AttachCueFrameActionUtil =
         type: shape.type,
         meta: {
           ...shape.meta,
-          frame: cueFrameToJsonObject(cueFrame),
+          frame: frameToMetaJson(cueFrame),
         },
       });
     },
@@ -61,17 +70,10 @@ function resolveTrackId(
   if (!prevShape) return newTrackId();
 
   // We only chain off cue frames; if the prev shape carries a sub-frame
-  // we'd need to walk back to its root cue, which we don't currently
+  // we'd need to look up its batch's cue, which we don't currently
   // emit from the agent. Defensive fallback to a new track.
-  const prevFrame = getFrame(prevShape);
-  if (prevFrame?.type !== "cue") return newTrackId();
+  const parsed = parseFrameMeta(prevShape.meta?.frame);
+  if (parsed.kind !== "v2" || parsed.frame.type !== "cue") return newTrackId();
 
-  return prevFrame.trackId;
-}
-
-function nextGlobalIndex(editor: Editor): number {
-  const allCueFrames = getFrames(editor.getCurrentPageShapes()).filter(
-    (f): f is CueFrame => f.type === "cue",
-  );
-  return getNextGlobalIndexFromCueFrames(allCueFrames);
+  return parsed.frame.trackId;
 }

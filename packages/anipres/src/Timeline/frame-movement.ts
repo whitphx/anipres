@@ -1,11 +1,60 @@
-import type {
-  FrameBatchUIData,
-  FrameUIData,
-  SubFrameUIData,
-  Track,
-} from "./frame-ui-data";
-import type { Frame, FrameBatch, Step } from "../models";
-import { reassignGlobalIndexInplace } from "../ordered-track-item";
+import type { EditedBatch, EditedStep } from "../timeline-model";
+import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
+
+// The Timeline drag & drop semantics, unchanged from v1:
+// moving a frame takes it — plus, within its batch, the frames on the far
+// side of it relative to the move direction, plus every same-track batch
+// between source and destination — and "pushes" them toward the
+// destination. Frames that were cues start new batches (each becoming its
+// own step); when dropped "at" a step that already has a same-track batch,
+// the sequences merge into one batch.
+//
+// v1 expressed the result by fabricating frames with sentinel
+// globalIndexes (999999) and rewriting every shape's meta. v2 outputs a
+// plain EditedStep[] structure; reconcileEditedSteps turns it into a
+// minimal per-shape diff.
+
+interface RoleFrame {
+  frame: FrameUIData;
+  role: "cue" | "sub";
+}
+
+function batchToEdited(batch: {
+  trackId: string;
+  frames: FrameUIData[];
+}): EditedBatch {
+  return {
+    trackId: batch.trackId,
+    frames: batch.frames.map((frame) => ({
+      id: frame.id,
+      action: frame.action,
+    })),
+  };
+}
+
+function uiBatchToEdited(batch: FrameBatchUIData): EditedBatch {
+  return batchToEdited({ trackId: batch.trackId, frames: batch.data });
+}
+
+/** Groups pushed-out frames into batches: every "cue" role starts one. */
+function rebatch(pushedOut: RoleFrame[], trackId: string): EditedBatch[] {
+  if (pushedOut.length === 0) {
+    return [];
+  }
+  const withForcedFirstCue: RoleFrame[] = [
+    { frame: pushedOut[0].frame, role: "cue" },
+    ...pushedOut.slice(1),
+  ];
+  const batches: { trackId: string; frames: FrameUIData[] }[] = [];
+  for (const { frame, role } of withForcedFirstCue) {
+    if (role === "cue") {
+      batches.push({ trackId, frames: [frame] });
+    } else {
+      batches.at(-1)!.frames.push(frame);
+    }
+  }
+  return batches.map(batchToEdited);
+}
 
 export function moveFrame(
   steps: FrameBatchUIData[][],
@@ -14,7 +63,7 @@ export function moveFrame(
   srcTrackIndex: number,
   dstGlobalIndex: number,
   dstType: "after" | "at",
-): Step[] | undefined {
+): EditedStep[] | undefined {
   if (
     srcGlobalIndex < dstGlobalIndex ||
     (srcGlobalIndex === dstGlobalIndex && dstType === "after")
@@ -23,264 +72,214 @@ export function moveFrame(
       dstGlobalIndex++;
     }
     // Move to the right
-    const newSteps: FrameBatch[][] = [];
-    const pushedOutFrames: FrameUIData[] = [];
+    const newSteps: EditedStep[] = [];
+    const pushedOut: RoleFrame[] = [];
     for (let stepIndex = 0; stepIndex < steps.length + 1; stepIndex++) {
       // NOTE: Loop until `stepIndex` is `steps.length` to handle the case where `dstGlobalIndex = steps.length` and `dstType = "after"`.
       const step = steps[stepIndex] ?? [];
       if (stepIndex < srcGlobalIndex) {
-        newSteps.push(step);
+        newSteps.push(step.map(uiBatchToEdited));
       } else if (stepIndex === srcGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         step.forEach((frameBatch) => {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
             const [cueFrame, ...subFrames] = frameBatch.data;
             if (cueFrame.trackIndex === srcTrackIndex) {
-              pushedOutFrames.push(cueFrame, ...subFrames);
+              // The whole batch moves.
+              pushedOut.push(
+                ...frameBatch.data.map((frame) => ({
+                  frame,
+                  role: frame.type,
+                })),
+              );
             } else {
-              const remainingSubFrames: SubFrameUIData[] = [];
+              // The batch splits at the source frame.
+              const remaining: FrameUIData[] = [cueFrame];
               subFrames.forEach((subFrame) => {
                 if (subFrame.trackIndex < srcTrackIndex) {
-                  remainingSubFrames.push(subFrame);
+                  remaining.push(subFrame);
                 } else {
-                  pushedOutFrames.push(subFrame);
+                  pushedOut.push({ frame: subFrame, role: "sub" });
                 }
               });
-              newStep.push({
-                ...frameBatch,
-                data: [cueFrame, ...remainingSubFrames],
-              });
+              newStep.push(batchToEdited({ trackId, frames: remaining }));
             }
           }
         });
         newSteps.push(newStep);
       } else if (srcGlobalIndex < stepIndex && stepIndex < dstGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         step.forEach((frameBatch) => {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
-            pushedOutFrames.push(...frameBatch.data);
+            pushedOut.push(
+              ...frameBatch.data.map((frame) => ({
+                frame,
+                role: frame.type,
+              })),
+            );
           }
         });
         newSteps.push(newStep);
       } else if (stepIndex === dstGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         let existingDstFrameBatch: FrameBatchUIData | null = null;
         for (const frameBatch of step) {
           if (!(dstType === "at" && frameBatch.trackId === trackId)) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
             existingDstFrameBatch = frameBatch;
           }
         }
 
         if (existingDstFrameBatch != null) {
-          const lastPushedOutFrame = pushedOutFrames.at(-1);
-          if (lastPushedOutFrame != null) {
-            const [cueFrame, ...subFrames] = existingDstFrameBatch.data;
-            pushedOutFrames.push(
-              {
-                id: cueFrame.id,
-                type: "sub",
-                prevFrameId: lastPushedOutFrame.id,
-                trackIndex: cueFrame.trackIndex,
-                action: cueFrame.action,
-              },
-              ...subFrames,
+          if (pushedOut.length > 0) {
+            // Merge: the destination batch continues the moved sequence,
+            // its cue demoted to a sub frame.
+            const [dstCue, ...dstSubs] = existingDstFrameBatch.data;
+            pushedOut.push(
+              { frame: dstCue, role: "sub" },
+              ...dstSubs.map((frame) => ({ frame, role: "sub" as const })),
             );
           } else {
-            pushedOutFrames.push(...existingDstFrameBatch.data);
+            pushedOut.push(
+              ...existingDstFrameBatch.data.map((frame) => ({
+                frame,
+                role: frame.type,
+              })),
+            );
           }
         }
-        // Convert the pushed out frames into new frame batches
-        let frameBatchesToInsert: FrameBatch[] = [];
-        if (pushedOutFrames.length > 0) {
-          pushedOutFrames[0] = {
-            // The first frame is always a cueFrame
-            ...pushedOutFrames[0],
-            type: "cue",
-            trackId,
-            globalIndex: 999999, // This will be set later.
-          };
-          pushedOutFrames.forEach((frame) => {
-            if (frame.type === "cue") {
-              frameBatchesToInsert.push({
-                id: `batch-${pushedOutFrames[0].id}`,
-                trackId,
-                globalIndex: 999999, // This will be set later.
-                data: [frame],
-              });
-            } else {
-              frameBatchesToInsert.at(-1)?.data.push(frame);
-            }
-          });
-        }
 
+        let batchesToInsert = rebatch(pushedOut, trackId);
         if (dstType === "at") {
-          const lastFrameBatchToInsert = frameBatchesToInsert.at(-1);
-          if (lastFrameBatchToInsert != null) {
-            newStep.push(lastFrameBatchToInsert);
-            frameBatchesToInsert = frameBatchesToInsert.slice(0, -1);
+          const lastBatch = batchesToInsert.at(-1);
+          if (lastBatch != null) {
+            newStep.push(lastBatch);
+            batchesToInsert = batchesToInsert.slice(0, -1);
           }
         }
-
-        frameBatchesToInsert.forEach((frameBatchToInsert) => {
-          newSteps.push([frameBatchToInsert]);
+        batchesToInsert.forEach((batch) => {
+          newSteps.push([batch]);
         });
         newSteps.push(newStep);
       } else if (dstGlobalIndex < stepIndex) {
-        newSteps.push(step);
+        newSteps.push(step.map(uiBatchToEdited));
       }
     }
-    reassignGlobalIndexInplace(newSteps);
-    for (const step of newSteps) {
-      for (const frameBatch of step) {
-        frameBatch.data[0].globalIndex = frameBatch.globalIndex;
-      }
-    }
-    return newSteps;
+    return newSteps.filter((step) => step.length > 0);
   } else if (
     dstGlobalIndex < srcGlobalIndex ||
     (dstGlobalIndex === srcGlobalIndex && dstType === "after")
   ) {
     // Move to the left
-    const newSteps: FrameBatch[][] = [];
-    const pushedOutFrames: Frame[] = [];
+    const newSteps: EditedStep[] = [];
+    const pushedOut: RoleFrame[] = [];
     for (let stepIndex = steps.length - 1; stepIndex >= -1; stepIndex--) {
       // NOTE: Loop until `stepIndex` is -1 to handle the case where `dstGlobalIndex = -1` and `dstType = "after"`.
       const step = steps[stepIndex] ?? [];
       if (srcGlobalIndex < stepIndex) {
-        newSteps.unshift(step);
+        newSteps.unshift(step.map(uiBatchToEdited));
       } else if (stepIndex === srcGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         for (const frameBatch of step) {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
             const lastFrame = frameBatch.data.at(-1);
             if (lastFrame && lastFrame.trackIndex === srcTrackIndex) {
-              pushedOutFrames.unshift(...frameBatch.data);
+              // The whole batch moves.
+              pushedOut.unshift(
+                ...frameBatch.data.map((frame) => ({
+                  frame,
+                  role: frame.type,
+                })),
+              );
             } else {
+              // The batch splits: the source frame and everything before
+              // it move; the first remaining sub frame is promoted to cue.
               const [cueFrame, ...subFrames] = frameBatch.data;
-              const remainingSubFrames: SubFrameUIData[] = [];
-              subFrames.reverse().forEach((subFrame) => {
+              const remaining: FrameUIData[] = [];
+              [...subFrames].reverse().forEach((subFrame) => {
                 if (srcTrackIndex < subFrame.trackIndex) {
-                  remainingSubFrames.unshift(subFrame);
+                  remaining.unshift(subFrame);
                 } else {
-                  pushedOutFrames.unshift(subFrame);
+                  pushedOut.unshift({ frame: subFrame, role: "sub" });
                 }
               });
-              pushedOutFrames.unshift(cueFrame);
-              const [firstRemainingSubFrame, ...restRemainingSubFrames] =
-                remainingSubFrames;
-              newStep.push({
-                ...frameBatch,
-                data: [
-                  {
-                    id: firstRemainingSubFrame.id,
-                    type: "cue",
-                    globalIndex: 999999, // This will be set later
-                    trackId,
-                    action: firstRemainingSubFrame.action,
-                  },
-                  ...restRemainingSubFrames,
-                ],
-              });
+              pushedOut.unshift({ frame: cueFrame, role: "cue" });
+              newStep.push(batchToEdited({ trackId, frames: remaining }));
             }
           }
         }
         newSteps.unshift(newStep);
       } else if (dstGlobalIndex < stepIndex && stepIndex < srcGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         for (const frameBatch of step) {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
-            pushedOutFrames.unshift(...frameBatch.data);
+            pushedOut.unshift(
+              ...frameBatch.data.map((frame) => ({
+                frame,
+                role: frame.type,
+              })),
+            );
           }
         }
         newSteps.unshift(newStep);
       } else if (stepIndex === dstGlobalIndex) {
-        const newStep: FrameBatch[] = [];
+        const newStep: EditedStep = [];
         let existingDstFrameBatch: FrameBatchUIData | null = null;
         for (const frameBatch of step) {
           if (!(dstType === "at" && frameBatch.trackId === trackId)) {
-            newStep.push(frameBatch);
+            newStep.push(uiBatchToEdited(frameBatch));
           } else {
             existingDstFrameBatch = frameBatch;
           }
         }
 
         if (existingDstFrameBatch != null) {
-          if (pushedOutFrames.length > 0) {
-            // Merge the existing frame batch with the pushed out frames
-            const [firstPushedOutFrame, ...restPushedOutFrames] =
-              pushedOutFrames;
-            pushedOutFrames.unshift(
-              ...existingDstFrameBatch.data,
-              {
-                id: firstPushedOutFrame.id,
-                type: "sub",
-                prevFrameId: existingDstFrameBatch.data.at(-1)!.id,
-                action: firstPushedOutFrame.action,
-              },
-              ...restPushedOutFrames,
+          if (pushedOut.length > 0) {
+            // Merge: the moved sequence continues the destination batch,
+            // its first frame demoted to a sub frame.
+            pushedOut[0] = { frame: pushedOut[0].frame, role: "sub" };
+            pushedOut.unshift(
+              ...existingDstFrameBatch.data.map((frame) => ({
+                frame,
+                role: frame.type,
+              })),
             );
           } else {
-            pushedOutFrames.unshift(...existingDstFrameBatch.data);
+            pushedOut.unshift(
+              ...existingDstFrameBatch.data.map((frame) => ({
+                frame,
+                role: frame.type,
+              })),
+            );
           }
         }
 
-        // Convert the pushed out frames into new frame batches
-        const frameBatchesToInsert: FrameBatch[] = [];
-        if (pushedOutFrames.length > 0) {
-          pushedOutFrames[0] = {
-            // The first frame is always a cueFrame
-            ...pushedOutFrames[0],
-            type: "cue",
-            trackId,
-            globalIndex: 999999, // This will be set later.
-          };
-          pushedOutFrames.forEach((frame) => {
-            if (frame.type === "cue") {
-              frameBatchesToInsert.push({
-                id: `batch-${pushedOutFrames[0].id}`,
-                trackId,
-                globalIndex: 999999, // This will be set later.
-                data: [frame],
-              });
-            } else {
-              frameBatchesToInsert.at(-1)?.data.push(frame);
-            }
-          });
-        }
-
-        const [firstFrameBatchToInsert, ...restFrameBatchesToInsert] =
-          frameBatchesToInsert;
-        restFrameBatchesToInsert.reverse().forEach((frameBatch) => {
-          newSteps.unshift([frameBatch]);
+        const batchesToInsert = rebatch(pushedOut, trackId);
+        const [firstBatchToInsert, ...restBatchesToInsert] = batchesToInsert;
+        [...restBatchesToInsert].reverse().forEach((batch) => {
+          newSteps.unshift([batch]);
         });
-
-        if (dstType === "at") {
-          newStep.push(firstFrameBatchToInsert);
-        } else {
-          newSteps.unshift([firstFrameBatchToInsert]);
+        if (firstBatchToInsert != null) {
+          if (dstType === "at") {
+            newStep.push(firstBatchToInsert);
+          } else {
+            newSteps.unshift([firstBatchToInsert]);
+          }
         }
         newSteps.unshift(newStep);
       } else if (stepIndex < dstGlobalIndex) {
-        newSteps.unshift(step);
+        newSteps.unshift(step.map(uiBatchToEdited));
       }
     }
-
-    reassignGlobalIndexInplace(newSteps);
-    for (const step of newSteps) {
-      for (const frameBatch of step) {
-        frameBatch.data[0].globalIndex = frameBatch.globalIndex;
-      }
-    }
-    return newSteps;
+    return newSteps.filter((step) => step.length > 0);
   }
 }

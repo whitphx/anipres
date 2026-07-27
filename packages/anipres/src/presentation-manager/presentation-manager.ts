@@ -1,5 +1,6 @@
 import {
   computed,
+  uniqueId,
   type Editor,
   type Atom,
   type TLShape,
@@ -8,25 +9,18 @@ import {
   GroupShapeUtil,
 } from "tldraw";
 import {
-  type Frame,
-  type SubFrame,
-  type Step,
-  getFrame,
-  getSubFrame,
-  getFrames,
-  getFrameBatches,
-  cueFrameToJsonObject,
-  subFrameToJsonObject,
-  CueFrame,
-  getCueFrame,
-  getNextGlobalIndexFromCueFrames,
-  FrameAction,
-  newTrackId,
-} from "../models";
+  deriveTimeline,
+  frameToMetaJson,
+  interactiveKeyAbove,
+  type CueFrame,
+  type FrameAction,
+  type TimelineDoc,
+} from "../timeline-model";
 import {
-  getGlobalOrder,
-  reassignGlobalIndexInplace,
-} from "../ordered-track-item";
+  timelineDocToRuntimeSteps,
+  type RuntimeStep,
+} from "../timeline-model/runtime-steps";
+import { newTrackId } from "../models";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import { runStep } from "./animation";
 
@@ -60,45 +54,33 @@ export class PresentationManager {
     return this.instances.get(editor);
   }
 
-  @computed $getAllFrames(): Frame[] {
-    const shapes = this.editor.getCurrentPageShapes();
-    return getFrames(shapes);
+  /** The single derivation everything else consumes. Total: never throws. */
+  @computed $getTimelineDoc(): TimelineDoc {
+    const shapes = this.$getCurrentPageDescendantShapes();
+    return deriveTimeline({
+      shapes: shapes.map((shape) => ({
+        shapeId: shape.id,
+        frameMeta: shape.meta?.frame,
+      })),
+      pageId: this.editor.getCurrentPageId(),
+    });
   }
 
-  @computed $getOrderedSteps(): Step[] {
-    const frames = this.$getAllFrames();
-    const frameBatches = getFrameBatches(frames);
-    const orderedSteps = getGlobalOrder(frameBatches);
-    return orderedSteps;
+  @computed $getOrderedSteps(): RuntimeStep[] {
+    return timelineDocToRuntimeSteps(this.$getTimelineDoc());
   }
 
   @computed $getTotalSteps(): number {
     return this.$getOrderedSteps().length;
   }
 
-  @computed $getNextGlobalIndex(): number {
-    const shapes = this.$getCurrentPageDescendantShapes();
-    const allCueFrames = shapes
-      .map(getCueFrame)
-      .filter((cueFrame) => cueFrame != null);
-    return getNextGlobalIndexFromCueFrames(allCueFrames);
-  }
-
-  @computed $getAssociatedCueFrames(): Record<Frame["id"], CueFrame> {
-    const steps = this.$getOrderedSteps();
-    const associatedCueFrameIds: Record<Frame["id"], CueFrame> = {};
-    for (const step of steps) {
-      for (const frameBatch of step) {
-        for (const frame of frameBatch.data) {
-          associatedCueFrameIds[frame.id] = frameBatch.data[0]; // The first frame in the batch is always a cue frame
-        }
-      }
-    }
-    return associatedCueFrameIds;
-  }
-
   attachCueFrame(shapeId: TLShapeId, frameAction: FrameAction) {
-    const nextGlobalIndex = this.$getNextGlobalIndex();
+    // One new step appended at the end for this operation; grouped shapes
+    // land in the same step (fresh tracks per leaf shape).
+    const doc = this.$getTimelineDoc();
+    const lastStepKey = doc.steps.at(-1)?.orderKey ?? null;
+    const stepId = uniqueId();
+    const stepOrderKey = interactiveKeyAbove(lastStepKey);
 
     const attachCueFrameToShape = (shapeId: TLShapeId) => {
       const shape = this.editor.getShape(shapeId);
@@ -115,10 +97,12 @@ export class PresentationManager {
       }
 
       const cueFrame: CueFrame = {
+        v: 2,
         id: shapeId,
         type: "cue",
-        globalIndex: nextGlobalIndex,
         trackId: newTrackId(),
+        stepId,
+        stepOrderKey,
         action: frameAction,
       };
       this.editor.updateShape({
@@ -126,7 +110,7 @@ export class PresentationManager {
         type: shape.type,
         meta: {
           ...shape.meta,
-          frame: cueFrameToJsonObject(cueFrame),
+          frame: frameToMetaJson(cueFrame),
         },
       });
     };
@@ -158,71 +142,26 @@ export class PresentationManager {
     return pageShapes.flatMap((shape) => getDescendantShapes(shape));
   }
 
-  getShapeByFrameId(frameId: Frame["id"]): TLShape | undefined {
-    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
-    return pageDescendantShapes.find(
-      (shape) => getFrame(shape)?.id === frameId,
-    );
-  }
-
-  reconcileShapeDeletion(deletedShape: TLShape) {
-    const deletedFrame = getFrame(deletedShape);
-    if (deletedFrame == null) {
-      return;
-    }
-
-    const editor = this.editor;
-
-    if (deletedFrame.type === "cue") {
-      // Reassign globalIndex
-      const steps = this.$getOrderedSteps();
-      reassignGlobalIndexInplace(steps);
-      steps.forEach((stepFrameBatches) => {
-        stepFrameBatches.forEach((frameBatch) => {
-          const newGlobalIndex = frameBatch.globalIndex;
-          const cueFrame = frameBatch.data[0];
-          const shape = this.getShapeByFrameId(cueFrame.id);
-          if (shape == null) {
-            return;
+  /**
+   * Resolves a frame id to its carrying shape via the derived doc (the
+   * representative shape under duplicate frame ids).
+   */
+  getShapeByFrameId(frameId: string): TLShape | undefined {
+    const doc = this.$getTimelineDoc();
+    for (const step of doc.steps) {
+      for (const batch of step.batches) {
+        for (const frame of batch.frames) {
+          if (frame.frameId === frameId) {
+            return this.editor.getShape(frame.shapeId as TLShapeId);
           }
-          editor.updateShape({
-            id: shape.id,
-            type: shape.type,
-            meta: {
-              ...shape.meta,
-              frame: cueFrameToJsonObject({
-                ...cueFrame,
-                globalIndex: newGlobalIndex,
-              }),
-            },
-          });
-        });
-      });
-    } else if (deletedFrame.type === "sub") {
-      // Reassign prevFrameId
-      const shapes = editor.getCurrentPageShapes();
-      const allSubFrames = shapes
-        .map((shape) => ({ shape, subFrame: getSubFrame(shape) }))
-        .filter(({ subFrame }) => subFrame != null) as {
-        shape: TLShape;
-        subFrame: SubFrame;
-      }[];
-      allSubFrames.forEach(({ shape, subFrame }) => {
-        if (subFrame.prevFrameId === deletedFrame.id) {
-          editor.updateShape({
-            id: shape.id,
-            type: shape.type,
-            meta: {
-              ...shape.meta,
-              frame: subFrameToJsonObject({
-                ...subFrame,
-                prevFrameId: deletedFrame.prevFrameId,
-              }),
-            },
-          });
         }
-      });
+      }
     }
+    const detached = doc.detachedFrames.find((f) => f.frameId === frameId);
+    if (detached != null) {
+      return this.editor.getShape(detached.shapeId as TLShapeId);
+    }
+    return undefined;
   }
 
   public moveTo(stepIndex: number): void;
@@ -277,7 +216,38 @@ export class PresentationManager {
     const editor = this.editor;
 
     const orderedSteps = this.$getOrderedSteps();
+    const doc = this.$getTimelineDoc();
     const currentStepIndex = this.$currentStepIndex.get();
+
+    // shapeId -> its batch and position within it.
+    const frameInfoByShapeId = new Map<
+      string,
+      { stepIndex: number; trackId: string; isLastFrameOfBatch: boolean }
+    >();
+    for (const step of orderedSteps) {
+      for (const batch of step) {
+        batch.data.forEach((frame, frameIndex) => {
+          frameInfoByShapeId.set(frame.shapeId, {
+            stepIndex: batch.stepIndex,
+            trackId: batch.trackId,
+            isLastFrameOfBatch: frameIndex === batch.data.length - 1,
+          });
+        });
+      }
+    }
+    // Detached frames are excluded from playback: hidden.
+    const detachedShapeIds = new Set(
+      doc.detachedFrames.map((frame) => frame.shapeId),
+    );
+
+    // The latest batch per track among the steps played so far — the only
+    // batch whose last frame should be visible for that track.
+    const latestStepIndexPerTrack = new Map<string, number>();
+    for (const step of orderedSteps.slice(0, currentStepIndex + 1)) {
+      for (const batch of step) {
+        latestStepIndexPerTrack.set(batch.trackId, batch.stepIndex);
+      }
+    }
 
     const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
     const shapesVisibilities = pageDescendantShapes.map<
@@ -293,9 +263,15 @@ export class PresentationManager {
         return [shapeId, "hidden"];
       }
 
-      const frame = getFrame(shape);
-      if (frame == null) {
-        // No animation frame is attached to this shape, so it should always be visible
+      if (detachedShapeIds.has(shapeId)) {
+        return [shapeId, "hidden"];
+      }
+
+      const frameInfo = frameInfoByShapeId.get(shapeId);
+      if (frameInfo == null) {
+        // No (interpretable) animation frame is attached to this shape,
+        // so it should always be visible. Invalid frames fall here too —
+        // soft-fail treats them as unframed for playback.
         const parent = editor.getShape(shape.parentId);
         if (parent?.type === GroupShapeUtil.type) {
           return [shapeId, "inherit"];
@@ -303,62 +279,19 @@ export class PresentationManager {
         return [shapeId, "visible"];
       }
 
-      // The last frame of a finished animation should always be visible
-      if (frame.type === "cue") {
-        const cueFrame = frame;
-        const isFuture = cueFrame.globalIndex > currentStepIndex;
-        if (isFuture) {
-          return [shapeId, "hidden"];
-        }
-
-        const lastBatchIncludingThisTrack = orderedSteps
-          .slice(0, currentStepIndex + 1)
-          .reverse()
-          .flat()
-          .find((ab) => ab.trackId === cueFrame.trackId);
-        const isLatestPrevInTrack =
-          lastBatchIncludingThisTrack &&
-          lastBatchIncludingThisTrack.data.length > 0 &&
-          lastBatchIncludingThisTrack.data.findIndex(
-            (frame) => frame.id === cueFrame.id,
-          ) ===
-            lastBatchIncludingThisTrack.data.length - 1;
-        if (isLatestPrevInTrack) {
-          return [shapeId, "visible"];
-        }
-      } else if (frame.type === "sub") {
-        const subFrame = frame;
-        const thisBatch = orderedSteps
-          .flat()
-          .find((ab) => ab.data.some((frame) => frame.id === subFrame.id));
-        if (thisBatch == null) {
-          // This should never happen, but just in case
-          return [shapeId, "hidden"];
-        }
-
-        const isFuture = thisBatch.globalIndex > currentStepIndex;
-        if (isFuture) {
-          return [shapeId, "hidden"];
-        }
-
-        const lastBatchIncludingThisTrack = orderedSteps
-          .slice(0, currentStepIndex + 1)
-          .reverse()
-          .flat()
-          .find((ab) => ab.trackId === thisBatch.trackId);
-        const isLatestPrevInTrack =
-          lastBatchIncludingThisTrack &&
-          lastBatchIncludingThisTrack.data.length > 0 &&
-          lastBatchIncludingThisTrack.data.findIndex(
-            (frame) => frame.id === subFrame.id,
-          ) ===
-            lastBatchIncludingThisTrack.data.length - 1;
-        if (isLatestPrevInTrack) {
-          return [shapeId, "visible"];
-        }
+      if (frameInfo.stepIndex > currentStepIndex) {
+        return [shapeId, "hidden"];
       }
 
-      // Hidden by default
+      // Only the last frame of the track's latest played batch is visible.
+      const latestStepIndex = latestStepIndexPerTrack.get(frameInfo.trackId);
+      if (
+        latestStepIndex === frameInfo.stepIndex &&
+        frameInfo.isLastFrameOfBatch
+      ) {
+        return [shapeId, "visible"];
+      }
+
       return [shapeId, "hidden"];
     });
 

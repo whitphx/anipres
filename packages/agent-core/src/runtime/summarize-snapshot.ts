@@ -1,10 +1,5 @@
 import { loadHeadlessEditor } from "anipres";
-import {
-  getFrames,
-  getFrameBatches,
-  getGlobalOrder,
-  type FrameAction,
-} from "anipres/models";
+import { deriveTimeline, type FrameAction } from "anipres/models";
 import type { SnapshotInput } from "./edit-snapshot.js";
 import { installDomGlobals } from "./install-dom-globals.js";
 
@@ -39,21 +34,30 @@ export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
     const byType: Record<string, number> = {};
     for (const s of shapes) byType[s.type] = (byType[s.type] ?? 0) + 1;
 
-    const frames = getFrames(shapes);
-    const batches = getFrameBatches(frames);
-    const ordered = getGlobalOrder(batches);
+    const doc = deriveTimeline({
+      shapes: shapes.map((shape) => ({
+        shapeId: shape.id,
+        frameMeta: shape.meta?.frame,
+      })),
+      pageId: editor.getCurrentPageId(),
+    });
+    const frameCount = doc.steps.reduce(
+      (n, step) =>
+        n + step.batches.reduce((m, batch) => m + batch.frames.length, 0),
+      doc.detachedFrames.length,
+    );
 
     return {
       shapes: shapes.length,
       byType,
-      frames: frames.length,
-      totalSteps: ordered.length,
-      steps: ordered.map((step, i) => ({
+      frames: frameCount,
+      totalSteps: doc.steps.length,
+      steps: doc.steps.map((step, i) => ({
         index: i,
-        batches: step.map((b) => ({
+        batches: step.batches.map((b) => ({
           trackId: b.trackId,
-          action: b.data[0].action,
-          frameCount: b.data.length,
+          action: b.frames[0].action,
+          frameCount: b.frames.length,
         })),
       })),
     };

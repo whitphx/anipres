@@ -10,8 +10,13 @@ import {
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
-import type { Frame, FrameBatch, CueFrame } from "../models";
-import { calcFrameBatchUIData, FrameBatchUIData, Track } from "./frame-ui-data";
+import type { EditedStep, TimelineDoc } from "../timeline-model";
+import {
+  calcFrameBatchUIData,
+  FrameBatchUIData,
+  FrameUIData,
+  Track,
+} from "./frame-ui-data";
 import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
@@ -101,11 +106,11 @@ interface StepColumnProps {
   stepFrameBatches: FrameBatchUIData[];
   selectedFrameIds: string[];
   frameEditorRefCallback: (frameId: string) => React.RefCallback<HTMLElement>;
-  draggedFrame: Frame | null;
-  onFrameChange: (newFrame: Frame) => void;
+  draggedFrame: FrameUIData | null;
+  onFrameChange: (newFrame: FrameUIData) => void;
   onFrameSelect: (frameId: string) => void;
-  requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
-  requestSubFrameAddAfter: (prevFrame: Frame) => void;
+  requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
+  requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
 }
 const StepColumn = React.memo(
   ({
@@ -247,23 +252,23 @@ const AUTO_SCROLL_CONFIG = {
 };
 
 interface TimelineProps {
-  frameBatches: FrameBatch[];
-  onFrameChange: (newFrame: Frame) => void;
-  onFrameBatchesChange: (newFrameBatches: FrameBatch[]) => void;
+  timelineDoc: TimelineDoc;
+  onFrameChange: (newFrame: FrameUIData) => void;
+  onEditedStepsChange: (editedSteps: EditedStep[]) => void;
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
   shapeSelections: ShapeSelection[];
   onFrameSelect: (frameId: string) => void;
-  requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
-  requestSubFrameAddAfter: (prevFrame: Frame) => void;
+  requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
+  requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
 }
 export function Timeline({
-  frameBatches,
+  timelineDoc,
   onFrameChange,
-  onFrameBatchesChange,
+  onEditedStepsChange,
   currentStepIndex,
   onStepSelect,
   shapeSelections,
@@ -275,8 +280,8 @@ export function Timeline({
   requestAttachCueFrame,
 }: TimelineProps) {
   const { steps, tracks } = useMemo(
-    () => calcFrameBatchUIData(frameBatches),
-    [frameBatches],
+    () => calcFrameBatchUIData(timelineDoc),
+    [timelineDoc],
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -317,13 +322,13 @@ export function Timeline({
     });
   }, [shapeSelections, frameEditorDOMs]);
 
-  const [draggedFrame, setDraggedFrame] = useState<Frame | null>(null);
+  const [draggedFrame, setDraggedFrame] = useState<FrameUIData | null>(null);
 
   const handleDragStart = useCallback<
     NonNullable<DndContextProps["onDragStart"]>
   >((event) => {
     const { active } = event;
-    const frame = active.data.current?.frame as Frame | undefined;
+    const frame = active.data.current?.frame as FrameUIData | undefined;
     if (frame == null) {
       return;
     }
@@ -367,10 +372,10 @@ export function Timeline({
         dstType,
       );
       if (newSteps != null) {
-        onFrameBatchesChange(newSteps.flat());
+        onEditedStepsChange(newSteps);
       }
     },
-    [steps, onFrameBatchesChange],
+    [steps, onEditedStepsChange],
   );
 
   // To capture click events on draggable elements.

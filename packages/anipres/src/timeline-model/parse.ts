@@ -5,6 +5,7 @@
 // without a diagnostic, a shape with corrupted animation metadata would be
 // indistinguishable from a never-animated shape.
 
+import type { JsonObject } from "tldraw";
 import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
 import { isReservedStepId } from "./ids";
 
@@ -140,7 +141,7 @@ export function parseFrameMeta(raw: unknown): ParsedFrameMeta {
 }
 
 /** Serializes a v2 frame back to the JSON stored in `shape.meta.frame`. */
-export function frameToMetaJson(frame: Frame): Record<string, unknown> {
+export function frameToMetaJson(frame: Frame): JsonObject {
   if (frame.type === "cue") {
     const { v, id, type, trackId, stepId, stepOrderKey, action } = frame;
     return { v, id, type, trackId, stepId, stepOrderKey, action };

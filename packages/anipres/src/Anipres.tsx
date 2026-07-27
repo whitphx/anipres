@@ -43,14 +43,16 @@ import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeIma
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
-  cueFrameToJsonObject,
-  getFrame,
+  frameToMetaJson,
+  interactiveKeyAbove,
+  migrateV1Frames,
+  parseFrameMeta,
+  remapContentFrames,
   type CameraZoomFrameAction,
   type CueFrame,
-  type SubFrame,
-  getSubFrame,
-  subFrameToJsonObject,
-} from "./models";
+  type ShapeLegacyFrame,
+  type ShapeV2Frame,
+} from "./timeline-model";
 import { PresentationManager } from "./presentation-manager";
 import React, {
   useCallback,
@@ -297,78 +299,137 @@ const Inner = (props: InnerProps) => {
 
     const stopHandlers: (() => void)[] = [];
 
+    // One-time v1 -> v2 migration of the loaded document's animation
+    // metadata. Deterministic and convergent (see
+    // docs/design-animation-data-model.md "Migration from v1"), so it is
+    // safe to persist at load even for synced documents; history-ignored.
+    {
+      const shapes = editor.getCurrentPageShapes();
+      const v1Frames: ShapeLegacyFrame[] = [];
+      const v2Frames: ShapeV2Frame[] = [];
+      for (const shape of shapes) {
+        const parsed = parseFrameMeta(shape.meta?.frame);
+        if (parsed.kind === "v1") {
+          v1Frames.push({ shapeId: shape.id, frame: parsed.frame });
+        } else if (parsed.kind === "v2") {
+          v2Frames.push({ shapeId: shape.id, frame: parsed.frame });
+        }
+      }
+      if (v1Frames.length > 0) {
+        const migration = migrateV1Frames(
+          v1Frames,
+          v2Frames,
+          editor.getCurrentPageId(),
+        );
+        editor.run(
+          () => {
+            editor.updateShapes(
+              migration.updates.map(({ shapeId, frame }) => {
+                const shape = editor.getShape(shapeId as TLShapeId)!;
+                return {
+                  id: shape.id,
+                  type: shape.type,
+                  meta: { ...shape.meta, frame: frameToMetaJson(frame) },
+                };
+              }),
+            );
+          },
+          { history: "ignore" },
+        );
+        for (const diagnostic of migration.diagnostics) {
+          console.warn("anipres: v1 -> v2 migration diagnostic:", diagnostic);
+        }
+      }
+    }
+
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
           // Auto attach camera cueFrame to the newly created slide shape
-          const orderedSteps = presentationManager.$getOrderedSteps();
-          const lastCameraCueFrame = orderedSteps
-            .reverse()
-            .flat()
-            .find((ab) => ab.data[0].action.type === "cameraZoom");
+          const doc = presentationManager.$getTimelineDoc();
+          let lastCameraTrackId: string | undefined;
+          outer: for (let i = doc.steps.length - 1; i >= 0; i--) {
+            for (const batch of doc.steps[i].batches) {
+              if (batch.frames[0]?.action.type === "cameraZoom") {
+                lastCameraTrackId = batch.trackId;
+                break outer;
+              }
+            }
+          }
           const cueFrame: CueFrame<CameraZoomFrameAction> = {
+            v: 2,
             id: uniqueId(),
             type: "cue",
-            globalIndex: orderedSteps.length,
-            trackId: lastCameraCueFrame
-              ? lastCameraCueFrame.trackId
-              : uniqueId(),
+            stepId: uniqueId(),
+            stepOrderKey: interactiveKeyAbove(
+              doc.steps.at(-1)?.orderKey ?? null,
+            ),
+            trackId: lastCameraTrackId ?? uniqueId(),
             action: {
               type: "cameraZoom",
-              duration: lastCameraCueFrame ? 1000 : 0,
+              duration: lastCameraTrackId != null ? 1000 : 0,
             },
           };
           return {
             ...shape,
             meta: {
               ...shape.meta,
-              frame: cueFrameToJsonObject(cueFrame),
+              frame: frameToMetaJson(cueFrame),
             },
           };
         } else {
-          // If the shape contains a frame, ensure that the frame is unique.
-          // This is necessary e.g. when a shape is duplicated, the frame should not be duplicated.
-          const frame = getFrame(shape);
-          if (frame == null) {
+          // SAFETY NET for creation paths that bypass content insertion
+          // (e.g. editor.duplicateShapes): freshen duplicated frame
+          // identities shape-at-a-time. This cannot preserve
+          // relationships among a multi-shape operation — the
+          // putContentOntoCurrentPage preprocessing below is the primary,
+          // relationship-preserving mechanism.
+          const parsed = parseFrameMeta(shape.meta?.frame);
+          if (parsed.kind !== "v2") {
+            // none: nothing to do; invalid: the derivation diagnoses it;
+            // v1: converted in memory and migrated on next load.
             return shape;
           }
-
-          const allShapes = editor.getCurrentPageShapes();
-          const allFrameIds = allShapes.map((shape) => getFrame(shape)?.id);
-          if (allFrameIds.includes(frame.id)) {
-            const newFrameId = uniqueId();
-            const nextSubFrameShape = allShapes.find(
-              (shape) => getSubFrame(shape)?.prevFrameId === frame.id,
+          const frame = parsed.frame;
+          const frameIdExists = editor.getCurrentPageShapes().some((other) => {
+            const otherParsed = parseFrameMeta(other.meta?.frame);
+            return (
+              (otherParsed.kind === "v2" || otherParsed.kind === "v1") &&
+              otherParsed.frame.id === frame.id
             );
-            if (nextSubFrameShape != null) {
-              const nextSubFrame = getSubFrame(nextSubFrameShape)!;
-              editor.updateShape({
-                ...nextSubFrameShape,
-                meta: {
-                  ...nextSubFrameShape.meta,
-                  frame: subFrameToJsonObject({
-                    ...nextSubFrame,
-                    prevFrameId: newFrameId,
-                  }),
-                },
-              });
-            }
-            shape.meta.frame = {
-              id: newFrameId,
-              type: "sub",
-              prevFrameId: frame.id,
-              action: frame.action,
-            } satisfies SubFrame;
+          });
+          if (!frameIdExists) {
+            return shape;
           }
-          return shape;
+          console.warn(
+            "anipres: duplicated animation frame reached the beforeCreate safety net; " +
+              "identities are freshened per-shape without relationship preservation.",
+          );
+          const freshened =
+            frame.type === "cue"
+              ? {
+                  ...frame,
+                  id: uniqueId(),
+                  stepId: uniqueId(),
+                  trackId: uniqueId(),
+                }
+              : { ...frame, id: uniqueId() };
+          return {
+            ...shape,
+            meta: {
+              ...shape.meta,
+              frame: frameToMetaJson(freshened),
+            },
+          };
         }
       }),
     );
-    stopHandlers.push(
-      editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        presentationManager.reconcileShapeDeletion(shape);
-      }),
-    );
+    // NOTE: v1 registered an afterDelete handler here to renumber
+    // globalIndexes and re-link sub-frame chains. v2 needs neither:
+    // deletion requires zero writes to other shapes (fractional keys are
+    // relative; sub frames of a deleted cue become detached and are
+    // surfaced by the derivation, so undoing the deletion restores them
+    // with no reconciliation).
 
     stopHandlers.push(
       editor.sideEffects.registerBeforeChangeHandler(
@@ -492,6 +553,83 @@ const Inner = (props: InnerProps) => {
           "ThemeImage assets (light/dark) will not be included in clipboard data when copying. " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
+      );
+    }
+
+    // Content-level paste preprocessing — the PRIMARY duplication/paste
+    // mechanism: an order-independent transform over the complete copied
+    // content, with operation-scoped identity maps (frame ids keyed by
+    // source shape id; stepId/trackId shared among the copies), so
+    // relationships among pasted frames are preserved and links to
+    // everything outside the operation are severed.
+    // `putContentOntoCurrentPage` is public tldraw API; the guard keeps a
+    // future signature change from breaking paste (frames would then hit
+    // the beforeCreate safety net instead).
+    const editorWithPut = editor as Editor & {
+      putContentOntoCurrentPage?: (
+        content: TLContent,
+        options?: object,
+      ) => Editor;
+    };
+    if (typeof editorWithPut.putContentOntoCurrentPage === "function") {
+      const originalPutContent =
+        editorWithPut.putContentOntoCurrentPage.bind(editor);
+      editorWithPut.putContentOntoCurrentPage = (
+        content: TLContent,
+        options?: object,
+      ) => {
+        try {
+          const existingFrameIds = new Set<string>();
+          const existingStepIds = new Set<string>();
+          const existingTrackIds = new Set<string>();
+          for (const shape of editor.getCurrentPageShapes()) {
+            const parsed = parseFrameMeta(shape.meta?.frame);
+            if (parsed.kind !== "v2" && parsed.kind !== "v1") continue;
+            existingFrameIds.add(parsed.frame.id);
+            if (parsed.kind === "v2" && parsed.frame.type === "cue") {
+              existingStepIds.add(parsed.frame.stepId);
+              existingTrackIds.add(parsed.frame.trackId);
+            }
+            if (parsed.kind === "v1" && parsed.frame.type === "cue") {
+              existingTrackIds.add(parsed.frame.trackId);
+            }
+          }
+          const remap = remapContentFrames({
+            shapes: content.shapes.map((shape) => ({
+              shapeId: shape.id,
+              frameMeta: shape.meta?.frame,
+            })),
+            existing: {
+              frameIds: existingFrameIds,
+              stepIds: existingStepIds,
+              trackIds: existingTrackIds,
+            },
+            currentDoc: presentationManager.$getTimelineDoc(),
+            mintId: uniqueId,
+          });
+          if (remap.updatedFrames.size > 0) {
+            content = {
+              ...content,
+              shapes: content.shapes.map((shape) => {
+                const frame = remap.updatedFrames.get(shape.id);
+                return frame != null
+                  ? {
+                      ...shape,
+                      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
+                    }
+                  : shape;
+              }),
+            };
+          }
+        } catch (e) {
+          console.warn("anipres: paste frame preprocessing failed:", e);
+        }
+        return originalPutContent(content, options);
+      };
+    } else {
+      console.warn(
+        "anipres: editor.putContentOntoCurrentPage is missing or has an unexpected signature. " +
+          "Pasted animation frames will be deduplicated per-shape without relationship preservation.",
       );
     }
 

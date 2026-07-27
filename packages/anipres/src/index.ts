@@ -8,3 +8,4 @@ export {
   allShapeUtils,
   allBindingUtils,
 } from "./shape-utils.ts";
+export * from "./timeline-model/index.ts";

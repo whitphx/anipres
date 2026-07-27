@@ -13,8 +13,7 @@ import type {
   TLTextOptions,
 } from "tldraw";
 
-import { getFrames, getFrameBatches } from "./models";
-import { getGlobalOrder } from "./ordered-track-item";
+import { deriveTimeline } from "./timeline-model";
 
 import { allShapeUtils, allBindingUtils } from "./shape-utils";
 
@@ -91,13 +90,32 @@ export function getShapeRecordsFromSnapshot(
   );
 }
 
+function getPageIdFromSnapshot(
+  snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
+): string {
+  const storeSnapshot: TLStoreSnapshot | undefined =
+    "store" in snapshot && snapshot.store != null
+      ? (snapshot as TLStoreSnapshot)
+      : (snapshot as Partial<TLEditorSnapshot>).document;
+  const page = Object.values(storeSnapshot?.store ?? {}).find(
+    (record) => (record as { typeName?: string }).typeName === "page",
+  );
+  return (page as { id?: string } | undefined)?.id ?? "page:page";
+}
+
 export function calculateTotalSteps(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
 ): number {
-  // Read the snapshot's shape records directly — no headless Editor needed.
+  // Read the snapshot's shape records directly — no headless Editor
+  // needed. The derivation is mixed-tolerant: v1 frames are converted in
+  // memory with the same deterministic mapping migration uses.
   const shapes = getShapeRecordsFromSnapshot(snapshot);
-  const allFrames = getFrames(shapes);
-  const frameBatches = getFrameBatches(allFrames);
-  const orderedSteps = getGlobalOrder(frameBatches);
-  return orderedSteps.length;
+  const doc = deriveTimeline({
+    shapes: shapes.map((shape) => ({
+      shapeId: shape.id,
+      frameMeta: shape.meta?.frame,
+    })),
+    pageId: getPageIdFromSnapshot(snapshot),
+  });
+  return doc.steps.length;
 }

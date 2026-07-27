@@ -8,6 +8,21 @@
 import type { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
 
+/**
+ * The animation-metadata format this build reads AND writes.
+ *
+ * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6): for
+ * synced documents, mixed-format tolerance covers migration and crash
+ * recovery only — it is NOT bidirectional editing compatibility. Before
+ * v2 writers are enabled against a shared document, the sync layer must
+ * enforce a minimum client version (tldraw's store schema versioning does
+ * not cover `meta` contents, so the gate must be explicit — e.g. a
+ * sync-handshake check or a document-level version record comparing
+ * against this constant). A v1-era client writing to a v2-edited document
+ * converges deterministically but can silently revert newer ordering.
+ */
+export const TIMELINE_FORMAT_VERSION = 2;
+
 export interface FrameActionBase extends JsonObject {
   type: string;
 }

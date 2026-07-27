@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { loadHeadlessEditor } from "anipres";
-import { getCueFrame } from "anipres/models";
+import { parseFrameMeta, type CueFrame } from "anipres/models";
+import type { TLShape } from "tldraw";
+
+function getV2CueFrame(shape: TLShape): CueFrame | undefined {
+  const parsed = parseFrameMeta(shape.meta?.frame);
+  return parsed.kind === "v2" && parsed.frame.type === "cue"
+    ? parsed.frame
+    : undefined;
+}
 import "./actions/create-shape.js";
 import "./actions/attach-cue-frame.js";
 import "./actions/update-shape.js";
@@ -49,10 +57,11 @@ describe("anipres action utils", () => {
         .getCurrentPageShapes()
         .find((s) => s.type === "slide");
       expect(slide).toBeTruthy();
-      const cue = getCueFrame(slide!);
+      const cue = getV2CueFrame(slide!);
       expect(cue).toBeTruthy();
       expect(cue?.action.type).toBe("cameraZoom");
-      expect(cue?.globalIndex).toBe(0);
+      expect(cue?.stepId).toBeTruthy();
+      expect(cue?.stepOrderKey).toBeTruthy();
     } finally {
       dispose();
     }
@@ -118,14 +127,15 @@ describe("anipres action utils", () => {
       expect(rectShapes).toHaveLength(2);
 
       const cues = rectShapes
-        .map((s) => getCueFrame(s))
+        .map((s) => getV2CueFrame(s))
         .filter((c): c is NonNullable<typeof c> => c !== undefined);
       expect(cues).toHaveLength(2);
       // Both cues share a track
       expect(new Set(cues.map((c) => c.trackId)).size).toBe(1);
-      // GlobalIndexes are different — one per step
-      const indexes = cues.map((c) => c.globalIndex).sort();
-      expect(indexes).toEqual([0, 1]);
+      // Distinct steps, ordered: one step per attachCueFrame action
+      expect(new Set(cues.map((c) => c.stepId)).size).toBe(2);
+      const keys = cues.map((c) => c.stepOrderKey);
+      expect(new Set(keys).size).toBe(2);
     } finally {
       dispose();
     }

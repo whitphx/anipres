@@ -4,7 +4,7 @@ import {
   TldrawUiPopoverTrigger,
   TldrawUiPopoverContent,
 } from "tldraw";
-import { Frame } from "../../models";
+import type { FrameUIData } from "../frame-ui-data";
 import { NumberField } from "./NumberField";
 import { SelectField } from "./SelectField";
 import styles from "./FrameEditPopover.module.scss";
@@ -15,8 +15,8 @@ function isEasingOption(value: string): value is keyof typeof EASINGS {
 }
 
 export interface FrameEditPopoverProps {
-  frame: Frame;
-  onUpdate: (newFrame: Frame) => void;
+  frame: FrameUIData;
+  onUpdate: (newFrame: FrameUIData) => void;
   children: React.ReactNode;
 }
 export function FrameEditPopover({

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useDraggableFrameDelta } from "./FrameMoveTogetherDndContext";
-import { Frame } from "../models";
+import type { FrameUIData } from "./frame-ui-data";
 
 export const DraggableFrameUI = React.memo(
   ({
@@ -17,7 +17,7 @@ export const DraggableFrameUI = React.memo(
     trackId: string;
     trackIndex: number;
     globalIndex: number;
-    frame: Frame;
+    frame: FrameUIData;
     children: React.ReactNode;
     className?: string;
   }) => {

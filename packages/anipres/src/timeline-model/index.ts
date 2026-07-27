@@ -1,3 +1,4 @@
+export { TIMELINE_FORMAT_VERSION } from "./types";
 export type {
   FrameAction,
   FrameActionBase,
