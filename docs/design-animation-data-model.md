@@ -12,6 +12,13 @@ Proposal. Not implemented. No code changes accompany this document.
 
 ## Revision History
 
+- **r6 (2026-07-27)**: Type/prose alignment in `TimelineDoc`, closing the
+  fifth external review: synthetic steps (derivation rule 2 splits) are
+  now explicit in the output type via `StepData.synthetic` (reason +
+  source `stepId`) instead of an unspecified "flag", and their derived
+  ids are specified — deterministic, stable, namespaced
+  (`synthstep:`), one per split batch, and *not* a parse contract
+  (the structured field is the source of truth).
 - **r5 (2026-07-27)**: Final precision pass, following a fourth external
   design review. Corrects migration procedure step 2 (stamp ids per
   **partition**, not per `globalIndex` group — r4's wording would have
@@ -609,7 +616,15 @@ interface TimelineDoc {
   detachedFrames: FrameData[];    // rule-3 orphans, surfaced not dropped
   diagnostics: TimelineDiagnostic[];
 }
-interface StepData { id: string; batches: BatchData[] }   // id = stepId (stable)
+interface StepData {
+  id: string;                     // = stored stepId (stable) — or a derived
+                                  //   synthetic id when `synthetic` is set
+  batches: BatchData[];
+  synthetic?: {                   // present ONLY on rule-2 recovery steps
+    reason: "same-track-split";
+    sourceStepId: string;         // the stored stepId the batch split from
+  };
+}
 interface BatchData { trackId: string; frames: FrameData[] } // frames[0] = cue
 interface FrameData { frameId: string; shapeId: TLShapeId; action: FrameAction }
 
@@ -631,8 +646,25 @@ reorders**, not a synthesized value. This gives the Timeline UI stable React
 keys, gives the repair flow and diagnostics a durable referent, and gives
 future step-level features (the compiled Slidev viewer's click mapping,
 step labels, deep links) a foundation without any global timeline record.
-(Steps synthesized by derivation rule 2 get a deterministic derived id,
-flagged as synthetic.)
+
+**Synthetic steps** (rule-2 same-track splits) are marked by the
+`synthetic` field, so consumers — the Timeline UI, the compiled viewer,
+diagnostic-resolution code — distinguish stored steps from derived
+recovery behavior **structurally, never by parsing id conventions**. Each
+split batch gets its *own* synthetic step (two split same-track batches
+cannot share a step either), with a derived id:
+
+```ts
+const syntheticStepId = `synthstep:${sourceStepId}:${cueShapeId}`;
+```
+
+where `cueShapeId` is the split batch's cue shape id. Properties:
+**deterministic** across repeated derivations, **stable** while the source
+frames are unchanged (safe as a React key and a diagnostic referent), and
+**collision-free** with stored ids by namespace (`uniqueId()`-minted and
+`v1step:` ids never start with `synthstep:`). Unlike `v1step:`, this
+format is *not* a parse contract — the structured `synthetic` field is the
+source of truth, and the id needs only the three properties above.
 
 Uses:
 
@@ -837,7 +869,10 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
-including: all four totality rules; key-collision-with-distinct-`stepId`;
+including: all four totality rules (with synthetic-step ids verified
+deterministic and stable across repeated derivations, and
+`StepData.synthetic` populated with the source `stepId`);
+key-collision-with-distinct-`stepId`;
 collision-run insertion (steps and sub-frames), plus **concurrent
 collision-run normalizations remaining total and lossless after
 record-level LWW merging** (re-collided keys degrade back to an ordinary
