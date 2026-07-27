@@ -10,99 +10,43 @@ export type ItemGroup<T> = OrderedTrackItem<T>[];
 
 /**
  * getGlobalOrder:
- * OrderedTrackItem[]をコピーし、(1) 同じtrackId内で globalIndex の大小 ⇒ a->b,
- * (2) 全体で a.globalIndex < b.globalIndex ⇒ a->b
- * の2種類のエッジをDAGに追加し、トポロジカルソート。
- * サイクルあれば例外。最後に "globalIndex" ごとにまとめた2次元配列で返す。
+ * Sorts the items by `globalIndex` and groups items sharing the same
+ * `globalIndex` into one group. Throws if two items in the same track have
+ * the same `globalIndex`.
+ *
+ * NOTE: This used to build a DAG and run a topological sort, but the two
+ * edge types it added (same-track ascending index, global ascending index)
+ * are respectively a strict subset of, and identical to, plain
+ * `globalIndex` ordering — so the DAG encoded no information beyond
+ * "sort by globalIndex, group equal values", and cycles were impossible by
+ * construction. The only detectable conflict is the same-track/same-index
+ * case, which is checked explicitly. See
+ * docs/design-animation-data-model.md ("Problems with the v1 Encoding").
  */
 export function getGlobalOrder<T>(
   items: OrderedTrackItem<T>[],
 ): ItemGroup<T>[] {
-  // 1. Copy & sort by globalIndex
   const copy = items.map((item) => ({ ...item }));
   copy.sort((a, b) => a.globalIndex - b.globalIndex);
 
-  // 2. Early conflict detection using double nested loop
-  for (let i = 0; i < copy.length; i++) {
-    for (let j = i + 1; j < copy.length; j++) {
-      if (
-        copy[i].trackId === copy[j].trackId &&
-        copy[i].globalIndex === copy[j].globalIndex
-      ) {
-        throw new Error(
-          `Cycle or conflict: same trackId and globalIndex ${copy[i].id} and ${copy[j].id} (${copy[i].globalIndex}, ${copy[i].trackId}) and (${copy[j].globalIndex}, ${copy[j].trackId})`,
-        );
-      }
-    }
-  }
-
-  // 3. DAG construction for topological sort
-  const graph = new Map<string, string[]>();
-  const indeg = new Map<string, number>();
+  // Conflict detection: same trackId + same globalIndex is invalid.
+  const seenTrackIndexPairs = new Map<string, OrderedTrackItem<T>>();
   for (const item of copy) {
-    graph.set(item.id, []);
-    indeg.set(item.id, 0);
-  }
-
-  // 3.1 Add edges for same trackId with ascending globalIndex
-  for (let i = 0; i < copy.length; i++) {
-    for (let j = i + 1; j < copy.length; j++) {
-      const a = copy[i],
-        b = copy[j];
-      if (a.trackId === b.trackId && a.globalIndex < b.globalIndex) {
-        graph.get(a.id)!.push(b.id);
-        indeg.set(b.id, indeg.get(b.id)! + 1);
-      }
+    const key = `${item.globalIndex}:${item.trackId}`;
+    const conflicting = seenTrackIndexPairs.get(key);
+    if (conflicting != null) {
+      throw new Error(
+        `Cycle or conflict: same trackId and globalIndex ${conflicting.id} and ${item.id} (${conflicting.globalIndex}, ${conflicting.trackId}) and (${item.globalIndex}, ${item.trackId})`,
+      );
     }
+    seenTrackIndexPairs.set(key, item);
   }
 
-  // 3.2 Add edges for global ordering by globalIndex
-  for (let i = 0; i < copy.length; i++) {
-    for (let j = i + 1; j < copy.length; j++) {
-      const a = copy[i],
-        b = copy[j];
-      if (a.globalIndex < b.globalIndex) {
-        graph.get(a.id)!.push(b.id);
-        indeg.set(b.id, indeg.get(b.id)! + 1);
-      }
-    }
-  }
-
-  // 4. Topological sort
-  const queue: string[] = [];
-  for (const [id, deg] of indeg) {
-    if (deg === 0) queue.push(id);
-  }
-  const sorted: string[] = [];
-  while (queue.length) {
-    const u = queue.shift()!;
-    sorted.push(u);
-    for (const v of graph.get(u)!) {
-      const d = indeg.get(v)! - 1;
-      indeg.set(v, d);
-      if (d === 0) {
-        queue.push(v);
-      }
-    }
-  }
-  if (sorted.length < copy.length) {
-    throw new Error("Cycle or conflict: topological sort failed");
-  }
-
-  // 5. Group by globalIndex
-  const byId = new Map<string, OrderedTrackItem<T>>();
-  for (const c of copy) byId.set(c.id, c);
-
-  const visited = new Set<string>();
   const result: ItemGroup<T>[] = [];
-  let currentGroup: ItemGroup<T> = [];
-  let currentIndex = -1;
-
-  for (const id of sorted) {
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const item = byId.get(id)!;
-    if (item.globalIndex !== currentIndex) {
+  let currentGroup: ItemGroup<T> | null = null;
+  let currentIndex: number | null = null;
+  for (const item of copy) {
+    if (currentGroup == null || item.globalIndex !== currentIndex) {
       currentGroup = [];
       result.push(currentGroup);
       currentIndex = item.globalIndex;

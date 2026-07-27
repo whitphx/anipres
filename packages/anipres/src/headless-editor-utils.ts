@@ -8,6 +8,7 @@ import type {
   TLStoreSnapshot,
   TLEditorSnapshot,
   TLPageId,
+  TLShape,
   TLStateNodeConstructor,
   TLTextOptions,
 } from "tldraw";
@@ -69,18 +70,34 @@ export function loadHeadlessEditor(
   return [editor, dispose];
 }
 
+/**
+ * Extracts the shape records embedded in a snapshot without instantiating
+ * an Editor. `meta.frame` is plain JSON inside the store records, so step
+ * counting does not need tldraw's runtime at all.
+ */
+export function getShapeRecordsFromSnapshot(
+  snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
+): TLShape[] {
+  const storeSnapshot: TLStoreSnapshot | undefined =
+    "store" in snapshot && snapshot.store != null
+      ? (snapshot as TLStoreSnapshot)
+      : (snapshot as Partial<TLEditorSnapshot>).document;
+  if (storeSnapshot?.store == null) {
+    return [];
+  }
+  return Object.values(storeSnapshot.store).filter(
+    (record): record is TLShape =>
+      (record as { typeName?: string }).typeName === "shape",
+  );
+}
+
 export function calculateTotalSteps(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
 ): number {
-  const [editor, dispose] = loadHeadlessEditor({ snapshot });
-
-  const shapes = editor.getCurrentPageShapes();
+  // Read the snapshot's shape records directly — no headless Editor needed.
+  const shapes = getShapeRecordsFromSnapshot(snapshot);
   const allFrames = getFrames(shapes);
   const frameBatches = getFrameBatches(allFrames);
   const orderedSteps = getGlobalOrder(frameBatches);
-  const totalSteps = orderedSteps.length;
-
-  dispose();
-
-  return totalSteps;
+  return orderedSteps.length;
 }
