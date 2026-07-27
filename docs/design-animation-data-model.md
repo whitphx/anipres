@@ -12,6 +12,14 @@ Proposal. Not implemented. No code changes accompany this document.
 
 ## Revision History
 
+- **r7 (2026-07-27)**: Two corrections to the synthetic-step
+  specification from a sixth external review: the "`StepData.id` is the
+  stored `stepId`" description is qualified for rule-2 recovery steps
+  (the `synthetic` field distinguishes the cases structurally), and the
+  synthetic id construction is made **injective** (JSON tuple encoding —
+  naive `:`-joining collides because `v1step:` source ids themselves
+  contain colons) with `synthstep:` formally reserved: persisted
+  `stepId`s using it are diagnosed.
 - **r6 (2026-07-27)**: Type/prose alignment in `TimelineDoc`, closing the
   fifth external review: synthetic steps (derivation rule 2 splits) are
   now explicit in the output type via `StepData.synthetic` (reason +
@@ -641,9 +649,13 @@ identity (unique by tldraw's guarantee — what derivation keys on),
 `frameId` is the stored datum (which duplicates can corrupt — what
 diagnostics report on).
 
-`StepData.id` is the stored `stepId` — a **stable identity across
-reorders**, not a synthesized value. This gives the Timeline UI stable React
-keys, gives the repair flow and diagnostics a durable referent, and gives
+For a normal step, `StepData.id` is the stored `stepId` — a **stable
+identity across reorders**. For a rule-2 recovery step, it is the
+deterministic derived id described below; the `synthetic` field
+distinguishes the two cases **structurally**, so consumers never infer
+step provenance from the id string. Either way the id is stable, which
+gives the Timeline UI stable React keys, gives the repair flow and
+diagnostics a durable referent, and gives
 future step-level features (the compiled Slidev viewer's click mapping,
 step labels, deep links) a foundation without any global timeline record.
 
@@ -655,16 +667,31 @@ split batch gets its *own* synthetic step (two split same-track batches
 cannot share a step either), with a derived id:
 
 ```ts
-const syntheticStepId = `synthstep:${sourceStepId}:${cueShapeId}`;
+const SYNTHETIC_STEP_PREFIX = "synthstep:";
+const syntheticStepId =
+  `${SYNTHETIC_STEP_PREFIX}${JSON.stringify([sourceStepId, cueShapeId])}`;
 ```
 
-where `cueShapeId` is the split batch's cue shape id. Properties:
-**deterministic** across repeated derivations, **stable** while the source
-frames are unchanged (safe as a React key and a diagnostic referent), and
-**collision-free** with stored ids by namespace (`uniqueId()`-minted and
-`v1step:` ids never start with `synthstep:`). Unlike `v1step:`, this
-format is *not* a parse contract — the structured `synthetic` field is the
-source of truth, and the id needs only the three properties above.
+where `cueShapeId` is the split batch's cue shape id. The JSON tuple
+encoding is required for **injectivity**: naive `:`-joining is not
+collision-free, because the components may themselves contain `:` —
+`v1step:` source ids always do — so `("a:b", "c")` and `("a", "b:c")`
+would concatenate identically. JSON-encoding a tuple of strings is
+deterministic and preserves component boundaries regardless of embedded
+delimiters. Properties: **deterministic** across repeated derivations and
+input iteration orders, **stable** while the source frames are unchanged
+(safe as a React key and a diagnostic referent), and **injective** over
+its inputs.
+
+`synthstep:` is a **formally reserved prefix for derived `TimelineDoc`
+identities**. Persisted `stepId`s must never use it — component-level
+injectivity cannot prevent a *stored* id from colliding with a derived one
+unless the namespace itself is reserved — and a persisted `stepId`
+carrying the prefix is treated as invalid input: the frame parser emits a
+diagnostic for it (and the duplication preprocessing freshens it like any
+other id). Unlike `v1step:`, this format is *not* a parse contract — the
+structured `synthetic` field is the source of truth, and the id needs only
+the properties above.
 
 Uses:
 
@@ -870,8 +897,12 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
 including: all four totality rules (with synthetic-step ids verified
-deterministic and stable across repeated derivations, and
-`StepData.synthetic` populated with the source `stepId`);
+deterministic and stable across repeated derivations and input iteration
+orders, `StepData.synthetic` populated with the source `stepId`,
+**injectivity** exercised with `sourceStepId`/`cueShapeId` values
+containing `:` and with distinct input pairs required to yield distinct
+ids, and a persisted `stepId` carrying the reserved `synthstep:` prefix
+producing an `invalid-frame` diagnostic);
 key-collision-with-distinct-`stepId`;
 collision-run insertion (steps and sub-frames), plus **concurrent
 collision-run normalizations remaining total and lossless after
