@@ -12,6 +12,21 @@ Proposal. Not implemented. No code changes accompany this document.
 
 ## Revision History
 
+- **r5 (2026-07-27)**: Final precision pass, following a fourth external
+  design review. Corrects migration procedure step 2 (stamp ids per
+  **partition**, not per `globalIndex` group — r4's wording would have
+  re-merged the partitions). Withdraws r4's overclaim that key purity
+  alone makes subset conversion equivalent to full migration:
+  `partitionIndex` depends on the whole original group, so mixed-document
+  conversion must **reconstruct groups** from raw v1 cues plus parsed
+  `v1step:` ids, reserving persisted partitions (and their track
+  occupancy) before first-fitting the remainder. Specifies the
+  **lifecycle of duplication maps**: content-level preprocessing of the
+  copied `TLContent` is the primary mechanism (order-independent by
+  construction); `beforeCreate` remains only as a scoped fallback net.
+  Frame-id remapping is keyed by **source shape id** (old-frame-id keys
+  collapse under rule-4 duplicate input), with ambiguous `cueFrameId`
+  references resolved by the same representative rule as derivation.
 - **r4 (2026-07-27)**: Migration partitioning and identity-map completion,
   following a third external design review. Fixes two internal
   inconsistencies in r3: tolerant-migration splits of same-track/same-index
@@ -444,7 +459,7 @@ interactive key generation keeps runs rare in the first place.
 
 ## Duplication & Paste Policy
 
-Embedding ids in copyable records makes a `beforeCreate` dedup hook the
+Embedding ids in copyable records makes duplication/paste handling the
 irreducible cost of this architecture (as in v1). The governing rule:
 **every cross-shape identity carried in `meta.frame` — `frame.id`,
 `stepId`, `trackId` — gets an operation-scoped map. Relationships among
@@ -452,15 +467,29 @@ the copied frames are preserved; links to everything outside the operation
 are severed.**
 
 ```ts
-const frameIdMap = new Map<OldFrameId, NewFrameId>(); // freshened frame ids
-const stepIdMap  = new Map<OldStepId, NewStepId>();   // freshened step ids
-const trackIdMap = new Map<OldTrackId, NewTrackId>(); // freshened track ids
+// frame.id is *supposed* to be unique but may not be (derivation rule 4),
+// so frame-id remapping is keyed by the source SHAPE id — the identity
+// tldraw actually guarantees. Keying by old frame id would collapse two
+// corrupted sources into one entry and propagate the duplication into
+// the copies.
+const newFrameIdBySourceShapeId = new Map<TLShapeId, NewFrameId>();
+// stepId / trackId are intentionally *shared* identities, so old-id keys
+// are correct for them:
+const stepIdMap  = new Map<OldStepId, NewStepId>();
+const trackIdMap = new Map<OldTrackId, NewTrackId>();
 ```
 
-- **Always freshen `frame.id`** on a created shape whose frame id already
-  exists in the document, recording old → new in `frameIdMap`. Sub-frames
-  created in the same operation remap `cueFrameId` through `frameIdMap`
-  (matching the existing grouped-paste handling); a sub-frame pasted alone
+- **Always freshen `frame.id`** on a copied shape whose frame id already
+  exists in the document, one fresh id per source *shape* — so copying a
+  document that contains duplicate-id corruption produces a **cleaner
+  copy** (each copy gets a distinct id). Sub-frames copied in the same
+  operation remap `cueFrameId` through the map (matching the existing
+  grouped-paste handling); when the referenced source cue id is ambiguous
+  (duplicate sources), resolve it with the **same representative rule as
+  derivation** — the cue with the smallest source shape id — attach the
+  copied sub-frame to that cue's fresh frame id, and diagnose the
+  ambiguity rather than lose the sub-frame. One deterministic
+  representative rule serves both subsystems. A sub-frame pasted alone
   arrives detached (derivation rule 3) and is surfaced in the Timeline.
 - **Within-document duplication of cue frames: freshen `stepId` through
   `stepIdMap`.** Otherwise a duplicate silently *joins the original's step*
@@ -493,6 +522,34 @@ const trackIdMap = new Map<OldTrackId, NewTrackId>(); // freshened track ids
 
 There is no chain to re-splice and no index to recompute in any of these
 paths.
+
+### Operation scoping (map lifecycle)
+
+"Operation-scoped" needs a concrete boundary: tldraw's per-shape
+`beforeCreate` handler does not by itself identify which shapes belong to
+one paste — and worse, the policies above (first-fit, shared fresh tracks,
+representative resolution) require seeing the operation's **complete** set
+of frames, so a shape-at-a-time hook is inherently creation-order-
+dependent, violating the determinism the rest of this design is built on.
+
+Primary mechanism: **preprocess the complete copied `TLContent` before it
+is inserted into the store.** The codebase already intercepts exactly this
+layer on the copy side (`augmentContentWithThemeImageAssets`); the paste
+side transform sees every copied shape at once, holds all three maps as
+locals of a single function invocation (created, used, and discarded
+per call — no shared mutable state, no reset protocol), and is
+order-independent by construction. Its output must not depend on shape
+iteration order beyond the deterministic sorts specified above.
+
+Fallback: a `beforeCreate` hook remains only as a **safety net** for
+creation paths that bypass content insertion. Its scope, if retained: maps
+created lazily on first use within the current store transaction and
+discarded when it completes (or at the end of the current microtask,
+whichever the implementation can hook reliably). Acknowledged limitation:
+the net can freshen ids to prevent corruption, but cannot implement the
+full relationship-preserving policy — it may see shapes one at a time and
+must not pretend otherwise. Anything the net touches should emit a dev
+warning so bypassing paths get promoted into the preprocessing layer.
 
 ## Deletion, Orphans, and Reconciliation
 
@@ -647,11 +704,16 @@ unrecoverable. Therefore:
   order; `cueFrameId` is the (existing) chain-head frame id.
 
 Consequences: migration is **idempotent** (re-running produces identical
-records), concurrent migrations converge regardless of write interleaving,
-and — because keys are coordinate-pure — converting *any subset* of records
-yields values identical to a full migration. Cross-client determinism
-assumes both clients run the same key-generation algorithm — guaranteed by
-the version gate in [Risks](#risks--open-questions) item 6.
+records) and concurrent migrations converge regardless of write
+interleaving. Note precisely what key purity does and does not buy:
+`getMigratedStepOrderKey` is pure in its coordinates, but
+**`partitionIndex` is not a pure function of an individual record** — it
+depends on the other members of the original group. Subset conversion is
+therefore equivalent to full migration only via the **group
+reconstruction** rule in [Mixed v1/v2 documents](#mixed-v1v2-documents)
+below, not by key purity alone. Cross-client determinism assumes both
+clients run the same key-generation algorithm — guaranteed by the version
+gate in [Risks](#risks--open-questions) item 6.
 
 ### Mixed v1/v2 documents
 
@@ -659,9 +721,37 @@ During rollout, a document may transiently contain both formats (a client
 crashed mid-migration; a stale v1-format write landed before the version
 gate engaged). The derivation **tolerates mixed records**: v1 frames
 encountered at read time are converted in memory via the same deterministic
-mapping — which, because ids and keys are pure functions of the v1
-coordinates, yields exactly the values the persisted migration would have
-written for those records, so mixed states converge instead of splitting.
+mapping, yielding exactly the values the persisted migration would have
+written, so mixed states converge instead of splitting.
+
+That equivalence requires **group reconstruction** — converting a v1
+record in isolation is not enough, because its `partitionIndex` depends on
+the group it belonged to. Example: same-track cues A and B share
+`globalIndex 4`; a complete migration assigns A → partition 0,
+B → partition 1. If only A's write persisted, converting B against the
+*remaining v1 records alone* would see a group containing only B and
+assign it partition 0 — recreating, persistently, the very conflict the
+partitioning resolves. Therefore, when converting a mixed document:
+
+1. Reconstruct each original `globalIndex` group from **both** the raw v1
+   cue frames (via their `globalIndex`) **and** the already-migrated v2
+   cue frames whose `v1step:` ids parse back to
+   `(globalIndex, partitionIndex)` coordinates.
+2. Treat the partitions encoded by existing v2 records as **already
+   assigned, including their track occupancy**.
+3. Assign the remaining v1 cues using the same `(frame.id, shape.id)` sort
+   and first-fit rule as a complete migration.
+
+Because both the complete migration and this reconstruction apply the same
+order and first-fit rule, a partial migration resumed this way produces
+the **same partition assignment as a complete migration** — this is the
+property the resume test below pins down. Degenerate input (a v2 record
+whose parsed partition contradicts reconstruction, e.g. two same-track
+cues both claiming partition 0 from corrupted writes) is kept as-is and
+diagnosed, falling through to derivation rule 2 — migration never
+"corrects" persisted v2 records. v2 records whose `stepId` merely
+resembles but does not parse as the `v1step:` contract are ordinary v2
+records, not group members.
 
 **Scope limit (important): mixed-format tolerance is migration and crash
 recovery — not bidirectional editing compatibility.** If v2 editing has
@@ -686,9 +776,12 @@ gate (Risk 6) before v2 writes are enabled.
      forks become members of the batch, ordered by frame id;
    - dangling `prevFrameId` references → **detached** frames;
    - duplicate frame ids → all shapes kept (rule 4).
-2. Per v1 `globalIndex` group: stamp the deterministic `stepId` +
-   `stepOrderKey` pair on every cue frame in the group — v1 simultaneity
-   survives as explicit v2 simultaneity.
+2. Per `(globalIndex, partitionIndex)` partition: stamp its deterministic
+   `stepId` + `stepOrderKey` pair on every cue frame **assigned to that
+   partition**. Cue frames share a v2 step only when they share a
+   partition — v1 simultaneity survives as explicit v2 simultaneity for
+   partition `0` (the whole group, in valid documents), while conflict
+   partitions become adjacent steps.
 3. Stamp each sub-frame with `cueFrameId` + its deterministic intra-batch
    key.
 4. Rewrite `meta.frame` to the v2 shape (`v: 2`, drop
@@ -738,7 +831,7 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | `src/Timeline/frame-movement.ts` | `moveFrame` rewritten as `stepId`/key assignment + collision-run normalization (~40 lines) |
 | `src/Timeline/frame-ui-data.ts` | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances |
 | `src/ControlPanel/ControlPanel.tsx` | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths |
-| `src/Anipres.tsx` | `beforeCreate` dedup per [Duplication & Paste Policy](#duplication--paste-policy) (operation-scoped maps); deterministic migration on mount |
+| `src/Anipres.tsx` | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount |
 | `src/headless-editor-utils.ts` | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor) |
 | `packages/slidev-addon-anipres` | no structural change; benefits from cheaper step counting; snapshots migrate lazily |
 
@@ -754,14 +847,25 @@ collision run, never to data loss); divergent-key representative selection
 independent *tolerant* runs over an invalid document) produce
 byte-identical records, ids, partitions, and keys; **partial-migration
 determinism** — a partially migrated v1/v2 document derives the same keys
-as a complete migration; same-track/same-`globalIndex` conflicts receive
+as a complete migration, including the **resume test**: migration
+interrupted after converting only one cue of a
+same-track/same-`globalIndex` conflict, then resumed via group
+reconstruction, produces the identical partition assignment to an
+uninterrupted run; same-track/same-`globalIndex` conflicts receive
 **distinct deterministic partition `stepId`s** that survive re-derivation
-without re-merging; tolerant-migration cases (forked chains, dangling
-refs); the `v1step:` **parse contract** against page ids containing `:`;
-grouped duplication and cross-document paste preserving relationships
-through all three maps (`frameIdMap`, `stepIdMap`, **`trackIdMap`** —
-shared tracks stay shared among copies; colliding foreign track ids remap
-without breaking pasted-frame relationships); a **version-gate test** (a
+without re-merging; degenerate persisted partitions (contradicting
+reconstruction) are kept and diagnosed, never rewritten by migration;
+tolerant-migration cases (forked chains, dangling refs); the `v1step:`
+**parse contract** against page ids containing `:`; grouped duplication
+and cross-document paste preserving relationships through all three maps
+(`newFrameIdBySourceShapeId`, `stepIdMap`, **`trackIdMap`** — shared
+tracks stay shared among copies; colliding foreign track ids remap without
+breaking pasted-frame relationships), with the content-preprocessing
+transform verified **order-independent** (permuted shape order in
+`TLContent` → identical output) and **lossless under duplicate source
+frame ids** (two sources sharing a frame id yield copies with distinct
+fresh ids; ambiguous `cueFrameId` resolves to the representative and is
+diagnosed); a **version-gate test** (a
 v1 client is rejected or made read-only after the writer flip — an
 integration test at the sync layer); and a v1→v2 golden snapshot fixture.
 Existing `ordered-track-item.test.ts` cases are ported to the new
