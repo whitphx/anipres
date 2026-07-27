@@ -12,6 +12,21 @@ Proposal. Not implemented. No code changes accompany this document.
 
 ## Revision History
 
+- **r4 (2026-07-27)**: Migration partitioning and identity-map completion,
+  following a third external design review. Fixes two internal
+  inconsistencies in r3: tolerant-migration splits of same-track/same-index
+  conflicts now receive **distinct deterministic ids** via partition
+  indices (`v1step:<pageId>:<globalIndex>:<partition>`) — r3 gave both
+  halves the same `stepId`, which the derivation would have re-merged; and
+  migration keys are now a **pure function of the coordinates**
+  `(globalIndex, partition)`, closing the partial-migration divergence r3's
+  sequence-over-present-groups left open. Risk 6 is corrected: mixed-format
+  tolerance is migration/crash recovery, **not** bidirectional
+  compatibility with active v1 editors — a server-enforced version gate is
+  required before the writer flip. The duplication policy gains
+  `trackIdMap` (r3's "fresh tracks per copied cue" broke multi-step
+  copies) and is generalized to the rule: every cross-shape identity gets
+  an operation-scoped map. Test list extended accordingly.
 - **r3 (2026-07-27)**: Pre-implementation hardening, following a second
   external design review. Blocking fixes: migration `stepId`s and key
   sequences are now **deterministic** (concurrent migrations of a synced
@@ -430,13 +445,16 @@ interactive key generation keeps runs rare in the first place.
 ## Duplication & Paste Policy
 
 Embedding ids in copyable records makes a `beforeCreate` dedup hook the
-irreducible cost of this architecture (as in v1). The v2 hook operates with
-**operation-scoped maps** so that structure among the copied frames is
-preserved while all links to the originals are severed:
+irreducible cost of this architecture (as in v1). The governing rule:
+**every cross-shape identity carried in `meta.frame` — `frame.id`,
+`stepId`, `trackId` — gets an operation-scoped map. Relationships among
+the copied frames are preserved; links to everything outside the operation
+are severed.**
 
 ```ts
 const frameIdMap = new Map<OldFrameId, NewFrameId>(); // freshened frame ids
 const stepIdMap  = new Map<OldStepId, NewStepId>();   // freshened step ids
+const trackIdMap = new Map<OldTrackId, NewTrackId>(); // freshened track ids
 ```
 
 - **Always freshen `frame.id`** on a created shape whose frame id already
@@ -450,19 +468,28 @@ const stepIdMap  = new Map<OldStepId, NewStepId>();   // freshened step ids
   duplicating **several cue frames that share a step** gives all copies the
   *same fresh* `stepId` and one fresh `stepOrderKey` — they remain
   simultaneous with each other, as a new step placed after the original
-  (`getIndexBetween(original, next)`), but never joined to it. Fresh tracks
-  per copied cue. (If product feedback favors v1's duplicate-becomes-
-  sub-frame behavior instead, that decision is orthogonal to this encoding
-  and can be layered on.)
-- **Cross-document paste**: a foreign `stepId` unknown to this document is
-  benign — the pasted cues keep their grouping and become their own
-  step(s), positioned by their (foreign) keys relative to existing keys,
-  clamped into range if needed. But a foreign `stepId` that **already
-  exists locally must be remapped** through `stepIdMap`: two documents with
-  shared ancestry (a file-level copy of a deck) contain *identical*
-  `stepId`s, and without remapping, pasting between them would silently
-  join unrelated steps. Remapping preserves grouping among the pasted
-  frames themselves while severing the accidental identity.
+  (`getIndexBetween(original, next)`), but never joined to it. (If product
+  feedback favors v1's duplicate-becomes-sub-frame behavior instead, that
+  decision is orthogonal to this encoding and can be layered on.)
+- **Freshen `trackId` through `trackIdMap` — never per-cue.** `trackId` is
+  a cross-shape identity exactly like `stepId`: copying multiple steps of
+  the same object (frame A in step 1 and frame B in step 2, both on track
+  T) must yield A′ and B′ **sharing one fresh track T′** — otherwise the
+  copies land on unrelated tracks and B′ no longer animates from A′
+  (playback's predecessor lookup is per-track), destroying the very
+  sequence being copied. The copied track never connects to the original's
+  track: the original object's animation is unaffected.
+- **Cross-document paste**: a foreign `stepId` or `trackId` unknown to this
+  document is benign — the pasted cues keep their grouping/tracks and
+  become their own step(s), positioned by their (foreign) keys relative to
+  existing keys, clamped into range if needed. But a foreign id that
+  **already exists locally must be remapped** through the corresponding
+  map: two documents with shared ancestry (a file-level copy of a deck)
+  contain *identical* `stepId`s and `trackId`s, and without remapping,
+  pasting between them would silently join unrelated steps — or splice
+  pasted keyframes into an unrelated local object's animation track.
+  Remapping preserves relationships among the pasted frames themselves
+  while severing the accidental identities.
 
 There is no chain to re-splice and no index to recompute in any of these
 paths.
@@ -582,30 +609,68 @@ the writes, permanently splitting a step that was simultaneous in v1 — with
 `globalIndex` already stripped, the original relationship is
 unrecoverable. Therefore:
 
-- **`stepId`** per v1 `globalIndex` group is a namespaced literal:
-  `` `v1step:${pageId}:${globalIndex}` `` — no randomness, no hashing
-  needed; the namespace prevents collision with `uniqueId()`-minted ids.
-- **`stepOrderKey`** sequence: generated **without jitter**, as the
-  deterministic ascending key sequence for the ordered groups (same
-  algorithm, same output on every client).
+- **Partitioning within a group.** A v2 step holds at most one batch per
+  track, so same-track/same-index v1 conflicts cannot share a step — and
+  they must not share a migration `stepId` either, or the derivation would
+  re-merge what the migration split. Each `globalIndex` group is
+  partitioned deterministically: sort its cue frames by
+  `(frame.id, shape.id)`, assign each to the **first partition not already
+  containing its `trackId`** (first-fit), and number partitions in
+  creation order. A valid v1 document has only partition `0` everywhere;
+  conflicts land in partitions `1, 2, …` as adjacent steps, **persistently
+  representable** — derivation rule 2 then only ever handles divergence
+  that arises later from concurrent edits, never migration output.
+- **`stepId`** per partition is a namespaced literal:
+  `` `v1step:${pageId}:${globalIndex}:${partitionIndex}` `` — no
+  randomness, no hashing needed; the namespace prevents collision with
+  `uniqueId()`-minted ids. This format is a **parse contract**: the
+  mixed-document path below (and Option B) recover coordinates from it.
+  Since tldraw page ids themselves contain `:` (`page:xyz`), parsing must
+  take the two *trailing* numeric segments rather than splitting naively.
+- **`stepOrderKey` is a pure function of the coordinates**:
+  `getMigratedStepOrderKey(globalIndex, partitionIndex)`, generated
+  **without jitter**, whose output depends on nothing but its arguments —
+  in particular, not on which other records are currently v1 or v2.
+  Construction (Option A): `f(gi)` = the *gi*-th key of the iterated
+  `getIndexAbove` chain from the initial key; partition *p* > 0 = the
+  *p*-th key of the iterated `getIndexBetween(f(gi), f(gi+1))` chain —
+  content-independent, and nested strictly between the integer coordinates
+  so `(globalIndex, partition)` order is preserved. A naive "ascending
+  sequence over the groups present in the document" is **not acceptable**:
+  on a partially migrated document it would shift every remaining group's
+  key relative to what the full migration wrote (documented fallback,
+  Option B: reconstruct the complete coordinate table from raw v1 groups
+  plus the parsed `v1step:` ids of already-migrated records, then key the
+  union — more moving parts, only if the chosen key library makes Option A
+  awkward).
 - Intra-batch sub-frame keys: deterministic ascending sequence in chain
   order; `cueFrameId` is the (existing) chain-head frame id.
 
 Consequences: migration is **idempotent** (re-running produces identical
-records), and concurrent migrations converge regardless of write
-interleaving. Cross-client determinism assumes both clients run the same
-key-generation algorithm — guaranteed by the version gate in
-[Risks](#risks--open-questions) item 6.
+records), concurrent migrations converge regardless of write interleaving,
+and — because keys are coordinate-pure — converting *any subset* of records
+yields values identical to a full migration. Cross-client determinism
+assumes both clients run the same key-generation algorithm — guaranteed by
+the version gate in [Risks](#risks--open-questions) item 6.
 
 ### Mixed v1/v2 documents
 
 During rollout, a document may transiently contain both formats (a client
-crashed mid-migration; an old client's full-`meta` LWW write reverted one
-frame to v1). The derivation **tolerates mixed records**: v1 frames
+crashed mid-migration; a stale v1-format write landed before the version
+gate engaged). The derivation **tolerates mixed records**: v1 frames
 encountered at read time are converted in memory via the same deterministic
-mapping — which, by determinism, yields exactly the ids/keys the persisted
-migration would have written, so mixed states converge seamlessly instead
-of splitting.
+mapping — which, because ids and keys are pure functions of the v1
+coordinates, yields exactly the values the persisted migration would have
+written for those records, so mixed states converge instead of splitting.
+
+**Scope limit (important): mixed-format tolerance is migration and crash
+recovery — not bidirectional editing compatibility.** If v2 editing has
+already reordered a step and an active v1 client later overwrites one cue
+frame with its stale `globalIndex`, deterministic conversion restores a
+*valid* record at its **original v1 position**; it cannot recover the newer
+v2 order that the stale record never contained. Convergent is not the same
+as lossless. Active v1 writers must therefore be excluded by the version
+gate (Risk 6) before v2 writes are enabled.
 
 ### Procedure
 
@@ -614,7 +679,9 @@ of splitting.
    `getFrames → getFrameBatches → getGlobalOrder` exactly. For the invalid
    states the strict pipeline throws on or silently drops, the tolerant
    variant maps to v2's representable vocabulary instead of discarding:
-   - same-track/same-index conflicts → adjacent steps, ordered by frame id;
+   - same-track/same-index conflicts → adjacent steps via the
+     deterministic partitioning above (distinct `stepId`s, ordered by
+     partition index);
    - forked sub-frame chains (two subs sharing a `prevFrameId`) → **all**
      forks become members of the batch, ordered by frame id;
    - dangling `prevFrameId` references → **detached** frames;
@@ -678,13 +745,26 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
 including: all four totality rules; key-collision-with-distinct-`stepId`;
-collision-run insertion (steps and sub-frames); divergent-key
-representative selection (including representative deletion); duplicate-id
-losslessness; grouped duplication / cross-document `stepId` remapping;
-**migration determinism** (two independent runs produce identical records;
-mixed v1/v2 input converges to the same output); tolerant-migration cases
-(forked chains, dangling refs, conflicts); and a v1→v2 golden snapshot
-fixture. Existing `ordered-track-item.test.ts` cases are ported to the new
+collision-run insertion (steps and sub-frames), plus **concurrent
+collision-run normalizations remaining total and lossless after
+record-level LWW merging** (re-collided keys degrade back to an ordinary
+collision run, never to data loss); divergent-key representative selection
+(including representative deletion); duplicate-id losslessness;
+**migration determinism** — two independent runs (including two
+independent *tolerant* runs over an invalid document) produce
+byte-identical records, ids, partitions, and keys; **partial-migration
+determinism** — a partially migrated v1/v2 document derives the same keys
+as a complete migration; same-track/same-`globalIndex` conflicts receive
+**distinct deterministic partition `stepId`s** that survive re-derivation
+without re-merging; tolerant-migration cases (forked chains, dangling
+refs); the `v1step:` **parse contract** against page ids containing `:`;
+grouped duplication and cross-document paste preserving relationships
+through all three maps (`frameIdMap`, `stepIdMap`, **`trackIdMap`** —
+shared tracks stay shared among copies; colliding foreign track ids remap
+without breaking pasted-frame relationships); a **version-gate test** (a
+v1 client is rejected or made read-only after the writer flip — an
+integration test at the sync layer); and a v1→v2 golden snapshot fixture.
+Existing `ordered-track-item.test.ts` cases are ported to the new
 derivation as behavioral tests before the old module is removed.
 
 ## Rejected Alternatives
@@ -772,12 +852,18 @@ could happen, contradicting the design's own detached-frames principle
    pinned to one implementation** — changing it later would break migration
    determinism across app versions (mitigated by the version gate below,
    but avoid churn here).
-6. **Migration trigger for synced documents**: all clients must understand
-   v2 before any client writes it — roll out reader support first, writer
-   flip second (standard two-phase deploy). Within the v2-writer era,
-   concurrent migrations are safe by determinism; the remaining exposure is
-   v1-era clients overwriting migrated records with v1-format `meta`, which
-   the mixed-document tolerance re-converges deterministically.
+6. **Rollout requires a server-enforced version gate.** Two-phase deploy
+   (reader support first, writer flip second) is necessary but not
+   sufficient: before v2 writes are enabled on a synced document, sync must
+   enforce a minimum client/schema version, and **v1 clients must be
+   prevented from editing or syncing after the writer flip** — mixed-format
+   tolerance recovers interrupted migrations, but a stale v1 write against
+   a v2-edited document silently reverts newer ordering (see the scope
+   limit in [Migration](#migration-from-v1)). Note tldraw's built-in store
+   schema versioning does not cover `meta` contents, so the gate must be
+   explicit — a sync-handshake check or a document-level version record;
+   the exact mechanism is an implementation decision. Within the v2-writer
+   era, concurrent migrations are safe by determinism.
 7. **Diagnostic-resolution UX** (resolve affordances for divergent keys,
    duplicate ids, same-track splits) is new UI surface for the Timeline;
    scope it minimally (badge + "accept current order" / "fix" actions) to
