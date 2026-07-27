@@ -12,6 +12,20 @@ Proposal. Not implemented. No code changes accompany this document.
 
 ## Revision History
 
+- **r3 (2026-07-27)**: Pre-implementation hardening, following a second
+  external design review. Blocking fixes: migration `stepId`s and key
+  sequences are now **deterministic** (concurrent migrations of a synced
+  document converge instead of splitting steps); an **equal-key insertion**
+  policy (order-preserving collision-run re-keying, executed inline in the
+  insert transaction) is defined; duplicate frame ids are handled
+  **losslessly** (both shapes kept, `shapeId` as runtime identity) instead
+  of last-write-wins. Recorded refinements: tolerant migration fallback for
+  invalid v1 documents; repair split into order-preserving normalization
+  vs. semantic repair (semantic repairs are never auto-persisted during
+  active sync; canonical key comes from a stable representative — smallest
+  `frame.id`); grouped duplication and cross-document `stepId` remapping;
+  structured `invalid-frame` diagnostics; random jitter adopted as a
+  collision-frequency optimization (safe now that identity is `stepId`).
 - **r2 (2026-07-27)**: Step identity separated from ordering. An external
   design-review proposal correctly identified that r1's "equal `orderKey` =
   same step" rule is unsound under concurrency: `generateKeyBetween(a, b)`
@@ -20,7 +34,7 @@ Proposal. Not implemented. No code changes accompany this document.
   independently authored steps. Cue frames now carry an explicit `stepId`
   (grouping) plus a `stepOrderKey` (position); the sub-frame `cueId` field
   is renamed `cueFrameId`. See [Rejected Alternatives](#rejected-alternatives)
-  E–F for the superseded encoding and the jitter alternative.
+  E–F for the superseded encoding and the jitter-as-identity alternative.
 - **r1 (2026-07-27)**: Initial proposal (fractional keys, key-equality
   simultaneity).
 
@@ -33,16 +47,17 @@ Proposal. Not implemented. No code changes accompany this document.
 5. [Key Insight: Existence vs. Relational Invariants](#key-insight-existence-vs-relational-invariants)
 6. [The v2 Encoding](#the-v2-encoding)
 7. [Derivation Semantics](#derivation-semantics)
-8. [Mutation Operations](#mutation-operations)
-9. [Duplication & Paste Policy](#duplication--paste-policy)
-10. [Deletion, Orphans, and Reconciliation](#deletion-orphans-and-reconciliation)
-11. [Undo/Redo and Multiplayer Sync](#undoredo-and-multiplayer-sync)
-12. [Derived `TimelineDoc` (Compiled Artifact)](#derived-timelinedoc-compiled-artifact)
-13. [Migration from v1](#migration-from-v1)
-14. [Code Impact](#code-impact)
-15. [Rejected Alternatives](#rejected-alternatives)
-16. [Risks & Open Questions](#risks--open-questions)
-17. [Out of Scope / Related Future Work](#out-of-scope--related-future-work)
+8. [Canonicalization & Repair](#canonicalization--repair)
+9. [Mutation Operations](#mutation-operations)
+10. [Duplication & Paste Policy](#duplication--paste-policy)
+11. [Deletion, Orphans, and Reconciliation](#deletion-orphans-and-reconciliation)
+12. [Undo/Redo and Multiplayer Sync](#undoredo-and-multiplayer-sync)
+13. [Derived `TimelineDoc` (Compiled Artifact)](#derived-timelinedoc-compiled-artifact)
+14. [Migration from v1](#migration-from-v1)
+15. [Code Impact](#code-impact)
+16. [Rejected Alternatives](#rejected-alternatives)
+17. [Risks & Open Questions](#risks--open-questions)
+18. [Out of Scope / Related Future Work](#out-of-scope--related-future-work)
 
 ---
 
@@ -62,10 +77,10 @@ Goals of this revision:
 - Remove the sentinel-value idioms (`999999`, `steps.length + 999999`).
 - Replace the sub-frame linked list with an encoding that cannot silently
   lose data.
-- Make the order derivation **total**: any reachable store state renders
-  something; derivation never throws. In particular, every state producible
-  by concurrent `@tldraw/sync` edits must be either well-defined or
-  *detectably* inconsistent — never silently reinterpreted.
+- Make the order derivation **total and lossless**: any reachable store
+  state renders something; derivation never throws and never hides a shape.
+  Every state producible by concurrent `@tldraw/sync` edits must be either
+  well-defined or *detectably* inconsistent — never silently reinterpreted.
 - Give steps a **stable identity** independent of their position (needed by
   the Timeline UI, and by future step-level references such as the compiled
   Slidev viewer's click mapping).
@@ -174,7 +189,7 @@ representable:
   relinking, no silent shadowing)
 - throwing conflict detection → **deterministic canonicalization +
   diagnostics** (derivation is total; inconsistencies are detectable and
-  repairable, never silently reinterpreted)
+  repairable, never silently reinterpreted, never silently dropped)
 
 ## The v2 Encoding
 
@@ -210,21 +225,24 @@ Semantics:
 
 - **Step grouping** = cue frames sharing a `stepId`. Grouping is explicit
   intent: joining a step means copying its `stepId` (and `stepOrderKey`);
-  creating a step means minting a fresh `stepId` (via `uniqueId()`).
-  Fractional-key coincidence has **no** grouping meaning — two concurrently
-  inserted steps may legitimately receive identical `stepOrderKey`s (the
-  key-between algorithm is deterministic) and remain distinct steps.
+  creating a step means minting a fresh `stepId` (via `uniqueId()`;
+  migration-minted ids are deterministic — see
+  [Migration](#migration-from-v1)). Fractional-key coincidence has **no**
+  grouping meaning — two concurrently inserted steps may legitimately
+  receive identical `stepOrderKey`s (the key-between algorithm is
+  deterministic) and remain distinct steps.
 - **Step order** = steps sorted by `(canonical stepOrderKey, stepId)`.
   `stepId` is the permanent tie-break, so ordering is deterministic even
   under key collisions. The *canonical* key for a step is defined in
-  [Derivation Semantics](#derivation-semantics).
+  [Canonicalization & Repair](#canonicalization--repair).
 - **Invariant (maintained, not assumed)**: all cue frames sharing a `stepId`
   carry the same `stepOrderKey`. Because the fields live on separate
   records, concurrent or partial writes can violate this; the derivation
-  canonicalizes and the editor repairs (below). Note the write cost of the
-  duplication is nil relative to r1: moving a step always required
-  rewriting the order key on every cue in it under key-equality grouping
-  too.
+  canonicalizes in memory and the editor repairs under the rules in
+  [Canonicalization & Repair](#canonicalization--repair). Note the write
+  cost of the duplication is nil relative to r1: moving a step always
+  required rewriting the order key on every cue in it under key-equality
+  grouping too.
 - **Batch membership** = sub-frames reference their cue by `cueFrameId`;
   intra-batch order = sub-frame `orderKey`. Two sub-frames can no longer
   shadow each other, and removing one requires no pointer surgery on its
@@ -243,17 +261,27 @@ Key generation uses tldraw's own fractional-index machinery
 from `@tldraw/utils` — the same mechanism tldraw uses for shape z-order).
 If the exact exports differ in the pinned tldraw version, the
 `fractional-indexing` package (already a dependency of `packages/app`) is an
-equivalent fallback. No usage discipline is required around key generation:
-since grouping is carried by `stepId`, accidental key equality is harmless.
+equivalent fallback. Interactively generated keys add **random jitter** (as
+recommended by the `fractional-indexing` documentation) to make concurrent
+key collisions rare. Jitter is safe precisely because identity is carried by
+`stepId`, never by key equality — it is a frequency optimization for the
+collision-run handling below, not a correctness mechanism. (Migration is the
+exception: it must generate keys *without* jitter, deterministically.)
 
-### Parsing is soft-fail
+### Parsing is soft-fail — and diagnosed
 
 `getFrame(shape)` returns `Frame | undefined` and **never throws**. A
 malformed `meta.frame` (wrong shape, unknown version, bad field types) is
-treated as "shape has no frame" plus a `console.warn` in dev. v1's throwing
-guards could take down rendering for a whole document over one corrupted
-record, because `$getShapeVisibilitiesInPresentationMode` runs over every
-shape.
+treated as "shape has no frame" for playback purposes, and produces a
+structured **`invalid-frame` diagnostic** carrying the `shapeId` (plus a
+`console.warn` in dev). The diagnostic matters for editing: without it, a
+shape with corrupted animation metadata is indistinguishable from a
+never-animated shape, and a user would re-animate it, silently orphaning
+the broken data. The Timeline UI surfaces these shapes as
+"uninterpretable animation data" with inspect/clear affordances. (v1's
+throwing guards could take down rendering for a whole document over one
+corrupted record, because `$getShapeVisibilitiesInPresentationMode` runs
+over every shape.)
 
 ## Derivation Semantics
 
@@ -263,48 +291,90 @@ abstraction entirely):
 ```
 groups   = cue frames grouped by stepId
 steps    = groups sorted by (canonicalKey(group), stepId)
-             where canonicalKey = min over the group of (stepOrderKey, frame id)
 batches  = for each cue: [cue, ...subs where sub.cueFrameId === cue.id,
                           sorted by (orderKey, id)]
 ```
 
 O(n log n), a handful of lines, no graph. The derivation returns the ordered
-steps **plus a structured diagnostics list**; it never throws. Totality
-rules:
+steps **plus a structured diagnostics list**; it never throws and never
+drops a shape. Frames are identified at runtime by their **`shapeId`** (the
+one identity tldraw guarantees unique); `frame.id` is data that can be
+corrupted by paste bugs, and derivation must survive that. Totality rules:
 
 1. **Divergent `stepOrderKey` within one `stepId`** (producible by
-   concurrent/partial sync writes): the group's canonical key — the smallest
-   `(stepOrderKey, frame id)` pair — determines its position; all members
-   stay in the step. A diagnostic (`step-key-divergence`, with the stepId
-   and offending frame ids) is emitted for the repair pass.
+   concurrent/partial sync writes): the group's canonical key — taken from
+   the step's *representative* cue frame, defined in
+   [Canonicalization & Repair](#canonicalization--repair) — determines its
+   position; all members stay in the step. Diagnostic:
+   `step-key-divergence` (stepId, offending shape ids).
 2. **Same track appearing twice within one `stepId`** (producible by
    concurrent "join step" edits; breaks playback's predecessor-in-track
    lookup, which assumes ≤1 batch per track per step): the first batch
-   (by cue frame id) stays; later same-track batches split into an
-   immediately following synthetic step. Deterministic, playback-safe,
-   diagnostic emitted, trivially fixed by dragging in the Timeline.
+   (by cue frame id, then shape id) stays; later same-track batches split
+   into an immediately following synthetic step. Deterministic,
+   playback-safe, diagnostic emitted, trivially fixed by dragging in the
+   Timeline. This is **derived behavior only** — never auto-persisted; the
+   split is a semantic guess that the user confirms by editing.
 3. **Sub-frame with dangling `cueFrameId`** (its cue's shape was deleted):
    the sub-frame is **detached** — excluded from playback, surfaced in the
    Timeline UI as unassigned, with affordances to reattach or delete. It is
    never silently dropped by the derivation itself.
-4. **Duplicate frame ids** (paste artifacts that slipped past dedup): last
-   write wins deterministically (sorted scan order); diagnostic emitted.
-
-### Repair pass
-
-Diagnostics are not just logs — they drive self-healing. The editor runs a
-normalization pass (at document load, alongside the v1→v2 migration hook,
-and after sync reconnection) that applies the same canonicalization the
-derivation used — e.g. rewriting divergent `stepOrderKey`s to the canonical
-value — **in a single history-ignored transaction**. Read-only consumers
-(headless step counting, the future compiled viewer) consume the canonical
-derivation and never write. This is the general principle applied
-throughout: playback is always total *now*; persistent state converges to
-consistency at the next edit opportunity.
+4. **Duplicate frame ids** (paste artifacts that slipped past dedup):
+   **lossless.** All shapes involved are kept in the derivation, ordered
+   deterministically by shape id — the timeline never hides a shape that
+   exists on the canvas. A `duplicate-frame-id` diagnostic is emitted.
+   Sub-frames whose `cueFrameId` matches a duplicated cue id attach to one
+   cue deterministically (smallest shape id), with the ambiguity noted in
+   the diagnostic. The editor's repair affordance assigns a fresh frame id
+   to the duplicate — a **semantic** repair (whichever cue keeps the old id
+   inherits the sub-frames), so it is surfaced for user resolution, not
+   auto-applied.
 
 The derivation remains implemented once and consumed by the three current
 call sites (`presentation-manager.ts`, `Timeline/frame-ui-data.ts`,
 `headless-editor-utils.ts`).
+
+## Canonicalization & Repair
+
+Two different things hide under "repair", and they get different rules:
+
+**Order-preserving normalization** — rewrites that provably do not change
+the derived timeline. The only instance is **collision-run re-keying** (see
+[Mutation Operations](#mutation-operations)): items in an equal-key run are
+already deterministically ordered by `(key, stepId)`; assigning fresh
+distinct keys in that same order changes nothing observable. These
+normalizations do not need a repair pass at all — they execute **inline, as
+part of the user mutation that needs them** (an insertion between equal
+keys), inside that mutation's own transaction.
+
+**Semantic repair** — rewrites that resolve a genuine ambiguity: converging
+divergent `stepOrderKey`s, freshening duplicate frame ids, materializing a
+same-track split. For these:
+
+- **Playback always canonicalizes in memory.** The derivation applies the
+  deterministic rules above so presentation is never blocked.
+- **Canonical key = the `stepOrderKey` of the step's representative cue
+  frame: the member with the smallest `frame.id`** (falling back to shape
+  id if frame ids are duplicated; recomputed if the representative is
+  deleted). This replaces r2's "smallest `(stepOrderKey, id)`" rule, which
+  was directionally biased — a partially synced step move *toward earlier*
+  always won while a move *toward later* always lost. A representative
+  chosen by stable id is independent of move direction, and — the real
+  virtue — is a **stable representative**: the canonical key does not flip
+  when other members' keys change. The winner under a partial write is
+  still arbitrary (it depends on whether the representative's record was
+  included), which is why the divergence is diagnosed rather than silently
+  accepted.
+- **Semantic repairs are never persisted automatically while sync may be
+  active.** In particular, r2's "repair after sync reconnection" is
+  withdrawn: a repair pass racing legitimate in-flight remote updates could
+  clobber a half-arrived step move. Persistence happens through an explicit
+  user action ("resolve" affordances on diagnostics in the Timeline), or
+  opportunistically only when the application can establish that initial
+  synchronization has completed **and** the affected records are unchanged
+  since the derivation that produced the diagnostic (verify record
+  versions inside the repair transaction; abort on mismatch). Local-only
+  documents (no sync) may repair at load.
 
 ## Mutation Operations
 
@@ -314,7 +384,7 @@ being edited:
 | Operation | v1 | v2 |
 | --- | --- | --- |
 | Append a step at the end | write new cue with `getNextGlobalIndex()` | new `stepId`, `stepOrderKey = getIndexAbove(lastStepKey)` — **0 extra writes** |
-| Insert a step between steps *i* and *i+1* | `insertOrderedTrackItem` → renumber **every** later cue shape | new `stepId`, `stepOrderKey = getIndexBetween(key_i, key_i+1)` — **0 extra writes** |
+| Insert a step between steps *i* and *i+1* | `insertOrderedTrackItem` → renumber **every** later cue shape | new `stepId`, `stepOrderKey = getIndexBetween(key_i, key_i+1)` — **0 extra writes** (unless the neighbors form an equal-key run — see below) |
 | Add a simultaneous batch to an existing step | renumber to share an index, then reindex globally | copy the target step's `stepId` + `stepOrderKey` onto the new cue — **0 extra writes** (UI prevents a same-track duplicate; derivation rule 2 tolerates it) |
 | Move a batch to another step | full rewrite via `onFrameBatchesChange` | copy the target's `stepId` + `stepOrderKey` — **1 write** |
 | Move a batch out into a new step (Timeline drag & drop) | `moveFrame`: ~290 lines, sentinel indices, full rewrite of all batches | mint `stepId`, compute one key between target neighbors — **1 write**, ~20 lines |
@@ -326,28 +396,73 @@ being edited:
 `reassignGlobalIndexInplace`, `insertOrderedTrackItem`, `getGlobalOrder`,
 the `OrderedTrackItem` type, and every `999999` sentinel are deleted.
 
+### Inserting between equal keys (collision runs)
+
+Distinct `stepId`s keep concurrently inserted steps separate, but equal
+`stepOrderKey`s create a later editing problem: `getIndexBetween(k, k)` is
+undefined, so the user cannot insert between two steps whose keys collided.
+(The same applies to sub-frame `orderKey`s within a batch.)
+
+Defined operation — **collision-run normalization**, shared by step and
+sub-frame insertion:
+
+1. Detect that the insertion position's neighbors carry equal keys.
+2. Find the nearest strictly-smaller and strictly-larger keys bounding the
+   equal-key run.
+3. Generate enough distinct keys between those bounds for the run's
+   existing items plus the new item.
+4. Assign them in the run's current deterministic order (`(key, stepId)` /
+   `(key, id)`), inserting the new item at its position.
+
+```ts
+function makeInsertionSpace(
+  orderedItems: { id: string; key: string }[],
+  insertionIndex: number,
+): { updates: { id: string; key: string }[]; insertedKey: string };
+```
+
+This rewrites several records, but only within the local run — never the
+rest of the deck — and it is **order-preserving**, so it runs inline in the
+insert transaction (see [Canonicalization & Repair](#canonicalization--repair))
+with no coordination concerns beyond ordinary sync merging. Jitter on
+interactive key generation keeps runs rare in the first place.
+
 ## Duplication & Paste Policy
 
 Embedding ids in copyable records makes a `beforeCreate` dedup hook the
-irreducible cost of this architecture (as in v1). The v2 hook's policy —
-now including `stepId`, which r1 did not have to consider:
+irreducible cost of this architecture (as in v1). The v2 hook operates with
+**operation-scoped maps** so that structure among the copied frames is
+preserved while all links to the originals are severed:
+
+```ts
+const frameIdMap = new Map<OldFrameId, NewFrameId>(); // freshened frame ids
+const stepIdMap  = new Map<OldStepId, NewStepId>();   // freshened step ids
+```
 
 - **Always freshen `frame.id`** on a created shape whose frame id already
-  exists in the document.
-- **Within-document duplication of a cue frame: freshen `stepId` too.**
-  Otherwise the duplicate silently *joins the original's step* and fires
-  simultaneously with it — surprising, and a change from v1's behavior
-  (which converted duplicates into appended sub-frames). The duplicate
-  becomes its own step immediately after the original
-  (`getIndexBetween(original, next)`), on a fresh track. (If product
-  feedback favors v1's duplicate-becomes-sub-frame behavior, that decision
-  is orthogonal to this encoding and can be layered on.)
-- **Cross-document paste**: an unknown `stepId` is benign — the pasted cue
-  is simply its own step of one, positioned by its (foreign) key relative
-  to existing keys, clamped into range if needed. Sub-frames pasted
-  *together with* their cue get `cueFrameId` remapped to the cue's fresh id
+  exists in the document, recording old → new in `frameIdMap`. Sub-frames
+  created in the same operation remap `cueFrameId` through `frameIdMap`
   (matching the existing grouped-paste handling); a sub-frame pasted alone
-  arrives detached (rule 3) and is surfaced in the Timeline.
+  arrives detached (derivation rule 3) and is surfaced in the Timeline.
+- **Within-document duplication of cue frames: freshen `stepId` through
+  `stepIdMap`.** Otherwise a duplicate silently *joins the original's step*
+  and fires simultaneously with it. Crucially, the map is per-operation:
+  duplicating **several cue frames that share a step** gives all copies the
+  *same fresh* `stepId` and one fresh `stepOrderKey` — they remain
+  simultaneous with each other, as a new step placed after the original
+  (`getIndexBetween(original, next)`), but never joined to it. Fresh tracks
+  per copied cue. (If product feedback favors v1's duplicate-becomes-
+  sub-frame behavior instead, that decision is orthogonal to this encoding
+  and can be layered on.)
+- **Cross-document paste**: a foreign `stepId` unknown to this document is
+  benign — the pasted cues keep their grouping and become their own
+  step(s), positioned by their (foreign) keys relative to existing keys,
+  clamped into range if needed. But a foreign `stepId` that **already
+  exists locally must be remapped** through `stepIdMap`: two documents with
+  shared ancestry (a file-level copy of a deck) contain *identical*
+  `stepId`s, and without remapping, pasting between them would silently
+  join unrelated steps. Remapping preserves grouping among the pasted
+  frames themselves while severing the accidental identity.
 
 There is no chain to re-splice and no index to recompute in any of these
 paths.
@@ -381,18 +496,22 @@ dramatically:
   tldraw batching the reconciliation writes into the same history entry;
   v2 has nothing to batch.
 - **Concurrent step inserts stay separate.** Two clients inserting between
-  the same neighbors deterministically generate the *same* fractional key —
-  this is expected, not exceptional. Their distinct `stepId`s keep them
-  separate steps, ordered by `(stepOrderKey, stepId)`. No jitter, no
-  probabilistic argument, no accidental merge.
+  the same neighbors may generate the same fractional key (deterministic
+  algorithm; jitter makes this rare, not impossible) — this is expected,
+  not exceptional. Their distinct `stepId`s keep them separate steps,
+  ordered by `(stepOrderKey, stepId)`; a later insertion between them uses
+  collision-run normalization.
 - **No renumbering storms.** v1's reorder/delete produced write bursts
   across N records — the same multi-record conflict surface a central
   timeline record would have had, just distributed. v2 mutations are 1–2
-  records, except whole-step moves (local to the step's own cues).
+  records, except whole-step moves and collision-run normalization (both
+  local to the step/run involved).
 - Residual conflicts are the divergence classes of derivation rules 1–2
-  (partial step-move writes; concurrent joins of the same track into one
-  step). Both are detectable, playback-safe, diagnosed, and converge via
-  the repair pass — never a crash, never a silent reinterpretation.
+  and 4 (partial step-move writes; concurrent joins of the same track into
+  one step; duplicate ids past dedup). All are detectable, playback-safe,
+  diagnosed, and lossless; persistent resolution follows the
+  [Canonicalization & Repair](#canonicalization--repair) rules — never a
+  crash, never a silent reinterpretation, never auto-persisted mid-sync.
 
 ## Derived `TimelineDoc` (Compiled Artifact)
 
@@ -403,16 +522,29 @@ formalized, versioned **output type** of the derivation pipeline:
 interface TimelineDoc {
   version: 1;
   steps: StepData[];              // array order = presentation order
+  detachedFrames: FrameData[];    // rule-3 orphans, surfaced not dropped
   diagnostics: TimelineDiagnostic[];
 }
 interface StepData { id: string; batches: BatchData[] }   // id = stepId (stable)
 interface BatchData { trackId: string; frames: FrameData[] } // frames[0] = cue
-interface FrameData { id: string; shapeId: TLShapeId; action: FrameAction }
+interface FrameData { frameId: string; shapeId: TLShapeId; action: FrameAction }
+
+type TimelineDiagnostic =
+  | { type: "step-key-divergence"; stepId: string; shapeIds: TLShapeId[] }
+  | { type: "same-track-split"; stepId: string; trackId: string; shapeIds: TLShapeId[] }
+  | { type: "detached-sub-frame"; shapeId: TLShapeId; cueFrameId: string }
+  | { type: "duplicate-frame-id"; frameId: string; shapeIds: TLShapeId[] }
+  | { type: "invalid-frame"; shapeId: TLShapeId };
 ```
+
+`FrameData` carries **both** ids: `shapeId` is the unambiguous runtime
+identity (unique by tldraw's guarantee — what derivation keys on),
+`frameId` is the stored datum (which duplicates can corrupt — what
+diagnostics report on).
 
 `StepData.id` is the stored `stepId` — a **stable identity across
 reorders**, not a synthesized value. This gives the Timeline UI stable React
-keys, gives the repair pass and diagnostics a durable referent, and gives
+keys, gives the repair flow and diagnostics a durable referent, and gives
 future step-level features (the compiled Slidev viewer's click mapping,
 step labels, deep links) a foundation without any global timeline record.
 (Steps synthesized by derivation rule 2 get a deterministic derived id,
@@ -437,57 +569,123 @@ out a stored timeline record do not apply to it.
 
 ## Migration from v1
 
-One-time, mechanical, order-preserving:
+One-time, mechanical, order-preserving — and **deterministic**, so that any
+number of clients migrating the same document concurrently write
+byte-identical records and converge under per-record last-writer-wins.
 
-1. Run the **legacy** pipeline (`getFrames → getFrameBatches →
-   getGlobalOrder`) once to obtain the v1 step order.
-2. Per v1 `globalIndex` group: mint one `stepId` and one fresh
-   `stepOrderKey` (an ascending key sequence); stamp the identical pair on
-   every cue frame in the group — v1 simultaneity survives as explicit v2
-   simultaneity.
-3. Walk each `prevFrameId` chain once; stamp each sub-frame with
-   `cueFrameId = chain head` and sequential intra-batch keys.
+### Determinism (blocking requirement)
+
+Randomly minted migration ids would be a correctness flaw: two v2 clients
+concurrently opening the same un-migrated synced document would mint
+*different* `stepId`s for the same v1 step; per-record LWW could interleave
+the writes, permanently splitting a step that was simultaneous in v1 — with
+`globalIndex` already stripped, the original relationship is
+unrecoverable. Therefore:
+
+- **`stepId`** per v1 `globalIndex` group is a namespaced literal:
+  `` `v1step:${pageId}:${globalIndex}` `` — no randomness, no hashing
+  needed; the namespace prevents collision with `uniqueId()`-minted ids.
+- **`stepOrderKey`** sequence: generated **without jitter**, as the
+  deterministic ascending key sequence for the ordered groups (same
+  algorithm, same output on every client).
+- Intra-batch sub-frame keys: deterministic ascending sequence in chain
+  order; `cueFrameId` is the (existing) chain-head frame id.
+
+Consequences: migration is **idempotent** (re-running produces identical
+records), and concurrent migrations converge regardless of write
+interleaving. Cross-client determinism assumes both clients run the same
+key-generation algorithm — guaranteed by the version gate in
+[Risks](#risks--open-questions) item 6.
+
+### Mixed v1/v2 documents
+
+During rollout, a document may transiently contain both formats (a client
+crashed mid-migration; an old client's full-`meta` LWW write reverted one
+frame to v1). The derivation **tolerates mixed records**: v1 frames
+encountered at read time are converted in memory via the same deterministic
+mapping — which, by determinism, yields exactly the ids/keys the persisted
+migration would have written, so mixed states converge seamlessly instead
+of splitting.
+
+### Procedure
+
+1. Run the **legacy** pipeline in a tolerant, non-throwing variant to
+   obtain the v1 step order. For valid documents this matches
+   `getFrames → getFrameBatches → getGlobalOrder` exactly. For the invalid
+   states the strict pipeline throws on or silently drops, the tolerant
+   variant maps to v2's representable vocabulary instead of discarding:
+   - same-track/same-index conflicts → adjacent steps, ordered by frame id;
+   - forked sub-frame chains (two subs sharing a `prevFrameId`) → **all**
+     forks become members of the batch, ordered by frame id;
+   - dangling `prevFrameId` references → **detached** frames;
+   - duplicate frame ids → all shapes kept (rule 4).
+2. Per v1 `globalIndex` group: stamp the deterministic `stepId` +
+   `stepOrderKey` pair on every cue frame in the group — v1 simultaneity
+   survives as explicit v2 simultaneity.
+3. Stamp each sub-frame with `cueFrameId` + its deterministic intra-batch
+   key.
 4. Rewrite `meta.frame` to the v2 shape (`v: 2`, drop
    `globalIndex`/`prevFrameId`).
 
-Trigger points:
+The migration returns a structured result rather than only writes:
+
+```ts
+interface MigrationResult {
+  updates: ShapeUpdate[];
+  diagnostics: MigrationDiagnostic[];
+  detachedFrames: { shapeId: TLShapeId; frame: LegacyFrame }[];
+}
+```
+
+Nothing the legacy pipeline cannot place is permanently discarded — 
+unplaceable frames persist as v2 detached/diagnosed states for the user to
+inspect.
+
+### Trigger points
 
 - **Editor**: on document load in `Anipres` (mount-time store pass), as a
-  single history-ignored transaction — the same hook that hosts the repair
-  pass.
+  single history-ignored transaction. (Migration writes are deterministic
+  and convergent, so — unlike semantic repairs — they are safe to persist
+  at load even for synced documents.)
 - **Read-only paths** (headless step counting, future compiled viewer):
   convert **in memory** without writing — read paths must not mutate
-  documents. Persistence happens the next time the document is edited.
+  documents.
 - **Slidev addon**: snapshots under `.slidev/anipres/snapshots/*.json`
   migrate on the first dev-mode edit/save; playback of un-migrated
   snapshots uses the in-memory conversion.
 
 The legacy parsing/derivation module is kept (internal, deprecated) for at
-least one major version, then removed. v1 frames that fail legacy parsing
-fall under the soft-fail rule: shape treated as unframed, warning logged.
+least one major version, then removed. v1 frames that fail even tolerant
+legacy parsing fall under the soft-fail rule: shape treated as unframed,
+`invalid-frame` diagnostic emitted.
 
 ## Code Impact
 
 | File | Impact |
 | --- | --- |
 | `src/ordered-track-item.ts` + tests | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`) |
-| `src/models.ts` | v2 frame types, soft-fail parsers, new derivation (`deriveTimeline(frames): TimelineDoc`), repair-pass canonicalization, legacy v1 module split out for migration |
+| `src/models.ts` | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration |
 | `src/models-and-tracks.ts` | re-export surface updated (consumed by external tools — coordinate the break) |
 | `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted |
 | `src/presentation-manager/animation.ts` | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`) |
-| `src/Timeline/frame-movement.ts` | `moveFrame` rewritten as `stepId`/key assignment (~20 lines) |
-| `src/Timeline/frame-ui-data.ts` | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames and diagnostics |
+| `src/Timeline/frame-movement.ts` | `moveFrame` rewritten as `stepId`/key assignment + collision-run normalization (~40 lines) |
+| `src/Timeline/frame-ui-data.ts` | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances |
 | `src/ControlPanel/ControlPanel.tsx` | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths |
-| `src/Anipres.tsx` | `beforeCreate` dedup per [Duplication & Paste Policy](#duplication--paste-policy); migration + repair pass on mount |
+| `src/Anipres.tsx` | `beforeCreate` dedup per [Duplication & Paste Policy](#duplication--paste-policy) (operation-scoped maps); deterministic migration on mount |
 | `src/headless-editor-utils.ts` | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor) |
 | `packages/slidev-addon-anipres` | no structural change; benefits from cheaper step counting; snapshots migrate lazily |
 
-Testing: the derivation, repair canonicalization, and migration are pure
-functions over JSON — they get direct unit tests (including all four
-totality rules, key-collision-with-distinct-stepId, divergent-key repair,
-and a v1→v2 golden snapshot fixture). Existing `ordered-track-item.test.ts`
-cases are ported to the new derivation as behavioral tests before the old
-module is removed.
+Testing: the derivation, canonicalization, `makeInsertionSpace`, and
+migration are pure functions over JSON — they get direct unit tests,
+including: all four totality rules; key-collision-with-distinct-`stepId`;
+collision-run insertion (steps and sub-frames); divergent-key
+representative selection (including representative deletion); duplicate-id
+losslessness; grouped duplication / cross-document `stepId` remapping;
+**migration determinism** (two independent runs produce identical records;
+mixed v1/v2 input converges to the same output); tolerant-migration cases
+(forked chains, dangling refs, conflicts); and a v1→v2 golden snapshot
+fixture. Existing `ordered-track-item.test.ts` cases are ported to the new
+derivation as behavioral tests before the old module is removed.
 
 ## Rejected Alternatives
 
@@ -530,25 +728,35 @@ intent explicitly, at the cost of one duplicated field per step (and zero
 additional writes — whole-step moves already touched every member cue
 under key equality).
 
-**F. Random jitter on generated keys** (as suggested by the
-`fractional-indexing` documentation) to make accidental equality
-improbable while keeping equality-as-identity. Rejected: it converts a
-correctness property into a probabilistic one, still cannot *distinguish*
-accident from intent when a collision does occur, and forgoes the stable
-step identity that `stepId` provides for free.
+**F. Random jitter as the identity mechanism** (making accidental key
+equality improbable while keeping equality-as-identity). Rejected in r2: it
+converts a correctness property into a probabilistic one, still cannot
+*distinguish* accident from intent when a collision does occur, and forgoes
+stable step identity. Note the r3 distinction: jitter **is** adopted — but
+as a frequency optimization that keeps collision runs rare, layered on top
+of `stepId`-carried identity, where a collision costs a bounded
+normalization instead of a semantic merge.
+
+**G. Last-write-wins for duplicate frame ids (r2 rule 4).** Deterministic
+but lossy: it removed a shape from the derived timeline before any repair
+could happen, contradicting the design's own detached-frames principle
+("surface, never drop"). Superseded in r3 by lossless handling keyed on
+`shapeId`.
 
 ## Risks & Open Questions
 
 1. **Intra-step key redundancy.** `stepOrderKey` is duplicated across a
    step's cue frames and can diverge under concurrent/partial writes. This
-   is a *designed-for* state: derivation rule 1 canonicalizes it, and the
-   repair pass converges it. Risk is bounded to a step's members (typically
-   1–3 shapes), and the failure mode is a diagnosed, self-healing
-   inconsistency — not data loss or misordering.
-2. **Key growth.** Pathological insert patterns lengthen fractional keys.
-   At presentation scale this is cosmetic; an optional "compact keys"
-   maintenance action (single explicit transaction) can renormalize if it
-   ever matters.
+   is a *designed-for* state: derivation rule 1 canonicalizes it in memory
+   via the stable representative, and persistence follows the
+   [Canonicalization & Repair](#canonicalization--repair) rules. Risk is
+   bounded to a step's members (typically 1–3 shapes), and the failure mode
+   is a diagnosed, resolvable inconsistency — not data loss or misordering.
+2. **Key growth.** Pathological insert patterns lengthen fractional keys
+   (jitter adds a small constant). At presentation scale this is cosmetic;
+   collision-run normalization already re-keys locally, and an optional
+   "compact keys" maintenance action can renormalize globally if it ever
+   matters.
 3. **Duplication semantics** (fresh step vs. v1's append-as-sub-frame) is a
    product decision; the encoding supports either. The policy in
    [Duplication & Paste Policy](#duplication--paste-policy) is the
@@ -560,11 +768,20 @@ step identity that `stepId` provides for free.
 5. **Exact tldraw index-key API availability** in the pinned version
    (`getIndexBetween` et al.) must be verified at implementation time;
    fallback is the `fractional-indexing` package already used in
-   `packages/app`.
-6. **Migration trigger for synced documents**: the mount-time
-   migration/repair transaction interacts with `@tldraw/sync` (all clients
-   must understand v2 before any client writes it). Roll out reader support
-   first, writer flip second — standard two-phase deploy.
+   `packages/app`. Whichever is chosen, the **migration key sequence is
+   pinned to one implementation** — changing it later would break migration
+   determinism across app versions (mitigated by the version gate below,
+   but avoid churn here).
+6. **Migration trigger for synced documents**: all clients must understand
+   v2 before any client writes it — roll out reader support first, writer
+   flip second (standard two-phase deploy). Within the v2-writer era,
+   concurrent migrations are safe by determinism; the remaining exposure is
+   v1-era clients overwriting migrated records with v1-format `meta`, which
+   the mixed-document tolerance re-converges deterministically.
+7. **Diagnostic-resolution UX** (resolve affordances for divergent keys,
+   duplicate ids, same-track splits) is new UI surface for the Timeline;
+   scope it minimally (badge + "accept current order" / "fix" actions) to
+   avoid this design stalling on UI polish.
 
 ## Out of Scope / Related Future Work
 
