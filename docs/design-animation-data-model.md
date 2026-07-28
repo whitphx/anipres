@@ -3,12 +3,24 @@
 > This document specifies a revision of the animation/timeline data model in
 > `packages/anipres`. It was produced from an architecture review session on
 > 2026-07-27. The storage philosophy (animation data embedded in shapes) is
-> deliberately preserved; what changes is the *encoding* of ordering and
+> deliberately preserved; what changes is the _encoding_ of ordering and
 > batch membership.
 
 ## Status
 
-Proposal. Not implemented. No code changes accompany this document.
+Implemented. PR #486 carries both this document and the implementation:
+the `timeline-model` core (`packages/anipres/src/timeline-model/`), the
+runtime integration, the deterministic v1 → v2 migration, and the
+server-enforced version gate (Risk 6;
+`packages/worker/src/animation-data-version.ts`). A sibling
+implementation of this design (PR #487, `codex/redesign-data-structure`)
+was converged into #486 — the version gate and the before-first-key
+regression tests were ported from it — and is being closed.
+
+Deliberately deferred (tracked as follow-ups, not part of #486): the
+diagnostic-resolution Timeline UI (Risk 7) and persistent semantic
+repair; the compiled Slidev viewer and the other items under
+[Out of Scope](#out-of-scope--related-future-work).
 
 ## Revision History
 
@@ -25,7 +37,7 @@ Proposal. Not implemented. No code changes accompany this document.
   now explicit in the output type via `StepData.synthetic` (reason +
   source `stepId`) instead of an unspecified "flag", and their derived
   ids are specified — deterministic, stable, namespaced
-  (`synthstep:`), one per split batch, and *not* a parse contract
+  (`synthstep:`), one per split batch, and _not_ a parse contract
   (the structured field is the source of truth).
 - **r5 (2026-07-27)**: Final precision pass, following a fourth external
   design review. Corrects migration procedure step 2 (stamp ids per
@@ -125,7 +137,7 @@ Goals of this revision:
 - Make the order derivation **total and lossless**: any reachable store
   state renders something; derivation never throws and never hides a shape.
   Every state producible by concurrent `@tldraw/sync` edits must be either
-  well-defined or *detectably* inconsistent — never silently reinterpreted.
+  well-defined or _detectably_ inconsistent — never silently reinterpreted.
 - Give steps a **stable identity** independent of their position (needed by
   the Timeline UI, and by future step-level references such as the compiled
   Slidev viewer's click mapping).
@@ -189,22 +201,22 @@ v2 keeps all four.
 ## Problems with the v1 Encoding
 
 All of the fragile code in the current implementation exists to defend
-invariants that the v1 *encoding* makes global:
+invariants that the v1 _encoding_ makes global:
 
-| Symptom | Root cause |
-| --- | --- |
-| `reassignGlobalIndexInplace` + writes to every cue shape on reorder/delete | `globalIndex` is a **dense integer**; any insertion/removal forces renumbering across N shapes |
-| `999999` sentinels in `ControlPanel.tsx` and `frame-movement.ts` ("will be reindexed later") | no way to express "after everything" without knowing all indices |
-| `moveFrame` (~290 lines of mirrored push-out/merge branches) | a logical array splice must be expressed as coordinated integer rewrites |
-| `reconcileShapeDeletion` renumbering + `prevFrameId` relinking | deleting a shape rips a node out of a distributed linked list and de-densifies the index space |
-| Silent data loss in `getFrameBatches`: sub-frames are keyed by `prevFrameId` in a `Record`, so two sub-frames claiming the same predecessor drop one; a dangling `prevFrameId` silently orphans the rest of its chain | linked-list encoding with no integrity guarantees |
-| `getGlobalOrder` throws on same-track/same-index — a state two sync clients can legally produce concurrently — and the throw propagates into rendering | derivation treats a reachable state as unrepresentable |
-| Renumbering writes are themselves a multi-record sync burst | the cost avoided by rejecting a central record reappears, distributed |
+| Symptom                                                                                                                                                                                                               | Root cause                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `reassignGlobalIndexInplace` + writes to every cue shape on reorder/delete                                                                                                                                            | `globalIndex` is a **dense integer**; any insertion/removal forces renumbering across N shapes |
+| `999999` sentinels in `ControlPanel.tsx` and `frame-movement.ts` ("will be reindexed later")                                                                                                                          | no way to express "after everything" without knowing all indices                               |
+| `moveFrame` (~290 lines of mirrored push-out/merge branches)                                                                                                                                                          | a logical array splice must be expressed as coordinated integer rewrites                       |
+| `reconcileShapeDeletion` renumbering + `prevFrameId` relinking                                                                                                                                                        | deleting a shape rips a node out of a distributed linked list and de-densifies the index space |
+| Silent data loss in `getFrameBatches`: sub-frames are keyed by `prevFrameId` in a `Record`, so two sub-frames claiming the same predecessor drop one; a dangling `prevFrameId` silently orphans the rest of its chain | linked-list encoding with no integrity guarantees                                              |
+| `getGlobalOrder` throws on same-track/same-index — a state two sync clients can legally produce concurrently — and the throw propagates into rendering                                                                | derivation treats a reachable state as unrepresentable                                         |
+| Renumbering writes are themselves a multi-record sync burst                                                                                                                                                           | the cost avoided by rejecting a central record reappears, distributed                          |
 
 A related finding, recorded here for posterity: **the topological sort in
 `getGlobalOrder` is provably equivalent to "sort by `globalIndex`, group equal
 values."** The same-track edges (type 1) require `a.globalIndex <
-b.globalIndex` *plus* track equality, i.e. they are a strict subset of the
+b.globalIndex` _plus_ track equality, i.e. they are a strict subset of the
 global edges (type 2), which already impose a total order on distinct indices.
 The DAG encodes no additional information, cycles are impossible by
 construction, and the only detectable conflict is the same-track/same-index
@@ -218,7 +230,7 @@ loses no expressiveness.
 Embedding data in shapes protects **existence invariants** by construction:
 every frame has a shape; every animated shape carries its frame; nothing can
 dangle. It cannot protect **relational invariants** — order, step grouping,
-chain structure — because those are facts about how frames on *different*
+chain structure — because those are facts about how frames on _different_
 shapes relate, and per-record storage has no cross-record transactions.
 
 v1 encodes its relations through per-shape scalars with global consistency
@@ -278,7 +290,7 @@ Semantics:
   deterministic) and remain distinct steps.
 - **Step order** = steps sorted by `(canonical stepOrderKey, stepId)`.
   `stepId` is the permanent tie-break, so ordering is deterministic even
-  under key collisions. The *canonical* key for a step is defined in
+  under key collisions. The _canonical_ key for a step is defined in
   [Canonicalization & Repair](#canonicalization--repair).
 - **Invariant (maintained, not assumed)**: all cue frames sharing a `stepId`
   carry the same `stepOrderKey`. Because the fields live on separate
@@ -311,7 +323,7 @@ recommended by the `fractional-indexing` documentation) to make concurrent
 key collisions rare. Jitter is safe precisely because identity is carried by
 `stepId`, never by key equality — it is a frequency optimization for the
 collision-run handling below, not a correctness mechanism. (Migration is the
-exception: it must generate keys *without* jitter, deterministically.)
+exception: it must generate keys _without_ jitter, deterministically.)
 
 ### Parsing is soft-fail — and diagnosed
 
@@ -348,7 +360,7 @@ corrupted by paste bugs, and derivation must survive that. Totality rules:
 
 1. **Divergent `stepOrderKey` within one `stepId`** (producible by
    concurrent/partial sync writes): the group's canonical key — taken from
-   the step's *representative* cue frame, defined in
+   the step's _representative_ cue frame, defined in
    [Canonicalization & Repair](#canonicalization--repair) — determines its
    position; all members stay in the step. Diagnostic:
    `step-key-divergence` (stepId, offending shape ids).
@@ -402,8 +414,8 @@ same-track split. For these:
   frame: the member with the smallest `frame.id`** (falling back to shape
   id if frame ids are duplicated; recomputed if the representative is
   deleted). This replaces r2's "smallest `(stepOrderKey, id)`" rule, which
-  was directionally biased — a partially synced step move *toward earlier*
-  always won while a move *toward later* always lost. A representative
+  was directionally biased — a partially synced step move _toward earlier_
+  always won while a move _toward later_ always lost. A representative
   chosen by stable id is independent of move direction, and — the real
   virtue — is a **stable representative**: the canonical key does not flip
   when other members' keys change. The winner under a partial write is
@@ -426,17 +438,17 @@ same-track split. For these:
 The payoff table. "Writes" counts shape records touched beyond the frame(s)
 being edited:
 
-| Operation | v1 | v2 |
-| --- | --- | --- |
-| Append a step at the end | write new cue with `getNextGlobalIndex()` | new `stepId`, `stepOrderKey = getIndexAbove(lastStepKey)` — **0 extra writes** |
-| Insert a step between steps *i* and *i+1* | `insertOrderedTrackItem` → renumber **every** later cue shape | new `stepId`, `stepOrderKey = getIndexBetween(key_i, key_i+1)` — **0 extra writes** (unless the neighbors form an equal-key run — see below) |
-| Add a simultaneous batch to an existing step | renumber to share an index, then reindex globally | copy the target step's `stepId` + `stepOrderKey` onto the new cue — **0 extra writes** (UI prevents a same-track duplicate; derivation rule 2 tolerates it) |
-| Move a batch to another step | full rewrite via `onFrameBatchesChange` | copy the target's `stepId` + `stepOrderKey` — **1 write** |
-| Move a batch out into a new step (Timeline drag & drop) | `moveFrame`: ~290 lines, sentinel indices, full rewrite of all batches | mint `stepId`, compute one key between target neighbors — **1 write**, ~20 lines |
-| Reorder a whole step | renumbering cascade across the deck | write the new `stepOrderKey` on the step's cue frames — **writes = batches in the step** (typically 1–3; identical cost to r1's key-equality encoding, and still local to the step) |
-| Delete a cue/sub frame | renumber all cue shapes / relink the sub-frame chain | **0 extra writes** (see [Deletion](#deletion-orphans-and-reconciliation)) |
-| Add a sub-frame to a batch | append to linked list (find tail, set `prevFrameId`) | `cueFrameId` + `orderKey = getIndexAbove(lastSubKey)` |
-| Reorder sub-frames within a batch | pointer surgery on the chain | rewrite one sub-frame's `orderKey` |
+| Operation                                               | v1                                                                     | v2                                                                                                                                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Append a step at the end                                | write new cue with `getNextGlobalIndex()`                              | new `stepId`, `stepOrderKey = getIndexAbove(lastStepKey)` — **0 extra writes**                                                                                                      |
+| Insert a step between steps _i_ and _i+1_               | `insertOrderedTrackItem` → renumber **every** later cue shape          | new `stepId`, `stepOrderKey = getIndexBetween(key_i, key_i+1)` — **0 extra writes** (unless the neighbors form an equal-key run — see below)                                        |
+| Add a simultaneous batch to an existing step            | renumber to share an index, then reindex globally                      | copy the target step's `stepId` + `stepOrderKey` onto the new cue — **0 extra writes** (UI prevents a same-track duplicate; derivation rule 2 tolerates it)                         |
+| Move a batch to another step                            | full rewrite via `onFrameBatchesChange`                                | copy the target's `stepId` + `stepOrderKey` — **1 write**                                                                                                                           |
+| Move a batch out into a new step (Timeline drag & drop) | `moveFrame`: ~290 lines, sentinel indices, full rewrite of all batches | mint `stepId`, compute one key between target neighbors — **1 write**, ~20 lines                                                                                                    |
+| Reorder a whole step                                    | renumbering cascade across the deck                                    | write the new `stepOrderKey` on the step's cue frames — **writes = batches in the step** (typically 1–3; identical cost to r1's key-equality encoding, and still local to the step) |
+| Delete a cue/sub frame                                  | renumber all cue shapes / relink the sub-frame chain                   | **0 extra writes** (see [Deletion](#deletion-orphans-and-reconciliation))                                                                                                           |
+| Add a sub-frame to a batch                              | append to linked list (find tail, set `prevFrameId`)                   | `cueFrameId` + `orderKey = getIndexAbove(lastSubKey)`                                                                                                                               |
+| Reorder sub-frames within a batch                       | pointer surgery on the chain                                           | rewrite one sub-frame's `orderKey`                                                                                                                                                  |
 
 `reassignGlobalIndexInplace`, `insertOrderedTrackItem`, `getGlobalOrder`,
 the `OrderedTrackItem` type, and every `999999` sentinel are deleted.
@@ -490,12 +502,12 @@ are severed.**
 const newFrameIdBySourceShapeId = new Map<TLShapeId, NewFrameId>();
 // stepId / trackId are intentionally *shared* identities, so old-id keys
 // are correct for them:
-const stepIdMap  = new Map<OldStepId, NewStepId>();
+const stepIdMap = new Map<OldStepId, NewStepId>();
 const trackIdMap = new Map<OldTrackId, NewTrackId>();
 ```
 
 - **Always freshen `frame.id`** on a copied shape whose frame id already
-  exists in the document, one fresh id per source *shape* — so copying a
+  exists in the document, one fresh id per source _shape_ — so copying a
   document that contains duplicate-id corruption produces a **cleaner
   copy** (each copy gets a distinct id). Sub-frames copied in the same
   operation remap `cueFrameId` through the map (matching the existing
@@ -507,10 +519,10 @@ const trackIdMap = new Map<OldTrackId, NewTrackId>();
   representative rule serves both subsystems. A sub-frame pasted alone
   arrives detached (derivation rule 3) and is surfaced in the Timeline.
 - **Within-document duplication of cue frames: freshen `stepId` through
-  `stepIdMap`.** Otherwise a duplicate silently *joins the original's step*
+  `stepIdMap`.** Otherwise a duplicate silently _joins the original's step_
   and fires simultaneously with it. Crucially, the map is per-operation:
   duplicating **several cue frames that share a step** gives all copies the
-  *same fresh* `stepId` and one fresh `stepOrderKey` — they remain
+  _same fresh_ `stepId` and one fresh `stepOrderKey` — they remain
   simultaneous with each other, as a new step placed after the original
   (`getIndexBetween(original, next)`), but never joined to it. (If product
   feedback favors v1's duplicate-becomes-sub-frame behavior instead, that
@@ -529,7 +541,7 @@ const trackIdMap = new Map<OldTrackId, NewTrackId>();
   existing keys, clamped into range if needed. But a foreign id that
   **already exists locally must be remapped** through the corresponding
   map: two documents with shared ancestry (a file-level copy of a deck)
-  contain *identical* `stepId`s and `trackId`s, and without remapping,
+  contain _identical_ `stepId`s and `trackId`s, and without remapping,
   pasting between them would silently join unrelated steps — or splice
   pasted keyframes into an unrelated local object's animation track.
   Remapping preserves relationships among the pasted frames themselves
@@ -575,7 +587,7 @@ dramatically:
   sub-frames keep their `cueFrameId` and keys.
 - **Cue shape deleted**: no renumbering (step order is unaffected; if it was
   the last member of its step, the step simply vanishes from the
-  derivation). Its sub-frames become *detached* (dangling `cueFrameId`).
+  derivation). Its sub-frames become _detached_ (dangling `cueFrameId`).
   Policy: they are kept and surfaced in the Timeline UI rather than
   auto-deleted — deleting a shape should not silently destroy other shapes'
   animation settings, and undoing the deletion restores the cue, at which
@@ -614,31 +626,44 @@ dramatically:
 
 ## Derived `TimelineDoc` (Compiled Artifact)
 
-The normalized timeline view is *not* a source of truth — it is the
+The normalized timeline view is _not_ a source of truth — it is the
 formalized, versioned **output type** of the derivation pipeline:
 
 ```ts
 interface TimelineDoc {
   version: 1;
-  steps: StepData[];              // array order = presentation order
-  detachedFrames: FrameData[];    // rule-3 orphans, surfaced not dropped
+  steps: StepData[]; // array order = presentation order
+  detachedFrames: FrameData[]; // rule-3 orphans, surfaced not dropped
   diagnostics: TimelineDiagnostic[];
 }
 interface StepData {
-  id: string;                     // = stored stepId (stable) — or a derived
-                                  //   synthetic id when `synthetic` is set
+  id: string; // = stored stepId (stable) — or a derived
+  //   synthetic id when `synthetic` is set
   batches: BatchData[];
-  synthetic?: {                   // present ONLY on rule-2 recovery steps
+  synthetic?: {
+    // present ONLY on rule-2 recovery steps
     reason: "same-track-split";
-    sourceStepId: string;         // the stored stepId the batch split from
+    sourceStepId: string; // the stored stepId the batch split from
   };
 }
-interface BatchData { trackId: string; frames: FrameData[] } // frames[0] = cue
-interface FrameData { frameId: string; shapeId: TLShapeId; action: FrameAction }
+interface BatchData {
+  trackId: string;
+  frames: FrameData[];
+} // frames[0] = cue
+interface FrameData {
+  frameId: string;
+  shapeId: TLShapeId;
+  action: FrameAction;
+}
 
 type TimelineDiagnostic =
   | { type: "step-key-divergence"; stepId: string; shapeIds: TLShapeId[] }
-  | { type: "same-track-split"; stepId: string; trackId: string; shapeIds: TLShapeId[] }
+  | {
+      type: "same-track-split";
+      stepId: string;
+      trackId: string;
+      shapeIds: TLShapeId[];
+    }
   | { type: "detached-sub-frame"; shapeId: TLShapeId; cueFrameId: string }
   | { type: "duplicate-frame-id"; frameId: string; shapeIds: TLShapeId[] }
   | { type: "invalid-frame"; shapeId: TLShapeId };
@@ -663,13 +688,12 @@ step labels, deep links) a foundation without any global timeline record.
 `synthetic` field, so consumers — the Timeline UI, the compiled viewer,
 diagnostic-resolution code — distinguish stored steps from derived
 recovery behavior **structurally, never by parsing id conventions**. Each
-split batch gets its *own* synthetic step (two split same-track batches
+split batch gets its _own_ synthetic step (two split same-track batches
 cannot share a step either), with a derived id:
 
 ```ts
 const SYNTHETIC_STEP_PREFIX = "synthstep:";
-const syntheticStepId =
-  `${SYNTHETIC_STEP_PREFIX}${JSON.stringify([sourceStepId, cueShapeId])}`;
+const syntheticStepId = `${SYNTHETIC_STEP_PREFIX}${JSON.stringify([sourceStepId, cueShapeId])}`;
 ```
 
 where `cueShapeId` is the split batch's cue shape id. The JSON tuple
@@ -685,11 +709,11 @@ its inputs.
 
 `synthstep:` is a **formally reserved prefix for derived `TimelineDoc`
 identities**. Persisted `stepId`s must never use it — component-level
-injectivity cannot prevent a *stored* id from colliding with a derived one
+injectivity cannot prevent a _stored_ id from colliding with a derived one
 unless the namespace itself is reserved — and a persisted `stepId`
 carrying the prefix is treated as invalid input: the frame parser emits a
 diagnostic for it (and the duplication preprocessing freshens it like any
-other id). Unlike `v1step:`, this format is *not* a parse contract — the
+other id). Unlike `v1step:`, this format is _not_ a parse contract — the
 structured `synthetic` field is the source of truth, and the id needs only
 the properties above.
 
@@ -720,7 +744,7 @@ byte-identical records and converge under per-record last-writer-wins.
 
 Randomly minted migration ids would be a correctness flaw: two v2 clients
 concurrently opening the same un-migrated synced document would mint
-*different* `stepId`s for the same v1 step; per-record LWW could interleave
+_different_ `stepId`s for the same v1 step; per-record LWW could interleave
 the writes, permanently splitting a step that was simultaneous in v1 — with
 `globalIndex` already stripped, the original relationship is
 unrecoverable. Therefore:
@@ -742,14 +766,14 @@ unrecoverable. Therefore:
   `uniqueId()`-minted ids. This format is a **parse contract**: the
   mixed-document path below (and Option B) recover coordinates from it.
   Since tldraw page ids themselves contain `:` (`page:xyz`), parsing must
-  take the two *trailing* numeric segments rather than splitting naively.
+  take the two _trailing_ numeric segments rather than splitting naively.
 - **`stepOrderKey` is a pure function of the coordinates**:
   `getMigratedStepOrderKey(globalIndex, partitionIndex)`, generated
   **without jitter**, whose output depends on nothing but its arguments —
   in particular, not on which other records are currently v1 or v2.
-  Construction (Option A): `f(gi)` = the *gi*-th key of the iterated
-  `getIndexAbove` chain from the initial key; partition *p* > 0 = the
-  *p*-th key of the iterated `getIndexBetween(f(gi), f(gi+1))` chain —
+  Construction (Option A): `f(gi)` = the _gi_-th key of the iterated
+  `getIndexAbove` chain from the initial key; partition _p_ > 0 = the
+  _p_-th key of the iterated `getIndexBetween(f(gi), f(gi+1))` chain —
   content-independent, and nested strictly between the integer coordinates
   so `(globalIndex, partition)` order is preserved. A naive "ascending
   sequence over the groups present in the document" is **not acceptable**:
@@ -788,7 +812,7 @@ record in isolation is not enough, because its `partitionIndex` depends on
 the group it belonged to. Example: same-track cues A and B share
 `globalIndex 4`; a complete migration assigns A → partition 0,
 B → partition 1. If only A's write persisted, converting B against the
-*remaining v1 records alone* would see a group containing only B and
+_remaining v1 records alone_ would see a group containing only B and
 assign it partition 0 — recreating, persistently, the very conflict the
 partitioning resolves. Therefore, when converting a mixed document:
 
@@ -816,7 +840,7 @@ records, not group members.
 recovery — not bidirectional editing compatibility.** If v2 editing has
 already reordered a step and an active v1 client later overwrites one cue
 frame with its stale `globalIndex`, deterministic conversion restores a
-*valid* record at its **original v1 position**; it cannot recover the newer
+_valid_ record at its **original v1 position**; it cannot recover the newer
 v2 order that the stale record never contained. Convergent is not the same
 as lossless. Active v1 writers must therefore be excluded by the version
 gate (Risk 6) before v2 writes are enabled.
@@ -856,7 +880,7 @@ interface MigrationResult {
 }
 ```
 
-Nothing the legacy pipeline cannot place is permanently discarded — 
+Nothing the legacy pipeline cannot place is permanently discarded —
 unplaceable frames persist as v2 detached/diagnosed states for the user to
 inspect.
 
@@ -880,19 +904,19 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 
 ## Code Impact
 
-| File | Impact |
-| --- | --- |
-| `src/ordered-track-item.ts` + tests | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`) |
-| `src/models.ts` | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration |
-| `src/models-and-tracks.ts` | re-export surface updated (consumed by external tools — coordinate the break) |
-| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted |
-| `src/presentation-manager/animation.ts` | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`) |
-| `src/Timeline/frame-movement.ts` | `moveFrame` rewritten as `stepId`/key assignment + collision-run normalization (~40 lines) |
-| `src/Timeline/frame-ui-data.ts` | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances |
-| `src/ControlPanel/ControlPanel.tsx` | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths |
-| `src/Anipres.tsx` | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount |
-| `src/headless-editor-utils.ts` | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor) |
-| `packages/slidev-addon-anipres` | no structural change; benefits from cheaper step counting; snapshots migrate lazily |
+| File                                               | Impact                                                                                                                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                 |
+| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration |
+| `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                |
+| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                                |
+| `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                    |
+| `src/Timeline/frame-movement.ts`                   | `moveFrame` rewritten as `stepId`/key assignment + collision-run normalization (~40 lines)                                                                                                                                   |
+| `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                    |
+| `src/ControlPanel/ControlPanel.tsx`                | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths                                                                                                          |
+| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount                                      |
+| `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                      |
+| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily                                                                                                                                          |
 
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
@@ -910,7 +934,7 @@ record-level LWW merging** (re-collided keys degrade back to an ordinary
 collision run, never to data loss); divergent-key representative selection
 (including representative deletion); duplicate-id losslessness;
 **migration determinism** — two independent runs (including two
-independent *tolerant* runs over an invalid document) produce
+independent _tolerant_ runs over an invalid document) produce
 byte-identical records, ids, partitions, and keys; **partial-migration
 determinism** — a partially migrated v1/v2 document derives the same keys
 as a complete migration, including the **resume test**: migration
@@ -969,7 +993,7 @@ one.
 carried a single `orderKey`; identical keys meant one step. Unsound under
 concurrency: the key-between algorithm is deterministic, so two clients
 inserting a step between the same neighbors mint identical keys, and
-different-track collisions would be silently *merged* into one step — an
+different-track collisions would be silently _merged_ into one step — an
 undetectable semantic corruption, since a tie-break can order frames but
 cannot recover intent. It also required a fragile usage discipline ("keys
 may only be copied, never generated-and-compared") and provided no stable
@@ -981,7 +1005,7 @@ under key equality).
 **F. Random jitter as the identity mechanism** (making accidental key
 equality improbable while keeping equality-as-identity). Rejected in r2: it
 converts a correctness property into a probabilistic one, still cannot
-*distinguish* accident from intent when a collision does occur, and forgoes
+_distinguish_ accident from intent when a collision does occur, and forgoes
 stable step identity. Note the r3 distinction: jitter **is** adopted — but
 as a frequency optimization that keeps collision runs rare, layered on top
 of `stepId`-carried identity, where a collision costs a bounded
@@ -997,7 +1021,7 @@ could happen, contradicting the design's own detached-frames principle
 
 1. **Intra-step key redundancy.** `stepOrderKey` is duplicated across a
    step's cue frames and can diverge under concurrent/partial writes. This
-   is a *designed-for* state: derivation rule 1 canonicalizes it in memory
+   is a _designed-for_ state: derivation rule 1 canonicalizes it in memory
    via the stable representative, and persistence follows the
    [Canonicalization & Repair](#canonicalization--repair) rules. Risk is
    bounded to a step's members (typically 1–3 shapes), and the failure mode
