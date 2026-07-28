@@ -52,7 +52,9 @@ describe("anipres action utils", () => {
       const cue = getCueFrame(slide!);
       expect(cue).toBeTruthy();
       expect(cue?.action.type).toBe("cameraZoom");
-      expect(cue?.globalIndex).toBe(0);
+      expect(cue?.v).toBe(2);
+      expect(cue?.stepId).toEqual(expect.any(String));
+      expect(cue?.stepOrderKey).toEqual(expect.any(String));
     } finally {
       dispose();
     }
@@ -123,9 +125,8 @@ describe("anipres action utils", () => {
       expect(cues).toHaveLength(2);
       // Both cues share a track
       expect(new Set(cues.map((c) => c.trackId)).size).toBe(1);
-      // GlobalIndexes are different — one per step
-      const indexes = cues.map((c) => c.globalIndex).sort();
-      expect(indexes).toEqual([0, 1]);
+      expect(new Set(cues.map((cue) => cue.stepId)).size).toBe(2);
+      expect(new Set(cues.map((cue) => cue.stepOrderKey)).size).toBe(2);
     } finally {
       dispose();
     }

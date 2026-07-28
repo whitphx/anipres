@@ -1,35 +1,53 @@
-// Re-export the pure data-model types and helpers used by the presentation
-// engine — split out so external tools (e.g. the agent CLI) can consume them
-// without depending on the React/UI surface in the main entry.
-
 export type {
+  BatchData,
+  CameraZoomFrameAction,
+  CueFrame,
   Frame,
   FrameAction,
   FrameActionBase,
   FrameBase,
-  FrameBatch,
-  CueFrame,
-  SubFrame,
-  Step,
-  BatchedFrames,
+  FrameData,
+  FrameParseResult,
+  FrameRecord,
   ShapeAnimationFrameAction,
-  CameraZoomFrameAction,
+  StepData,
+  SubFrame,
+  TimelineDiagnostic,
+  TimelineDoc,
 } from "./models";
 export {
+  SYNTHETIC_STEP_PREFIX,
   cueFrameToJsonObject,
-  subFrameToJsonObject,
+  deriveTimeline,
   frameToJsonObject,
-  jsonObjectToCueFrame,
-  getFrame,
   getCueFrame,
-  getSubFrame,
+  getFrame,
+  getFrameRecords,
   getFrames,
-  getFrameBatches,
-  getNextGlobalIndexFromCueFrames,
+  getOrderKeyBetween,
+  getStepOrderKeyAfter,
+  getSubFrame,
+  jsonObjectToCueFrame,
+  makeInsertionSpace,
+  newStepId,
   newTrackId,
+  parseFrame,
+  parseFrameObject,
+  subFrameToJsonObject,
 } from "./models";
-export type { OrderedTrackItem, ItemGroup } from "./ordered-track-item";
+export type {
+  LegacyCueFrame,
+  LegacyFrame,
+  LegacySubFrame,
+  MigrationDiagnostic,
+  MigrationResult,
+} from "./legacy-models";
 export {
-  getGlobalOrder,
-  reassignGlobalIndexInplace,
-} from "./ordered-track-item";
+  deriveTimelineFromShapes,
+  getLegacyFrame,
+  getMigratedStepOrderKey,
+  getMigratedSubFrameOrderKey,
+  migrateLegacyFrames,
+  parseLegacyFrameObject,
+  parseMigratedStepId,
+} from "./legacy-models";

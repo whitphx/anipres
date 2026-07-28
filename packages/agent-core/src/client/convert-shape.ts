@@ -7,10 +7,11 @@
 import { toRichText, uniqueId, type Editor, type TLShapePartial } from "tldraw";
 import {
   cueFrameToJsonObject,
+  deriveTimelineFromShapes,
+  getFrame,
+  getStepOrderKeyAfter,
+  newStepId,
   newTrackId,
-  getCueFrame,
-  getFrames,
-  getNextGlobalIndexFromCueFrames,
   type CameraZoomFrameAction,
   type CueFrame,
 } from "anipres/models";
@@ -68,11 +69,7 @@ function buildAutoCameraCueFrame(
   editor: Editor,
 ): CueFrame<CameraZoomFrameAction> {
   const shapes = editor.getCurrentPageShapes();
-  const allFrames = getFrames(shapes);
-  const allCueFrames = shapes
-    .map(getCueFrame)
-    .filter((f): f is CueFrame => f !== undefined);
-
+  const allFrames = shapes.map(getFrame).filter((frame) => frame !== undefined);
   const lastCameraCue = [...allFrames]
     .reverse()
     .find(
@@ -81,9 +78,19 @@ function buildAutoCameraCueFrame(
     );
 
   return {
+    v: 2,
     id: uniqueId(),
     type: "cue",
-    globalIndex: getNextGlobalIndexFromCueFrames(allCueFrames),
+    stepId: newStepId(),
+    stepOrderKey: getStepOrderKeyAfter(
+      deriveTimelineFromShapes(shapes, editor.getCurrentPageId())
+        .steps.filter((step) => !step.synthetic)
+        .at(-1)
+        ?.batches.flatMap((batch) => batch.frames)
+        .map((frame) => editor.getShape(frame.shapeId))
+        .map((candidate) => (candidate ? getFrame(candidate) : undefined))
+        .find((frame) => frame?.type === "cue")?.stepOrderKey,
+    ),
     trackId: lastCameraCue?.trackId ?? newTrackId(),
     action: {
       type: "cameraZoom",

@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import * as z from "zod";
+import { getAnimationDataVersionGateResponse } from "../animation-data-version";
 import { documentIdParamSchema } from "../schemas";
 import { startDocumentDeletion } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
@@ -465,6 +466,13 @@ export const documentsRoutes = new Hono<AppBindings>()
         );
       }
     }),
+    async (c, next) => {
+      const versionGateResponse = getAnimationDataVersionGateResponse(
+        c.req.raw,
+      );
+      if (versionGateResponse) return versionGateResponse;
+      await next();
+    },
     // The schema validator parses the JSON, which means the body is
     // fully buffered before it runs — gating on content-length here
     // keeps a runaway client from streaming multi-MB blobs into the

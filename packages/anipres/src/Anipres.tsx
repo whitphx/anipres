@@ -45,12 +45,15 @@ import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
   cueFrameToJsonObject,
   getFrame,
+  getStepOrderKeyAfter,
+  newStepId,
+  newTrackId,
   type CameraZoomFrameAction,
   type CueFrame,
-  type SubFrame,
-  getSubFrame,
-  subFrameToJsonObject,
+  frameToJsonObject,
 } from "./models";
+import { migrateAnimationDataInEditor } from "./legacy-models";
+import { preprocessAnimationContent } from "./preprocess-animation-content";
 import { PresentationManager } from "./presentation-manager";
 import React, {
   useCallback,
@@ -290,6 +293,7 @@ const Inner = (props: InnerProps) => {
   const $currentStepIndex = useAtom<number>("current step index", 0);
 
   const handleMount = (editor: Editor) => {
+    migrateAnimationDataInEditor(editor);
     const presentationManager = PresentationManager.create(
       editor,
       $currentStepIndex,
@@ -300,19 +304,35 @@ const Inner = (props: InnerProps) => {
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
-          // Auto attach camera cueFrame to the newly created slide shape
           const orderedSteps = presentationManager.$getOrderedSteps();
           const lastCameraCueFrame = orderedSteps
+            .flatMap((step) => step.batches)
+            .flatMap((batch) => batch.frames)
             .reverse()
-            .flat()
-            .find((ab) => ab.data[0].action.type === "cameraZoom");
+            .map((frame) => editor.getShape(frame.shapeId))
+            .map((shape) => (shape ? getFrame(shape) : undefined))
+            .find(
+              (frame): frame is CueFrame<CameraZoomFrameAction> =>
+                frame?.type === "cue" && frame.action.type === "cameraZoom",
+            );
           const cueFrame: CueFrame<CameraZoomFrameAction> = {
+            v: 2,
             id: uniqueId(),
             type: "cue",
-            globalIndex: orderedSteps.length,
             trackId: lastCameraCueFrame
               ? lastCameraCueFrame.trackId
-              : uniqueId(),
+              : newTrackId(),
+            stepId: newStepId(),
+            stepOrderKey: getStepOrderKeyAfter(
+              orderedSteps
+                .flatMap((step) => step.batches)
+                .at(-1)
+                ?.frames.map((frame) => editor.getShape(frame.shapeId))
+                .map((candidate) =>
+                  candidate ? getFrame(candidate) : undefined,
+                )
+                .find((frame) => frame?.type === "cue")?.stepOrderKey,
+            ),
             action: {
               type: "cameraZoom",
               duration: lastCameraCueFrame ? 1000 : 0,
@@ -326,50 +346,45 @@ const Inner = (props: InnerProps) => {
             },
           };
         } else {
-          // If the shape contains a frame, ensure that the frame is unique.
-          // This is necessary e.g. when a shape is duplicated, the frame should not be duplicated.
           const frame = getFrame(shape);
           if (frame == null) {
             return shape;
           }
 
-          const allShapes = editor.getCurrentPageShapes();
+          const allShapes =
+            presentationManager.$getCurrentPageDescendantShapes();
           const allFrameIds = allShapes.map((shape) => getFrame(shape)?.id);
           if (allFrameIds.includes(frame.id)) {
-            const newFrameId = uniqueId();
-            const nextSubFrameShape = allShapes.find(
-              (shape) => getSubFrame(shape)?.prevFrameId === frame.id,
+            const safeFrame =
+              frame.type === "cue"
+                ? {
+                    ...frame,
+                    id: uniqueId(),
+                    stepId: newStepId(),
+                    stepOrderKey: getStepOrderKeyAfter(
+                      allShapes
+                        .map(getFrame)
+                        .filter(
+                          (candidate): candidate is CueFrame =>
+                            candidate?.type === "cue",
+                        )
+                        .sort((a, b) =>
+                          a.stepOrderKey.localeCompare(b.stepOrderKey),
+                        )
+                        .at(-1)?.stepOrderKey,
+                    ),
+                    trackId: newTrackId(),
+                  }
+                : { ...frame, id: uniqueId() };
+            console.warn(
+              "Animation metadata bypassed grouped content preprocessing; identities were freshened without relationship remapping.",
             );
-            if (nextSubFrameShape != null) {
-              const nextSubFrame = getSubFrame(nextSubFrameShape)!;
-              editor.updateShape({
-                ...nextSubFrameShape,
-                meta: {
-                  ...nextSubFrameShape.meta,
-                  frame: subFrameToJsonObject({
-                    ...nextSubFrame,
-                    prevFrameId: newFrameId,
-                  }),
-                },
-              });
-            }
-            shape.meta.frame = {
-              id: newFrameId,
-              type: "sub",
-              prevFrameId: frame.id,
-              action: frame.action,
-            } satisfies SubFrame;
+            shape.meta.frame = frameToJsonObject(safeFrame);
           }
           return shape;
         }
       }),
     );
-    stopHandlers.push(
-      editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        presentationManager.reconcileShapeDeletion(shape);
-      }),
-    );
-
     stopHandlers.push(
       editor.sideEffects.registerBeforeChangeHandler(
         "instance_page_state",
@@ -494,6 +509,20 @@ const Inner = (props: InnerProps) => {
           "See: https://github.com/whitphx/anipres/issues/387",
       );
     }
+
+    const originalPutContent = editor.putContentOntoCurrentPage.bind(editor);
+    editor.putContentOntoCurrentPage = (content, options) => {
+      const diagnostics = preprocessAnimationContent(
+        content,
+        presentationManager.$getCurrentPageDescendantShapes(),
+      );
+      if (diagnostics.length > 0) {
+        console.warn("Ambiguous animation references found while pasting", {
+          diagnostics,
+        });
+      }
+      return originalPutContent(content, options);
+    };
 
     onMount?.(editor, presentationManager);
 

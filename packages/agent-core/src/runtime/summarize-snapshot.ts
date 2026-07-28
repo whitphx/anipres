@@ -1,8 +1,7 @@
 import { loadHeadlessEditor } from "anipres";
 import {
-  getFrames,
-  getFrameBatches,
-  getGlobalOrder,
+  deriveTimelineFromShapes,
+  getFrameRecords,
   type FrameAction,
 } from "anipres/models";
 import type { SnapshotInput } from "./edit-snapshot.js";
@@ -39,21 +38,23 @@ export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
     const byType: Record<string, number> = {};
     for (const s of shapes) byType[s.type] = (byType[s.type] ?? 0) + 1;
 
-    const frames = getFrames(shapes);
-    const batches = getFrameBatches(frames);
-    const ordered = getGlobalOrder(batches);
+    const frames = getFrameRecords(shapes);
+    const timeline = deriveTimelineFromShapes(
+      shapes,
+      editor.getCurrentPageId(),
+    );
 
     return {
       shapes: shapes.length,
       byType,
       frames: frames.length,
-      totalSteps: ordered.length,
-      steps: ordered.map((step, i) => ({
+      totalSteps: timeline.steps.length,
+      steps: timeline.steps.map((step, i) => ({
         index: i,
-        batches: step.map((b) => ({
+        batches: step.batches.map((b) => ({
           trackId: b.trackId,
-          action: b.data[0].action,
-          frameCount: b.data.length,
+          action: b.frames[0].action,
+          frameCount: b.frames.length,
         })),
       })),
     };

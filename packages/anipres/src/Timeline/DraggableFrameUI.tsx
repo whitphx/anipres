@@ -8,7 +8,7 @@ export const DraggableFrameUI = React.memo(
     id,
     trackId,
     trackIndex,
-    globalIndex,
+    stepIndex,
     frame,
     children,
     className,
@@ -16,7 +16,7 @@ export const DraggableFrameUI = React.memo(
     id: string;
     trackId: string;
     trackIndex: number;
-    globalIndex: number;
+    stepIndex: number;
     frame: Frame;
     children: React.ReactNode;
     className?: string;
@@ -25,10 +25,10 @@ export const DraggableFrameUI = React.memo(
       () => ({
         trackId,
         trackIndex,
-        globalIndex,
+        stepIndex,
         frame,
       }),
-      [trackId, trackIndex, globalIndex, frame],
+      [trackId, trackIndex, stepIndex, frame],
     );
     const { attributes, listeners, setNodeRef, isDragging, active } =
       useDraggable({

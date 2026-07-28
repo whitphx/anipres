@@ -1,11 +1,5 @@
 import type { Editor } from "tldraw";
-import {
-  getFrameBatches,
-  getFrames,
-  getGlobalOrder,
-  type Frame,
-  type FrameAction,
-} from "anipres/models";
+import { deriveTimelineFromShapes, type FrameAction } from "anipres/models";
 import {
   FocusedEasingSchema,
   type FocusedEasing,
@@ -33,15 +27,7 @@ function summarise(editor: Editor): {
   steps: PresentationStatePart["steps"];
 } {
   const shapes = editor.getCurrentPageShapes();
-  const frameToShapeId = new Map<Frame["id"], string>();
-  for (const shape of shapes) {
-    const frame = (shape.meta?.frame as Frame | undefined) ?? null;
-    if (frame) frameToShapeId.set(frame.id, shape.id);
-  }
-
-  const allFrames = getFrames(shapes);
-  const frameBatches = getFrameBatches(allFrames);
-  const ordered = getGlobalOrder(frameBatches);
+  const timeline = deriveTimelineFromShapes(shapes, editor.getCurrentPageId());
 
   // 1-indexed: Anipres' UI numbers steps from 1 ("Step 1", "Step 2"
   // …) but the underlying array is 0-based. The agent's perception
@@ -49,18 +35,16 @@ function summarise(editor: Editor): {
   // slide as step 7" line up with what the user sees in the
   // timeline; the system prompt also describes steps as 1-numbered
   // to keep the vocabulary consistent.
-  const steps = ordered.map((batchesAtStep, zeroBased) => ({
+  const steps = timeline.steps.map((step, zeroBased) => ({
     index: zeroBased + 1,
-    batches: batchesAtStep.map((batch) => ({
+    batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
-      shapeIds: batch.data
-        .map((f) => frameToShapeId.get(f.id))
-        .filter((id): id is string => id !== undefined),
-      frameAction: toFocusedFrameAction(batch.data[0].action),
+      shapeIds: batch.frames.map((frame) => frame.shapeId),
+      frameAction: toFocusedFrameAction(batch.frames[0].action),
     })),
   }));
 
-  return { totalSteps: ordered.length, steps };
+  return { totalSteps: timeline.steps.length, steps };
 }
 
 /**

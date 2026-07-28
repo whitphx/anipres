@@ -10,7 +10,13 @@ import {
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
-import type { Frame, FrameBatch, CueFrame } from "../models";
+import type {
+  Frame,
+  FrameRecord,
+  CueFrame,
+  TimelineDiagnostic,
+  TimelineDoc,
+} from "../models";
 import { calcFrameBatchUIData, FrameBatchUIData, Track } from "./frame-ui-data";
 import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
@@ -55,6 +61,7 @@ const FrameIcon = React.forwardRef<HTMLElement, FrameIconProps>(
       props.as ?? "div",
       {
         ref,
+        ...(props.as === "button" ? { type: "button" } : {}),
         className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
         onClick: props.onClick,
       },
@@ -66,21 +73,21 @@ FrameIcon.displayName = "FrameIcon";
 
 function DroppableArea({
   type,
-  globalIndex,
+  stepIndex,
   children,
   className,
 }: {
   type: "at" | "after";
-  globalIndex: number;
+  stepIndex: number;
   children?: React.ReactNode;
   className?: string;
 }) {
-  const droppableId = `${type}-${globalIndex}`;
+  const droppableId = `${type}-${stepIndex}`;
   const { setNodeRef, isOver } = useDroppable({
     id: droppableId,
     data: {
       type,
-      globalIndex,
+      stepIndex,
     },
   });
   return (
@@ -102,8 +109,8 @@ interface StepColumnProps {
   selectedFrameIds: string[];
   frameEditorRefCallback: (frameId: string) => React.RefCallback<HTMLElement>;
   draggedFrame: Frame | null;
-  onFrameChange: (newFrame: Frame) => void;
-  onFrameSelect: (frameId: string) => void;
+  onFrameChange: (newFrame: Frame, shapeId: string) => void;
+  onFrameSelect: (shapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
   requestSubFrameAddAfter: (prevFrame: Frame) => void;
 }
@@ -127,6 +134,7 @@ const StepColumn = React.memo(
         <div className={`${styles.column} ${isActive ? styles.active : ""}`}>
           <div className={styles.headerCell}>
             <button
+              type="button"
               className={`${styles.frameButton} ${isActive ? styles.selected : ""}`}
               onClick={() => onStepSelect(stepIdx)}
             >
@@ -135,7 +143,7 @@ const StepColumn = React.memo(
           </div>
           <DroppableArea
             type="at"
-            globalIndex={stepIdx}
+            stepIndex={stepIdx}
             className={styles.droppableColumn}
           >
             {tracks.map((track) => {
@@ -158,16 +166,18 @@ const StepColumn = React.memo(
                           id={trackFrameBatch.id}
                           trackId={track.id}
                           trackIndex={cueFrame.trackIndex}
-                          globalIndex={trackFrameBatch.globalIndex}
+                          stepIndex={trackFrameBatch.stepIndex}
                           frame={cueFrame}
                         >
                           <FrameEditor
                             frame={cueFrame}
                             isPlaceholder={draggedFrame?.id === cueFrame.id}
-                            onUpdate={onFrameChange}
+                            onUpdate={(frame) =>
+                              onFrameChange(frame, cueFrame.shapeId)
+                            }
                             isSelected={selectedFrameIds.includes(cueFrame.id)}
                             onClick={() => {
-                              onFrameSelect(cueFrame.id);
+                              onFrameSelect(cueFrame.shapeId);
                             }}
                             ref={frameEditorRefCallback(cueFrame.id)}
                           />
@@ -180,18 +190,20 @@ const StepColumn = React.memo(
                               id={subFrame.id}
                               trackId={track.id}
                               trackIndex={subFrame.trackIndex}
-                              globalIndex={trackFrameBatch.globalIndex}
+                              stepIndex={trackFrameBatch.stepIndex}
                               frame={subFrame}
                             >
                               <FrameEditor
                                 frame={subFrame}
                                 isPlaceholder={draggedFrame?.id === subFrame.id}
-                                onUpdate={onFrameChange}
+                                onUpdate={(frame) =>
+                                  onFrameChange(frame, subFrame.shapeId)
+                                }
                                 isSelected={selectedFrameIds.includes(
                                   subFrame.id,
                                 )}
                                 onClick={() => {
-                                  onFrameSelect(subFrame.id);
+                                  onFrameSelect(subFrame.shapeId);
                                 }}
                                 ref={frameEditorRefCallback(subFrame.id)}
                               />
@@ -228,7 +240,7 @@ const StepColumn = React.memo(
         <div className={styles.headerLessColumn}>
           <DroppableArea
             type="after"
-            globalIndex={stepIdx}
+            stepIndex={stepIdx}
             className={styles.inbetweenDroppableCell}
           />
         </div>
@@ -247,23 +259,31 @@ const AUTO_SCROLL_CONFIG = {
 };
 
 interface TimelineProps {
-  frameBatches: FrameBatch[];
-  onFrameChange: (newFrame: Frame) => void;
-  onFrameBatchesChange: (newFrameBatches: FrameBatch[]) => void;
+  timeline: TimelineDoc;
+  frameRecords: FrameRecord[];
+  onFrameChange: (newFrame: Frame, shapeId: string) => void;
+  onFrameMutations: (mutations: { shapeId: string; frame: Frame }[]) => void;
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
   shapeSelections: ShapeSelection[];
-  onFrameSelect: (frameId: string) => void;
+  onFrameSelect: (shapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
   requestSubFrameAddAfter: (prevFrame: Frame) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
+  onResolveDiagnostic: (diagnostic: TimelineDiagnostic) => void;
+  onDiagnosticSelect: (diagnostic: TimelineDiagnostic) => void;
+  onReattachDetached: (
+    diagnostic: Extract<TimelineDiagnostic, { type: "detached-sub-frame" }>,
+  ) => void;
+  canReattachDetached: boolean;
 }
 export function Timeline({
-  frameBatches,
+  timeline,
+  frameRecords,
   onFrameChange,
-  onFrameBatchesChange,
+  onFrameMutations,
   currentStepIndex,
   onStepSelect,
   shapeSelections,
@@ -273,10 +293,14 @@ export function Timeline({
   requestCueFrameAddAfterGroup,
   showAttachCueFrameButton,
   requestAttachCueFrame,
+  onResolveDiagnostic,
+  onDiagnosticSelect,
+  onReattachDetached,
+  canReattachDetached,
 }: TimelineProps) {
   const { steps, tracks } = useMemo(
-    () => calcFrameBatchUIData(frameBatches),
-    [frameBatches],
+    () => calcFrameBatchUIData(timeline, frameRecords),
+    [timeline, frameRecords],
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -343,34 +367,34 @@ export function Timeline({
 
       const trackId = active.data.current?.trackId;
       const srcTrackIndex = active.data.current?.trackIndex;
-      const srcGlobalIndex = active.data.current?.globalIndex;
+      const srcStepIndex = active.data.current?.stepIndex;
       const dstType = over.data.current?.type;
-      const dstGlobalIndex = over.data.current?.globalIndex;
+      const dstStepIndex = over.data.current?.stepIndex;
       if (
         !(
           typeof trackId === "string" &&
           typeof srcTrackIndex === "number" &&
-          typeof srcGlobalIndex === "number" &&
-          typeof dstGlobalIndex === "number" &&
+          typeof srcStepIndex === "number" &&
+          typeof dstStepIndex === "number" &&
           (dstType === "at" || dstType === "after")
         )
       ) {
         return;
       }
 
-      const newSteps = moveFrame(
+      const mutations = moveFrame(
         steps,
         trackId,
-        srcGlobalIndex,
+        srcStepIndex,
         srcTrackIndex,
-        dstGlobalIndex,
+        dstStepIndex,
         dstType,
       );
-      if (newSteps != null) {
-        onFrameBatchesChange(newSteps.flat());
+      if (mutations != null) {
+        onFrameMutations(mutations);
       }
     },
-    [steps, onFrameBatchesChange],
+    [steps, onFrameMutations],
   );
 
   // To capture click events on draggable elements.
@@ -399,10 +423,47 @@ export function Timeline({
         className={styles.timelineContainer}
         classNameWhenDragging={`${styles.timelineContainer} ${styles.dragging}`}
       >
+        {timeline.diagnostics.map((diagnostic, index) => (
+          <div key={`${diagnostic.type}-${index}`} role="status">
+            {diagnostic.type}
+            <button
+              type="button"
+              onClick={() => onDiagnosticSelect(diagnostic)}
+            >
+              Select shape
+            </button>
+            {diagnostic.type === "detached-sub-frame" && (
+              <button
+                type="button"
+                disabled={!canReattachDetached}
+                onClick={() => onReattachDetached(diagnostic)}
+              >
+                Reattach to selected cue
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onResolveDiagnostic(diagnostic)}
+            >
+              {diagnostic.type === "step-key-divergence"
+                ? "Accept current order"
+                : diagnostic.type === "same-track-split"
+                  ? "Materialize split"
+                  : diagnostic.type === "duplicate-frame-id"
+                    ? "Freshen ID"
+                    : "Clear animation data"}
+            </button>
+          </div>
+        ))}
+        {timeline.detachedFrames.length > 0 && (
+          <div role="status">
+            {timeline.detachedFrames.length} detached animation frame(s)
+          </div>
+        )}
         <div className={styles.headerLessColumn}>
           <DroppableArea
             type="after"
-            globalIndex={-1}
+            stepIndex={-1}
             className={styles.inbetweenDroppableCell}
           />
         </div>

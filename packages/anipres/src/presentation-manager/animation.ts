@@ -1,18 +1,18 @@
 import { type TLShape, EASINGS, createShapeId } from "tldraw";
-import { type Frame, type Step } from "../models";
+import { type FrameData, type StepData } from "../models";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
   presentationManager: PresentationManager,
-  frames: Frame[],
+  frames: FrameData[],
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
-    const shape = presentationManager.getShapeByFrameId(frame.id);
+    const shape = editor.getShape(frame.shapeId);
     if (shape == null) {
-      throw new Error(`Shape not found for frame ${frame.id}`);
+      throw new Error(`Shape not found for frame ${frame.frameId}`);
     }
 
     const action = frame.action;
@@ -122,7 +122,7 @@ async function runFrames(
 
 export function runStep(
   presentationManager: PresentationManager,
-  steps: Step[],
+  steps: StepData[],
   index: number,
 ): Promise<void> {
   const step = steps[index];
@@ -136,21 +136,21 @@ export function runStep(
   const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
   const promises: Promise<void>[] = [];
-  step.forEach((frameBatch) => {
+  step.batches.forEach((frameBatch) => {
     const predecessorFrameBatch = steps
       .slice(0, index)
       .reverse()
-      .flat()
+      .flatMap((step) => step.batches)
       .find((fb) => fb.trackId === frameBatch.trackId);
-    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
+    const predecessorLastFrame = predecessorFrameBatch?.frames.at(-1);
     const predecessorShape =
       predecessorLastFrame != null
-        ? presentationManager.getShapeByFrameId(predecessorLastFrame.id)
+        ? editor.getShape(predecessorLastFrame.shapeId)
         : null;
 
-    const frames = frameBatch.data;
+    const frames = frameBatch.frames;
     const frameShapes = frames
-      .map((frame) => presentationManager.getShapeByFrameId(frame.id))
+      .map((frame) => editor.getShape(frame.shapeId))
       .filter((shape) => shape != null);
 
     editor.run(

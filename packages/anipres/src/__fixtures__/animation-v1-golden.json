@@ -1,0 +1,34 @@
+{
+  "pageId": "page:golden",
+  "shapes": [
+    {
+      "shapeId": "shape:cue-a",
+      "frame": {
+        "id": "cue-a",
+        "type": "cue",
+        "globalIndex": 2,
+        "trackId": "track-a",
+        "action": { "type": "shapeAnimation" }
+      }
+    },
+    {
+      "shapeId": "shape:cue-b",
+      "frame": {
+        "id": "cue-b",
+        "type": "cue",
+        "globalIndex": 2,
+        "trackId": "track-b",
+        "action": { "type": "cameraZoom", "duration": 500 }
+      }
+    },
+    {
+      "shapeId": "shape:sub",
+      "frame": {
+        "id": "sub",
+        "type": "sub",
+        "prevFrameId": "cue-a",
+        "action": { "type": "shapeAnimation", "duration": 1000 }
+      }
+    }
+  ]
+}

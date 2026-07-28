@@ -1,4 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { apiClient } from "../lib/api-client";
 import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
 import type { DocumentRepository } from "./repository";
@@ -212,7 +213,16 @@ async function defaultPushSnapshot(
         expectedSnapshotVersion: 0,
       },
     },
-    { init: { signal: composeWithTimeout(abortSignal) } },
+    {
+      init: {
+        signal: composeWithTimeout(abortSignal),
+        headers: {
+          "x-anipres-animation-data-version": String(
+            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+          ),
+        },
+      },
+    },
   );
   if (!res.ok) {
     throw new Error(`Snapshot push failed: ${res.status}`);

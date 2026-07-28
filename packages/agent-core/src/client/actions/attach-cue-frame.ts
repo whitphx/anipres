@@ -1,9 +1,10 @@
 import type { Editor } from "tldraw";
 import {
   cueFrameToJsonObject,
+  deriveTimelineFromShapes,
   getFrame,
-  getFrames,
-  getNextGlobalIndexFromCueFrames,
+  getStepOrderKeyAfter,
+  newStepId,
   newTrackId,
   type CueFrame,
   type FrameAction,
@@ -27,12 +28,14 @@ export const AttachCueFrameActionUtil =
       if (!shape) return;
 
       const trackId = resolveTrackId(editor, action.prevShapeId, helpers);
-      const globalIndex = nextGlobalIndex(editor);
+      const { stepId, stepOrderKey } = nextStepCoordinates(editor);
 
       const cueFrame: CueFrame = {
+        v: 2,
         id: shapeId,
         type: "cue",
-        globalIndex,
+        stepId,
+        stepOrderKey,
         trackId,
         action: action.action as FrameAction,
       };
@@ -69,9 +72,17 @@ function resolveTrackId(
   return prevFrame.trackId;
 }
 
-function nextGlobalIndex(editor: Editor): number {
-  const allCueFrames = getFrames(editor.getCurrentPageShapes()).filter(
-    (f): f is CueFrame => f.type === "cue",
-  );
-  return getNextGlobalIndexFromCueFrames(allCueFrames);
+function nextStepCoordinates(editor: Editor) {
+  const shapes = editor.getCurrentPageShapes();
+  const timeline = deriveTimelineFromShapes(shapes, editor.getCurrentPageId());
+  const lastFrame = timeline.steps.filter((step) => !step.synthetic).at(-1)
+    ?.batches[0]?.frames[0];
+  const lastShape = lastFrame ? editor.getShape(lastFrame.shapeId) : undefined;
+  const lastCue = lastShape ? getFrame(lastShape) : undefined;
+  return {
+    stepId: newStepId(),
+    stepOrderKey: getStepOrderKeyAfter(
+      lastCue?.type === "cue" ? lastCue.stepOrderKey : undefined,
+    ),
+  };
 }

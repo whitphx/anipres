@@ -8,12 +8,13 @@ import type {
   TLStoreSnapshot,
   TLEditorSnapshot,
   TLPageId,
+  TLPage,
+  TLShape,
   TLStateNodeConstructor,
   TLTextOptions,
 } from "tldraw";
 
-import { getFrames, getFrameBatches } from "./models";
-import { getGlobalOrder } from "./ordered-track-item";
+import { deriveTimelineFromShapes } from "./legacy-models";
 
 import { allShapeUtils, allBindingUtils } from "./shape-utils";
 
@@ -72,15 +73,36 @@ export function loadHeadlessEditor(
 export function calculateTotalSteps(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
 ): number {
-  const [editor, dispose] = loadHeadlessEditor({ snapshot });
+  const storeSnapshot =
+    "document" in snapshot && snapshot.document
+      ? snapshot.document
+      : "store" in snapshot && snapshot.store
+        ? (snapshot as TLStoreSnapshot)
+        : undefined;
+  if (!storeSnapshot) return 0;
+  const records = Object.values(storeSnapshot.store);
+  const pages = records.filter(
+    (record): record is TLPage => record.typeName === "page",
+  );
+  const sessionPageId =
+    "session" in snapshot ? snapshot.session?.currentPageId : undefined;
+  const pageId =
+    pages.find((page) => page.id === sessionPageId)?.id ?? pages[0]?.id;
+  if (!pageId) return 0;
 
-  const shapes = editor.getCurrentPageShapes();
-  const allFrames = getFrames(shapes);
-  const frameBatches = getFrameBatches(allFrames);
-  const orderedSteps = getGlobalOrder(frameBatches);
-  const totalSteps = orderedSteps.length;
-
-  dispose();
-
-  return totalSteps;
+  const allShapes = records.filter(
+    (record): record is TLShape => record.typeName === "shape",
+  );
+  const shapeById = new Map(allShapes.map((shape) => [shape.id, shape]));
+  const pageShapes = allShapes.filter((shape) => {
+    let parentId = shape.parentId;
+    const visited = new Set<string>();
+    while (shapeById.has(parentId as never)) {
+      if (visited.has(parentId)) return false;
+      visited.add(parentId);
+      parentId = shapeById.get(parentId as never)!.parentId;
+    }
+    return parentId === pageId;
+  });
+  return deriveTimelineFromShapes(pageShapes, pageId).steps.length;
 }

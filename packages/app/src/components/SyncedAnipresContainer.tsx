@@ -3,6 +3,7 @@ import { useSync } from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
+import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { apiClient } from "../lib/api-client";
 import {
   deleteSyncRecovery,
@@ -104,7 +105,7 @@ export function SyncedAnipresContainer({
     [documentId],
   );
   const storeWithStatus = useSync({
-    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}`,
+    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}?animationDataVersion=${MINIMUM_SYNC_ANIMATION_DATA_VERSION}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: remoteAssetStore,

@@ -1,30 +1,29 @@
 import {
-  track,
-  stopEventPropagation,
-  createShapeId,
-  uniqueId,
-  type Editor,
   GroupShapeUtil,
-  TLShapeId,
-  TLShape,
+  createShapeId,
+  getIndexAbove,
+  stopEventPropagation,
+  track,
+  uniqueId,
 } from "tldraw";
+import type { Editor, TLShape, TLShapeId } from "tldraw";
 import {
-  type Frame,
-  type CueFrame,
-  type SubFrame,
-  type FrameBatch,
-  frameToJsonObject,
   cueFrameToJsonObject,
+  frameToJsonObject,
   getFrame,
-  getFrameBatches,
   getLeafShapes,
-  FrameAction,
+  makeInsertionSpace,
+  newStepId,
+  type CueFrame,
+  type Frame,
+  type FrameRecord,
+  type SubFrame,
+  type TimelineDiagnostic,
 } from "../models";
-import { insertOrderedTrackItem } from "../ordered-track-item";
 import { Timeline, type ShapeSelection } from "../Timeline";
-import styles from "./ControlPanel.module.scss";
-import { SlideShapeType } from "../shapes/slide/SlideShape";
 import type { PresentationManager } from "../presentation-manager";
+import { SlideShapeType } from "../shapes/slide/SlideShape";
+import styles from "./ControlPanel.module.scss";
 
 const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
 
@@ -35,6 +34,7 @@ export interface ControlPanelProps {
   onCurrentStepIndexChange: (newIndex: number) => void;
   onPresentationModeEnter: () => void;
 }
+
 export const ControlPanel = track((props: ControlPanelProps) => {
   const {
     editor,
@@ -43,388 +43,440 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     onCurrentStepIndexChange,
     onPresentationModeEnter,
   } = props;
-
-  const steps = presentationManager.$getOrderedSteps();
-
-  const frames = presentationManager.$getAllFrames();
-  const frameBatches = getFrameBatches(frames);
-
+  const timeline = presentationManager.$getTimeline();
+  const frameRecords = presentationManager.$getAllFrameRecords();
+  const recordByShapeId = new Map(
+    frameRecords.map((record) => [record.shapeId, record]),
+  );
   const selectedShapes = editor.getSelectedShapes();
-
-  const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => {
-    const leafShapes = getLeafShapes(editor, shape);
-    const leafFrames = leafShapes
+  const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => ({
+    shapeId: shape.id,
+    frameIds: getLeafShapes(editor, shape)
       .map(getFrame)
-      .filter((frame): frame is Frame => frame != null);
-    return {
-      shapeId: shape.id,
-      frameIds: leafFrames.map((frame) => frame.id),
-    };
+      .filter((frame): frame is Frame => frame !== undefined)
+      .map((frame) => frame.id),
+  }));
+  const selectedAnimeFrameAttachableShapes = selectedShapes.filter((shape) => {
+    if (shape.type === SlideShapeType) return false;
+    if (shape.type !== GroupShapeUtil.type)
+      return getFrame(shape) === undefined;
+    return getLeafShapes(editor, shape).every(
+      (leafShape) => getFrame(leafShape) === undefined,
+    );
+  });
+  const selectedCueRecord = selectedShapes
+    .flatMap((shape) => getLeafShapes(editor, shape))
+    .map((shape) => recordByShapeId.get(shape.id))
+    .filter(
+      (record): record is FrameRecord & { frame: CueFrame } =>
+        record?.frame.type === "cue",
+    )
+    .sort(
+      (a, b) =>
+        a.frame.id.localeCompare(b.frame.id) ||
+        a.shapeId.localeCompare(b.shapeId),
+    )[0];
+
+  const applyFrameMutations = (
+    mutations: { shapeId: string; frame: Frame }[],
+  ) => {
+    editor.updateShapes(
+      mutations.flatMap(({ shapeId, frame }) => {
+        const shape = editor.getShape(shapeId as TLShapeId);
+        return shape
+          ? [
+              {
+                id: shape.id,
+                type: shape.type,
+                meta: { ...shape.meta, frame: frameToJsonObject(frame) },
+              },
+            ]
+          : [];
+      }),
+    );
+  };
+
+  const storedStepEntries = timeline.steps.flatMap((step) => {
+    if (step.synthetic) return [];
+    const cueRecords = step.batches.flatMap((batch) => {
+      const record = recordByShapeId.get(batch.frames[0].shapeId);
+      return record?.frame.type === "cue" ? [record] : [];
+    });
+    const representative = [...cueRecords].sort(
+      (a, b) =>
+        a.frame.id.localeCompare(b.frame.id) ||
+        a.shapeId.localeCompare(b.shapeId),
+    )[0];
+    return representative?.frame.type === "cue"
+      ? [
+          {
+            id: step.id,
+            key: representative.frame.stepOrderKey,
+            cueRecords,
+          },
+        ]
+      : [];
   });
 
-  const selectedAnimeFrameAttachableShapes = selectedShapes
-    .map((shape) => {
-      if (shape.type === SlideShapeType) {
-        return null;
-      }
+  const makeStepAfter = (stepId: string) => {
+    const sourceIndex = storedStepEntries.findIndex(
+      (step) => step.id === stepId,
+    );
+    const insertionIndex =
+      sourceIndex < 0 ? storedStepEntries.length : sourceIndex + 1;
+    const insertion = makeInsertionSpace(storedStepEntries, insertionIndex);
+    const normalizationMutations = insertion.updates.flatMap((update) => {
+      const step = storedStepEntries.find((entry) => entry.id === update.id);
+      return (step?.cueRecords ?? []).map((record) => ({
+        shapeId: record.shapeId,
+        frame: { ...record.frame, stepOrderKey: update.key } as CueFrame,
+      }));
+    });
+    return {
+      stepId: newStepId(),
+      stepOrderKey: insertion.insertedKey,
+      normalizationMutations,
+    };
+  };
 
-      if (shape.type === GroupShapeUtil.type) {
-        const leafShapes = getLeafShapes(editor, shape);
-        const everyLeafShapeHasNoFrame = leafShapes.every(
-          (leafShape) => getFrame(leafShape) == null,
-        );
-        return everyLeafShapeHasNoFrame ? shape : null;
-      }
+  const clearFrame = (shapeId: TLShapeId) => {
+    const shape = editor.getShape(shapeId);
+    if (!shape) return;
+    const meta = { ...shape.meta };
+    delete meta.frame;
+    editor.updateShape({ id: shape.id, type: shape.type, meta });
+  };
 
-      const frame = getFrame(shape);
-      return frame == null ? shape : null;
-    })
-    .filter((shape) => shape != null);
-
-  const handleFrameChange = (newFrame: Frame) => {
-    const shape = presentationManager.getShapeByFrameId(newFrame.id);
-    if (shape == null) {
+  const resolveDiagnostic = (diagnostic: TimelineDiagnostic) => {
+    if (diagnostic.type === "invalid-frame") {
+      clearFrame(diagnostic.shapeId);
       return;
     }
-
-    editor.updateShape({
-      ...shape,
-      meta: {
-        frame: frameToJsonObject(newFrame),
-      },
-    });
-  };
-
-  const handleFrameBatchesChange = (newFrameBatches: FrameBatch[]) => {
-    const newFrames = newFrameBatches.flatMap((batch) => batch.data);
-
-    const allShapes = presentationManager.$getCurrentPageDescendantShapes();
-
-    const updateShapePartials = allShapes.map((shape) => {
-      const newFrame = newFrames.find(
-        (newFrame) => newFrame.id === getFrame(shape)?.id,
-      );
-      if (newFrame == null) {
-        const metaCopy = { ...shape.meta };
-        delete metaCopy.frame;
-        return {
-          ...shape,
-          meta: metaCopy,
-        };
-      }
-
-      return {
-        ...shape,
-        meta: {
-          ...shape.meta,
-          frame: frameToJsonObject(newFrame),
-        },
-      };
-    });
-
-    editor.updateShapes(updateShapePartials);
-  };
-
-  const handleFrameSelect = (frameId: string) => {
-    const targetShape = presentationManager.getShapeByFrameId(frameId);
-    if (targetShape) {
-      editor.select(targetShape);
+    if (diagnostic.type === "detached-sub-frame") {
+      clearFrame(diagnostic.shapeId);
+      return;
     }
+    if (diagnostic.type === "step-key-divergence") {
+      const records = frameRecords
+        .filter(
+          (record): record is FrameRecord & { frame: CueFrame } =>
+            record.frame.type === "cue" &&
+            record.frame.stepId === diagnostic.stepId,
+        )
+        .sort(
+          (a, b) =>
+            a.frame.id.localeCompare(b.frame.id) ||
+            a.shapeId.localeCompare(b.shapeId),
+        );
+      const key = records[0]?.frame.stepOrderKey;
+      if (!key) return;
+      applyFrameMutations(
+        records.map((record) => ({
+          shapeId: record.shapeId,
+          frame: { ...record.frame, stepOrderKey: key },
+        })),
+      );
+      return;
+    }
+    if (diagnostic.type === "duplicate-frame-id") {
+      const duplicates = frameRecords
+        .filter((record) => record.frame.id === diagnostic.frameId)
+        .sort((a, b) => a.shapeId.localeCompare(b.shapeId));
+      applyFrameMutations(
+        duplicates.slice(1).map((record) => ({
+          shapeId: record.shapeId,
+          frame: { ...record.frame, id: uniqueId() },
+        })),
+      );
+      return;
+    }
+    const conflictRecords = frameRecords
+      .filter(
+        (record): record is FrameRecord & { frame: CueFrame } =>
+          record.frame.type === "cue" &&
+          record.frame.stepId === diagnostic.stepId &&
+          record.frame.trackId === diagnostic.trackId,
+      )
+      .sort(
+        (a, b) =>
+          a.frame.id.localeCompare(b.frame.id) ||
+          a.shapeId.localeCompare(b.shapeId),
+      );
+    const representativeShapeId = conflictRecords[0]?.shapeId;
+    const splitRecord = conflictRecords.find(
+      (record) =>
+        record.shapeId !== representativeShapeId &&
+        diagnostic.shapeIds.includes(record.shapeId),
+    );
+    if (!splitRecord) return;
+    const insertion = makeStepAfter(diagnostic.stepId);
+    applyFrameMutations([
+      ...insertion.normalizationMutations,
+      {
+        shapeId: splitRecord.shapeId,
+        frame: {
+          ...splitRecord.frame,
+          stepId: insertion.stepId,
+          stepOrderKey: insertion.stepOrderKey,
+        },
+      },
+    ]);
+  };
+
+  const reattachDetached = (
+    diagnostic: Extract<TimelineDiagnostic, { type: "detached-sub-frame" }>,
+  ) => {
+    const record = recordByShapeId.get(diagnostic.shapeId);
+    if (record?.frame.type !== "sub" || !selectedCueRecord) return;
+    const targetBatch = timeline.steps
+      .flatMap((step) => step.batches)
+      .find((batch) => batch.frames[0]?.shapeId === selectedCueRecord.shapeId);
+    const lastFrame = targetBatch?.frames.at(-1);
+    const lastRecord = lastFrame
+      ? recordByShapeId.get(lastFrame.shapeId)
+      : undefined;
+    applyFrameMutations([
+      {
+        shapeId: record.shapeId,
+        frame: {
+          ...record.frame,
+          cueFrameId: selectedCueRecord.frame.id,
+          orderKey:
+            lastRecord?.frame.type === "sub"
+              ? getIndexAbove(lastRecord.frame.orderKey as never)
+              : getIndexAbove(),
+        },
+      },
+    ]);
   };
 
   return (
     <div
       className={styles.panelContainer}
-      // NOTE: pointerEvents: "all" and stopEventPropagation are needed to make this UI clickable on the tldraw app.
-      style={{
-        pointerEvents: "all",
-      }}
-      onPointerDown={(e) => stopEventPropagation(e)}
+      style={{ pointerEvents: "all" }}
+      onPointerDown={(event) => stopEventPropagation(event)}
     >
       <div>
         <button
+          type="button"
+          aria-label="Enter presentation mode"
           className={styles.playButton}
-          onClick={() => {
-            onPresentationModeEnter();
-          }}
+          onClick={onPresentationModeEnter}
         >
           ▶️
         </button>
       </div>
-
       <div className={styles.scrollableContainer}>
         <Timeline
-          frameBatches={frameBatches}
-          onFrameBatchesChange={handleFrameBatchesChange}
-          onFrameChange={handleFrameChange}
+          timeline={timeline}
+          frameRecords={frameRecords}
+          onFrameMutations={applyFrameMutations}
+          onFrameChange={(newFrame, shapeId) =>
+            applyFrameMutations([{ shapeId, frame: newFrame }])
+          }
           currentStepIndex={currentStepIndex}
           onStepSelect={onCurrentStepIndexChange}
           shapeSelections={shapeSelections}
-          onFrameSelect={handleFrameSelect}
+          onFrameSelect={(shapeId) => editor.select(shapeId as TLShapeId)}
+          onResolveDiagnostic={resolveDiagnostic}
+          onDiagnosticSelect={(diagnostic) => {
+            const shapeId =
+              "shapeId" in diagnostic
+                ? diagnostic.shapeId
+                : diagnostic.shapeIds[0];
+            if (shapeId) editor.select(shapeId);
+          }}
+          onReattachDetached={reattachDetached}
+          canReattachDetached={selectedCueRecord !== undefined}
           showAttachCueFrameButton={
             selectedAnimeFrameAttachableShapes.length > 0
           }
           requestAttachCueFrame={() => {
-            selectedAnimeFrameAttachableShapes.forEach((shape) => {
-              if (shape.type !== SlideShapeType) {
-                presentationManager.attachCueFrame(shape.id, {
-                  type: "shapeAnimation",
-                });
-              }
-            });
-          }}
-          requestCueFrameAddAfter={(prevCueFrame) => {
-            const prevShape = presentationManager.getShapeByFrameId(
-              prevCueFrame.id,
+            selectedAnimeFrameAttachableShapes.forEach((shape) =>
+              presentationManager.attachCueFrame(shape.id, {
+                type: "shapeAnimation",
+              }),
             );
-            if (prevShape == null) {
-              return;
-            }
-
-            const newCueFrame: CueFrame = {
+          }}
+          requestCueFrameAddAfter={(previousCueFrame) => {
+            const previousShape = presentationManager.getShapeByFrameId(
+              previousCueFrame.id,
+            );
+            if (!previousShape) return;
+            const insertion = makeStepAfter(previousCueFrame.stepId);
+            const newFrame: CueFrame = {
+              v: 2,
               id: uniqueId(),
               type: "cue",
-              globalIndex: steps.length + 999999, // NOTE: This will be recalculated later.
-              trackId: prevCueFrame.trackId,
+              trackId: previousCueFrame.trackId,
+              stepId: insertion.stepId,
+              stepOrderKey: insertion.stepOrderKey,
               action: {
-                type: prevCueFrame.action.type,
+                type: previousCueFrame.action.type,
                 duration: 1000,
               },
             };
-            const newFrameBatch: FrameBatch = {
-              id: `batch-${newCueFrame.id}`,
-              globalIndex: newCueFrame.globalIndex,
-              trackId: newCueFrame.trackId,
-              data: [newCueFrame],
-            };
-            const newFrameBatches = insertOrderedTrackItem(
-              frameBatches,
-              newFrameBatch,
-              prevCueFrame.globalIndex + 1,
-            );
-            for (const batch of newFrameBatches) {
-              batch.data[0].globalIndex = batch.globalIndex;
-            }
-
-            editor.run(
-              () => {
-                const newShapeId = createShapeId();
-                editor.createShape({
-                  ...prevShape,
-                  id: newShapeId,
-                  x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-                  y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
-                  meta: {
-                    frame: cueFrameToJsonObject(newCueFrame),
-                  },
-                });
-                editor.select(newShapeId);
-
-                handleFrameBatchesChange(newFrameBatches);
-              },
-              { history: "ignore" },
-            );
+            editor.run(() => {
+              applyFrameMutations(insertion.normalizationMutations);
+              const shapeId = createShapeId();
+              editor.createShape({
+                ...previousShape,
+                id: shapeId,
+                x: previousShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                y: previousShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+                meta: {
+                  ...previousShape.meta,
+                  frame: cueFrameToJsonObject(newFrame),
+                },
+              });
+              editor.select(shapeId);
+            });
           }}
-          requestCueFrameAddAfterGroup={(shapeSelection) => {
-            const selectedShapeId = shapeSelection.shapeId;
-
-            const orderedSteps = presentationManager.$getOrderedSteps();
-            const selectedLastFrameIdsPerTrack: Record<string, string> = {};
-            for (const step of orderedSteps) {
-              for (const frameBatch of step) {
-                for (const frame of frameBatch.data) {
-                  if (shapeSelection.frameIds.includes(frame.id)) {
-                    selectedLastFrameIdsPerTrack[frameBatch.trackId] = frame.id;
+          requestCueFrameAddAfterGroup={(selection) => {
+            const selectedFrameIds = new Set(selection.frameIds);
+            const selectedLastFrameIdByTrack = new Map<string, string>();
+            for (const step of timeline.steps) {
+              for (const batch of step.batches) {
+                for (const frame of batch.frames) {
+                  if (selectedFrameIds.has(frame.frameId)) {
+                    selectedLastFrameIdByTrack.set(
+                      batch.trackId,
+                      frame.frameId,
+                    );
                   }
                 }
               }
             }
-            const selectedLastFrameIdsInItsTrack = Object.values(
-              selectedLastFrameIdsPerTrack,
+            const selectedLastFrameIds = new Set(
+              selectedLastFrameIdByTrack.values(),
             );
-
-            const cloneShapeRecursively = (
+            const cloneRecursively = (
               rootShapeId: TLShapeId,
               parentShapeId?: TLShapeId,
             ): { original: TLShape; copied: TLShape }[] => {
               const original = editor.getShape(rootShapeId);
-              if (original == null) {
-                return [];
-              }
-
+              if (!original) return [];
               const frame = getFrame(original);
-              const isShapeLastSelectedFrameInItsTrack =
-                frame && selectedLastFrameIdsInItsTrack.includes(frame.id);
-              const shouldCopyThisShape =
+              const shouldCopy =
                 original.type === GroupShapeUtil.type ||
-                isShapeLastSelectedFrameInItsTrack;
-
-              if (shouldCopyThisShape) {
-                const newShapeId = createShapeId();
-                const isCopiedShapeRoot = parentShapeId === undefined;
-                let copiedShapeX: number;
-                let copiedShapeY: number;
-                let copiedShapeRotation: number;
-                if (isCopiedShapeRoot) {
-                  const pageTransform = editor.getShapePageTransform(original);
-                  const { x, y, rotation } = pageTransform.decomposed();
-                  copiedShapeX = x + COPIED_SHAPE_POSITION_OFFSET.x;
-                  copiedShapeY = y + COPIED_SHAPE_POSITION_OFFSET.y;
-                  copiedShapeRotation = rotation;
-                } else {
-                  copiedShapeX = original.x;
-                  copiedShapeY = original.y;
-                  copiedShapeRotation = original.rotation;
-                }
-                const copied: TLShape = {
-                  ...original,
-                  id: newShapeId,
-                  x: copiedShapeX,
-                  y: copiedShapeY,
-                  rotation: copiedShapeRotation,
-                  parentId: parentShapeId ?? editor.getCurrentPageId(),
-                };
-
-                const copiedChildren = editor
-                  .getSortedChildIdsForParent(rootShapeId)
-                  .flatMap((childId) => {
-                    return cloneShapeRecursively(childId, newShapeId);
-                  });
-
-                return [
-                  { original: original, copied: copied },
-                  ...copiedChildren,
-                ];
-              } else {
+                (frame !== undefined && selectedLastFrameIds.has(frame.id));
+              if (!shouldCopy) {
                 return editor
                   .getSortedChildIdsForParent(rootShapeId)
-                  .flatMap((childId) => {
-                    return cloneShapeRecursively(childId, parentShapeId);
-                  });
-              }
-            };
-
-            const clonedShapes = cloneShapeRecursively(selectedShapeId);
-            const clonedShapeAndFrames = clonedShapes.map(
-              ({ original, copied }) => {
-                const shouldAttachFrame = original.type !== GroupShapeUtil.type;
-                if (!shouldAttachFrame) {
-                  return {
-                    original,
-                    copied,
-                    origFrame: null,
-                    prevCueFrame: null,
-                  };
-                }
-
-                const origFrame = getFrame(original);
-                const prevCueFrame = origFrame
-                  ? presentationManager.$getAssociatedCueFrames()[origFrame.id]
-                  : undefined;
-                return { original, copied, origFrame, prevCueFrame };
-              },
-            );
-
-            const prevCueFrameGlobalIndexes = clonedShapeAndFrames
-              .map(({ prevCueFrame }) => prevCueFrame)
-              .filter((f): f is CueFrame => f != null)
-              .map((f) => f.globalIndex);
-            const nextGlobalIndex =
-              prevCueFrameGlobalIndexes.length > 0
-                ? Math.max(...prevCueFrameGlobalIndexes) + 1
-                : presentationManager.$getNextGlobalIndex();
-
-            let newFrameBatches: FrameBatch<FrameAction>[] | undefined =
-              undefined;
-            clonedShapeAndFrames.forEach(
-              ({ copied, origFrame, prevCueFrame }) => {
-                if (prevCueFrame == null) {
-                  return;
-                }
-
-                const newCueFrame: CueFrame = {
-                  id: copied.id,
-                  type: "cue",
-                  globalIndex: nextGlobalIndex,
-                  trackId: prevCueFrame.trackId,
-                  action: {
-                    type: origFrame ? origFrame.action.type : "shapeAnimation",
-                    duration: 1000,
-                  },
-                };
-
-                copied.meta = {
-                  ...copied.meta,
-                  frame: frameToJsonObject(newCueFrame),
-                };
-
-                const newFrameBatch: FrameBatch = {
-                  id: `batch-${newCueFrame.id}`,
-                  globalIndex: nextGlobalIndex,
-                  trackId: newCueFrame.trackId,
-                  data: [newCueFrame],
-                };
-                if (newFrameBatches == null) {
-                  newFrameBatches = insertOrderedTrackItem(
-                    frameBatches,
-                    newFrameBatch,
-                    nextGlobalIndex,
+                  .flatMap((childId) =>
+                    cloneRecursively(childId, parentShapeId),
                   );
-                } else {
-                  newFrameBatches.push(newFrameBatch);
-                }
-              },
-            );
-
-            const shapesToCreate = clonedShapeAndFrames.map(
-              ({ copied }) => copied,
-            );
-            editor.run(
-              () => {
-                editor.createShapes(shapesToCreate);
-
-                const rootCreatedShape = shapesToCreate.find(
-                  (s) => s.parentId === editor.getCurrentPageId(),
-                );
-                if (rootCreatedShape) {
-                  editor.select(rootCreatedShape);
-                }
-                if (newFrameBatches) {
-                  handleFrameBatchesChange(newFrameBatches);
-                }
-              },
-              { history: "ignore" },
-            );
-          }}
-          requestSubFrameAddAfter={(prevFrame) => {
-            const prevShape = presentationManager.getShapeByFrameId(
-              prevFrame.id,
-            );
-            if (prevShape == null) {
-              return;
+              }
+              const shapeId = createShapeId();
+              const isRoot = parentShapeId === undefined;
+              const transform = isRoot
+                ? editor.getShapePageTransform(original).decomposed()
+                : { x: original.x, y: original.y, rotation: original.rotation };
+              const copied: TLShape = {
+                ...original,
+                id: shapeId,
+                x: transform.x + (isRoot ? COPIED_SHAPE_POSITION_OFFSET.x : 0),
+                y: transform.y + (isRoot ? COPIED_SHAPE_POSITION_OFFSET.y : 0),
+                rotation: transform.rotation,
+                parentId: parentShapeId ?? editor.getCurrentPageId(),
+              };
+              return [
+                { original, copied },
+                ...editor
+                  .getSortedChildIdsForParent(rootShapeId)
+                  .flatMap((childId) => cloneRecursively(childId, shapeId)),
+              ];
+            };
+            const clones = cloneRecursively(selection.shapeId);
+            const previousCues = clones.flatMap(({ original }) => {
+              const frame = getFrame(original);
+              const cue = frame
+                ? presentationManager.$getAssociatedCueFrames()[frame.id]
+                : undefined;
+              return cue ? [cue] : [];
+            });
+            const latestPreviousCue = previousCues
+              .map((cue) => ({
+                cue,
+                index: timeline.steps.findIndex(
+                  (step) => step.id === cue.stepId,
+                ),
+              }))
+              .sort((a, b) => b.index - a.index)[0]?.cue;
+            if (!latestPreviousCue) return;
+            const insertion = makeStepAfter(latestPreviousCue.stepId);
+            for (const { original, copied } of clones) {
+              if (original.type === GroupShapeUtil.type) continue;
+              const originalFrame = getFrame(original);
+              const previousCue = originalFrame
+                ? presentationManager.$getAssociatedCueFrames()[
+                    originalFrame.id
+                  ]
+                : undefined;
+              if (!previousCue) continue;
+              const frame: CueFrame = {
+                v: 2,
+                id: copied.id,
+                type: "cue",
+                trackId: previousCue.trackId,
+                stepId: insertion.stepId,
+                stepOrderKey: insertion.stepOrderKey,
+                action: {
+                  type: originalFrame?.action.type ?? "shapeAnimation",
+                  duration: 1000,
+                },
+              };
+              copied.meta = { ...copied.meta, frame: frameToJsonObject(frame) };
             }
-
-            const newSubFrame: SubFrame = {
+            editor.run(() => {
+              applyFrameMutations(insertion.normalizationMutations);
+              editor.createShapes(clones.map(({ copied }) => copied));
+              const root = clones.find(
+                ({ copied }) => copied.parentId === editor.getCurrentPageId(),
+              )?.copied;
+              if (root) editor.select(root);
+            });
+          }}
+          requestSubFrameAddAfter={(previousFrame) => {
+            const previousShape = presentationManager.getShapeByFrameId(
+              previousFrame.id,
+            );
+            const cue =
+              presentationManager.$getAssociatedCueFrames()[previousFrame.id];
+            if (!previousShape || !cue) return;
+            const batch = timeline.steps
+              .flatMap((step) => step.batches)
+              .find((item) =>
+                item.frames.some((frame) => frame.frameId === previousFrame.id),
+              );
+            const lastSubRecord = batch?.frames
+              .slice(1)
+              .map((frame) => recordByShapeId.get(frame.shapeId))
+              .filter(
+                (record): record is FrameRecord & { frame: SubFrame } =>
+                  record?.frame.type === "sub",
+              )
+              .at(-1);
+            const newFrame: SubFrame = {
+              v: 2,
               id: uniqueId(),
               type: "sub",
-              prevFrameId: prevFrame.id,
-              action: {
-                type: prevFrame.action.type,
-                duration: 1000,
-              },
+              cueFrameId: cue.id,
+              orderKey: getIndexAbove(lastSubRecord?.frame.orderKey as never),
+              action: { type: previousFrame.action.type, duration: 1000 },
             };
-
-            const newShapeId = createShapeId();
+            const shapeId = createShapeId();
             editor.createShape({
-              ...prevShape,
-              id: newShapeId,
-              x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-              y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+              ...previousShape,
+              id: shapeId,
+              x: previousShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
+              y: previousShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
               meta: {
-                frame: frameToJsonObject(newSubFrame),
+                ...previousShape.meta,
+                frame: frameToJsonObject(newFrame),
               },
             });
-            editor.select(newShapeId);
+            editor.select(shapeId);
           }}
         />
       </div>
