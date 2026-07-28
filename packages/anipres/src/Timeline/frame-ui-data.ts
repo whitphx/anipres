@@ -91,7 +91,9 @@ export function calcFrameBatchUIData(doc: TimelineDoc) {
     if (b.type === "cameraZoom") {
       return 1;
     }
-    return a.id.localeCompare(b.id);
+    // Code-unit comparison: locale collation would make row order vary
+    // with the viewer's ICU locale.
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
   return { steps: stepsUIData, tracks };

@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { migrateV1Frames } from "./migrate";
 import type { ShapeLegacyFrame, ShapeV2Frame } from "./migrate";
 import { makeMigratedStepId, parseMigratedStepId } from "./ids";
-import { getMigratedStepOrderKey } from "./keys";
+import {
+  deterministicKeysBetween,
+  getMigratedStepOrderKey,
+  getMigratedSubFrameOrderKey,
+} from "./keys";
 import type { LegacyCueFrame, LegacySubFrame } from "./parse";
 import type { CueFrame } from "./types";
 
@@ -44,6 +48,14 @@ describe("v1step: id parse contract", () => {
 });
 
 describe("getMigratedStepOrderKey", () => {
+  it("is pinned to literal key strings (Risk 5: sequence must never change)", () => {
+    expect(getMigratedStepOrderKey(0, 0)).toBe("a0");
+    expect(getMigratedStepOrderKey(1, 0)).toBe("a1");
+    expect(getMigratedStepOrderKey(4, 0)).toBe("a4");
+    expect(getMigratedStepOrderKey(4, 1)).toBe("a4V");
+    expect(getMigratedStepOrderKey(4, 2)).toBe("a4k");
+  });
+
   it("is a pure function preserving (globalIndex, partition) order", () => {
     const keys = [
       getMigratedStepOrderKey(0, 0),
@@ -291,7 +303,7 @@ describe("migrateV1Frames", () => {
         type: "cue",
         trackId: "camera",
         stepId: "v1step:page:xyz:0:0",
-        stepOrderKey: getMigratedStepOrderKey(0, 0),
+        stepOrderKey: "a0",
         action: { type: "shapeAnimation" },
       },
       "shape:s2": {
@@ -300,7 +312,7 @@ describe("migrateV1Frames", () => {
         type: "cue",
         trackId: "obj",
         stepId: "v1step:page:xyz:1:0",
-        stepOrderKey: getMigratedStepOrderKey(1, 0),
+        stepOrderKey: "a1",
         action: { type: "shapeAnimation" },
       },
       "shape:s4": {
@@ -309,7 +321,7 @@ describe("migrateV1Frames", () => {
         type: "cue",
         trackId: "camera",
         stepId: "v1step:page:xyz:1:0",
-        stepOrderKey: getMigratedStepOrderKey(1, 0),
+        stepOrderKey: "a1",
         action: { type: "shapeAnimation" },
       },
       "shape:s3": {
@@ -321,5 +333,79 @@ describe("migrateV1Frames", () => {
         action: { type: "shapeAnimation" },
       },
     });
+  });
+});
+
+describe("sub-frame chain resume (mixed-batch partial migration)", () => {
+  const fullChain: ShapeLegacyFrame[] = [
+    { shapeId: "shape:a", frame: v1Cue("f1", 0, "T") },
+    { shapeId: "shape:b", frame: v1Sub("u1", "f1") },
+    { shapeId: "shape:c", frame: v1Sub("u2", "u1") },
+    { shapeId: "shape:d", frame: v1Sub("u3", "u2") },
+  ];
+
+  it("resumes an interrupted sub-frame chain byte-for-byte", () => {
+    const complete = migrateV1Frames(fullChain, [], PAGE_ID);
+    const completeByShape = new Map(
+      complete.updates.map((u) => [u.shapeId, u.frame]),
+    );
+
+    // Interruption: the cue and the first sub persisted; u2/u3 remain v1.
+    const persisted: ShapeV2Frame[] = [
+      { shapeId: "shape:a", frame: completeByShape.get("shape:a")! },
+      { shapeId: "shape:b", frame: completeByShape.get("shape:b")! },
+    ];
+    const resumed = migrateV1Frames(
+      [
+        { shapeId: "shape:c", frame: v1Sub("u2", "u1") },
+        { shapeId: "shape:d", frame: v1Sub("u3", "u2") },
+      ],
+      persisted,
+      PAGE_ID,
+    );
+    expect(resumed.detachedFrames).toEqual([]);
+    const resumedByShape = new Map(
+      resumed.updates.map((u) => [u.shapeId, u.frame]),
+    );
+    expect(resumedByShape.get("shape:c")).toEqual(
+      completeByShape.get("shape:c"),
+    );
+    expect(resumedByShape.get("shape:d")).toEqual(
+      completeByShape.get("shape:d"),
+    );
+  });
+
+  it("anchors chains at already-migrated v2 sub frames instead of detaching", () => {
+    const persistedSub: ShapeV2Frame = {
+      shapeId: "shape:b",
+      frame: {
+        v: 2,
+        id: "u1",
+        type: "sub",
+        cueFrameId: "f1",
+        orderKey: getMigratedSubFrameOrderKey(0),
+        action: { type: "shapeAnimation" },
+      },
+    };
+    const result = migrateV1Frames(
+      [{ shapeId: "shape:c", frame: v1Sub("u2", "u1") }],
+      [persistedSub],
+      PAGE_ID,
+    );
+    expect(result.detachedFrames).toEqual([]);
+    expect(result.updates[0].frame).toMatchObject({
+      type: "sub",
+      cueFrameId: "f1",
+      orderKey: getMigratedSubFrameOrderKey(1),
+    });
+  });
+
+  it("getMigratedSubFrameOrderKey matches the complete-run key sequence", () => {
+    const keys = deterministicKeysBetween(null, null, 6);
+    for (let i = 0; i < keys.length; i++) {
+      expect(getMigratedSubFrameOrderKey(i)).toBe(keys[i]);
+    }
+    expect(getMigratedSubFrameOrderKey(0)).toBe("a0");
+    expect(getMigratedSubFrameOrderKey(1)).toBe("a1");
   });
 });
