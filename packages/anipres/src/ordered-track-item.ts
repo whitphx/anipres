@@ -1,3 +1,8 @@
+// @internal — legacy v1 ordering primitives, deprecated as of Animation
+// Data Model v2 (docs/design-animation-data-model.md). Not part of the
+// public surface: kept only because the legacy v1 frame types in
+// `models.ts` reference `OrderedTrackItem`, and for the legacy pipeline's
+// tests. Order derivation goes through `timeline-model`'s deriveTimeline.
 export interface OrderedTrackItem<T = unknown> {
   id: string;
   globalIndex: number;
