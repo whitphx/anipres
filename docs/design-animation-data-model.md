@@ -784,7 +784,12 @@ unrecoverable. Therefore:
   union — more moving parts, only if the chosen key library makes Option A
   awkward).
 - Intra-batch sub-frame keys: deterministic ascending sequence in chain
-  order; `cueFrameId` is the (existing) chain-head frame id.
+  order; `cueFrameId` is the (existing) chain-head frame id. On a
+  mixed-batch resume (a chain interrupted mid-migration), chains anchor at
+  already-migrated v2 sub frames, and the chain indices those persisted
+  keys occupy are **reserved** so the remaining sub frames land on exactly
+  the keys a complete run would have assigned — sub-chain resume is
+  byte-for-byte, mirroring the cue-level group reconstruction above.
 
 Consequences: migration is **idempotent** (re-running produces identical
 records) and concurrent migrations converge regardless of write

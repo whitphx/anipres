@@ -12,7 +12,7 @@
 import type { CueFrame, Frame, SubFrame } from "./types";
 import type { LegacyCueFrame, LegacyFrame, LegacySubFrame } from "./parse";
 import { makeMigratedStepId, parseMigratedStepId } from "./ids";
-import { deterministicKeysBetween, getMigratedStepOrderKey } from "./keys";
+import { getMigratedStepOrderKey, getMigratedSubFrameOrderKey } from "./keys";
 
 export interface ShapeLegacyFrame {
   shapeId: string;
@@ -267,6 +267,22 @@ export function migrateV1Frames(
     }
   }
 
+  // Already-migrated v2 sub frames: chains may anchor at them (their
+  // predecessor was persisted before an interruption), and their order
+  // keys reserve migration-chain indices so a resumed run assigns the
+  // remaining sub frames exactly the keys a complete run would have.
+  const existingSubByFrameId = new Map<string, SubFrame>();
+  const existingSubKeysByCue = new Map<string, Set<string>>();
+  for (const { frame } of existingV2Frames) {
+    if (frame.type !== "sub") continue;
+    if (!existingSubByFrameId.has(frame.id)) {
+      existingSubByFrameId.set(frame.id, frame);
+    }
+    const keys = existingSubKeysByCue.get(frame.cueFrameId) ?? new Set();
+    keys.add(frame.orderKey);
+    existingSubKeysByCue.set(frame.cueFrameId, keys);
+  }
+
   // Resolve chain head for each sub frame with cycle protection.
   const resolveHead = (
     sub: LegacySubFrame,
@@ -277,6 +293,13 @@ export function migrateV1Frames(
     for (;;) {
       if (cueFrameIds.has(currentPrev)) {
         return { cueFrameId: currentPrev, depth, dangling: false };
+      }
+      const anchor = existingSubByFrameId.get(currentPrev);
+      if (anchor != null) {
+        // The predecessor is an already-migrated v2 sub frame: the batch
+        // is its batch. Depth counts only the remaining v1 hops, which
+        // preserves the remaining chain's relative order.
+        return { cueFrameId: anchor.cueFrameId, depth, dangling: false };
       }
       const prevSubs = subByFrameId.get(currentPrev);
       if (prevSubs == null || prevSubs.length === 0) {
@@ -325,14 +348,38 @@ export function migrateV1Frames(
       if (a.frame.id !== b.frame.id) return a.frame.id < b.frame.id ? -1 : 1;
       return a.shapeId < b.shapeId ? -1 : 1;
     });
-    const orderKeys = deterministicKeysBetween(null, null, list.length);
-    list.forEach((sub, index) => {
+    // Reserve the chain indices already persisted by an interrupted run so
+    // the remaining sub frames land on exactly the keys a complete
+    // migration would have assigned (byte-for-byte resume). Persisted keys
+    // that are not migration-chain keys (interactively minted) reserve
+    // nothing — ordering against them is by key comparison as usual.
+    const existingKeys = existingSubKeysByCue.get(cueFrameId);
+    const reservedIndices = new Set<number>();
+    if (existingKeys != null && existingKeys.size > 0) {
+      const scanBound = existingKeys.size + list.length;
+      for (
+        let index = 0;
+        index < scanBound && reservedIndices.size < existingKeys.size;
+        index++
+      ) {
+        if (existingKeys.has(getMigratedSubFrameOrderKey(index))) {
+          reservedIndices.add(index);
+        }
+      }
+    }
+    let nextIndex = 0;
+    list.forEach((sub) => {
+      while (reservedIndices.has(nextIndex)) {
+        nextIndex++;
+      }
+      const orderKey = getMigratedSubFrameOrderKey(nextIndex);
+      nextIndex++;
       const migrated: SubFrame = {
         v: 2,
         id: sub.frame.id,
         type: "sub",
         cueFrameId,
-        orderKey: orderKeys[index],
+        orderKey,
         action: sub.frame.action,
       };
       updates.push({ shapeId: sub.shapeId, frame: migrated });

@@ -69,6 +69,17 @@ function integerKey(globalIndex: number): string {
   return integerKeyCache[globalIndex];
 }
 
+/**
+ * The i-th key of a migrated sub-frame chain — the same iterated key-above
+ * chain as the integer step keys ("a0", "a1", …), coordinate-pure. Exposed
+ * so migration can RESERVE the indices already persisted by an interrupted
+ * run and assign the remaining sub frames the next free indices, making
+ * sub-chain resume byte-identical to a complete migration.
+ */
+export function getMigratedSubFrameOrderKey(index: number): string {
+  return integerKey(index);
+}
+
 const partitionKeyCache = new Map<string, string>();
 
 export function getMigratedStepOrderKey(
