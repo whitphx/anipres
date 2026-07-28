@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { JsonObject, TLContent, TLShape, TLShapeId } from "tldraw";
-import { parseFrameObject } from "./models";
+import {
+  compareOrderKeys,
+  getOrderKeyBetween,
+  parseFrameObject,
+} from "./models";
 import { preprocessAnimationContent } from "./preprocess-animation-content";
 
 const action = { type: "shapeAnimation" } as const;
@@ -236,8 +240,41 @@ describe("preprocessAnimationContent", () => {
     );
     expect(copiedFrame?.type).toBe("cue");
     if (copiedFrame?.type === "cue") {
-      expect(keys["shape:a"] < copiedFrame.stepOrderKey).toBe(true);
-      expect(copiedFrame.stepOrderKey < keys["shape:b"]).toBe(true);
+      expect(
+        compareOrderKeys(keys["shape:a"], copiedFrame.stepOrderKey),
+      ).toBeLessThan(0);
+      expect(
+        compareOrderKeys(copiedFrame.stepOrderKey, keys["shape:b"]),
+      ).toBeLessThan(0);
+    }
+  });
+
+  it("normalizes an equal-key region after a generated before-first key", () => {
+    const before = getOrderKeyBetween(undefined, "a0");
+    const existing = [
+      cue("shape:before", "before", "step-before", before, "before-track"),
+      cue("shape:a", "a", "step-a", "a0", "A"),
+      cue("shape:b", "b", "step-b", "a0", "B"),
+    ];
+    const copied = content([structuredClone(existing[1])]);
+    const result = preprocessAnimationContent(copied, existing, options());
+    const copiedFrame = parseFrameObject(copied.shapes[0].meta.frame);
+    const keys = Object.fromEntries(
+      result.existingFrameMutations.map(({ shapeId, frame }) => [
+        shapeId,
+        frame.stepOrderKey,
+      ]),
+    );
+
+    expect(copiedFrame?.type).toBe("cue");
+    if (copiedFrame?.type === "cue") {
+      expect(compareOrderKeys(before, keys["shape:a"])).toBeLessThan(0);
+      expect(
+        compareOrderKeys(keys["shape:a"], copiedFrame.stepOrderKey),
+      ).toBeLessThan(0);
+      expect(
+        compareOrderKeys(copiedFrame.stepOrderKey, keys["shape:b"]),
+      ).toBeLessThan(0);
     }
   });
 });

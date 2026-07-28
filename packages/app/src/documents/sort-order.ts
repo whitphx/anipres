@@ -1,4 +1,5 @@
 import { generateKeyBetween } from "fractional-indexing";
+import { compareOrderKeys } from "anipres/models";
 import type { DocumentMeta } from "./types";
 
 /**
@@ -18,7 +19,7 @@ import type { DocumentMeta } from "./types";
 export function nextTailSortOrder(
   existing: ReadonlyArray<Pick<DocumentMeta, "sortOrder">>,
 ): string {
-  const keys = existing.map((d) => d.sortOrder).sort();
+  const keys = existing.map((d) => d.sortOrder).sort(compareOrderKeys);
   const tail = keys[keys.length - 1] ?? null;
   return generateKeyBetween(tail, null);
 }

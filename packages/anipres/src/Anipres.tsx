@@ -43,6 +43,7 @@ import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeIma
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
+  compareOrderKeys,
   cueFrameToJsonObject,
   getFrame,
   getStepOrderKeyAfter,
@@ -369,7 +370,7 @@ const Inner = (props: InnerProps) => {
                             candidate?.type === "cue",
                         )
                         .sort((a, b) =>
-                          a.stepOrderKey.localeCompare(b.stepOrderKey),
+                          compareOrderKeys(a.stepOrderKey, b.stepOrderKey),
                         )
                         .at(-1)?.stepOrderKey,
                     ),

@@ -1,6 +1,7 @@
 import { uniqueId } from "tldraw";
 import type { TLContent, TLShape, TLShapeId } from "tldraw";
 import {
+  compareOrderKeys,
   frameToJsonObject,
   getFrameRecords,
   makeInsertionSpace,
@@ -128,7 +129,7 @@ export function preprocessAnimationContent(
       );
       return { id, key: cueRecords[0].frame.stepOrderKey, cueRecords };
     })
-    .sort((a, b) => a.key.localeCompare(b.key) || a.id.localeCompare(b.id));
+    .sort((a, b) => compareOrderKeys(a.key, b.key) || a.id.localeCompare(b.id));
   const copiedStepOrderKey = new Map<string, string>();
   const existingFrameMutationByShapeId = new Map<
     TLShapeId,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { compareOrderKeys } from "anipres/models";
 import type { TLStoreSnapshot } from "tldraw";
 import { useDocumentManager } from "./useDocumentManager";
 import type { DocumentRepository } from "./repository";
@@ -48,7 +49,7 @@ function makeFakeRepo(source: DocumentSource, initial: DocumentData[] = []) {
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
         .map((d) => ({ ...d.meta, source }))
-        .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder)),
+        .sort((a, b) => compareOrderKeys(a.sortOrder, b.sortOrder)),
   );
   const get = vi.fn(async (id: string): Promise<DocumentData | undefined> => {
     const d = store.get(id);

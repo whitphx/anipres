@@ -1,4 +1,7 @@
-export const MINIMUM_SYNC_ANIMATION_DATA_VERSION = 2;
+import { ANIMATION_DATA_FORMAT_VERSION } from "anipres/models";
+
+export const MINIMUM_SYNC_ANIMATION_DATA_VERSION =
+  ANIMATION_DATA_FORMAT_VERSION;
 
 export function getAnimationDataVersionGateResponse(
   request: Request,

@@ -9,6 +9,7 @@ import {
 import type { Editor, IndexKey, JsonObject, TLShape, TLShapeId } from "tldraw";
 
 export const SYNTHETIC_STEP_PREFIX = "synthstep:";
+export const ANIMATION_DATA_FORMAT_VERSION = 2 as const;
 
 export interface FrameActionBase extends JsonObject {
   type: string;
@@ -30,7 +31,7 @@ export interface CameraZoomFrameAction extends FrameActionBase {
 export type FrameAction = ShapeAnimationFrameAction | CameraZoomFrameAction;
 
 export interface FrameBase {
-  v: 2;
+  v: typeof ANIMATION_DATA_FORMAT_VERSION;
   id: string;
   type: string;
   action: FrameAction;
@@ -149,7 +150,7 @@ export function parseFrameObject(
 ): Frame | undefined {
   if (
     !isJsonObject(value) ||
-    value.v !== 2 ||
+    value.v !== ANIMATION_DATA_FORMAT_VERSION ||
     typeof value.id !== "string" ||
     !isFrameAction(value.action)
   ) {
@@ -207,7 +208,9 @@ export function parseFrame(shape: TLShape): FrameParseResult {
     return {};
   }
 
-  if (import.meta.env?.DEV) {
+  const environment = (import.meta as ImportMeta & { env?: { DEV?: boolean } })
+    .env;
+  if (environment?.DEV) {
     console.warn("Uninterpretable animation data", { shapeId: shape.id });
   }
   return {
@@ -284,6 +287,10 @@ export function getOrderKeyBetween(
     lowerKey as IndexKey | undefined,
     upperKey as IndexKey | undefined,
   );
+}
+
+export function compareOrderKeys(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 export function makeInsertionSpace(
@@ -436,7 +443,7 @@ export function deriveTimeline(
     })
     .sort(
       (a, b) =>
-        a.canonicalKey.localeCompare(b.canonicalKey) ||
+        compareOrderKeys(a.canonicalKey, b.canonicalKey) ||
         a.stepId.localeCompare(b.stepId),
     );
 
@@ -449,7 +456,7 @@ export function deriveTimeline(
     for (const cue of group) {
       const subFrames = (subsByCueShapeId.get(cue.shapeId) ?? []).sort(
         (a, b) =>
-          a.frame.orderKey.localeCompare(b.frame.orderKey) ||
+          compareOrderKeys(a.frame.orderKey, b.frame.orderKey) ||
           a.frame.id.localeCompare(b.frame.id) ||
           a.shapeId.localeCompare(b.shapeId),
       );

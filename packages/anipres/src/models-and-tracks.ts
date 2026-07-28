@@ -16,7 +16,9 @@ export type {
   TimelineDoc,
 } from "./models";
 export {
+  ANIMATION_DATA_FORMAT_VERSION,
   SYNTHETIC_STEP_PREFIX,
+  compareOrderKeys,
   cueFrameToJsonObject,
   deriveTimeline,
   frameToJsonObject,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TLShapeId } from "tldraw";
 import {
+  compareOrderKeys,
   deriveTimeline,
   type CueFrame,
   type FrameRecord,
@@ -138,6 +139,32 @@ describe("moveFrame", () => {
       ["T:t2"],
       ["U:u1"],
       ["T:t3"],
+    ]);
+  });
+
+  it("moves a step before the first key and re-derives it in that position", () => {
+    const records = [
+      record("shape:first", cue("first", "step-first", "a0", "A")),
+      record("shape:moved", cue("moved", "step-moved", "a1", "B")),
+    ];
+    const timeline = deriveTimeline(records);
+    const { steps } = calcFrameBatchUIData(timeline, records);
+    const mutations = moveFrame(steps, "B", 1, 0, -1, "after")!;
+    const mutationByShapeId = new Map(
+      mutations.map((mutation) => [mutation.shapeId, mutation.frame]),
+    );
+    const updated = records.map((item) => ({
+      ...item,
+      frame: mutationByShapeId.get(item.shapeId) ?? item.frame,
+    }));
+    const moved = updated.find((item) => item.shapeId === "shape:moved")?.frame;
+    expect(moved?.type).toBe("cue");
+    if (moved?.type === "cue") {
+      expect(compareOrderKeys(moved.stepOrderKey, "a0")).toBeLessThan(0);
+    }
+    expect(deriveTimeline(updated).steps.map((step) => step.id)).toEqual([
+      "step-moved",
+      "step-first",
     ]);
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { compareOrderKeys } from "anipres/models";
 import type { TLStoreSnapshot } from "tldraw";
 import { reconcileOfflineEdits } from "./reconnect";
 
@@ -269,7 +270,9 @@ describe("reconcileOfflineEdits", () => {
     const sentToCreate = repository.save.mock.calls[0][0] as {
       meta: { sortOrder: string };
     };
-    expect(sentToCreate.meta.sortOrder > "a1").toBe(true);
+    expect(compareOrderKeys(sentToCreate.meta.sortOrder, "a1")).toBeGreaterThan(
+      0,
+    );
   });
 
   it("retries a stale-revision push without forking when the server still matches the baseline", async () => {

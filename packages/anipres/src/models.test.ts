@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { TLShapeId } from "tldraw";
 import {
+  compareOrderKeys,
   SYNTHETIC_STEP_PREFIX,
   deriveTimeline,
+  getOrderKeyBetween,
   makeInsertionSpace,
   parseFrameObject,
   type CueFrame,
@@ -68,6 +70,20 @@ describe("v2 frame parsing", () => {
 });
 
 describe("deriveTimeline", () => {
+  it("orders a generated before-first step before the existing first step", () => {
+    const before = getOrderKeyBetween(undefined, "a0");
+    expect(compareOrderKeys(before, "a0")).toBeLessThan(0);
+
+    const timeline = deriveTimeline([
+      cue("shape:current", "current", "current", "a0", "current-track"),
+      cue("shape:before", "before", "before", before, "before-track"),
+    ]);
+    expect(timeline.steps.map((step) => step.id)).toEqual([
+      "before",
+      "current",
+    ]);
+  });
+
   it("ports v1 ordering behavior while grouping only by explicit step identity", () => {
     const timeline = deriveTimeline([
       cue("shape:k2", "k2", "step-3", "a3", "A"),
@@ -180,7 +196,8 @@ describe("makeInsertionSpace", () => {
       1,
     );
     expect(result.updates).toEqual([]);
-    expect("a1" < result.insertedKey && result.insertedKey < "a2").toBe(true);
+    expect(compareOrderKeys("a1", result.insertedKey)).toBeLessThan(0);
+    expect(compareOrderKeys(result.insertedKey, "a2")).toBeLessThan(0);
   });
 
   it("normalizes equal-key runs in current order for steps and sub-frames", () => {
@@ -198,8 +215,13 @@ describe("makeInsertionSpace", () => {
       result.insertedKey,
       result.updates.find((update) => update.id === "second")!.key,
     ];
-    expect(keys).toEqual([...keys].sort());
-    expect(keys.every((key) => "a1" < key && key < "a3")).toBe(true);
+    expect(keys).toEqual([...keys].sort(compareOrderKeys));
+    expect(
+      keys.every(
+        (key) =>
+          compareOrderKeys("a1", key) < 0 && compareOrderKeys(key, "a3") < 0,
+      ),
+    ).toBe(true);
   });
 
   it("remains total after concurrent normalizations re-collide under record LWW", () => {
@@ -212,7 +234,9 @@ describe("makeInsertionSpace", () => {
     const merged = [
       { id: "a", key: left.updates[0].key },
       { id: "b", key: right.updates[1].key },
-    ].sort((a, b) => a.key.localeCompare(b.key) || a.id.localeCompare(b.id));
+    ].sort(
+      (a, b) => compareOrderKeys(a.key, b.key) || a.id.localeCompare(b.id),
+    );
     expect(() => makeInsertionSpace(merged, 1)).not.toThrow();
   });
 });
@@ -231,4 +255,16 @@ it("orders sub-frames by key and id without shadowing forks", () => {
   expect(
     timeline.steps[0].batches[0].frames.map((frame) => frame.frameId),
   ).toEqual(["cue", "a", "b"]);
+});
+
+it("orders a generated before-first sub-frame before the current first sub-frame", () => {
+  const before = getOrderKeyBetween(undefined, "a0");
+  const timeline = deriveTimeline([
+    cue("shape:cue", "cue", "step", "a0", "track"),
+    sub("shape:current", "current", "cue", "a0"),
+    sub("shape:before", "before", "cue", before),
+  ]);
+  expect(
+    timeline.steps[0].batches[0].frames.map((frame) => frame.frameId),
+  ).toEqual(["cue", "before", "current"]);
 });

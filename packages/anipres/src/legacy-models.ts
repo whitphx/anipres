@@ -8,6 +8,7 @@ import type {
   TLShapePartial,
 } from "tldraw";
 import {
+  compareOrderKeys,
   deriveTimeline,
   frameToJsonObject,
   getFrameRecords,
@@ -413,7 +414,7 @@ function prepareAnimationData(
   for (const [cueFrameId, group] of existingSubsByCue) {
     group.sort(
       (a, b) =>
-        a.frame.orderKey.localeCompare(b.frame.orderKey) ||
+        compareOrderKeys(a.frame.orderKey, b.frame.orderKey) ||
         a.frame.id.localeCompare(b.frame.id) ||
         a.shapeId.localeCompare(b.shapeId),
     );

@@ -1,5 +1,6 @@
 import type { TLShapeId } from "tldraw";
 import {
+  compareOrderKeys,
   makeInsertionSpace,
   newStepId,
   type CueFrame,
@@ -257,6 +258,7 @@ function moveLayout(
 function assignStepIdentities(
   originalSteps: FrameBatchUIData[][],
   layout: LayoutStep[],
+  stepIdRequiringNewKey?: string,
 ): { id: string; key: string }[] {
   const originalEntries = originalSteps
     .filter((step) => step[0] && !step[0].stepId.startsWith("synthstep:"))
@@ -306,7 +308,11 @@ function assignStepIdentities(
   let lastOriginalIndex = -1;
   identities.forEach((identity, desiredIndex) => {
     const original = originalById.get(identity.id);
-    if (original && original.index > lastOriginalIndex) {
+    if (
+      original &&
+      identity.id !== stepIdRequiringNewKey &&
+      original.index > lastOriginalIndex
+    ) {
       anchorIndexes.add(desiredIndex);
       identity.key = original.key;
       lastOriginalIndex = original.index;
@@ -341,7 +347,7 @@ function assignSubFrameKeys(batch: LayoutBatch): Map<TLShapeId, string> {
     )
     .sort(
       (a, b) =>
-        a.orderKey.localeCompare(b.orderKey) ||
+        compareOrderKeys(a.orderKey, b.orderKey) ||
         a.id.localeCompare(b.id) ||
         a.shapeId.localeCompare(b.shapeId),
     );
@@ -383,6 +389,7 @@ function assignSubFrameKeys(batch: LayoutBatch): Map<TLShapeId, string> {
 function reconcileLayout(
   originalSteps: FrameBatchUIData[][],
   layout: LayoutStep[],
+  stepIdRequiringNewKey?: string,
 ): FrameMutation[] {
   const originalByShapeId = new Map(
     originalSteps
@@ -390,7 +397,11 @@ function reconcileLayout(
       .flatMap((batch) => batch.data)
       .map((frame) => [frame.shapeId, stripFrameUIData(frame)]),
   );
-  const identities = assignStepIdentities(originalSteps, layout);
+  const identities = assignStepIdentities(
+    originalSteps,
+    layout,
+    stepIdRequiringNewKey,
+  );
   const desiredByShapeId = new Map<TLShapeId, Frame>();
   layout.forEach((step, stepIndex) => {
     const identity = identities[stepIndex];
@@ -436,6 +447,14 @@ export function moveFrame(
   dstStepIndex: number,
   dstType: "after" | "at",
 ): FrameMutation[] | undefined {
+  const sourceBatch = steps[srcStepIndex]?.find(
+    (batch) =>
+      batch.trackId === trackId &&
+      batch.data.some((frame) => frame.trackIndex === srcTrackIndex),
+  );
+  const sourceFrame = sourceBatch?.data.find(
+    (frame) => frame.trackIndex === srcTrackIndex,
+  );
   const layout = moveLayout(
     steps,
     trackId,
@@ -444,5 +463,13 @@ export function moveFrame(
     dstStepIndex,
     dstType,
   );
-  return layout ? reconcileLayout(steps, layout) : undefined;
+  if (!layout || !sourceBatch || !sourceFrame) return undefined;
+  const movingRight =
+    srcStepIndex < dstStepIndex ||
+    (srcStepIndex === dstStepIndex && dstType === "after");
+  const stepIdRequiringNewKey =
+    !movingRight || sourceFrame.type === "cue"
+      ? sourceBatch.data[0].stepId
+      : undefined;
+  return reconcileLayout(steps, layout, stepIdRequiringNewKey);
 }

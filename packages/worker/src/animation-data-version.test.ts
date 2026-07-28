@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ANIMATION_DATA_FORMAT_VERSION } from "anipres/models";
 import {
   MINIMUM_SYNC_ANIMATION_DATA_VERSION,
   getAnimationDataVersionGateResponse,
@@ -9,6 +10,12 @@ import { documentsRoutes } from "./routes/documents";
 const documentId = "00000000-0000-4000-8000-000000000000";
 
 describe("sync animation data version gate", () => {
+  it("uses the animation format version written by the library", () => {
+    expect(MINIMUM_SYNC_ANIMATION_DATA_VERSION).toBe(
+      ANIMATION_DATA_FORMAT_VERSION,
+    );
+  });
+
   it("rejects v1 clients and clients without a version", async () => {
     for (const suffix of ["", "?animationDataVersion=1"]) {
       const response = getAnimationDataVersionGateResponse(
