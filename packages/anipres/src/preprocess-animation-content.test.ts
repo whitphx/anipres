@@ -124,7 +124,7 @@ describe("preprocessAnimationContent", () => {
       cue("shape:a", "duplicate", "foreign", "a1", "A"),
       sub("shape:sub", "sub", "duplicate"),
     ]);
-    const diagnostics = preprocessAnimationContent(copied, [], options());
+    const { diagnostics } = preprocessAnimationContent(copied, [], options());
     const frames = framesByShapeId(copied);
     expect(frames["shape:a"]?.id).not.toBe(frames["shape:b"]?.id);
     if (frames["shape:sub"]?.type === "sub") {
@@ -172,5 +172,72 @@ describe("preprocessAnimationContent", () => {
     preprocessAnimationContent(copied, [], options());
     const frame = parseFrameObject(copied.shapes[0].meta.frame);
     expect(frame?.type === "cue" && frame.stepId).toBe("new-step-0");
+  });
+
+  it("severs an external cue when duplicating a sub-frame alone", () => {
+    const existing = [
+      cue("shape:cue", "cue", "step", "a1", "track"),
+      sub("shape:sub", "sub", "cue"),
+    ];
+    const copied = content([structuredClone(existing[1])]);
+    preprocessAnimationContent(copied, existing, options());
+    const frame = parseFrameObject(copied.shapes[0].meta.frame);
+    expect(frame?.type).toBe("sub");
+    if (frame?.type === "sub") {
+      expect(frame.cueFrameId).not.toBe("cue");
+      expect(frame.cueFrameId).toBe("new-frame-1");
+    }
+  });
+
+  it("severs an external cue when pasting a sub-frame into another document", () => {
+    const copied = content([sub("shape:sub", "sub", "foreign-cue")]);
+    preprocessAnimationContent(copied, [], options());
+    const frame = parseFrameObject(copied.shapes[0].meta.frame);
+    expect(frame?.type === "sub" && frame.cueFrameId).toBe("new-frame-0");
+  });
+
+  it("preserves cue relationships included in the same copy operation", () => {
+    const existing = [
+      cue("shape:cue", "cue", "step", "a1", "track"),
+      sub("shape:sub-1", "sub-1", "cue"),
+      sub("shape:sub-2", "sub-2", "cue"),
+    ];
+    const copied = content(existing.map((item) => structuredClone(item)));
+    preprocessAnimationContent(copied, existing, options());
+    const frames = framesByShapeId(copied);
+    expect(frames["shape:cue"]?.type).toBe("cue");
+    if (frames["shape:cue"]?.type === "cue") {
+      expect(frames["shape:sub-1"]?.type).toBe("sub");
+      expect(frames["shape:sub-2"]?.type).toBe("sub");
+      if (
+        frames["shape:sub-1"]?.type === "sub" &&
+        frames["shape:sub-2"]?.type === "sub"
+      ) {
+        expect(frames["shape:sub-1"].cueFrameId).toBe(frames["shape:cue"].id);
+        expect(frames["shape:sub-2"].cueFrameId).toBe(frames["shape:cue"].id);
+      }
+    }
+  });
+
+  it("normalizes an equal-key run when placing a duplicated step", () => {
+    const existing = [
+      cue("shape:a", "a", "step-a", "a1", "A"),
+      cue("shape:b", "b", "step-b", "a1", "B"),
+    ];
+    const copied = content([structuredClone(existing[0])]);
+    const result = preprocessAnimationContent(copied, existing, options());
+    const copiedFrame = parseFrameObject(copied.shapes[0].meta.frame);
+    expect(result.existingFrameMutations).toHaveLength(2);
+    const keys = Object.fromEntries(
+      result.existingFrameMutations.map(({ shapeId, frame }) => [
+        shapeId,
+        frame.stepOrderKey,
+      ]),
+    );
+    expect(copiedFrame?.type).toBe("cue");
+    if (copiedFrame?.type === "cue") {
+      expect(keys["shape:a"] < copiedFrame.stepOrderKey).toBe(true);
+      expect(copiedFrame.stepOrderKey < keys["shape:b"]).toBe(true);
+    }
   });
 });

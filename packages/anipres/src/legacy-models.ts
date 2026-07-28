@@ -390,44 +390,93 @@ function prepareAnimationData(
     }
   }
 
+  const existingV2Subs = v2Records.filter(
+    (record): record is FrameRecord & { frame: SubFrame } =>
+      record.frame.type === "sub",
+  );
+  const existingSubIndexByShapeId = new Map<TLShapeId, number>();
+  const reservedSubIndexesByCue = new Map<string, Set<number>>();
+  const existingSubsByCue = new Map<string, typeof existingV2Subs>();
+  for (const record of existingV2Subs) {
+    const group = existingSubsByCue.get(record.frame.cueFrameId) ?? [];
+    group.push(record);
+    existingSubsByCue.set(record.frame.cueFrameId, group);
+  }
+  const maximumReconstructedBatchSize =
+    legacySubs.length + existingV2Subs.length;
+  const migratedSubIndexByKey = new Map(
+    Array.from({ length: maximumReconstructedBatchSize }, (_, index) => [
+      getMigratedSubFrameOrderKey(index),
+      index,
+    ]),
+  );
+  for (const [cueFrameId, group] of existingSubsByCue) {
+    group.sort(
+      (a, b) =>
+        a.frame.orderKey.localeCompare(b.frame.orderKey) ||
+        a.frame.id.localeCompare(b.frame.id) ||
+        a.shapeId.localeCompare(b.shapeId),
+    );
+    const reserved = new Set<number>();
+    for (const record of group) {
+      const migratedIndex = migratedSubIndexByKey.get(record.frame.orderKey);
+      if (migratedIndex !== undefined && !reserved.has(migratedIndex)) {
+        existingSubIndexByShapeId.set(record.shapeId, migratedIndex);
+        reserved.add(migratedIndex);
+      }
+    }
+    for (const record of group) {
+      if (existingSubIndexByShapeId.has(record.shapeId)) continue;
+      let index = 0;
+      while (reserved.has(index)) index++;
+      existingSubIndexByShapeId.set(record.shapeId, index);
+      reserved.add(index);
+    }
+    reservedSubIndexesByCue.set(cueFrameId, reserved);
+  }
+
   const cueByLegacySubShape = new Map<TLShapeId, string | undefined>();
-  const depthByLegacySubShape = new Map<TLShapeId, number>();
+  const minimumIndexByLegacySubShape = new Map<TLShapeId, number>();
   const resolveCue = (
     record: LegacyFrameRecord & { frame: LegacySubFrame },
     visiting: Set<TLShapeId>,
-  ): { cueFrameId?: string; depth: number } => {
+  ): { cueFrameId?: string; minimumIndex: number } => {
     if (cueByLegacySubShape.has(record.shapeId)) {
       return {
         cueFrameId: cueByLegacySubShape.get(record.shapeId),
-        depth: depthByLegacySubShape.get(record.shapeId) ?? 0,
+        minimumIndex: minimumIndexByLegacySubShape.get(record.shapeId) ?? 0,
       };
     }
-    if (visiting.has(record.shapeId)) return { depth: 0 };
+    if (visiting.has(record.shapeId)) return { minimumIndex: 0 };
     visiting.add(record.shapeId);
     const predecessor = candidatesByFrameId.get(record.frame.prevFrameId)?.[0];
-    let result: { cueFrameId?: string; depth: number };
+    let result: { cueFrameId?: string; minimumIndex: number };
     if (!predecessor) {
-      result = { depth: 0 };
+      result = { minimumIndex: 0 };
     } else if ("v" in predecessor.frame) {
       result =
         predecessor.frame.type === "cue"
-          ? { cueFrameId: predecessor.frame.id, depth: 0 }
+          ? { cueFrameId: predecessor.frame.id, minimumIndex: 0 }
           : {
               cueFrameId: predecessor.frame.cueFrameId,
-              depth: 1,
+              minimumIndex:
+                (existingSubIndexByShapeId.get(predecessor.shapeId) ?? 0) + 1,
             };
     } else if (predecessor.frame.type === "cue") {
-      result = { cueFrameId: predecessor.frame.id, depth: 0 };
+      result = { cueFrameId: predecessor.frame.id, minimumIndex: 0 };
     } else {
       const parent = resolveCue(
         predecessor as LegacyFrameRecord & { frame: LegacySubFrame },
         visiting,
       );
-      result = { cueFrameId: parent.cueFrameId, depth: parent.depth + 1 };
+      result = {
+        cueFrameId: parent.cueFrameId,
+        minimumIndex: parent.minimumIndex + 1,
+      };
     }
     visiting.delete(record.shapeId);
     cueByLegacySubShape.set(record.shapeId, result.cueFrameId);
-    depthByLegacySubShape.set(record.shapeId, result.depth);
+    minimumIndexByLegacySubShape.set(record.shapeId, result.minimumIndex);
     return result;
   };
 
@@ -452,11 +501,15 @@ function prepareAnimationData(
   for (const [cueFrameId, group] of subsByCue) {
     group.sort(
       (a, b) =>
-        (depthByLegacySubShape.get(a.shapeId) ?? 0) -
-          (depthByLegacySubShape.get(b.shapeId) ?? 0) ||
+        (minimumIndexByLegacySubShape.get(a.shapeId) ?? 0) -
+          (minimumIndexByLegacySubShape.get(b.shapeId) ?? 0) ||
         compareLegacyRecords(a, b),
     );
-    group.forEach((record, index) => {
+    const reserved = new Set(reservedSubIndexesByCue.get(cueFrameId) ?? []);
+    group.forEach((record) => {
+      let index = minimumIndexByLegacySubShape.get(record.shapeId) ?? 0;
+      while (reserved.has(index)) index++;
+      reserved.add(index);
       const frame: SubFrame = {
         v: 2,
         id: record.frame.id,

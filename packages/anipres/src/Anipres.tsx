@@ -512,16 +512,33 @@ const Inner = (props: InnerProps) => {
 
     const originalPutContent = editor.putContentOntoCurrentPage.bind(editor);
     editor.putContentOntoCurrentPage = (content, options) => {
-      const diagnostics = preprocessAnimationContent(
-        content,
-        presentationManager.$getCurrentPageDescendantShapes(),
-      );
+      const { diagnostics, existingFrameMutations } =
+        preprocessAnimationContent(
+          content,
+          presentationManager.$getCurrentPageDescendantShapes(),
+        );
       if (diagnostics.length > 0) {
         console.warn("Ambiguous animation references found while pasting", {
           diagnostics,
         });
       }
-      return originalPutContent(content, options);
+      return editor.run(() => {
+        editor.updateShapes(
+          existingFrameMutations.flatMap(({ shapeId, frame }) => {
+            const shape = editor.getShape(shapeId);
+            return shape
+              ? [
+                  {
+                    id: shape.id,
+                    type: shape.type,
+                    meta: { ...shape.meta, frame: frameToJsonObject(frame) },
+                  },
+                ]
+              : [];
+          }),
+        );
+        return originalPutContent(content, options);
+      });
     };
 
     onMount?.(editor, presentationManager);

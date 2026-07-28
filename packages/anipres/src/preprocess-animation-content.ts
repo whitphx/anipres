@@ -1,8 +1,9 @@
-import { getIndexAbove, getIndexBetween, uniqueId } from "tldraw";
+import { uniqueId } from "tldraw";
 import type { TLContent, TLShape, TLShapeId } from "tldraw";
 import {
   frameToJsonObject,
   getFrameRecords,
+  makeInsertionSpace,
   newStepId,
   newTrackId,
   parseFrameObject,
@@ -24,11 +25,16 @@ export interface AnimationContentPreprocessOptions {
   createTrackId?: () => string;
 }
 
+export interface AnimationContentPreprocessResult {
+  diagnostics: ContentPreprocessDiagnostic[];
+  existingFrameMutations: { shapeId: TLShapeId; frame: CueFrame }[];
+}
+
 export function preprocessAnimationContent(
   content: TLContent,
   existingShapes: readonly TLShape[],
   options: AnimationContentPreprocessOptions = {},
-): ContentPreprocessDiagnostic[] {
+): AnimationContentPreprocessResult {
   const createFrameId = options.createFrameId ?? uniqueId;
   const createStepId = options.createStepId ?? newStepId;
   const createTrackId = options.createTrackId ?? newTrackId;
@@ -103,36 +109,53 @@ export function preprocessAnimationContent(
     trackIdMap.set(trackId, createTrackId());
   }
 
-  const orderedExistingSteps = existingRecords
-    .filter(
-      (record): record is typeof record & { frame: CueFrame } =>
-        record.frame.type === "cue",
-    )
-    .sort(
-      (a, b) =>
-        a.frame.stepOrderKey.localeCompare(b.frame.stepOrderKey) ||
-        a.frame.stepId.localeCompare(b.frame.stepId),
-    );
+  const existingCueRecords = existingRecords.filter(
+    (record): record is typeof record & { frame: CueFrame } =>
+      record.frame.type === "cue",
+  );
+  const cueRecordsByStepId = new Map<string, typeof existingCueRecords>();
+  for (const record of existingCueRecords) {
+    const group = cueRecordsByStepId.get(record.frame.stepId) ?? [];
+    group.push(record);
+    cueRecordsByStepId.set(record.frame.stepId, group);
+  }
+  const workingSteps = [...cueRecordsByStepId.entries()]
+    .map(([id, cueRecords]) => {
+      cueRecords.sort(
+        (a, b) =>
+          a.frame.id.localeCompare(b.frame.id) ||
+          a.shapeId.localeCompare(b.shapeId),
+      );
+      return { id, key: cueRecords[0].frame.stepOrderKey, cueRecords };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key) || a.id.localeCompare(b.id));
   const copiedStepOrderKey = new Map<string, string>();
+  const existingFrameMutationByShapeId = new Map<
+    TLShapeId,
+    { shapeId: TLShapeId; frame: CueFrame }
+  >();
   for (const stepId of [...stepIdsToRemap].sort()) {
-    const originalIndex = orderedExistingSteps.findIndex(
-      (record) => record.frame.stepId === stepId,
-    );
-    const original = orderedExistingSteps[originalIndex]?.frame;
-    const next = orderedExistingSteps
-      .slice(originalIndex + 1)
-      .find((record) => record.frame.stepId !== stepId)?.frame;
-    copiedStepOrderKey.set(
-      stepId,
-      original
-        ? getIndexBetween(
-            original.stepOrderKey as never,
-            next?.stepOrderKey as never,
-          )
-        : getIndexAbove(
-            orderedExistingSteps.at(-1)?.frame.stepOrderKey as never,
-          ),
-    );
+    const originalIndex = workingSteps.findIndex((step) => step.id === stepId);
+    const insertionIndex =
+      originalIndex < 0 ? workingSteps.length : originalIndex + 1;
+    const insertion = makeInsertionSpace(workingSteps, insertionIndex);
+    for (const update of insertion.updates) {
+      const step = workingSteps.find((candidate) => candidate.id === update.id);
+      if (!step) continue;
+      step.key = update.key;
+      for (const record of step.cueRecords) {
+        existingFrameMutationByShapeId.set(record.shapeId, {
+          shapeId: record.shapeId,
+          frame: { ...record.frame, stepOrderKey: update.key },
+        });
+      }
+    }
+    copiedStepOrderKey.set(stepId, insertion.insertedKey);
+    workingSteps.splice(insertionIndex, 0, {
+      id: stepIdMap.get(stepId)!,
+      key: insertion.insertedKey,
+      cueRecords: [],
+    });
   }
 
   const cueSourcesByFrameId = new Map<string, typeof cues>();
@@ -143,6 +166,19 @@ export function preprocessAnimationContent(
   }
   for (const group of cueSourcesByFrameId.values()) {
     group.sort((a, b) => a.shape.id.localeCompare(b.shape.id));
+  }
+  const copiedCueFrameIds = new Set(cues.map((cue) => cue.frame.id));
+  const externalCueFrameIdMap = new Map<string, string>();
+  for (const cueFrameId of [
+    ...new Set(
+      frames.flatMap(({ frame }) =>
+        frame.type === "sub" && !copiedCueFrameIds.has(frame.cueFrameId)
+          ? [frame.cueFrameId]
+          : [],
+      ),
+    ),
+  ].sort()) {
+    externalCueFrameIdMap.set(cueFrameId, createFrameId());
   }
 
   const diagnostics: ContentPreprocessDiagnostic[] = [];
@@ -177,7 +213,7 @@ export function preprocessAnimationContent(
       cueFrameId: representative
         ? (newFrameIdBySourceShapeId.get(representative.shape.id) ??
           representative.frame.id)
-        : frame.cueFrameId,
+        : externalCueFrameIdMap.get(frame.cueFrameId)!,
     });
   }
 
@@ -192,5 +228,10 @@ export function preprocessAnimationContent(
       a.subShapeId.localeCompare(b.subShapeId) ||
       a.cueFrameId.localeCompare(b.cueFrameId),
   );
-  return diagnostics;
+  return {
+    diagnostics,
+    existingFrameMutations: [...existingFrameMutationByShapeId.values()].sort(
+      (a, b) => a.shapeId.localeCompare(b.shapeId),
+    ),
+  };
 }

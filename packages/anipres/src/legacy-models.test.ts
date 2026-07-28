@@ -134,6 +134,61 @@ describe("deterministic v1 migration", () => {
     );
   });
 
+  it("resumes every interrupted prefix of a sub-frame chain byte-for-byte", () => {
+    const original = [
+      shape("shape:cue", {
+        id: "cue",
+        type: "cue",
+        globalIndex: 2,
+        trackId: "track",
+        action,
+      }),
+      shape("shape:sub-1", {
+        id: "sub-1",
+        type: "sub",
+        prevFrameId: "cue",
+        action,
+      }),
+      shape("shape:sub-2", {
+        id: "sub-2",
+        type: "sub",
+        prevFrameId: "sub-1",
+        action,
+      }),
+      shape("shape:sub-3", {
+        id: "sub-3",
+        type: "sub",
+        prevFrameId: "sub-2",
+        action,
+      }),
+    ];
+    const full = migrateLegacyFrames(original, "page:test");
+    const fullyMigrated = applyUpdates(original, full.updates);
+    const migrationOrder = [
+      "shape:cue",
+      "shape:sub-1",
+      "shape:sub-2",
+      "shape:sub-3",
+    ];
+
+    for (
+      let prefixLength = 1;
+      prefixLength < migrationOrder.length;
+      prefixLength++
+    ) {
+      const migratedShapeIds = new Set(migrationOrder.slice(0, prefixLength));
+      const partial = applyUpdates(
+        original,
+        full.updates.filter((update) => migratedShapeIds.has(update.id)),
+      );
+      const resumed = migrateLegacyFrames(partial, "page:test");
+      expect(JSON.stringify(applyUpdates(partial, resumed.updates))).toBe(
+        JSON.stringify(fullyMigrated),
+      );
+      expect(resumed.detachedFrames).toEqual([]);
+    }
+  });
+
   it("keeps contradictory persisted partitions and diagnoses them", () => {
     const frames = ["a", "b"].map((id) =>
       shape(`shape:${id}`, {
