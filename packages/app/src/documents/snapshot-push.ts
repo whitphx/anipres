@@ -1,4 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
+import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { apiClient } from "../lib/api-client";
 
 /**
@@ -19,18 +20,29 @@ export async function pushSnapshot(
   snapshot: TLStoreSnapshot,
   expectedSnapshotVersion: number,
 ): Promise<void> {
-  const res = await apiClient.api.documents[":id"].snapshot.$put({
-    param: { id: documentId },
-    // `snapshot` is `TLStoreSnapshot`; the route's schema infers
-    // `Record<string, unknown>`. Structurally compatible (an object
-    // with string keys) but `StoreSnapshot` lacks the explicit string
-    // index signature TS needs to widen automatically. Cast is safe —
-    // the runtime validator only asserts "is a record".
-    json: {
-      snapshot: snapshot as unknown as Record<string, unknown>,
-      expectedSnapshotVersion,
+  const res = await apiClient.api.documents[":id"].snapshot.$put(
+    {
+      param: { id: documentId },
+      // `snapshot` is `TLStoreSnapshot`; the route's schema infers
+      // `Record<string, unknown>`. Structurally compatible (an object
+      // with string keys) but `StoreSnapshot` lacks the explicit string
+      // index signature TS needs to widen automatically. Cast is safe —
+      // the runtime validator only asserts "is a record".
+      json: {
+        snapshot: snapshot as unknown as Record<string, unknown>,
+        expectedSnapshotVersion,
+      },
     },
-  });
+    {
+      init: {
+        headers: {
+          "x-anipres-animation-data-version": String(
+            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+          ),
+        },
+      },
+    },
+  );
   if (!res.ok) {
     throw new Error(`Snapshot push failed: ${res.status}`);
   }
