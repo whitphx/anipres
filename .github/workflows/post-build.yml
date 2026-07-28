@@ -12,7 +12,7 @@ on:
   # secrets, regardless of who originated the underlying PR.
   # Reference: https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
   #
-  # All metadata used here (event type, branch, head SHA) is sourced
+  # All metadata used here (event type, run ID, head SHA) is sourced
   # from `github.event.workflow_run.*`, which GitHub populates from
   # the actual git ref / event that triggered CI. We do *not* trust
   # any artifact for routing decisions — artifacts produced by a PR
@@ -25,22 +25,37 @@ on:
 permissions: {}
 
 env:
-  # `head_branch` is the source branch on a PR run or the pushed
-  # branch on a `push` run. `head_sha` is the merge commit on PRs
-  # (i.e. what CI actually built) or the pushed sha on `push`.
-  # The `IS_PR` / `IS_DEFAULT_PUSH` flags fan out into each deploy
-  # job's `if`. Kept here so the routing rules live in one place.
-  BRANCH: ${{ github.event.workflow_run.head_branch }}
   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-  IS_PR: ${{ github.event.workflow_run.event == 'pull_request' }}
-  IS_DEFAULT_PUSH: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == github.event.repository.default_branch }}
+  PAGES_BRANCH: ${{ github.event.workflow_run.event == 'pull_request' && format('pr-run-{0}', github.event.workflow_run.id) || github.event.repository.default_branch }}
 
 jobs:
+  initialize-status:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == github.event.repository.default_branch)) }}
+    permissions:
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.HEAD_SHA,
+              state: 'pending',
+              context: 'Post-build / deployments',
+              description: 'Cloudflare deployments are running',
+              target_url: process.env.TARGET_URL,
+            })
+
   deploy-app:
-    # Per-PR Pages deploy — UI smoke check at <branch>.anipres.pages.dev.
+    # Per-PR Pages deploy — UI smoke check at a run-ID-namespaced URL.
     # Pages production (anipres.app) is served by the unified worker
     # (`deploy-worker` below), so this job is PR-only.
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    needs: initialize-status
 
     permissions:
       contents: read
@@ -61,11 +76,12 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/app/dist --project-name=anipres --branch=${{ env.BRANCH }} --commit-hash=${{ env.HEAD_SHA }}
+          command: pages deploy packages/app/dist --project-name=anipres --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ env.HEAD_SHA }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
   deploy-slidev-addon-anipres-preview:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    needs: initialize-status
 
     permissions:
       contents: read
@@ -86,25 +102,16 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/slidev-addon-anipres/dist --project-name=slidev-addon-anipres-preview --branch=${{ env.BRANCH }} --commit-hash=${{ env.HEAD_SHA }}
+          command: pages deploy packages/slidev-addon-anipres/dist --project-name=slidev-addon-anipres-preview --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ env.HEAD_SHA }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
-  # Worker deploy — same code, two targets:
-  # - on PR: shared preview worker (*.workers.dev, isolated D1/R2/DO,
-  #   last push wins, see [env.preview] in wrangler.toml).
-  # - on push to main: prod worker at anipres.app, bundles app/dist via
-  #   the top-level [assets] binding and handles /api/* and /auth/*.
-  # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
-  # the preview worker is for exercising auth + sync end-to-end.
-  #
-  # Artifact-only deploy: the worker bundle, the (CI-rewritten)
-  # wrangler.toml, the migrations directory, and the reset-gate flag
-  # all come from CI artifacts. No `actions/checkout` of PR code, no
-  # `pnpm install` against PR-controlled deps — so no PR-controlled
-  # script ever executes in this privileged (secrets-bearing) context.
-  # Wrangler runs via `npx` at a pinned version.
+  # Worker code can read its runtime secrets, so only the bundle from a
+  # successful default-branch push is eligible for deployment. The resource
+  # configuration is checked out from that exact commit instead of coming
+  # from an artifact.
   deploy-worker:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == github.event.repository.default_branch)) }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == github.event.repository.default_branch }}
+    needs: initialize-status
 
     permissions:
       contents: read
@@ -114,6 +121,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+          sparse-checkout: packages/worker/wrangler.toml
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: worker-deploy-package
@@ -128,51 +142,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
-      # Wrangler tracks applied D1 migrations by filename in the
-      # internal `d1_migrations` table. If a migration file is edited
-      # mid-review (or renamed, squashed), the next apply sees the tag
-      # as done and silently skips the new contents — preview's schema
-      # then drifts permanently from the file. When this PR's
-      # `migrations/` differs from the base, wipe preview D1 first so
-      # the subsequent `d1 migrations apply` rebuilds from scratch.
-      # Skipped on main pushes (preview isn't deployed there).
-      #
-      # The drop SQL is generated inline here — we don't invoke
-      # `packages/worker/scripts/reset-preview-d1.mjs` from the
-      # artifact, since that would re-introduce execution of
-      # PR-controlled code. Logic mirrors the script on `main`.
-      - name: Reset preview D1 if migrations changed
-        if: ${{ github.event.workflow_run.event == 'pull_request' }}
+      - name: Point trusted configuration at the prebuilt bundle
         working-directory: packages/worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_VERSION: 4.85.0
         run: |
-          if [ "$(cat migrations-changed 2>/dev/null)" != "true" ]; then
-            echo "Migrations unchanged — skipping preview D1 reset."
-            exit 0
-          fi
-          echo "Migrations changed — resetting preview D1."
-          # `_cf_*` and `sqlite_sequence` are SQLite/D1-managed and
-          # reject DROP with SQLITE_AUTH; exclude them from the list.
-          npx -y -p "wrangler@${WRANGLER_VERSION}" wrangler d1 execute DB \
-            --remote --env preview --json --command \
-            "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'sqlite_sequence' AND type IN ('table','index','trigger','view')" \
-            > objects.json
-          drop_sql=$(jq -r '
-            (.[0].results // [])
-            | sort_by(({trigger:0, view:1, index:2, table:3})[.type] // 99)
-            | map("DROP \(.type | ascii_upcase) IF EXISTS \"\(.name)\";")
-            | join(" ")
-          ' objects.json)
-          if [ -n "$drop_sql" ]; then
-            echo "Dropping: $drop_sql"
-            npx -y -p "wrangler@${WRANGLER_VERSION}" wrangler d1 execute DB \
-              --remote --env preview --command "$drop_sql"
-          else
-            echo "No D1 objects to drop."
-          fi
+          test -f dist/worker.js
+          sed -i -E 's|^main[[:space:]]*=.*|main = "./dist/worker.js"|' wrangler.toml
+          grep -Fxq 'main = "./dist/worker.js"' wrangler.toml
 
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
@@ -181,12 +156,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/worker
           wranglerVersion: '4.85.0'
-          command: d1 migrations apply DB --remote ${{ github.event.workflow_run.event == 'pull_request' && '--env preview' || '' }}
+          command: d1 migrations apply DB --remote
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
-      # `--no-bundle` uploads `dist/index.js` as-is; CI rewrote `main`
-      # in the bundled wrangler.toml to point at it. Same `--env`
-      # selector as the migrations step picks preview vs prod.
       - name: Deploy worker
         uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
         with:
@@ -194,5 +166,48 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/worker
           wranglerVersion: '4.85.0'
-          command: deploy --no-bundle ${{ github.event.workflow_run.event == 'pull_request' && '--env preview' || '' }}
+          command: deploy --no-bundle
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+  report-status:
+    if: ${{ always() && needs.initialize-status.result != 'skipped' }}
+    needs:
+      - initialize-status
+      - deploy-app
+      - deploy-slidev-addon-anipres-preview
+      - deploy-worker
+    permissions:
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          INITIALIZE_RESULT: ${{ needs.initialize-status.result }}
+          APP_RESULT: ${{ needs.deploy-app.result }}
+          SLIDEV_RESULT: ${{ needs.deploy-slidev-addon-anipres-preview.result }}
+          WORKER_RESULT: ${{ needs.deploy-worker.result }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const results = [
+              process.env.INITIALIZE_RESULT,
+              process.env.APP_RESULT,
+              process.env.SLIDEV_RESULT,
+              process.env.WORKER_RESULT,
+            ]
+            const state = results.includes('failure')
+              ? 'failure'
+              : results.includes('cancelled')
+                ? 'error'
+                : 'success'
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.HEAD_SHA,
+              state,
+              context: 'Post-build / deployments',
+              description: state === 'success'
+                ? 'Cloudflare deployments succeeded'
+                : 'A Cloudflare deployment did not succeed',
+              target_url: process.env.TARGET_URL,
+            })

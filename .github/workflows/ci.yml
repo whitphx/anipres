@@ -304,11 +304,9 @@ jobs:
           name: app
           input-path: packages/app/dist
 
-  # Worker bundle build — produces the dist for both bundle-size
-  # measurement and the post-build deploy. The actual `wrangler deploy`
-  # (plus the D1 migration reset gate) needs `CLOUDFLARE_*` secrets and
-  # lives in `post-build.yml`, which runs from `workflow_run` so it can
-  # access secrets even when the trigger was a Dependabot PR.
+  # Worker bundle build — produces the dist for bundle-size measurement
+  # on every run and for the post-build production deploy on main pushes.
+  # PR bundles are never uploaded to the secret-bearing preview worker.
   #
   # `wrangler deploy --dry-run --outdir dist` bundles via esbuild
   # without contacting the Cloudflare API, so this step works without
@@ -332,12 +330,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Need history back to the PR base for the reset-gate diff.
-          # Harmless on main pushes.
-          # Quoted: GHA `&&`/`||` short-circuit like JS, and numeric `0`
-          # is falsy, so `… && 0 || 1` always yields `1`. Strings `'0'`
-          # / `'1'` are both truthy and pass through unchanged.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
         with:
@@ -357,8 +349,8 @@ jobs:
           name: app-dist
           path: packages/app/dist
 
-      # On PR we build the preview env; on push to main we build prod.
-      # Matches what `post-build.yml` will deploy via `--no-bundle`.
+      # PR measurements include the preview environment's bindings and
+      # main pushes produce the production bundle uploaded below.
       - name: Build worker bundle (dry-run)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -380,67 +372,14 @@ jobs:
           name: worker
           input-path: packages/worker/dist
 
-      # Compute the reset-gate flag here (where the PR diff context is
-      # available); `post-build.yml` reads the flag without needing the
-      # repo history.
-      - name: Compute migrations-changed flag
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        # `git diff --quiet` distinguishes the three outcomes by exit
-        # code (0 unchanged, 1 changed, >1 error), so a real failure
-        # surfaces instead of being silently routed to "skip reset" —
-        # which `if git diff … | grep -q .` would do under `set -e`,
-        # since `if` disables errexit for the condition.
-        run: |
-          set +e
-          git diff --quiet "$BASE_SHA"...HEAD -- migrations/
-          rc=$?
-          set -e
-          case "$rc" in
-            0) printf 'false' > migrations-changed ;;
-            1) printf 'true' > migrations-changed ;;
-            *) echo "git diff failed (exit $rc)"; exit "$rc" ;;
-          esac
-
-      - name: Default migrations-changed (push)
-        if: github.event_name != 'pull_request'
-        run: printf 'false' > migrations-changed
-
-      # Repoint `main` at the prebuilt bundle so `post-build.yml` can
-      # `wrangler deploy --no-bundle` without re-running esbuild
-      # against the PR's source (which is what was avoiding privileged
-      # PR-code execution in the first place). Wrangler writes the
-      # bundle to `dist/<basename(main)>.js` — for our `src/worker.ts`
-      # that's `dist/worker.js`, but rather than hardcode the name we
-      # discover whatever wrangler actually emitted so a PR-side
-      # rename of `main` doesn't silently break the deploy.
-      - name: Repoint main in wrangler.toml for --no-bundle deploy
-        run: |
-          js_files=$(find dist -maxdepth 1 -type f -name '*.js')
-          count=$(printf '%s\n' "$js_files" | grep -c .)
-          if [ "$count" -ne 1 ]; then
-            echo "Expected exactly 1 .js file in dist/, found $count:"
-            printf '%s\n' "$js_files"
-            exit 1
-          fi
-          # The filename can't contain `"` or newlines (filesystem-
-          # allowed but wrangler-rejected for `main`), so plain
-          # double-quoting in the sed replacement and the verify grep
-          # is safe.
-          new_main="./$js_files"
-          sed -i -E "s|^main[[:space:]]*=.*|main = \"${new_main}\"|" wrangler.toml
-          grep -Fxq "main = \"${new_main}\"" wrangler.toml
-
       - name: Upload worker deploy package
+        if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: worker-deploy-package
           path: |
             packages/worker/dist/
             packages/worker/migrations/
-            packages/worker/wrangler.toml
-            packages/worker/migrations-changed
 
   release:
     needs: [build-anipres, test-slidev-addon-anipres, build-slidev-addon-anipres-preview]
