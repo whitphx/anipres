@@ -10,7 +10,11 @@ import {
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
-import type { EditedStep, TimelineDoc } from "../timeline-model";
+import type {
+  EditedStep,
+  TimelineDiagnostic,
+  TimelineDoc,
+} from "../timeline-model";
 import {
   calcFrameBatchUIData,
   FrameBatchUIData,
@@ -251,6 +255,29 @@ const AUTO_SCROLL_CONFIG = {
   },
 };
 
+const RESOLVE_LABELS: Record<TimelineDiagnostic["type"], string> = {
+  "step-key-divergence": "Align step keys",
+  "same-track-split": "Materialize split",
+  "duplicate-frame-id": "Freshen ids",
+  "detached-sub-frame": "Clear animation data",
+  "invalid-frame": "Clear animation data",
+};
+
+function describeDiagnostic(diagnostic: TimelineDiagnostic): string {
+  switch (diagnostic.type) {
+    case "step-key-divergence":
+      return "Step has conflicting order keys (concurrent edit)";
+    case "same-track-split":
+      return "Two keyframes of one track share a step (shown split)";
+    case "detached-sub-frame":
+      return "Sub frame lost its cue (deleted or missing)";
+    case "duplicate-frame-id":
+      return "Two shapes share one animation frame id";
+    case "invalid-frame":
+      return "Shape carries unreadable animation data";
+  }
+}
+
 interface TimelineProps {
   timelineDoc: TimelineDoc;
   onFrameChange: (newFrame: FrameUIData) => void;
@@ -264,6 +291,12 @@ interface TimelineProps {
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
+  onDiagnosticSelect: (diagnostic: TimelineDiagnostic) => void;
+  onResolveDiagnostic: (diagnostic: TimelineDiagnostic) => void;
+  onReattachDetached: (
+    diagnostic: Extract<TimelineDiagnostic, { type: "detached-sub-frame" }>,
+  ) => void;
+  canReattachDetached: boolean;
 }
 export function Timeline({
   timelineDoc,
@@ -278,6 +311,10 @@ export function Timeline({
   requestCueFrameAddAfterGroup,
   showAttachCueFrameButton,
   requestAttachCueFrame,
+  onDiagnosticSelect,
+  onResolveDiagnostic,
+  onReattachDetached,
+  canReattachDetached,
 }: TimelineProps) {
   const { steps, tracks } = useMemo(
     () => calcFrameBatchUIData(timelineDoc),
@@ -399,6 +436,39 @@ export function Timeline({
       sensors={sensors}
       autoScroll={AUTO_SCROLL_CONFIG}
     >
+      {timelineDoc.diagnostics.length > 0 && (
+        <div className={styles.diagnosticsPanel} role="status">
+          {timelineDoc.diagnostics.map((diagnostic, index) => (
+            <div
+              key={`${diagnostic.type}-${index}`}
+              className={styles.diagnosticItem}
+            >
+              <span>{describeDiagnostic(diagnostic)}</span>
+              <button
+                type="button"
+                onClick={() => onDiagnosticSelect(diagnostic)}
+              >
+                Select shape
+              </button>
+              {diagnostic.type === "detached-sub-frame" && (
+                <button
+                  type="button"
+                  disabled={!canReattachDetached}
+                  onClick={() => onReattachDetached(diagnostic)}
+                >
+                  Reattach to selected cue
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onResolveDiagnostic(diagnostic)}
+              >
+                {RESOLVE_LABELS[diagnostic.type]}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <DragStateStyleDiv
         ref={containerRef}
         className={styles.timelineContainer}

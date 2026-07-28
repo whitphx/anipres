@@ -10,16 +10,21 @@
 
 Implemented. PR #486 carries both this document and the implementation:
 the `timeline-model` core (`packages/anipres/src/timeline-model/`), the
-runtime integration, the deterministic v1 → v2 migration, and the
+runtime integration, the deterministic v1 → v2 migration, the
 server-enforced version gate (Risk 6;
-`packages/worker/src/animation-data-version.ts`). A sibling
+`packages/worker/src/animation-data-version.ts`), and the
+diagnostic-resolution Timeline UI (Risk 7 — user-triggered semantic
+repairs: align divergent step keys, materialize same-track splits,
+freshen duplicate ids, reattach or clear detached sub frames). A sibling
 implementation of this design (PR #487, `codex/redesign-data-structure`)
-was converged into #486 — the version gate and the before-first-key
-regression tests were ported from it — and is being closed.
+was converged into #486 — the version gate, the before-first-key
+regression tests, the byte-for-byte sub-chain migration resume, and the
+diagnostic-resolution UI were ported/adapted from it — and is being
+closed.
 
-Deliberately deferred (tracked as follow-ups, not part of #486): the
-diagnostic-resolution Timeline UI (Risk 7) and persistent semantic
-repair; the compiled Slidev viewer and the other items under
+Deliberately deferred (tracked as follow-ups, not part of #486):
+opportunistic persistence of semantic repairs (repairs are strictly
+user-triggered); the compiled Slidev viewer and the other items under
 [Out of Scope](#out-of-scope--related-future-work).
 
 ## Revision History

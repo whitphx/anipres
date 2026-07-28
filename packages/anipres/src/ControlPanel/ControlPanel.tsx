@@ -10,6 +10,7 @@ import {
 } from "tldraw";
 import {
   frameToMetaJson,
+  interactiveKeyAbove,
   makeInsertionSpace,
   parseFrameMeta,
   reconcileEditedSteps,
@@ -17,6 +18,7 @@ import {
   type EditedStep,
   type Frame,
   type SubFrame,
+  type TimelineDiagnostic,
   type TimelineDoc,
 } from "../timeline-model";
 import { getLeafShapes } from "../models";
@@ -177,6 +179,170 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     }
   };
 
+  // --- Diagnostic resolution (design Risk 7). All repairs are
+  // --- user-triggered semantic repairs — never auto-persisted.
+
+  const clearFrame = (shapeId: TLShapeId) => {
+    const shape = editor.getShape(shapeId);
+    if (shape == null) {
+      return;
+    }
+    const metaCopy = { ...shape.meta };
+    delete metaCopy.frame;
+    editor.updateShape({ id: shape.id, type: shape.type, meta: metaCopy });
+  };
+
+  const compareByFrameIdThenShapeId = (
+    a: { shapeId: string; frame: Frame },
+    b: { shapeId: string; frame: Frame },
+  ) =>
+    a.frame.id !== b.frame.id
+      ? a.frame.id < b.frame.id
+        ? -1
+        : 1
+      : a.shapeId < b.shapeId
+        ? -1
+        : a.shapeId > b.shapeId
+          ? 1
+          : 0;
+
+  const selectedCue = (() => {
+    const shape = editor.getOnlySelectedShape();
+    if (shape == null) {
+      return null;
+    }
+    const frame = getStoredFrame(shape);
+    return frame?.type === "cue" ? { shapeId: shape.id, frame } : null;
+  })();
+
+  const handleDiagnosticSelect = (diagnostic: TimelineDiagnostic) => {
+    const shapeIds =
+      "shapeIds" in diagnostic ? diagnostic.shapeIds : [diagnostic.shapeId];
+    const existing = shapeIds.filter(
+      (id) => editor.getShape(id as TLShapeId) != null,
+    ) as TLShapeId[];
+    if (existing.length > 0) {
+      editor.select(...existing);
+    }
+  };
+
+  const handleResolveDiagnostic = (diagnostic: TimelineDiagnostic) => {
+    switch (diagnostic.type) {
+      case "invalid-frame":
+      case "detached-sub-frame":
+        clearFrame(diagnostic.shapeId as TLShapeId);
+        return;
+      case "step-key-divergence": {
+        // Converge divergent keys to the canonical one — the
+        // representative's (smallest frame.id), the same rule the
+        // derivation canonicalizes with in memory.
+        const members = collectStoredFrames()
+          .filter(
+            (entry): entry is { shapeId: string; frame: CueFrame } =>
+              entry.frame.type === "cue" &&
+              entry.frame.stepId === diagnostic.stepId,
+          )
+          .sort(compareByFrameIdThenShapeId);
+        const canonicalKey = members[0]?.frame.stepOrderKey;
+        if (canonicalKey == null) {
+          return;
+        }
+        editor.run(() => {
+          for (const member of members) {
+            if (member.frame.stepOrderKey !== canonicalKey) {
+              writeFrame(member.shapeId as TLShapeId, {
+                ...member.frame,
+                stepOrderKey: canonicalKey,
+              });
+            }
+          }
+        });
+        return;
+      }
+      case "duplicate-frame-id": {
+        // The representative (smallest shape id) keeps the stored id —
+        // sub frames referencing it stay attached; the other shapes get
+        // fresh ids.
+        const duplicates = collectStoredFrames()
+          .filter((entry) => entry.frame.id === diagnostic.frameId)
+          .sort((a, b) =>
+            a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0,
+          );
+        editor.run(() => {
+          for (const duplicate of duplicates.slice(1)) {
+            writeFrame(duplicate.shapeId as TLShapeId, {
+              ...duplicate.frame,
+              id: uniqueId(),
+            });
+          }
+        });
+        return;
+      }
+      case "same-track-split": {
+        // Materialize the derived split: the split-off cue gets its own
+        // stored step directly after the source step.
+        const members = collectStoredFrames()
+          .filter(
+            (entry): entry is { shapeId: string; frame: CueFrame } =>
+              entry.frame.type === "cue" &&
+              entry.frame.stepId === diagnostic.stepId &&
+              entry.frame.trackId === diagnostic.trackId,
+          )
+          .sort(compareByFrameIdThenShapeId);
+        const split = members.find(
+          (entry, index) =>
+            index > 0 && diagnostic.shapeIds.includes(entry.shapeId),
+        );
+        const stepIndex = doc.steps.findIndex(
+          (step) => step.id === diagnostic.stepId,
+        );
+        if (split == null || stepIndex < 0) {
+          return;
+        }
+        const insertion = makeInsertionSpace(
+          doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
+          stepIndex + 1,
+        );
+        editor.run(() => {
+          applyStepKeyUpdates(insertion.updates);
+          writeFrame(split.shapeId as TLShapeId, {
+            ...split.frame,
+            stepId: uniqueId(),
+            stepOrderKey: insertion.insertedKey,
+          });
+        });
+        return;
+      }
+    }
+  };
+
+  const handleReattachDetached = (
+    diagnostic: Extract<TimelineDiagnostic, { type: "detached-sub-frame" }>,
+  ) => {
+    if (selectedCue == null) {
+      return;
+    }
+    const shape = editor.getShape(diagnostic.shapeId as TLShapeId);
+    const frame = shape != null ? getStoredFrame(shape) : null;
+    if (shape == null || frame?.type !== "sub") {
+      return;
+    }
+    // Append after the target batch's last sub frame.
+    const position = findFramePosition(doc, selectedCue.frame.id);
+    const lastSubFrameData = position?.batch.frames.slice(1).at(-1);
+    let lastSubKey: string | null = null;
+    if (lastSubFrameData != null) {
+      const lastShape = editor.getShape(lastSubFrameData.shapeId as TLShapeId);
+      const lastFrame = lastShape != null ? getStoredFrame(lastShape) : null;
+      lastSubKey = lastFrame?.type === "sub" ? lastFrame.orderKey : null;
+    }
+    writeFrame(shape.id, {
+      ...frame,
+      cueFrameId: selectedCue.frame.id,
+      orderKey: interactiveKeyAbove(lastSubKey),
+    });
+  };
+
   return (
     <div
       className={styles.panelContainer}
@@ -206,6 +372,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           onStepSelect={onCurrentStepIndexChange}
           shapeSelections={shapeSelections}
           onFrameSelect={handleFrameSelect}
+          onDiagnosticSelect={handleDiagnosticSelect}
+          onResolveDiagnostic={handleResolveDiagnostic}
+          onReattachDetached={handleReattachDetached}
+          canReattachDetached={selectedCue != null}
           showAttachCueFrameButton={
             selectedAnimeFrameAttachableShapes.length > 0
           }
