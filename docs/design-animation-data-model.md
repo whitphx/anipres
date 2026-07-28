@@ -8,7 +8,17 @@
 
 ## Status
 
-Proposal. Not implemented. No code changes accompany this document.
+Implemented by PR #487. The core v2 model, derivation, ordering, and repair
+operations live in `packages/anipres/src/models.ts` and the Timeline and Control
+Panel modules. Deterministic v1 migration lives in
+`packages/anipres/src/legacy-models.ts`; operation-scoped duplication and paste
+remapping live in `packages/anipres/src/preprocess-animation-content.ts`. The
+minimum animation-data version is enforced by the sync route, Durable Object
+fetch boundary, and snapshot replacement endpoint in `packages/worker`.
+
+Items explicitly marked out of scope below remain deferred. PR #487 preserves
+the established Timeline push/sweep interaction rather than claiming wholesale
+convergence with alternative implementations.
 
 ## Revision History
 
