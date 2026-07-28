@@ -6,6 +6,7 @@
 // Anipres' agent perceives today) and `slide` is Anipres-specific.
 // See THIRD_PARTY_NOTICES.md at the repo root.
 import type { Editor } from "tldraw";
+import { compareOrderKeys } from "anipres/models";
 import { FocusedColorSchema, type FocusedColor } from "./focused-color.js";
 import type { FocusedShape } from "./focused-shape.js";
 
@@ -66,7 +67,7 @@ export function tldrawShapeToFocusedShape(
       >;
     };
     const points = Object.values(props.points)
-      .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0))
+      .sort((a, b) => compareOrderKeys(a.index, b.index))
       .map(({ x, y }) => ({ x, y }));
     return {
       _type: "line",

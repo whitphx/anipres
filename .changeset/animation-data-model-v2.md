@@ -30,3 +30,9 @@ connections and snapshot uploads must declare
 are rejected with HTTP 426 after deployment — reload to pick up the new
 client. The gate constant is derived from the library's
 `TIMELINE_FORMAT_VERSION`.
+
+Also fixes the app's document-list ordering: `sortOrder` values are
+fractional index keys, and comparing them with `localeCompare`
+mis-sorts entries keyed before the first item (capital-prefixed keys)
+and varies with the viewer's locale. All fractional-key comparisons now
+go through the library's code-unit `compareOrderKeys`.

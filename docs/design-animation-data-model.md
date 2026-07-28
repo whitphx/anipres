@@ -18,9 +18,9 @@ repairs: align divergent step keys, materialize same-track splits,
 freshen duplicate ids, reattach or clear detached sub frames). A sibling
 implementation of this design (PR #487, `codex/redesign-data-structure`)
 was converged into #486 — the version gate, the before-first-key
-regression tests, the byte-for-byte sub-chain migration resume, and the
-diagnostic-resolution UI were ported/adapted from it — and is being
-closed.
+regression tests, the byte-for-byte sub-chain migration resume, the
+diagnostic-resolution UI, and the app document-list `sortOrder`
+comparison fix were ported/adapted from it — and has been closed.
 
 Deliberately deferred (tracked as follow-ups, not part of #486):
 opportunistic persistence of semantic repairs (repairs are strictly
