@@ -121,12 +121,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download trusted worker configuration
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
-          ref: ${{ env.HEAD_SHA }}
-          persist-credentials: false
-          sparse-checkout: packages/worker/wrangler.toml
-          sparse-checkout-cone-mode: false
+          script: |
+            const { mkdir, writeFile } = require('node:fs/promises')
+            const { data } = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: 'packages/worker/wrangler.toml',
+              ref: process.env.HEAD_SHA,
+            })
+            if (Array.isArray(data) || data.type !== 'file' || data.encoding !== 'base64') {
+              throw new Error('Expected a base64-encoded wrangler.toml file')
+            }
+            await mkdir('packages/worker', { recursive: true })
+            await writeFile(
+              'packages/worker/wrangler.toml',
+              Buffer.from(data.content, data.encoding),
+            )
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
