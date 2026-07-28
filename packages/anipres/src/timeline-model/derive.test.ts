@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveTimeline } from "./derive";
+import { deterministicKeysBetween } from "./keys";
 import { makeSyntheticStepId, SYNTHETIC_STEP_PREFIX } from "./ids";
 import type { CueFrame, SubFrame } from "./types";
 
@@ -253,5 +254,41 @@ describe("makeSyntheticStepId", () => {
     expect(makeSyntheticStepId("s", "x")).not.toBe(
       makeSyntheticStepId("s", "y"),
     );
+  });
+});
+
+// Regression guard: fractional keys generated BEFORE the first item are
+// capital-prefixed (e.g. the key below "a0" is "Zz"), and only plain
+// code-unit comparison sorts them correctly — String#localeCompare puts
+// "Zz" AFTER "a0". These tests assert via the full derivation so they
+// fail if any future sort site regresses to localeCompare.
+describe("before-first key ordering (capital-prefixed keys)", () => {
+  it("derives a step keyed below the previous first step as the new first step", () => {
+    // "a0" is the lowest integer key; the key below it is capital-prefixed.
+    const [belowKey] = deterministicKeysBetween(null, "a0", 1);
+    // The premise this guards: before-first keys are capital-prefixed and
+    // mis-sort under locale comparison.
+    expect(belowKey < "a0").toBe(true);
+    expect(belowKey.localeCompare("a0")).toBeGreaterThan(0);
+
+    const doc = derive([
+      { shapeId: "shape:a", frameMeta: cueMeta("f1", "s1", "a0", "T") },
+      { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", belowKey, "U") },
+    ]);
+    expect(doc.steps.map((s) => s.id)).toEqual(["s2", "s1"]);
+  });
+
+  it("derives a sub frame keyed below its batch's first sub frame first", () => {
+    const [belowKey] = deterministicKeysBetween(null, "a0", 1);
+    const doc = derive([
+      { shapeId: "shape:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frameMeta: subMeta("f2", "f1", "a0") },
+      { shapeId: "shape:c", frameMeta: subMeta("f3", "f1", belowKey) },
+    ]);
+    expect(doc.steps[0].batches[0].frames.map((f) => f.frameId)).toEqual([
+      "f1",
+      "f3",
+      "f2",
+    ]);
   });
 });

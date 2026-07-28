@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { moveFrame } from "./frame-movement";
 import { calcFrameBatchUIData } from "./frame-ui-data";
-import { deriveTimeline } from "../timeline-model";
+import { deriveTimeline, reconcileEditedSteps } from "../timeline-model";
 import type { CueFrame, EditedStep, SubFrame } from "../timeline-model";
 
 // Build UI data from a v2 document — the same path the Timeline uses.
@@ -125,5 +125,59 @@ describe("moveFrame", () => {
     // behind promoted to cue of its own batch.
     const result = moveFrame(steps, "T", 2, 1, -1, "after");
     expect(layout(result)).toEqual([["T:t1"], ["T:t2"], ["U:u1"], ["T:t3"]]);
+  });
+});
+
+// Regression guard for before-first insertion: reconciling a move to the
+// front generates a key BELOW the previous first step's key, which is
+// capital-prefixed (e.g. "Zz" below "a0") and mis-sorts under
+// localeCompare. Run the full pipeline — move, reconcile, apply, re-derive
+// — so this fails if any sort site regresses to locale comparison.
+describe("moveFrame → reconcile → derive round trip (before-first keys)", () => {
+  it("a step dragged before the first step derives first", () => {
+    let minted = 0;
+    const mintId = () => `minted-${++minted}`;
+    // Keys start at the lowest integer key so the generated
+    // before-first key must be capital-prefixed.
+    const frames = [
+      { shapeId: "shape:1", frame: cue("t1", "s1", "a0", "T") },
+      { shapeId: "shape:2", frame: cue("u1", "s2", "a1", "U") },
+    ];
+    const steps = makeSteps(frames);
+
+    // Drag U's batch (step 1) to before everything.
+    const edited = moveFrame(steps, "U", 1, 0, -1, "after");
+    expect(edited).toBeTruthy();
+
+    const result = reconcileEditedSteps({
+      currentFrames: frames,
+      editedSteps: edited!,
+      mintId,
+    });
+    // Apply the reconciled updates to the frame set.
+    const updatedByShapeId = new Map(
+      result.updates.map((u) => [u.shapeId, u.frame]),
+    );
+    const applied = frames.map(({ shapeId, frame }) => ({
+      shapeId,
+      frame: updatedByShapeId.get(shapeId) ?? frame,
+    }));
+
+    const movedKey = (updatedByShapeId.get("shape:2") as CueFrame | undefined)
+      ?.stepOrderKey;
+    expect(movedKey).toBeTruthy();
+    // The premise: the generated key is below "a0" only under code-unit
+    // comparison; localeCompare would sort it after.
+    expect(movedKey! < "a0").toBe(true);
+    expect(movedKey!.localeCompare("a0")).toBeGreaterThan(0);
+
+    const doc = deriveTimeline({
+      shapes: applied.map(({ shapeId, frame }) => ({
+        shapeId,
+        frameMeta: frame,
+      })),
+      pageId: "page:page",
+    });
+    expect(doc.steps.map((s) => s.id)).toEqual(["s2", "s1"]);
   });
 });
