@@ -6,6 +6,7 @@ import {
   readCopyProvenance,
   stripCopyProvenance,
 } from "./provenance";
+import type { AnipresCopyProvenance } from "./provenance";
 
 // A TLContent-shaped payload. The concrete ids matter for the
 // identical-snapshot scenario below: classification must be independent
@@ -51,6 +52,27 @@ function clipboardRoundTrip<T extends object>(content: T): T {
   return { assets: parsed.assets, ...JSON.parse(parsed.otherCompressed) };
 }
 
+/** Pastes stamped content and classifies it against a local instance. */
+function classifyPaste(input: {
+  copiedWithToken: string | null;
+  localDocumentToken: string;
+  sourceShapeIds?: readonly string[];
+  existingShapeIds?: readonly string[];
+}) {
+  const content =
+    input.copiedWithToken != null
+      ? attachCopyProvenance(makeContent(), input.copiedWithToken)
+      : makeContent();
+  const pasted = clipboardRoundTrip(content);
+  const existingSet = new Set(input.existingShapeIds ?? []);
+  return classifyRemapOperation({
+    provenance: readCopyProvenance(pasted),
+    localDocumentToken: input.localDocumentToken,
+    sourceShapeIds: input.sourceShapeIds ?? ["shape:a"],
+    shapeExistsInDocument: (shapeId) => existingSet.has(shapeId),
+  });
+}
+
 describe("copy provenance — serialization round trip", () => {
   it("survives the tldraw clipboard format and reads back intact", () => {
     const stamped = attachCopyProvenance(makeContent(), "token-1");
@@ -72,48 +94,95 @@ describe("copy provenance — serialization round trip", () => {
   });
 });
 
-describe("classifyRemapOperation (copy-source provenance)", () => {
-  it("classifies same-document copy/paste as duplicate (identical shape ids irrelevant)", () => {
-    const pasted = clipboardRoundTrip(
-      attachCopyProvenance(makeContent(), "doc-token"),
-    );
+describe("classifyRemapOperation (provenance + source-shape existence)", () => {
+  it("classifies same-document copy/paste (sources still present) as duplicate", () => {
     expect(
-      classifyRemapOperation({
-        provenance: readCopyProvenance(pasted),
+      classifyPaste({
+        copiedWithToken: "doc-token",
         localDocumentToken: "doc-token",
+        existingShapeIds: ["shape:a"],
       }),
     ).toBe("duplicate");
   });
 
-  it("classifies a paste from another document as external-paste", () => {
-    const pasted = clipboardRoundTrip(
-      attachCopyProvenance(makeContent(), "other-doc-token"),
-    );
+  it("classifies same-document cut+paste (sources removed) as move", () => {
+    // tldraw's cut stamps the content at copy time and then deletes the
+    // shapes: token matches, no source shape exists → the same logical
+    // animation objects are RETURNING, not being copied.
     expect(
-      classifyRemapOperation({
-        provenance: readCopyProvenance(pasted),
+      classifyPaste({
+        copiedWithToken: "doc-token",
         localDocumentToken: "doc-token",
+        existingShapeIds: [],
+      }),
+    ).toBe("move");
+  });
+
+  it("classifies undo-cut-then-paste (sources restored) as duplicate", () => {
+    // The undo restored the originals, which own their identities again;
+    // the paste must be an independent copy, never a rejoin.
+    expect(
+      classifyPaste({
+        copiedWithToken: "doc-token",
+        localDocumentToken: "doc-token",
+        existingShapeIds: ["shape:a"],
+      }),
+    ).toBe("duplicate");
+  });
+
+  it("classifies mixed source presence conservatively as external-paste", () => {
+    // Partial undo/deletion between cut and paste: neither duplication
+    // nor move semantics can be applied partially without risking wrong
+    // joins or misplacement — collision-driven external-paste rules are
+    // the safe fallback (no step/track joining, no placement).
+    expect(
+      classifyPaste({
+        copiedWithToken: "doc-token",
+        localDocumentToken: "doc-token",
+        sourceShapeIds: ["shape:a", "shape:b"],
+        existingShapeIds: ["shape:a"],
+      }),
+    ).toBe("external-paste");
+  });
+
+  it("classifies a paste from another document as external-paste", () => {
+    expect(
+      classifyPaste({
+        copiedWithToken: "other-doc-token",
+        localDocumentToken: "doc-token",
+        existingShapeIds: [],
       }),
     ).toBe("external-paste");
   });
 
   it("classifies an identical-snapshot sibling paste as external-paste", () => {
     // Two documents created from the same snapshot share EVERY id —
-    // shape, frame, step, and track. Byte-identical content, different
-    // source instance: only the token can (and does) tell them apart.
-    const local = attachCopyProvenance(makeContent(), "doc-token");
-    const sibling = attachCopyProvenance(makeContent(), "sibling-token");
+    // shape, frame, step, and track — so the source shape ids DO resolve
+    // locally. Only the token can (and does) tell the flows apart.
     expect(JSON.stringify(makeContent())).toBe(JSON.stringify(makeContent()));
     expect(
-      classifyRemapOperation({
-        provenance: readCopyProvenance(clipboardRoundTrip(local)),
+      classifyPaste({
+        copiedWithToken: "sibling-token",
         localDocumentToken: "doc-token",
+        existingShapeIds: ["shape:a"],
+      }),
+    ).toBe("external-paste");
+    expect(
+      classifyPaste({
+        copiedWithToken: "doc-token",
+        localDocumentToken: "doc-token",
+        existingShapeIds: ["shape:a"],
       }),
     ).toBe("duplicate");
+  });
+
+  it("classifies cross-document cut+paste as external-paste (unchanged collision rules)", () => {
+    // The source shapes never existed here; the differing token decides.
     expect(
-      classifyRemapOperation({
-        provenance: readCopyProvenance(clipboardRoundTrip(sibling)),
+      classifyPaste({
+        copiedWithToken: "other-doc-token",
         localDocumentToken: "doc-token",
+        existingShapeIds: [],
       }),
     ).toBe("external-paste");
   });
@@ -123,9 +192,10 @@ describe("classifyRemapOperation (copy-source provenance)", () => {
     // payloads carry no token.
     expect(readCopyProvenance(clipboardRoundTrip(makeContent()))).toBeNull();
     expect(
-      classifyRemapOperation({
-        provenance: null,
+      classifyPaste({
+        copiedWithToken: null,
         localDocumentToken: "doc-token",
+        existingShapeIds: ["shape:a"],
       }),
     ).toBe("external-paste");
     expect(readCopyProvenance(null)).toBeNull();
@@ -134,27 +204,16 @@ describe("classifyRemapOperation (copy-source provenance)", () => {
     ).toBeNull();
   });
 
-  it("classifies same-document cut+paste as duplicate (intended semantics)", () => {
-    // tldraw's cut copies the content — stamping the token — and then
-    // deletes the shapes, so a same-document cut+paste classifies as
-    // duplicate: identities are freshened, and because the originals are
-    // gone the placement pass keeps the source keys, so frames return to
-    // their old positions with fresh identities. A CROSS-document
-    // cut+paste has differing tokens → external-paste, which keeps
-    // identities (move semantics).
-    const cutContent = clipboardRoundTrip(
-      attachCopyProvenance(makeContent(), "doc-token"),
-    );
+  it("classifies empty content as external-paste (a no-op either way)", () => {
+    const provenance: AnipresCopyProvenance = {
+      sourceDocumentToken: "doc-token",
+    };
     expect(
       classifyRemapOperation({
-        provenance: readCopyProvenance(cutContent),
+        provenance,
         localDocumentToken: "doc-token",
-      }),
-    ).toBe("duplicate");
-    expect(
-      classifyRemapOperation({
-        provenance: readCopyProvenance(cutContent),
-        localDocumentToken: "another-doc-token",
+        sourceShapeIds: [],
+        shapeExistsInDocument: () => true,
       }),
     ).toBe("external-paste");
   });

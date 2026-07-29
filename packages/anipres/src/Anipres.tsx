@@ -535,7 +535,8 @@ const Inner = (props: InnerProps) => {
     // The wrapper ALSO stamps copied content with copy-source provenance
     // (an opaque per-mounted-instance token) — the authoritative signal
     // the paste interception below uses to distinguish within-document
-    // duplication from external paste. Ids cannot distinguish those:
+    // operations (duplicate, cut/paste move) from external paste. Ids
+    // cannot distinguish those:
     // documents created from the same snapshot share every id. The extra
     // top-level property survives tldraw's clipboard serialization (the
     // copy path spreads the content's non-asset properties into the
@@ -616,13 +617,17 @@ const Inner = (props: InnerProps) => {
               existingTrackIds.add(parsed.frame.trackId);
             }
           }
-          // Operation kind from copy-source provenance — never from
+          // Operation kind from copy-source provenance + source-shape
+          // existence (duplicate vs move vs external paste) — never from
           // shape-id or animation-id collisions, which cannot distinguish
           // identical-snapshot sibling documents (semantics and
           // limitations: see the provenance module comment).
           const operation = classifyRemapOperation({
             provenance,
             localDocumentToken: copySourceToken,
+            sourceShapeIds: content.shapes.map((shape) => shape.id),
+            shapeExistsInDocument: (shapeId) =>
+              editor.getShape(shapeId as TLShapeId) != null,
           });
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({

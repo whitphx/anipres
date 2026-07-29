@@ -491,3 +491,196 @@ describe("remapContentFrames — shared behavior", () => {
     expect(r2.existingStepKeyUpdates).toEqual(r1.existingStepKeyUpdates);
   });
 });
+
+describe("remapContentFrames — same-document move (cut + paste)", () => {
+  // move = restore the same logical animation objects after a cut.
+  // Identities and relationships are preserved so pasted shapes rejoin
+  // uncut members of their original steps, tracks, and batches.
+
+  it("keeps the shared stepId when only part of a simultaneous step was cut (round trip)", () => {
+    // Cues A and B shared stepId s1; only A was cut. B remains.
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+        ],
+        existing: {
+          frameIds: new Set(["f2"]),
+          stepIds: new Set(["s1"]), // B still owns s1 — the rejoin target
+          trackIds: new Set(["U"]),
+        },
+      }),
+    );
+    const a = result.updatedFrames.get("copy:a") as CueFrame;
+    expect(a).toEqual(cueMeta("f1", "s1", "a1", "T")); // fully preserved
+    expect(result.existingStepKeyUpdates).toEqual([]);
+
+    // Re-derive with the remaining cue B: A and B are simultaneous again.
+    const doc = deriveTimeline({
+      shapes: [
+        { shapeId: "shape:b", frameMeta: cueMeta("f2", "s1", "a1", "U") },
+        { shapeId: "shape:pasted", frameMeta: a },
+      ],
+      pageId: "page:page",
+    });
+    expect(doc.steps).toHaveLength(1);
+    expect(doc.steps[0].batches).toHaveLength(2);
+    expect(doc.diagnostics).toEqual([]);
+  });
+
+  it("keeps the trackId when only part of a track was cut (round trip)", () => {
+    // Cues A (step s1) and B (step s2) share track T; only A was cut.
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+        ],
+        existing: {
+          frameIds: new Set(["f2"]),
+          stepIds: new Set(["s2"]),
+          trackIds: new Set(["T"]), // B still animates on T
+        },
+      }),
+    );
+    const a = result.updatedFrames.get("copy:a") as CueFrame;
+    expect(a).toEqual(cueMeta("f1", "s1", "a1", "T"));
+
+    // Re-derive with the remaining cue B: one two-step sequence on T.
+    const doc = deriveTimeline({
+      shapes: [
+        { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", "a2", "T") },
+        { shapeId: "shape:pasted", frameMeta: a },
+      ],
+      pageId: "page:page",
+    });
+    expect(doc.steps).toHaveLength(2);
+    expect(doc.steps[0].batches[0].trackId).toBe("T");
+    expect(doc.steps[1].batches[0].trackId).toBe("T");
+  });
+
+  it("keeps cueFrameId and order for sub frames cut without their cue (round trip)", () => {
+    // The cue and one sub remain; two subs were cut and pasted back.
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: [
+          { shapeId: "copy:y", frameMeta: subMeta("f-y", "c1", "a3") },
+          { shapeId: "copy:x", frameMeta: subMeta("f-x", "c1", "a2") },
+        ],
+        existing: {
+          frameIds: new Set(["c1", "f-s0"]),
+          stepIds: new Set(["s1"]),
+          trackIds: new Set(["T"]),
+        },
+      }),
+    );
+    const x = result.updatedFrames.get("copy:x") as SubFrame;
+    const y = result.updatedFrames.get("copy:y") as SubFrame;
+    expect(x).toEqual(subMeta("f-x", "c1", "a2")); // reference NOT severed
+    expect(y).toEqual(subMeta("f-y", "c1", "a3"));
+
+    // Re-derive with the remaining cue and sub: the moved subs reattach
+    // to the original batch in their original order — not detached.
+    const doc = deriveTimeline({
+      shapes: [
+        { shapeId: "shape:c", frameMeta: cueMeta("c1", "s1", "a1", "T") },
+        { shapeId: "shape:s0", frameMeta: subMeta("f-s0", "c1", "a1") },
+        { shapeId: "shape:x", frameMeta: x },
+        { shapeId: "shape:y", frameMeta: y },
+      ],
+      pageId: "page:page",
+    });
+    expect(doc.detachedFrames).toEqual([]);
+    expect(doc.steps[0].batches[0].frames.map((f) => f.frameId)).toEqual([
+      "c1",
+      "f-s0",
+      "f-x",
+      "f-y",
+    ]);
+  });
+
+  it("preserves a complete self-contained sequence byte-for-byte", () => {
+    // A whole sequence (cue + subs) was cut; nothing of it remains.
+    const source = [
+      { shapeId: "copy:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+      { shapeId: "copy:b", frameMeta: subMeta("f2", "f1", "a0") },
+      { shapeId: "copy:c", frameMeta: subMeta("f3", "f1", "a1") },
+    ];
+    const currentDoc = deriveTimeline({
+      shapes: [
+        { shapeId: "shape:other", frameMeta: cueMeta("g1", "s9", "a9", "V") },
+      ],
+      pageId: "page:page",
+    });
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: source,
+        existing: {
+          frameIds: new Set(["g1"]),
+          stepIds: new Set(["s9"]),
+          trackIds: new Set(["V"]),
+        },
+        currentDoc, // present, but a move must NOT run placement
+      }),
+    );
+    expect(result.updatedFrames.get("copy:a")).toEqual(
+      cueMeta("f1", "s1", "a1", "T"),
+    );
+    expect(result.updatedFrames.get("copy:b")).toEqual(
+      subMeta("f2", "f1", "a0"),
+    );
+    expect(result.updatedFrames.get("copy:c")).toEqual(
+      subMeta("f3", "f1", "a1"),
+    );
+    expect(result.existingStepKeyUpdates).toEqual([]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("freshens a genuinely colliding frame.id instead of silently joining the live record", () => {
+    // Residual conflict: sync (or partial deletion) left a LIVE record
+    // with the moved cue's frame.id. The id is freshened exactly as in an
+    // external paste; the moved sub follows its cue via the remap, and
+    // step/track identities are still preserved.
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+          { shapeId: "copy:b", frameMeta: subMeta("f2", "f1", "a0") },
+        ],
+        existing: {
+          frameIds: new Set(["f1"]), // conflicting live record
+          stepIds: new Set(["s1"]),
+          trackIds: new Set(["T"]),
+        },
+      }),
+    );
+    const a = result.updatedFrames.get("copy:a") as CueFrame;
+    const b = result.updatedFrames.get("copy:b") as SubFrame;
+    expect(a.id).not.toBe("f1"); // no silent join
+    expect(a.stepId).toBe("s1"); // rejoin semantics otherwise intact
+    expect(a.trackId).toBe("T");
+    expect(b.cueFrameId).toBe(a.id); // sub follows its moved cue
+  });
+
+  it("keeps the cue reference of a moved sub even when its own id collides", () => {
+    const result = remapContentFrames(
+      makeInput({
+        operation: "move",
+        shapes: [{ shapeId: "copy:a", frameMeta: subMeta("f2", "c1", "a2") }],
+        existing: {
+          frameIds: new Set(["f2", "c1"]), // own id collides; cue remains
+          stepIds: new Set(["s1"]),
+          trackIds: new Set(["T"]),
+        },
+      }),
+    );
+    const moved = result.updatedFrames.get("copy:a") as SubFrame;
+    expect(moved.id).not.toBe("f2"); // freshened against the live record
+    expect(moved.cueFrameId).toBe("c1"); // still rejoins the original batch
+    expect(moved.orderKey).toBe("a2");
+  });
+});

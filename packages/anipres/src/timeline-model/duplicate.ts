@@ -17,20 +17,32 @@ import { isReservedStepId } from "./ids";
 import { makeInsertionSpace } from "./insertion-space";
 
 /**
- * The operation being preprocessed. Placement semantics differ, so the
- * caller passes this explicitly rather than the transform inferring it
- * from id collisions (a shared-ancestry paste collides too, but the
- * colliding local step is NOT the pasted step's original):
+ * The operation being preprocessed. The caller classifies it explicitly
+ * (from copy provenance + source-shape existence; see
+ * `classifyRemapOperation`) — the transform never infers it from id
+ * collisions (a shared-ancestry paste collides too, but the colliding
+ * local step is NOT the pasted step's original):
  *
- * - "duplicate": the copied shapes come from THIS document. Every copied
+ * - "duplicate" = create a new independent copy. The copied shapes come
+ *   from THIS document and their originals still exist: every copied
  *   step gets fresh shared identities and is placed directly after its
  *   original.
- * - "external-paste": the content comes from another document. Colliding
+ * - "move" = restore the same logical animation objects after a cut.
+ *   The copied shapes come from THIS document and their originals were
+ *   removed: identities and relationships (frame.id, stepId,
+ *   stepOrderKey, trackId, cueFrameId, sub orderKey) are preserved so
+ *   the pasted shapes rejoin uncut members of their original steps,
+ *   tracks, and batches. No placement-after-original. Safety fallback:
+ *   a frame.id that nonetheless collides with a live record (sync
+ *   introduced a record with the same id, partial deletion…) is
+ *   freshened exactly as in an external paste rather than silently
+ *   joining an unintended record; reserved stepIds are still freshened.
+ * - "external-paste" = import content from another document. Colliding
  *   `stepId`/`trackId` values are remapped, but the pasted steps keep
  *   their source order keys (preserving their relative order); they are
  *   not repositioned relative to any colliding local step.
  */
-export type RemapOperation = "duplicate" | "external-paste";
+export type RemapOperation = "duplicate" | "move" | "external-paste";
 
 export interface RemapContentInput {
   /** The copied shapes (their ids are the fresh ids of the copies). */
@@ -131,16 +143,22 @@ export function remapContentFrames(
   // --- shared fresh unresolved id per absent source cue (distinct absent
   // --- cues get distinct ids). Minted over the SORTED absent-id set so
   // --- the id assignment is independent of input shape order.
+  // --- A MOVE never severs: the reference points at the same logical cue
+  // --- in the same document (possibly left behind by a partial cut), so
+  // --- the map stays empty and the original reference is kept.
   const externalCueIdMap = new Map<string, string>();
-  const absentCueIds = [
-    ...new Set(
-      entries.flatMap(({ frame }) =>
-        frame.type === "sub" && !cueEntryByFrameId.has(frame.cueFrameId)
-          ? [frame.cueFrameId]
-          : [],
-      ),
-    ),
-  ].sort();
+  const absentCueIds =
+    operation === "move"
+      ? []
+      : [
+          ...new Set(
+            entries.flatMap(({ frame }) =>
+              frame.type === "sub" && !cueEntryByFrameId.has(frame.cueFrameId)
+                ? [frame.cueFrameId]
+                : [],
+            ),
+          ),
+        ].sort();
   for (const absentCueId of absentCueIds) {
     externalCueIdMap.set(absentCueId, mintId());
   }
@@ -148,8 +166,11 @@ export function remapContentFrames(
   // --- stepId / trackId remapping: intentionally SHARED identities, so
   // --- old-id keys are correct. Duplication freshens every copied
   // --- identity (the sources are by definition local); external paste
-  // --- freshens only on local collision (shared-ancestry documents) and
-  // --- always for reserved-prefix ids.
+  // --- freshens only on local collision (shared-ancestry documents);
+  // --- a move preserves both (rejoining uncut step/track members is the
+  // --- point — a still-existing stepId/trackId is the rejoin target,
+  // --- not a collision). Reserved-prefix ids are freshened in EVERY
+  // --- operation (they must never persist).
   const stepIdMap = new Map<string, string>();
   const trackIdMap = new Map<string, string>();
   for (const { frame } of entries) {
@@ -157,14 +178,17 @@ export function remapContentFrames(
     if (
       !stepIdMap.has(frame.stepId) &&
       (operation === "duplicate" ||
-        existing.stepIds.has(frame.stepId) ||
+        (operation === "external-paste" &&
+          existing.stepIds.has(frame.stepId)) ||
         isReservedStepId(frame.stepId))
     ) {
       stepIdMap.set(frame.stepId, mintId());
     }
     if (
       !trackIdMap.has(frame.trackId) &&
-      (operation === "duplicate" || existing.trackIds.has(frame.trackId))
+      (operation === "duplicate" ||
+        (operation === "external-paste" &&
+          existing.trackIds.has(frame.trackId)))
     ) {
       trackIdMap.set(frame.trackId, mintId());
     }
@@ -173,8 +197,9 @@ export function remapContentFrames(
   // --- Step order keys. DUPLICATION places each copied step directly
   // --- after its original via collision-run-aware insertion (equal-key
   // --- runs are normalized, never fed to a bare key-between call);
-  // --- EXTERNAL PASTE keeps the source keys so the pasted steps preserve
-  // --- their own relative order.
+  // --- EXTERNAL PASTE and MOVE keep the source keys — external paste to
+  // --- preserve the pasted steps' own relative order, move because the
+  // --- frames return at their original timeline positions.
   const remappedStepKey = new Map<string, string>(); // old stepId -> new key
   const existingStepKeyUpdates = new Map<string, string>(); // stepId -> key
   if (operation === "duplicate" && currentDoc != null) {
@@ -224,21 +249,26 @@ export function remapContentFrames(
       updatedFrames.set(shapeId, remapped);
     } else {
       // Resolve the cue reference among the copies via the representative.
-      // When the cue is NOT part of the operation, the reference is
-      // SEVERED with a fresh deliberately-unresolved id: keeping the
-      // original id would re-attach a within-document duplicate to the
-      // original cue (and could accidentally attach a shared-ancestry
-      // paste to an unrelated local cue). The copies arrive detached
-      // (derivation rule 3) and can be reattached explicitly — but copies
-      // that referenced the SAME absent cue share ONE unresolved id, so
-      // their grouping survives the severing.
+      // When the cue is NOT part of the operation:
+      // - MOVE keeps the original reference — the cue (if it still
+      //   exists) is the same logical object in the same document, so a
+      //   partially cut batch reattaches to it instead of arriving
+      //   detached.
+      // - Duplicate/external-paste SEVER the reference with a fresh
+      //   deliberately-unresolved id: keeping the original id would
+      //   re-attach a within-document duplicate to the original cue (and
+      //   could accidentally attach a shared-ancestry paste to an
+      //   unrelated local cue). Copies that referenced the SAME absent
+      //   cue share ONE unresolved id, so their grouping survives.
       const sourceCue = cueEntryByFrameId.get(frame.cueFrameId);
       const remapped: SubFrame = {
         ...frame,
         id: newId,
         cueFrameId: sourceCue
           ? newFrameIdBySourceShapeId.get(sourceCue.shapeId)!
-          : externalCueIdMap.get(frame.cueFrameId)!,
+          : operation === "move"
+            ? frame.cueFrameId
+            : externalCueIdMap.get(frame.cueFrameId)!,
       };
       updatedFrames.set(shapeId, remapped);
     }

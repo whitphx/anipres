@@ -18,25 +18,33 @@
 // insertion, so it is never persisted as document data; foreign
 // consumers of the clipboard payload simply ignore the unknown key.
 //
-// Intended semantics per flow:
-// - Same-document copy → paste: tokens match → "duplicate".
-// - Paste from another document — even one with identical shape, frame,
-//   step, and track ids (identical-snapshot siblings): tokens differ →
-//   "external-paste".
-// - Content without provenance (older anipres, hand-crafted payloads):
-//   → "external-paste" (the safe default).
-// - Cut → paste: tldraw's cut copies content (stamping the token) and
-//   then deletes the shapes, so a same-document cut+paste classifies as
-//   "duplicate". The remap freshens the copied identities; because the
-//   originals were deleted, the placement pass finds no original steps
-//   and keeps the source keys, so frames come back at their old
-//   positions with fresh identities. A cross-document cut+paste has
-//   differing tokens → "external-paste", which keeps identities — the
-//   wanted move semantics.
-// - Same document remounted between copy and paste (reload, reopen):
-//   the token is per mounted editor instance, so this classifies as
-//   "external-paste"; colliding ids are then freshened by the remap —
-//   conservative, never data-corrupting.
+// Operation meanings (see `RemapOperation`):
+//   duplicate      = create a new independent copy
+//   move           = restore the same logical animation objects after cut
+//   external-paste = import content from another document
+//
+// Classification combines the token with SOURCE-SHAPE existence — the
+// token alone cannot tell copy/paste from cut/paste (tldraw's cut stamps
+// the content at copy time and then deletes the shapes), and treating a
+// cut as a duplication would freshen stepId/trackId and break the
+// relationships of partially cut steps, tracks, and batches:
+// - Token matches and EVERY source shape still exists → "duplicate"
+//   (plain copy/paste — and also cut, undo-cut, paste: the restored
+//   originals own their identities again, so the paste must be an
+//   independent copy, never a rejoin).
+// - Token matches and NO source shape exists → "move" (cut → paste; the
+//   same logical objects return and rejoin uncut members of their
+//   steps/tracks/batches).
+// - Token matches with MIXED presence (partial undo/deletion between cut
+//   and paste) → "external-paste", the conservative default: neither
+//   duplication (would freshen and mis-place against half-restored
+//   originals) nor move (could rejoin records whose ownership is
+//   ambiguous) is safe to apply partially; collision-driven remapping
+//   never corrupts.
+// - Token differs or is absent (other documents — even identical-
+//   snapshot siblings sharing every id — older anipres, hand-crafted
+//   payloads, a remounted instance) → "external-paste".
+// - Empty content → "external-paste" (nothing to classify; a no-op).
 
 import type { RemapOperation } from "./duplicate";
 
@@ -93,17 +101,36 @@ export function stripCopyProvenance<T extends object>(content: T): T {
 }
 
 /**
- * Classifies a content-insertion operation from copy provenance:
- * a matching token means within-document duplication; a different or
- * absent token means external paste. Never classifies by shape-id or
- * animation-id collisions (see the module comment for why they cannot
- * distinguish identical-snapshot documents).
+ * Classifies a content-insertion operation from copy provenance plus
+ * source-shape existence (full rules and rationale: module comment).
+ * Never classifies by shape-id or animation-id COLLISIONS — those cannot
+ * distinguish identical-snapshot documents; source-shape existence is
+ * only consulted once the token has proven the content local.
  */
 export function classifyRemapOperation(input: {
   provenance: AnipresCopyProvenance | null;
   localDocumentToken: string;
+  /** Shape ids carried by the inserted content (= the SOURCE shape ids). */
+  sourceShapeIds: readonly string[];
+  /** Whether a shape id currently resolves in the destination document. */
+  shapeExistsInDocument: (shapeId: string) => boolean;
 }): RemapOperation {
-  return input.provenance?.sourceDocumentToken === input.localDocumentToken
-    ? "duplicate"
-    : "external-paste";
+  const { provenance, localDocumentToken, sourceShapeIds } = input;
+  if (provenance?.sourceDocumentToken !== localDocumentToken) {
+    return "external-paste";
+  }
+  if (sourceShapeIds.length === 0) {
+    return "external-paste";
+  }
+  const existing = sourceShapeIds.filter((shapeId) =>
+    input.shapeExistsInDocument(shapeId),
+  ).length;
+  if (existing === sourceShapeIds.length) {
+    return "duplicate";
+  }
+  if (existing === 0) {
+    return "move";
+  }
+  // Mixed presence: conservative fallback (see module comment).
+  return "external-paste";
 }
