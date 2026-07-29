@@ -38,6 +38,7 @@ export type {
   LegacySubFrame,
   LegacyFrame,
   ParsedFrameMeta,
+  ParseFrameMetaOptions,
 } from "./parse";
 export { deriveTimeline } from "./derive";
 export type { DeriveTimelineInput } from "./derive";
