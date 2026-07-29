@@ -22,6 +22,19 @@ regression tests, the byte-for-byte sub-chain migration resume, the
 diagnostic-resolution UI, and the app document-list `sortOrder`
 comparison fix were ported/adapted from it — and has been closed.
 
+A post-convergence external review hardened the implementation further:
+the Timeline edit pipeline is keyed by shape id end-to-end (duplicate
+frame ids survive unrelated edits); parsing is strictly total (malformed
+actions/indexes classify as `invalid-frame`, with a paste-only mode for
+reading reserved step ids); sub-frame-only copies sever their cue
+reference; duplicated-step placement is collision-run-aware and
+transactional, with duplication and external paste distinguished by
+shape identity rather than id collisions; interactive insertion keys are
+jittered while run normalization stays deterministic; migration resume
+covers arbitrary persisted subsets via chain-position reconstruction;
+and duplicate-id repair prefers the cue as keeper, matching the
+derivation's representative.
+
 Deliberately deferred (tracked as follow-ups, not part of #486):
 opportunistic persistence of semantic repairs (repairs are strictly
 user-triggered); the compiled Slidev viewer and the other items under
@@ -147,7 +160,14 @@ Goals of this revision:
   the Timeline UI, and by future step-level references such as the compiled
   Slidev viewer's click mapping).
 - Reduce `Timeline/frame-movement.ts` (`moveFrame`, ~290 lines) to simple key
-  arithmetic.
+  arithmetic. **Implementation note:** this goal was deliberately traded
+  off. The shipped `moveFrame` preserves the established push/sweep drag
+  semantics exactly (frame-granular moves, batch splits/merges,
+  intermediate same-track sweep) — a product behavior the redesign must
+  not change — so it remains an algorithm of comparable size that emits a
+  structural `EditedStep[]`; what the v2 encoding _did_ eliminate is the
+  write-side complexity (sentinels, deck-wide renumbering), which is now
+  `reconcileEditedSteps`' minimal per-shape diff.
 
 Non-goals:
 
@@ -914,19 +934,19 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 
 ## Code Impact
 
-| File                                               | Impact                                                                                                                                                                                                                       |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                 |
-| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration |
-| `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                |
-| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                                |
-| `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                    |
-| `src/Timeline/frame-movement.ts`                   | `moveFrame` rewritten as `stepId`/key assignment + collision-run normalization (~40 lines)                                                                                                                                   |
-| `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                    |
-| `src/ControlPanel/ControlPanel.tsx`                | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths                                                                                                          |
-| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount                                      |
-| `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                      |
-| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily                                                                                                                                          |
+| File                                               | Impact                                                                                                                                                                                                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                                     |
+| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration                     |
+| `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                                    |
+| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                                                    |
+| `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                                        |
+| `src/Timeline/frame-movement.ts`                   | `moveFrame` keeps the v1 push/sweep semantics and emits structural `EditedStep[]`; the ~40-line "key assignment" estimate was traded off for behavior preservation (see Background & Goals note) — write-back is where the simplification landed |
+| `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                                        |
+| `src/ControlPanel/ControlPanel.tsx`                | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths                                                                                                                              |
+| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount                                                          |
+| `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                                          |
+| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily                                                                                                                                                              |
 
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
