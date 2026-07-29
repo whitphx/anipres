@@ -108,11 +108,13 @@ interface StepColumnProps {
   onStepSelect: (stepIndex: number) => void;
   tracks: Track[];
   stepFrameBatches: FrameBatchUIData[];
-  selectedFrameIds: string[];
-  frameEditorRefCallback: (frameId: string) => React.RefCallback<HTMLElement>;
+  selectedFrameShapeIds: string[];
+  frameEditorRefCallback: (
+    frameShapeId: string,
+  ) => React.RefCallback<HTMLElement>;
   draggedFrame: FrameUIData | null;
   onFrameChange: (newFrame: FrameUIData) => void;
-  onFrameSelect: (frameId: string) => void;
+  onFrameSelect: (frameShapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
 }
@@ -123,7 +125,7 @@ const StepColumn = React.memo(
     onStepSelect,
     tracks,
     stepFrameBatches,
-    selectedFrameIds,
+    selectedFrameShapeIds,
     frameEditorRefCallback,
     draggedFrame,
     onFrameChange,
@@ -172,21 +174,25 @@ const StepColumn = React.memo(
                         >
                           <FrameEditor
                             frame={cueFrame}
-                            isPlaceholder={draggedFrame?.id === cueFrame.id}
+                            isPlaceholder={
+                              draggedFrame?.shapeId === cueFrame.shapeId
+                            }
                             onUpdate={onFrameChange}
-                            isSelected={selectedFrameIds.includes(cueFrame.id)}
+                            isSelected={selectedFrameShapeIds.includes(
+                              cueFrame.shapeId,
+                            )}
                             onClick={() => {
-                              onFrameSelect(cueFrame.id);
+                              onFrameSelect(cueFrame.shapeId);
                             }}
-                            ref={frameEditorRefCallback(cueFrame.id)}
+                            ref={frameEditorRefCallback(cueFrame.shapeId)}
                           />
                         </DraggableFrameUI>
 
                         {subFrames.map((subFrame) => {
                           return (
                             <DraggableFrameUI
-                              key={subFrame.id}
-                              id={subFrame.id}
+                              key={subFrame.shapeId}
+                              id={subFrame.shapeId}
                               trackId={track.id}
                               trackIndex={subFrame.trackIndex}
                               globalIndex={trackFrameBatch.globalIndex}
@@ -194,15 +200,17 @@ const StepColumn = React.memo(
                             >
                               <FrameEditor
                                 frame={subFrame}
-                                isPlaceholder={draggedFrame?.id === subFrame.id}
+                                isPlaceholder={
+                                  draggedFrame?.shapeId === subFrame.shapeId
+                                }
                                 onUpdate={onFrameChange}
-                                isSelected={selectedFrameIds.includes(
-                                  subFrame.id,
+                                isSelected={selectedFrameShapeIds.includes(
+                                  subFrame.shapeId,
                                 )}
                                 onClick={() => {
-                                  onFrameSelect(subFrame.id);
+                                  onFrameSelect(subFrame.shapeId);
                                 }}
-                                ref={frameEditorRefCallback(subFrame.id)}
+                                ref={frameEditorRefCallback(subFrame.shapeId)}
                               />
                             </DraggableFrameUI>
                           );
@@ -285,7 +293,7 @@ interface TimelineProps {
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
   shapeSelections: ShapeSelection[];
-  onFrameSelect: (frameId: string) => void;
+  onFrameSelect: (frameShapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
@@ -326,14 +334,14 @@ export function Timeline({
     Record<string, HTMLElement>
   >({});
   const frameEditorRefCallback = useCallback(
-    (frameId: string): React.RefCallback<HTMLElement> =>
+    (frameShapeId: string): React.RefCallback<HTMLElement> =>
       (elem) => {
         if (elem != null) {
-          setFrameEditorDOMs((prev) => ({ ...prev, [frameId]: elem }));
+          setFrameEditorDOMs((prev) => ({ ...prev, [frameShapeId]: elem }));
         } else {
           setFrameEditorDOMs((prev) => {
             const newState = { ...prev };
-            delete newState[frameId];
+            delete newState[frameShapeId];
             return newState;
           });
         }
@@ -341,16 +349,16 @@ export function Timeline({
     [],
   );
 
-  const selectedFrameIds = useMemo(() => {
-    return shapeSelections.flatMap((sel) => sel.frameIds);
+  const selectedFrameShapeIds = useMemo(() => {
+    return shapeSelections.flatMap((sel) => sel.frameShapeIds);
   }, [shapeSelections]);
   const groupSelectionAndEditorDOMs = useMemo(() => {
     const groupSelections = shapeSelections.filter(
-      (sel) => sel.frameIds.length > 1,
+      (sel) => sel.frameShapeIds.length > 1,
     );
     return groupSelections.map((groupSelection) => {
-      const elements = groupSelection.frameIds
-        .map((frameId) => frameEditorDOMs[frameId])
+      const elements = groupSelection.frameShapeIds
+        .map((frameShapeId) => frameEditorDOMs[frameShapeId])
         .filter((elem) => elem !== null);
       return {
         groupSelection: groupSelection,
@@ -491,7 +499,7 @@ export function Timeline({
               onStepSelect={onStepSelect}
               tracks={tracks}
               stepFrameBatches={stepFrameBatches}
-              selectedFrameIds={selectedFrameIds}
+              selectedFrameShapeIds={selectedFrameShapeIds}
               frameEditorRefCallback={frameEditorRefCallback}
               draggedFrame={draggedFrame}
               onFrameChange={onFrameChange}
@@ -540,7 +548,9 @@ export function Timeline({
                 frame={draggedFrame}
                 isPlaceholder={false}
                 onUpdate={() => {}}
-                isSelected={selectedFrameIds.includes(draggedFrame.id)}
+                isSelected={selectedFrameShapeIds.includes(
+                  draggedFrame.shapeId,
+                )}
                 onClick={() => {}}
               />
             )}

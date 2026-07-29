@@ -79,12 +79,12 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
   const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => {
     const leafShapes = getLeafShapes(editor, shape);
-    const leafFrameIds = leafShapes
-      .map((leafShape) => getStoredFrame(leafShape)?.id)
-      .filter((id): id is string => id != null);
+    const leafFrameShapeIds = leafShapes
+      .filter((leafShape) => getStoredFrame(leafShape) != null)
+      .map((leafShape) => leafShape.id as string);
     return {
       shapeId: shape.id,
-      frameIds: leafFrameIds,
+      frameShapeIds: leafFrameShapeIds,
     };
   });
 
@@ -172,8 +172,8 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     });
   };
 
-  const handleFrameSelect = (frameId: string) => {
-    const targetShape = presentationManager.getShapeByFrameId(frameId);
+  const handleFrameSelect = (frameShapeId: string) => {
+    const targetShape = editor.getShape(frameShapeId as TLShapeId);
     if (targetShape) {
       editor.select(targetShape);
     }
@@ -438,20 +438,22 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             // The last selected frame per track, and the latest step any
             // of them belongs to — the new step goes right after it.
-            const selectedLastFrameIdsPerTrack: Record<string, string> = {};
+            // Identified by SHAPE id (frame ids may be duplicated).
+            const selectedLastFrameShapeIdPerTrack: Record<string, string> = {};
             let maxPrevStepIndex = -1;
             doc.steps.forEach((step, stepIndex) => {
               for (const batch of step.batches) {
                 for (const frame of batch.frames) {
-                  if (shapeSelection.frameIds.includes(frame.frameId)) {
-                    selectedLastFrameIdsPerTrack[batch.trackId] = frame.frameId;
+                  if (shapeSelection.frameShapeIds.includes(frame.shapeId)) {
+                    selectedLastFrameShapeIdPerTrack[batch.trackId] =
+                      frame.shapeId;
                     maxPrevStepIndex = Math.max(maxPrevStepIndex, stepIndex);
                   }
                 }
               }
             });
-            const selectedLastFrameIdsInItsTrack = Object.values(
-              selectedLastFrameIdsPerTrack,
+            const selectedLastFrameShapeIdsInItsTrack = Object.values(
+              selectedLastFrameShapeIdPerTrack,
             );
 
             const cloneShapeRecursively = (
@@ -465,7 +467,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
               const frame = getStoredFrame(original);
               const isShapeLastSelectedFrameInItsTrack =
-                frame && selectedLastFrameIdsInItsTrack.includes(frame.id);
+                frame != null &&
+                selectedLastFrameShapeIdsInItsTrack.includes(
+                  original.id as string,
+                );
               const shouldCopyThisShape =
                 original.type === GroupShapeUtil.type ||
                 isShapeLastSelectedFrameInItsTrack;

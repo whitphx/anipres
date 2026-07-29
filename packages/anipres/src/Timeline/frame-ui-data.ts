@@ -48,7 +48,7 @@ export function calcFrameBatchUIData(doc: TimelineDoc) {
       };
       const trackEntry = tracksMap[batch.trackId];
       const frameBatchUIData: FrameBatchUIData = {
-        id: `batch-${cueFrame.frameId}`,
+        id: `batch-${cueFrame.shapeId}`,
         trackId: batch.trackId,
         globalIndex: stepIndex,
         localIndex: trackEntry.frameBatches.length,

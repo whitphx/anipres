@@ -142,7 +142,14 @@ export interface TimelineDoc {
 // ---------------------------------------------------------------------------
 
 export interface EditedFrameRef {
-  id: string;
+  /**
+   * The carrying shape's id — the identity edits are keyed by (unique by
+   * tldraw's guarantee, unlike stored frame ids, which duplicate-id
+   * corruption can collide).
+   */
+  shapeId: string;
+  /** The stored frame id — relationship data and diagnostics only. */
+  frameId: string;
   action: FrameAction;
 }
 export interface EditedBatch {

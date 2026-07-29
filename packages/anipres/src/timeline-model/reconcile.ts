@@ -29,13 +29,14 @@ export interface ReconcileResult {
 export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   const { currentFrames, editedSteps, mintId } = input;
 
-  const currentByFrameId = new Map<string, { shapeId: string; frame: Frame }>();
-  for (const entry of [...currentFrames].sort((a, b) =>
-    a.shapeId < b.shapeId ? -1 : 1,
-  )) {
-    // Representative (smallest shapeId) wins for duplicate frame ids.
-    if (!currentByFrameId.has(entry.frame.id)) {
-      currentByFrameId.set(entry.frame.id, entry);
+  // Keyed by SHAPE id — the identity tldraw guarantees unique. Keying by
+  // frame id would collapse duplicate frame ids (derivation rule 4 keeps
+  // them lossless) onto one representative, and an unrelated Timeline edit
+  // could then strip another shape's animation metadata.
+  const currentByShapeId = new Map<string, { shapeId: string; frame: Frame }>();
+  for (const entry of currentFrames) {
+    if (!currentByShapeId.has(entry.shapeId)) {
+      currentByShapeId.set(entry.shapeId, entry);
     }
   }
 
@@ -45,7 +46,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   const stepIds: string[] = editedSteps.map((step) => {
     const firstCueRef = step[0]?.frames[0];
     const existing = firstCueRef
-      ? currentByFrameId.get(firstCueRef.id)
+      ? currentByShapeId.get(firstCueRef.shapeId)
       : undefined;
     const candidate =
       existing?.frame.type === "cue" ? existing.frame.stepId : undefined;
@@ -74,7 +75,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     for (const batch of step) {
       const cueRef = batch.frames[0];
       if (cueRef == null) continue;
-      const existing = currentByFrameId.get(cueRef.id);
+      const existing = currentByShapeId.get(cueRef.shapeId);
       if (existing?.frame.type === "cue" && existing.frame.stepId === stepId) {
         return existing.frame.stepOrderKey;
       }
@@ -149,12 +150,14 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     for (const batch of step) {
       const [cueRef, ...subRefs] = batch.frames;
       if (cueRef == null) continue;
-      const cueEntry = currentByFrameId.get(cueRef.id);
+      const cueEntry = currentByShapeId.get(cueRef.shapeId);
       if (cueEntry == null) continue; // refs must point at existing frames
 
       const cueFrame: CueFrame = {
         v: 2,
-        id: cueRef.id,
+        // The stored frame id is relationship data and is never changed by
+        // structural edits — sub frames reference the batch through it.
+        id: cueEntry.frame.id,
         type: "cue",
         trackId: batch.trackId,
         stepId: stepIds[stepIndex],
@@ -167,9 +170,9 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
       // relative order are unchanged; otherwise regenerate the batch's
       // sub-key chain (writes bounded to this batch).
       const storedKeys = subRefs.map((ref) => {
-        const entry = currentByFrameId.get(ref.id);
+        const entry = currentByShapeId.get(ref.shapeId);
         return entry?.frame.type === "sub" &&
-          entry.frame.cueFrameId === cueRef.id
+          entry.frame.cueFrameId === cueEntry.frame.id
           ? entry.frame.orderKey
           : null;
       });
@@ -184,13 +187,13 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         : deterministicKeysBetween(null, null, subRefs.length);
 
       subRefs.forEach((ref, index) => {
-        const entry = currentByFrameId.get(ref.id);
+        const entry = currentByShapeId.get(ref.shapeId);
         if (entry == null) return;
         const subFrame: SubFrame = {
           v: 2,
-          id: ref.id,
+          id: entry.frame.id,
           type: "sub",
-          cueFrameId: cueRef.id,
+          cueFrameId: cueEntry.frame.id,
           orderKey: subKeys[index],
           action: ref.action,
         };

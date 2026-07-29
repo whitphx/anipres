@@ -42,7 +42,8 @@ function sub(id: string, cueFrameId: string, orderKey: string): SubFrame {
 function layout(steps: EditedStep[] | undefined) {
   return steps?.map((step) =>
     step.map(
-      (batch) => `${batch.trackId}:${batch.frames.map((f) => f.id).join(",")}`,
+      (batch) =>
+        `${batch.trackId}:${batch.frames.map((f) => f.frameId).join(",")}`,
     ),
   );
 }

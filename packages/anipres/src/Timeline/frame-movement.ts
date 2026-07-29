@@ -26,7 +26,8 @@ function batchToEdited(batch: {
   return {
     trackId: batch.trackId,
     frames: batch.frames.map((frame) => ({
-      id: frame.id,
+      shapeId: frame.shapeId,
+      frameId: frame.id,
       action: frame.action,
     })),
   };

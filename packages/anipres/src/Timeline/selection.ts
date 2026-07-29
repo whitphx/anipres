@@ -2,5 +2,6 @@ import type { TLShapeId } from "tldraw";
 
 export interface ShapeSelection {
   shapeId: TLShapeId;
-  frameIds: string[];
+  /** Shape ids of the selection's leaf shapes that carry frames. */
+  frameShapeIds: string[];
 }
