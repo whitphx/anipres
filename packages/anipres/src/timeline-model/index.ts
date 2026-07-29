@@ -59,3 +59,5 @@ export type {
   RemapContentResult,
   RemapOperation,
 } from "./duplicate";
+export { planDuplicateFrameIdRepair } from "./repairs";
+export type { DuplicateFrameIdRepairPlan } from "./repairs";

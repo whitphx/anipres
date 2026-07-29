@@ -13,6 +13,7 @@ import {
   interactiveKeyAbove,
   makeInsertionSpace,
   parseFrameMeta,
+  planDuplicateFrameIdRepair,
   reconcileEditedSteps,
   type CueFrame,
   type EditedStep,
@@ -260,20 +261,16 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         return;
       }
       case "duplicate-frame-id": {
-        // The representative (smallest shape id) keeps the stored id —
-        // sub frames referencing it stay attached; the other shapes get
-        // fresh ids.
-        const duplicates = collectStoredFrames()
-          .filter((entry) => entry.frame.id === diagnostic.frameId)
-          .sort((a, b) =>
-            a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0,
-          );
+        // Keeper rule shared with the derivation's representative (cue
+        // preferred), so the repair never detaches an attached sub frame.
+        const plan = planDuplicateFrameIdRepair(
+          collectStoredFrames(),
+          diagnostic.frameId,
+          uniqueId,
+        );
         editor.run(() => {
-          for (const duplicate of duplicates.slice(1)) {
-            writeFrame(duplicate.shapeId as TLShapeId, {
-              ...duplicate.frame,
-              id: uniqueId(),
-            });
+          for (const update of plan.updates) {
+            writeFrame(update.shapeId as TLShapeId, update.frame);
           }
         });
         return;
