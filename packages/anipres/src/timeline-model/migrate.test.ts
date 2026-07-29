@@ -409,3 +409,73 @@ describe("sub-frame chain resume (mixed-batch partial migration)", () => {
     expect(getMigratedSubFrameOrderKey(1)).toBe("a1");
   });
 });
+
+describe("arbitrary-subset sub-chain resume (review finding 7)", () => {
+  // Adversarial naming: chain order (z1 -> m2 -> a3) is the OPPOSITE of
+  // id order, so any resume logic that falls back to id ordering instead
+  // of reconstructed chain positions produces a different result than the
+  // complete run.
+  const fullDocument: ShapeLegacyFrame[] = [
+    { shapeId: "shape:c", frame: v1Cue("c1", 0, "T") },
+    { shapeId: "shape:z", frame: v1Sub("z1", "c1") },
+    { shapeId: "shape:m", frame: v1Sub("m2", "z1") },
+    { shapeId: "shape:a", frame: v1Sub("a3", "m2") },
+  ];
+
+  it("resumes every persisted subset of a complete run byte-for-byte", () => {
+    const complete = migrateV1Frames(fullDocument, [], PAGE_ID);
+    const completeByShape = new Map(
+      complete.updates.map((u) => [u.shapeId, u.frame]),
+    );
+    const shapeIds = fullDocument.map((entry) => entry.shapeId);
+
+    for (let mask = 0; mask < 1 << shapeIds.length; mask++) {
+      const persistedShapeIds = new Set(
+        shapeIds.filter((_, i) => (mask & (1 << i)) !== 0),
+      );
+      const persisted: ShapeV2Frame[] = [...persistedShapeIds].map(
+        (shapeId) => ({ shapeId, frame: completeByShape.get(shapeId)! }),
+      );
+      const remainingV1 = fullDocument.filter(
+        (entry) => !persistedShapeIds.has(entry.shapeId),
+      );
+
+      const resumed = migrateV1Frames(remainingV1, persisted, PAGE_ID);
+      // Merged result (persisted ∪ resumed) must equal the complete run.
+      const merged = new Map(
+        persisted.map((entry) => [entry.shapeId, entry.frame]),
+      );
+      for (const update of resumed.updates) {
+        merged.set(update.shapeId, update.frame);
+      }
+      for (const shapeId of shapeIds) {
+        expect(merged.get(shapeId), `subset mask ${mask}`).toEqual(
+          completeByShape.get(shapeId),
+        );
+      }
+      expect(resumed.detachedFrames, `subset mask ${mask}`).toEqual([]);
+    }
+  });
+
+  it("reconstructs positions when only a middle sub frame is persisted", () => {
+    const complete = migrateV1Frames(fullDocument, [], PAGE_ID);
+    const completeByShape = new Map(
+      complete.updates.map((u) => [u.shapeId, u.frame]),
+    );
+    // Persist ONLY m2 (chain middle, index 1): a3 must land at index 2
+    // (after its persisted predecessor) and z1 at index 0 — even though
+    // a3's id sorts before z1's.
+    const resumed = migrateV1Frames(
+      [
+        { shapeId: "shape:c", frame: v1Cue("c1", 0, "T") },
+        { shapeId: "shape:z", frame: v1Sub("z1", "c1") },
+        { shapeId: "shape:a", frame: v1Sub("a3", "m2") },
+      ],
+      [{ shapeId: "shape:m", frame: completeByShape.get("shape:m")! }],
+      PAGE_ID,
+    );
+    const byShape = new Map(resumed.updates.map((u) => [u.shapeId, u.frame]));
+    expect(byShape.get("shape:z")).toEqual(completeByShape.get("shape:z"));
+    expect(byShape.get("shape:a")).toEqual(completeByShape.get("shape:a"));
+  });
+});

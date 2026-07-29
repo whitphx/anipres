@@ -283,54 +283,98 @@ export function migrateV1Frames(
     existingSubKeysByCue.set(frame.cueFrameId, keys);
   }
 
-  // Resolve chain head for each sub frame with cycle protection.
-  const resolveHead = (
-    sub: LegacySubFrame,
-  ): { cueFrameId: string; depth: number; dangling: boolean } => {
-    let currentPrev = sub.prevFrameId;
-    let depth = 0;
-    const visited = new Set<string>([sub.id]);
-    for (;;) {
-      if (cueFrameIds.has(currentPrev)) {
-        return { cueFrameId: currentPrev, depth, dangling: false };
-      }
-      const anchor = existingSubByFrameId.get(currentPrev);
+  // Reverse-map persisted v2 sub keys to their migration-chain indices.
+  // A complete run assigns index = position in the chain, so a persisted
+  // sub's index IS its chain position; remaining v1 subs reconstruct
+  // their positions relative to these anchors (review finding 7 —
+  // arbitrary persisted subsets, not just prefixes).
+  const totalSubBound = v1Subs.length + existingSubByFrameId.size + 1;
+  const chainIndexByKey = new Map<string, number>();
+  for (let index = 0; index < totalSubBound; index++) {
+    chainIndexByKey.set(getMigratedSubFrameOrderKey(index), index);
+  }
+
+  // Resolve each sub frame's batch and minimum chain index, with cycle
+  // protection. minIndex is the frame's exact chain position when the
+  // chain is well formed: hops over remaining v1 predecessors add 1 each,
+  // and an already-migrated v2 predecessor contributes its persisted
+  // index + 1.
+  interface Resolved {
+    cueFrameId: string;
+    minIndex: number;
+    dangling: boolean;
+  }
+  const resolveMemo = new Map<string, Resolved>();
+  const resolvingShapeIds = new Set<string>();
+  const resolveEntry = (entry: {
+    shapeId: string;
+    frame: LegacySubFrame;
+  }): Resolved => {
+    const memoized = resolveMemo.get(entry.shapeId);
+    if (memoized != null) {
+      return memoized;
+    }
+    if (resolvingShapeIds.has(entry.shapeId)) {
+      // Cycle: treat as dangling at the point of the cycle.
+      return {
+        cueFrameId: entry.frame.prevFrameId,
+        minIndex: 0,
+        dangling: true,
+      };
+    }
+    resolvingShapeIds.add(entry.shapeId);
+    const prev = entry.frame.prevFrameId;
+    let result: Resolved;
+    if (cueFrameIds.has(prev)) {
+      result = { cueFrameId: prev, minIndex: 0, dangling: false };
+    } else {
+      const anchor = existingSubByFrameId.get(prev);
       if (anchor != null) {
         // The predecessor is an already-migrated v2 sub frame: the batch
-        // is its batch. Depth counts only the remaining v1 hops, which
-        // preserves the remaining chain's relative order.
-        return { cueFrameId: anchor.cueFrameId, depth, dangling: false };
+        // is its batch, and this frame's position follows the anchor's
+        // persisted chain index (unknown/interactive keys reserve no
+        // position and contribute no minimum).
+        const anchorIndex = chainIndexByKey.get(anchor.orderKey);
+        result = {
+          cueFrameId: anchor.cueFrameId,
+          minIndex: anchorIndex != null ? anchorIndex + 1 : 0,
+          dangling: false,
+        };
+      } else {
+        const prevSubs = subByFrameId.get(prev);
+        if (prevSubs == null || prevSubs.length === 0) {
+          // Chain hits a frame id that doesn't exist: dangling. Keep the
+          // deepest known missing id as the (dangling) cueFrameId so the
+          // state stays representable and reattachable.
+          result = { cueFrameId: prev, minIndex: 0, dangling: true };
+        } else {
+          // Deterministic choice among duplicate sub frame ids.
+          const prevEntry = [...prevSubs].sort((a, b) =>
+            a.shapeId < b.shapeId ? -1 : 1,
+          )[0];
+          const r = resolveEntry(prevEntry);
+          result = {
+            cueFrameId: r.cueFrameId,
+            minIndex: r.minIndex + 1,
+            dangling: r.dangling,
+          };
+        }
       }
-      const prevSubs = subByFrameId.get(currentPrev);
-      if (prevSubs == null || prevSubs.length === 0) {
-        // Chain hits a frame id that doesn't exist: dangling. Keep the
-        // deepest known missing id as the (dangling) cueFrameId so the
-        // state stays representable and reattachable.
-        return { cueFrameId: currentPrev, depth, dangling: true };
-      }
-      if (visited.has(currentPrev)) {
-        // Cycle: treat as dangling at the point of the cycle.
-        return { cueFrameId: currentPrev, depth, dangling: true };
-      }
-      visited.add(currentPrev);
-      // Deterministic choice among duplicate sub frame ids.
-      const prevSub = [...prevSubs].sort((a, b) =>
-        a.shapeId < b.shapeId ? -1 : 1,
-      )[0];
-      currentPrev = prevSub.frame.prevFrameId;
-      depth++;
     }
+    resolvingShapeIds.delete(entry.shapeId);
+    resolveMemo.set(entry.shapeId, result);
+    return result;
   };
 
   interface ResolvedSub {
     shapeId: string;
     frame: LegacySubFrame;
     cueFrameId: string;
-    depth: number;
+    minIndex: number;
     dangling: boolean;
   }
   const resolved: ResolvedSub[] = v1Subs.map((sub) => {
-    const head = resolveHead(sub.frame);
+    const head = resolveEntry(sub);
     return { ...sub, ...head };
   });
 
@@ -344,7 +388,7 @@ export function migrateV1Frames(
   }
   for (const [cueFrameId, list] of byBatch) {
     list.sort((a, b) => {
-      if (a.depth !== b.depth) return a.depth - b.depth;
+      if (a.minIndex !== b.minIndex) return a.minIndex - b.minIndex;
       if (a.frame.id !== b.frame.id) return a.frame.id < b.frame.id ? -1 : 1;
       return a.shapeId < b.shapeId ? -1 : 1;
     });
@@ -367,13 +411,18 @@ export function migrateV1Frames(
         }
       }
     }
-    let nextIndex = 0;
+    let cursor = 0;
     list.forEach((sub) => {
-      while (reservedIndices.has(nextIndex)) {
-        nextIndex++;
+      // Each frame lands at its reconstructed chain position when free
+      // (persisted subsets of a complete run resume byte-for-byte);
+      // otherwise at the next free index past both its minimum and the
+      // previously assigned one.
+      let candidate = Math.max(sub.minIndex, cursor);
+      while (reservedIndices.has(candidate)) {
+        candidate++;
       }
-      const orderKey = getMigratedSubFrameOrderKey(nextIndex);
-      nextIndex++;
+      const orderKey = getMigratedSubFrameOrderKey(candidate);
+      cursor = candidate + 1;
       const migrated: SubFrame = {
         v: 2,
         id: sub.frame.id,
