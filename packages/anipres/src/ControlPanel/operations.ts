@@ -9,6 +9,7 @@ import {
   interactiveKeyAbove,
   makeInsertionSpace,
   type BatchData,
+  type CueFrame,
   type Frame,
   type TimelineDoc,
 } from "../timeline-model";
@@ -36,13 +37,74 @@ export function findFramePosition(
   return null;
 }
 
+interface CueTargetResolution {
+  /** The id the sub frame must reference to attach to the TARGET cue. */
+  cueFrameId: string;
+  /**
+   * Rewrite of the target cue itself, required when its stored id is a
+   * duplicate and it is NOT the derivation representative: a sub frame
+   * referencing the shared id would attach to the representative instead
+   * of the selected cue, so the selected cue gets a fresh id first. The
+   * caller must apply this in the SAME transaction as the sub-frame write.
+   */
+  cueFrameUpdate: { shapeId: string; frame: CueFrame } | null;
+}
+
+/**
+ * Resolves the id a sub frame must reference to attach to the cue carried
+ * by `cueShapeId`. Mirrors the derivation's representative rule (smallest
+ * shapeId among CUES sharing the id): a representative — or unduplicated —
+ * cue keeps its id; a non-representative duplicate gets a fresh id.
+ * Freshening is safe: a non-representative cue has no attached sub frames
+ * (ambiguous references all resolve to the representative), so nothing
+ * detaches, and the representative's id never changes.
+ */
+function resolveCueTarget(input: {
+  doc: TimelineDoc;
+  cueShapeId: string;
+  getStoredFrame: (shapeId: string) => Frame | null;
+  mintId: () => string;
+}): CueTargetResolution | null {
+  const { doc, cueShapeId, getStoredFrame, mintId } = input;
+  const storedCue = getStoredFrame(cueShapeId);
+  if (storedCue?.type !== "cue") {
+    return null;
+  }
+  let representativeShapeId = cueShapeId;
+  for (const step of doc.steps) {
+    for (const batch of step.batches) {
+      const cue = batch.frames[0];
+      if (cue.frameId === storedCue.id && cue.shapeId < representativeShapeId) {
+        representativeShapeId = cue.shapeId;
+      }
+    }
+  }
+  if (representativeShapeId === cueShapeId) {
+    return { cueFrameId: storedCue.id, cueFrameUpdate: null };
+  }
+  const freshId = mintId();
+  return {
+    cueFrameId: freshId,
+    cueFrameUpdate: {
+      shapeId: cueShapeId,
+      frame: { ...storedCue, id: freshId },
+    },
+  };
+}
+
 export interface SubFrameAddAfterPlan {
   /** Order-key rewrites for existing sub frames (collision-run normalization). */
   keyUpdates: { shapeId: string; key: string }[];
-  /** Stored id of the batch's cue — the new sub frame's `cueFrameId`. */
+  /** The id the new sub frame's `cueFrameId` must be set to. */
   cueFrameId: string;
   /** Order key for the new sub frame. */
   orderKey: string;
+  /**
+   * Rewrite of the batch's cue, present when its stored id had to be
+   * freshened to make the attachment unambiguous (see resolveCueTarget).
+   * Apply in the SAME transaction as the new sub frame's creation.
+   */
+  cueFrameUpdate: { shapeId: string; frame: CueFrame } | null;
 }
 
 /**
@@ -55,10 +117,20 @@ export function planSubFrameAddAfter(input: {
   doc: TimelineDoc;
   prevShapeId: string;
   getStoredFrame: (shapeId: string) => Frame | null;
+  mintId: () => string;
 }): SubFrameAddAfterPlan | null {
-  const { doc, prevShapeId, getStoredFrame } = input;
+  const { doc, prevShapeId, getStoredFrame, mintId } = input;
   const position = findFramePosition(doc, prevShapeId);
   if (position == null) {
+    return null;
+  }
+  const cueTarget = resolveCueTarget({
+    doc,
+    cueShapeId: position.batch.frames[0].shapeId,
+    getStoredFrame,
+    mintId,
+  });
+  if (cueTarget == null) {
     return null;
   }
   const subEntries = position.batch.frames.slice(1).map((frame) => {
@@ -75,16 +147,23 @@ export function planSubFrameAddAfter(input: {
       shapeId: id,
       key,
     })),
-    cueFrameId: position.batch.frames[0].frameId,
+    cueFrameId: cueTarget.cueFrameId,
     orderKey: insertion.insertedKey,
+    cueFrameUpdate: cueTarget.cueFrameUpdate,
   };
 }
 
 export interface DetachedReattachPlan {
-  /** Stored id of the target cue — the reattached frame's `cueFrameId`. */
+  /** The id the reattached frame's `cueFrameId` must be set to. */
   cueFrameId: string;
   /** Order key placing the frame after the batch's last sub frame. */
   orderKey: string;
+  /**
+   * Rewrite of the target cue, present when its stored id had to be
+   * freshened to make the attachment unambiguous (see resolveCueTarget).
+   * Apply in the SAME transaction as the reattached frame's write.
+   */
+  cueFrameUpdate: { shapeId: string; frame: CueFrame } | null;
 }
 
 /**
@@ -95,10 +174,20 @@ export function planDetachedReattach(input: {
   doc: TimelineDoc;
   cueShapeId: string;
   getStoredFrame: (shapeId: string) => Frame | null;
+  mintId: () => string;
 }): DetachedReattachPlan | null {
-  const { doc, cueShapeId, getStoredFrame } = input;
+  const { doc, cueShapeId, getStoredFrame, mintId } = input;
   const position = findFramePosition(doc, cueShapeId);
   if (position == null || position.frameIndex !== 0) {
+    return null;
+  }
+  const cueTarget = resolveCueTarget({
+    doc,
+    cueShapeId,
+    getStoredFrame,
+    mintId,
+  });
+  if (cueTarget == null) {
     return null;
   }
   const lastSubFrameData = position.batch.frames.slice(1).at(-1);
@@ -106,7 +195,8 @@ export function planDetachedReattach(input: {
     lastSubFrameData != null ? getStoredFrame(lastSubFrameData.shapeId) : null;
   const lastSubKey = lastStored?.type === "sub" ? lastStored.orderKey : null;
   return {
-    cueFrameId: position.batch.frames[0].frameId,
+    cueFrameId: cueTarget.cueFrameId,
     orderKey: interactiveKeyAbove(lastSubKey),
+    cueFrameUpdate: cueTarget.cueFrameUpdate,
   };
 }

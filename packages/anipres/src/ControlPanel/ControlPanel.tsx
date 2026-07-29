@@ -327,17 +327,28 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       doc,
       cueShapeId: selectedCue.shapeId as string,
       getStoredFrame: getStoredFrameByShapeId,
+      mintId: uniqueId,
     });
-    writeFrame(
-      shape.id,
-      plan != null
-        ? { ...frame, cueFrameId: plan.cueFrameId, orderKey: plan.orderKey }
-        : {
-            ...frame,
-            cueFrameId: selectedCue.frame.id,
-            orderKey: interactiveKeyAbove(null),
-          },
-    );
+    // The cue-id freshening (duplicate-id disambiguation) and the
+    // reattachment must land in ONE transaction.
+    editor.run(() => {
+      if (plan?.cueFrameUpdate != null) {
+        writeFrame(
+          plan.cueFrameUpdate.shapeId as TLShapeId,
+          plan.cueFrameUpdate.frame,
+        );
+      }
+      writeFrame(
+        shape.id,
+        plan != null
+          ? { ...frame, cueFrameId: plan.cueFrameId, orderKey: plan.orderKey }
+          : {
+              ...frame,
+              cueFrameId: selectedCue.frame.id,
+              orderKey: interactiveKeyAbove(null),
+            },
+      );
+    });
   };
 
   return (
@@ -590,6 +601,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               doc,
               prevShapeId: prevFrame.shapeId,
               getStoredFrame: getStoredFrameByShapeId,
+              mintId: uniqueId,
             });
             if (prevShape == null || plan == null) {
               return;
@@ -608,6 +620,14 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             };
 
             editor.run(() => {
+              // Cue-id freshening (duplicate-id disambiguation) shares the
+              // transaction with the new sub frame's creation.
+              if (plan.cueFrameUpdate != null) {
+                writeFrame(
+                  plan.cueFrameUpdate.shapeId as TLShapeId,
+                  plan.cueFrameUpdate.frame,
+                );
+              }
               for (const { shapeId, key } of plan.keyUpdates) {
                 const stored = getStoredFrameByShapeId(shapeId);
                 if (stored?.type === "sub") {

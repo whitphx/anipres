@@ -38,6 +38,11 @@ function sub(id: string, cueFrameId: string, orderKey: string): SubFrame {
   };
 }
 
+function makeMinter() {
+  let n = 0;
+  return () => `minted-${++n}`;
+}
+
 function makeDoc(entries: { shapeId: string; frame: Frame }[]) {
   const doc = deriveTimeline({
     shapes: entries.map(({ shapeId, frame }) => ({
@@ -49,6 +54,33 @@ function makeDoc(entries: { shapeId: string; frame: Frame }[]) {
   const byShapeId = new Map(entries.map((e) => [e.shapeId, e.frame]));
   const getStoredFrame = (shapeId: string) => byShapeId.get(shapeId) ?? null;
   return { doc, getStoredFrame };
+}
+
+/** Applies plan writes to the entry list and re-derives — the round trip. */
+function rederive(
+  entries: { shapeId: string; frame: Frame }[],
+  writes: { shapeId: string; frame: Frame }[],
+) {
+  const merged = new Map(entries.map((e) => [e.shapeId, e.frame]));
+  for (const write of writes) {
+    merged.set(write.shapeId, write.frame);
+  }
+  return deriveTimeline({
+    shapes: [...merged.entries()].map(([shapeId, frame]) => ({
+      shapeId,
+      frameMeta: frameToMetaJson(frame),
+    })),
+    pageId: "page:page",
+  });
+}
+
+function batchOfCueShape(
+  doc: ReturnType<typeof deriveTimeline>,
+  shapeId: string,
+) {
+  return doc.steps
+    .flatMap((step) => step.batches)
+    .find((batch) => batch.frames[0].shapeId === shapeId);
 }
 
 // Every scenario here involves DUPLICATED stored frame ids (lossless
@@ -90,9 +122,11 @@ describe("planSubFrameAddAfter (shapeId insertion identity)", () => {
       doc,
       prevShapeId: "shape:s1",
       getStoredFrame,
+      mintId: makeMinter(),
     });
     expect(plan).not.toBeNull();
     expect(plan!.cueFrameId).toBe("c1");
+    expect(plan!.cueFrameUpdate).toBeNull(); // unduplicated cue keeps its id
     // The collision run is normalized deterministically and each update
     // targets a distinct shape.
     expect(plan!.keyUpdates.map((u) => u.shapeId).sort()).toEqual([
@@ -118,32 +152,136 @@ describe("planSubFrameAddAfter (shapeId insertion identity)", () => {
       doc,
       prevShapeId: "shape:s2",
       getStoredFrame,
+      mintId: makeMinter(),
     });
     expect(plan).not.toBeNull();
     expect(plan!.keyUpdates).toEqual([]);
     expect(compareOrderKeys("a2", plan!.orderKey)).toBeLessThan(0);
   });
+
+  it("freshens a non-representative duplicate-id cue so the new sub attaches to IT (round trip)", () => {
+    // Both cues store id "dup"; shape:cueA is the derivation
+    // representative, so a sub referencing "dup" would attach to cueA —
+    // not the batch the user is adding into.
+    const entries = [
+      { shapeId: "shape:cueA", frame: cue("dup", "s1", "a1", "T1") },
+      { shapeId: "shape:cueB", frame: cue("dup", "s2", "a2", "T2") },
+    ];
+    const { doc, getStoredFrame } = makeDoc(entries);
+    const plan = planSubFrameAddAfter({
+      doc,
+      prevShapeId: "shape:cueB",
+      getStoredFrame,
+      mintId: makeMinter(),
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.cueFrameUpdate).not.toBeNull();
+    expect(plan!.cueFrameUpdate!.shapeId).toBe("shape:cueB");
+    expect(plan!.cueFrameUpdate!.frame.id).toBe(plan!.cueFrameId);
+    expect(plan!.cueFrameId).not.toBe("dup");
+
+    // Apply the FULL plan and re-derive: the new sub must belong to the
+    // selected cue's batch, not the representative's.
+    const rederived = rederive(entries, [
+      plan!.cueFrameUpdate!,
+      {
+        shapeId: "shape:new",
+        frame: sub("new-sub", plan!.cueFrameId, plan!.orderKey),
+      },
+    ]);
+    expect(rederived.detachedFrames).toEqual([]);
+    expect(
+      batchOfCueShape(rederived, "shape:cueB")!.frames.map((f) => f.shapeId),
+    ).toEqual(["shape:cueB", "shape:new"]);
+    expect(batchOfCueShape(rederived, "shape:cueA")!.frames).toHaveLength(1);
+  });
+
+  it("does not change the representative cue's id when targeting it", () => {
+    const entries = [
+      { shapeId: "shape:cueA", frame: cue("dup", "s1", "a1", "T1") },
+      { shapeId: "shape:cueB", frame: cue("dup", "s2", "a2", "T2") },
+    ];
+    const { doc, getStoredFrame } = makeDoc(entries);
+    const plan = planSubFrameAddAfter({
+      doc,
+      prevShapeId: "shape:cueA",
+      getStoredFrame,
+      mintId: makeMinter(),
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.cueFrameUpdate).toBeNull();
+    expect(plan!.cueFrameId).toBe("dup");
+  });
 });
 
 describe("planDetachedReattach (shapeId target identity)", () => {
-  it("appends into the selected cue's own batch, not another cue with the same frame.id", () => {
+  it("reattaches to a non-representative duplicate-id cue unambiguously (round trip)", () => {
     // shape:cueA is the representative for the ambiguous "dupcue"
     // reference, so the existing sub (key "a5") attaches to ITS batch.
-    // Reattaching onto shape:cueB must key relative to cueB's (empty)
-    // batch — a key above "a5" would prove the wrong batch was targeted.
-    const { doc, getStoredFrame } = makeDoc([
+    // Reattaching the orphan onto shape:cueB must freshen cueB's id —
+    // referencing "dupcue" would land the orphan on cueA.
+    const entries = [
       { shapeId: "shape:cueA", frame: cue("dupcue", "s1", "a1", "T1") },
       { shapeId: "shape:cueB", frame: cue("dupcue", "s2", "a2", "T2") },
       { shapeId: "shape:sub", frame: sub("f-sub", "dupcue", "a5") },
-    ]);
+      { shapeId: "shape:orphan", frame: sub("f-orphan", "missing", "a1") },
+    ];
+    const { doc, getStoredFrame } = makeDoc(entries);
     const plan = planDetachedReattach({
       doc,
       cueShapeId: "shape:cueB",
       getStoredFrame,
+      mintId: makeMinter(),
     });
     expect(plan).not.toBeNull();
-    expect(plan!.cueFrameId).toBe("dupcue");
+    expect(plan!.cueFrameUpdate).not.toBeNull();
+    expect(plan!.cueFrameUpdate!.shapeId).toBe("shape:cueB");
+    expect(plan!.cueFrameId).toBe(plan!.cueFrameUpdate!.frame.id);
+    expect(plan!.cueFrameId).not.toBe("dupcue");
+    // Keys relative to cueB's (empty) batch — a key above "a5" would
+    // prove the wrong batch was measured.
     expect(compareOrderKeys(plan!.orderKey, "a5")).toBeLessThan(0);
+
+    // Apply the FULL plan and re-derive: the orphan belongs to the
+    // SELECTED cue's batch; the representative keeps its sub and its id.
+    const orphanFrame = entries[3].frame as SubFrame;
+    const rederived = rederive(entries, [
+      plan!.cueFrameUpdate!,
+      {
+        shapeId: "shape:orphan",
+        frame: {
+          ...orphanFrame,
+          cueFrameId: plan!.cueFrameId,
+          orderKey: plan!.orderKey,
+        },
+      },
+    ]);
+    expect(rederived.detachedFrames).toEqual([]);
+    expect(
+      batchOfCueShape(rederived, "shape:cueB")!.frames.map((f) => f.shapeId),
+    ).toEqual(["shape:cueB", "shape:orphan"]);
+    expect(
+      batchOfCueShape(rederived, "shape:cueA")!.frames.map((f) => f.shapeId),
+    ).toEqual(["shape:cueA", "shape:sub"]);
+    expect(batchOfCueShape(rederived, "shape:cueA")!.frames[0].frameId).toBe(
+      "dupcue",
+    );
+  });
+
+  it("keeps the representative cue's id when reattaching to it", () => {
+    const { doc, getStoredFrame } = makeDoc([
+      { shapeId: "shape:cueA", frame: cue("dupcue", "s1", "a1", "T1") },
+      { shapeId: "shape:cueB", frame: cue("dupcue", "s2", "a2", "T2") },
+    ]);
+    const plan = planDetachedReattach({
+      doc,
+      cueShapeId: "shape:cueA",
+      getStoredFrame,
+      mintId: makeMinter(),
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.cueFrameUpdate).toBeNull();
+    expect(plan!.cueFrameId).toBe("dupcue");
   });
 
   it("appends after the selected cue's last sub frame", () => {
@@ -155,8 +293,10 @@ describe("planDetachedReattach (shapeId target identity)", () => {
       doc,
       cueShapeId: "shape:cueA",
       getStoredFrame,
+      mintId: makeMinter(),
     });
     expect(plan).not.toBeNull();
+    expect(plan!.cueFrameUpdate).toBeNull();
     expect(compareOrderKeys("a3", plan!.orderKey)).toBeLessThan(0);
   });
 });
