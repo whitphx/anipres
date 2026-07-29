@@ -308,6 +308,114 @@ describe("remapContentFrames — within-document duplication", () => {
   });
 });
 
+describe("remapContentFrames — orphan sub-frame relationships", () => {
+  // Severed references must still preserve the grouping AMONG the copies:
+  // one shared fresh unresolved id per absent source cue.
+
+  it("gives sub frames that shared one omitted cue the same fresh unresolved id", () => {
+    const result = remapContentFrames(
+      makeInput({
+        operation: "duplicate",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: subMeta("f2", "f1", "a0") },
+          { shapeId: "copy:b", frameMeta: subMeta("f3", "f1", "a1") },
+        ],
+        existing: {
+          frameIds: new Set(["f1", "f2", "f3"]),
+          stepIds: new Set(),
+          trackIds: new Set(),
+        },
+      }),
+    );
+    const a = result.updatedFrames.get("copy:a") as SubFrame;
+    const b = result.updatedFrames.get("copy:b") as SubFrame;
+    expect(a.cueFrameId).not.toBe("f1"); // severed from the source cue
+    expect(a.cueFrameId).toBe(b.cueFrameId); // …but still grouped together
+  });
+
+  it("gives sub frames of different omitted cues different fresh unresolved ids", () => {
+    const result = remapContentFrames(
+      makeInput({
+        operation: "duplicate",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: subMeta("f3", "f1", "a0") },
+          { shapeId: "copy:b", frameMeta: subMeta("f4", "f2", "a0") },
+        ],
+        existing: {
+          frameIds: new Set(["f1", "f2", "f3", "f4"]),
+          stepIds: new Set(),
+          trackIds: new Set(),
+        },
+      }),
+    );
+    const a = result.updatedFrames.get("copy:a") as SubFrame;
+    const b = result.updatedFrames.get("copy:b") as SubFrame;
+    expect(a.cueFrameId).not.toBe(b.cueFrameId);
+  });
+
+  it("produces the same relationship structure for reversed input order", () => {
+    const shapes = [
+      { shapeId: "copy:a", frameMeta: subMeta("f3", "f1", "a0") },
+      { shapeId: "copy:b", frameMeta: subMeta("f4", "f1", "a1") },
+      { shapeId: "copy:c", frameMeta: subMeta("f5", "f2", "a0") },
+    ];
+    const existing = {
+      frameIds: new Set(["f1", "f2", "f3", "f4", "f5"]),
+      stepIds: new Set<string>(),
+      trackIds: new Set<string>(),
+    };
+    const r1 = remapContentFrames(
+      makeInput({
+        operation: "duplicate",
+        shapes,
+        existing,
+        mintId: makeMinter(),
+      }),
+    );
+    const r2 = remapContentFrames(
+      makeInput({
+        operation: "duplicate",
+        shapes: [...shapes].reverse(),
+        existing,
+        mintId: makeMinter(),
+      }),
+    );
+    expect([...r2.updatedFrames.entries()]).toEqual([
+      ...r1.updatedFrames.entries(),
+    ]);
+    const a = r1.updatedFrames.get("copy:a") as SubFrame;
+    const b = r1.updatedFrames.get("copy:b") as SubFrame;
+    const c = r1.updatedFrames.get("copy:c") as SubFrame;
+    expect(a.cueFrameId).toBe(b.cueFrameId);
+    expect(a.cueFrameId).not.toBe(c.cueFrameId);
+  });
+
+  it("still remaps to the copied cue when it IS part of the operation", () => {
+    const result = remapContentFrames(
+      makeInput({
+        operation: "duplicate",
+        shapes: [
+          { shapeId: "copy:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
+          { shapeId: "copy:b", frameMeta: subMeta("f2", "f1", "a0") },
+          // References an omitted cue — must NOT be lumped in with f1's.
+          { shapeId: "copy:c", frameMeta: subMeta("f3", "f9", "a0") },
+        ],
+        existing: {
+          frameIds: new Set(["f1", "f2", "f3", "f9"]),
+          stepIds: new Set(["s1"]),
+          trackIds: new Set(["T"]),
+        },
+      }),
+    );
+    const cue = result.updatedFrames.get("copy:a") as CueFrame;
+    const attached = result.updatedFrames.get("copy:b") as SubFrame;
+    const orphan = result.updatedFrames.get("copy:c") as SubFrame;
+    expect(attached.cueFrameId).toBe(cue.id); // copied-cue remap wins
+    expect(orphan.cueFrameId).not.toBe(cue.id);
+    expect(orphan.cueFrameId).not.toBe("f9");
+  });
+});
+
 describe("remapContentFrames — shared behavior", () => {
   it("is lossless under duplicate source frame ids (distinct fresh ids per copy)", () => {
     const result = remapContentFrames(

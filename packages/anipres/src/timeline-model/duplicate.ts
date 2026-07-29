@@ -125,6 +125,26 @@ export function remapContentFrames(
     }
   }
 
+  // --- Absent-cue references: sub frames whose cue is NOT part of the
+  // --- operation are severed from it, but sub frames that referenced the
+  // --- SAME absent cue must stay related to each other — they get ONE
+  // --- shared fresh unresolved id per absent source cue (distinct absent
+  // --- cues get distinct ids). Minted over the SORTED absent-id set so
+  // --- the id assignment is independent of input shape order.
+  const externalCueIdMap = new Map<string, string>();
+  const absentCueIds = [
+    ...new Set(
+      entries.flatMap(({ frame }) =>
+        frame.type === "sub" && !cueEntryByFrameId.has(frame.cueFrameId)
+          ? [frame.cueFrameId]
+          : [],
+      ),
+    ),
+  ].sort();
+  for (const absentCueId of absentCueIds) {
+    externalCueIdMap.set(absentCueId, mintId());
+  }
+
   // --- stepId / trackId remapping: intentionally SHARED identities, so
   // --- old-id keys are correct. Duplication freshens every copied
   // --- identity (the sources are by definition local); external paste
@@ -208,15 +228,17 @@ export function remapContentFrames(
       // SEVERED with a fresh deliberately-unresolved id: keeping the
       // original id would re-attach a within-document duplicate to the
       // original cue (and could accidentally attach a shared-ancestry
-      // paste to an unrelated local cue). The copy arrives detached
-      // (derivation rule 3) and can be reattached explicitly.
+      // paste to an unrelated local cue). The copies arrive detached
+      // (derivation rule 3) and can be reattached explicitly — but copies
+      // that referenced the SAME absent cue share ONE unresolved id, so
+      // their grouping survives the severing.
       const sourceCue = cueEntryByFrameId.get(frame.cueFrameId);
       const remapped: SubFrame = {
         ...frame,
         id: newId,
         cueFrameId: sourceCue
           ? newFrameIdBySourceShapeId.get(sourceCue.shapeId)!
-          : mintId(),
+          : externalCueIdMap.get(frame.cueFrameId)!,
       };
       updatedFrames.set(shapeId, remapped);
     }
