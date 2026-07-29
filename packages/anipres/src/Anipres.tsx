@@ -47,6 +47,7 @@ import {
   interactiveKeyAbove,
   migrateV1Frames,
   parseFrameMeta,
+  classifyRemapOperation,
   remapContentFrames,
   type CameraZoomFrameAction,
   type CueFrame,
@@ -595,14 +596,14 @@ const Inner = (props: InnerProps) => {
               existingTrackIds.add(parsed.frame.trackId);
             }
           }
-          // Operation kind from SHAPE identity, not frame-id collisions: a
-          // copy whose source shapes all exist in this store is a
-          // within-document duplication; anything else (external paste,
-          // including shared-ancestry documents whose frame ids collide)
-          // is an external paste.
-          const isDuplicate =
-            content.shapes.length > 0 &&
-            content.shapes.every((shape) => editor.getShape(shape.id) != null);
+          // Operation kind from SHAPE identity, not frame-id collisions
+          // (classification rules + limitations: see
+          // classifyRemapOperation's doc comment).
+          const operation = classifyRemapOperation({
+            sourceShapeIds: content.shapes.map((shape) => shape.id),
+            shapeExistsInDocument: (shapeId) =>
+              editor.getShape(shapeId as TLShapeId) != null,
+          });
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({
               shapeId: shape.id,
@@ -614,7 +615,7 @@ const Inner = (props: InnerProps) => {
               trackIds: existingTrackIds,
             },
             currentDoc: presentationManager.$getTimelineDoc(),
-            operation: isDuplicate ? "duplicate" : "external-paste",
+            operation,
             mintId: uniqueId,
           });
           existingStepKeyUpdates = remap.existingStepKeyUpdates;

@@ -53,7 +53,7 @@ export { makeInsertionSpace } from "./insertion-space";
 export type { InsertionSpace, OrderedKeyedItem } from "./insertion-space";
 export { reconcileEditedSteps } from "./reconcile";
 export type { ReconcileInput, ReconcileResult } from "./reconcile";
-export { remapContentFrames } from "./duplicate";
+export { remapContentFrames, classifyRemapOperation } from "./duplicate";
 export type {
   RemapContentInput,
   RemapContentResult,
