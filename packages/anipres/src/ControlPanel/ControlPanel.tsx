@@ -20,7 +20,6 @@ import {
   type Frame,
   type SubFrame,
   type TimelineDiagnostic,
-  type TimelineDoc,
 } from "../timeline-model";
 import { getLeafShapes } from "../models";
 import type { FrameUIData } from "../Timeline/frame-ui-data";
@@ -28,21 +27,13 @@ import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import type { PresentationManager } from "../presentation-manager";
+import {
+  findFramePosition,
+  planDetachedReattach,
+  planSubFrameAddAfter,
+} from "./operations";
 
 const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
-
-/** Finds the doc position (step index, batch) of a frame id. */
-function findFramePosition(doc: TimelineDoc, frameId: string) {
-  for (let stepIndex = 0; stepIndex < doc.steps.length; stepIndex++) {
-    for (const batch of doc.steps[stepIndex].batches) {
-      const frameIndex = batch.frames.findIndex((f) => f.frameId === frameId);
-      if (frameIndex >= 0) {
-        return { stepIndex, batch, frameIndex };
-      }
-    }
-  }
-  return null;
-}
 
 export interface ControlPanelProps {
   editor: Editor;
@@ -67,6 +58,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const getStoredFrame = (shape: TLShape): Frame | null => {
     const parsed = parseFrameMeta(shape.meta?.frame);
     return parsed.kind === "v2" ? parsed.frame : null;
+  };
+
+  const getStoredFrameByShapeId = (shapeId: string): Frame | null => {
+    const shape = editor.getShape(shapeId as TLShapeId);
+    return shape != null ? getStoredFrame(shape) : null;
   };
 
   const collectStoredFrames = () => {
@@ -324,20 +320,24 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     if (shape == null || frame?.type !== "sub") {
       return;
     }
-    // Append after the target batch's last sub frame.
-    const position = findFramePosition(doc, selectedCue.frame.id);
-    const lastSubFrameData = position?.batch.frames.slice(1).at(-1);
-    let lastSubKey: string | null = null;
-    if (lastSubFrameData != null) {
-      const lastShape = editor.getShape(lastSubFrameData.shapeId as TLShapeId);
-      const lastFrame = lastShape != null ? getStoredFrame(lastShape) : null;
-      lastSubKey = lastFrame?.type === "sub" ? lastFrame.orderKey : null;
-    }
-    writeFrame(shape.id, {
-      ...frame,
-      cueFrameId: selectedCue.frame.id,
-      orderKey: interactiveKeyAbove(lastSubKey),
+    // Append after the target batch's last sub frame. The target batch is
+    // located by the selected cue's SHAPE id — with duplicated stored
+    // frame ids, the frame id would find the wrong batch.
+    const plan = planDetachedReattach({
+      doc,
+      cueShapeId: selectedCue.shapeId as string,
+      getStoredFrame: getStoredFrameByShapeId,
     });
+    writeFrame(
+      shape.id,
+      plan != null
+        ? { ...frame, cueFrameId: plan.cueFrameId, orderKey: plan.orderKey }
+        : {
+            ...frame,
+            cueFrameId: selectedCue.frame.id,
+            orderKey: interactiveKeyAbove(null),
+          },
+    );
   };
 
   return (
@@ -389,7 +389,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             const prevShape = editor.getShape(
               prevCueFrame.shapeId as TLShapeId,
             );
-            const position = findFramePosition(doc, prevCueFrame.id);
+            // Locate by SHAPE id: with duplicated stored frame ids, the
+            // frame id could resolve to another frame's step/track.
+            const position = findFramePosition(doc, prevCueFrame.shapeId);
             if (prevShape == null || position == null) {
               return;
             }
@@ -535,8 +537,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 continue;
               }
               const origFrame = getStoredFrame(original);
+              // Source position from the SHAPE id, never the stored
+              // frame id (which may be duplicated).
               const origPosition = origFrame
-                ? findFramePosition(doc, origFrame.id)
+                ? findFramePosition(doc, original.id as string)
                 : null;
               if (origPosition == null) {
                 shapesToCreate.push(copied);
@@ -580,31 +584,23 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           }}
           requestSubFrameAddAfter={(prevFrame) => {
             const prevShape = editor.getShape(prevFrame.shapeId as TLShapeId);
-            const position = findFramePosition(doc, prevFrame.id);
-            if (prevShape == null || position == null) {
+            // Plan keyed entirely by SHAPE ids — stored frame ids may be
+            // duplicated within the batch.
+            const plan = planSubFrameAddAfter({
+              doc,
+              prevShapeId: prevFrame.shapeId,
+              getStoredFrame: getStoredFrameByShapeId,
+            });
+            if (prevShape == null || plan == null) {
               return;
             }
-
-            // Sub frames of the batch with their stored order keys.
-            const subEntries = position.batch.frames.slice(1).map((frame) => {
-              const shape = editor.getShape(frame.shapeId as TLShapeId);
-              const stored = shape != null ? getStoredFrame(shape) : null;
-              return {
-                id: frame.frameId,
-                key: stored?.type === "sub" ? stored.orderKey : "",
-                shapeId: frame.shapeId,
-              };
-            });
-            // Insert after the previous frame (the cue = before all subs).
-            const insertionIndex = position.frameIndex; // frames[0] is the cue
-            const insertion = makeInsertionSpace(subEntries, insertionIndex);
 
             const newSubFrame: SubFrame = {
               v: 2,
               id: uniqueId(),
               type: "sub",
-              cueFrameId: position.batch.frames[0].frameId,
-              orderKey: insertion.insertedKey,
+              cueFrameId: plan.cueFrameId,
+              orderKey: plan.orderKey,
               action: {
                 type: prevFrame.action.type,
                 duration: 1000,
@@ -612,14 +608,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             };
 
             editor.run(() => {
-              for (const { id, key } of insertion.updates) {
-                const entry = subEntries.find((e) => e.id === id);
-                const shape = entry
-                  ? editor.getShape(entry.shapeId as TLShapeId)
-                  : null;
-                const stored = shape ? getStoredFrame(shape) : null;
-                if (shape && stored?.type === "sub") {
-                  writeFrame(shape.id, { ...stored, orderKey: key });
+              for (const { shapeId, key } of plan.keyUpdates) {
+                const stored = getStoredFrameByShapeId(shapeId);
+                if (stored?.type === "sub") {
+                  writeFrame(shapeId as TLShapeId, {
+                    ...stored,
+                    orderKey: key,
+                  });
                 }
               }
               const newShapeId = createShapeId();
