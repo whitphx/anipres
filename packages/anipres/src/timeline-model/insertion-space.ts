@@ -7,11 +7,16 @@
 // equal-key run (only the run — never the rest of the deck) in its current
 // deterministic order, which provably does not change the derived timeline
 // — so it executes inline in the insert transaction, not in any repair
-// pass. Keys are generated DETERMINISTICALLY here on purpose: two clients
-// concurrently normalizing the same run produce identical writes and
-// converge under last-writer-wins.
+// pass.
+//
+// Key-generation policy (review finding 9): the ordinary non-collision
+// insert path uses JITTERED keys (an interactive insertion; jitter keeps
+// concurrent independent inserts from colliding). Only the equal-key-run
+// normalization uses DETERMINISTIC keys: two clients concurrently
+// normalizing the same run then produce identical writes and converge
+// under last-writer-wins.
 
-import { deterministicKeysBetween } from "./keys";
+import { deterministicKeysBetween, interactiveKeyBetween } from "./keys";
 
 export interface OrderedKeyedItem {
   id: string;
@@ -41,10 +46,9 @@ export function makeInsertionSpace(
   const above = orderedItems[insertionIndex] ?? null;
 
   if (below == null || above == null || below.key !== above.key) {
-    const [insertedKey] = deterministicKeysBetween(
+    const insertedKey = interactiveKeyBetween(
       below?.key ?? null,
       above?.key ?? null,
-      1,
     );
     return { updates: [], insertedKey };
   }

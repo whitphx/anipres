@@ -578,6 +578,7 @@ const Inner = (props: InnerProps) => {
         content: TLContent,
         options?: object,
       ) => {
+        let existingStepKeyUpdates: { stepId: string; key: string }[] = [];
         try {
           const existingFrameIds = new Set<string>();
           const existingStepIds = new Set<string>();
@@ -594,6 +595,14 @@ const Inner = (props: InnerProps) => {
               existingTrackIds.add(parsed.frame.trackId);
             }
           }
+          // Operation kind from SHAPE identity, not frame-id collisions: a
+          // copy whose source shapes all exist in this store is a
+          // within-document duplication; anything else (external paste,
+          // including shared-ancestry documents whose frame ids collide)
+          // is an external paste.
+          const isDuplicate =
+            content.shapes.length > 0 &&
+            content.shapes.every((shape) => editor.getShape(shape.id) != null);
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({
               shapeId: shape.id,
@@ -605,8 +614,10 @@ const Inner = (props: InnerProps) => {
               trackIds: existingTrackIds,
             },
             currentDoc: presentationManager.$getTimelineDoc(),
+            operation: isDuplicate ? "duplicate" : "external-paste",
             mintId: uniqueId,
           });
+          existingStepKeyUpdates = remap.existingStepKeyUpdates;
           if (remap.updatedFrames.size > 0) {
             content = {
               ...content,
@@ -623,8 +634,43 @@ const Inner = (props: InnerProps) => {
           }
         } catch (e) {
           console.warn("anipres: paste frame preprocessing failed:", e);
+          existingStepKeyUpdates = [];
         }
-        return originalPutContent(content, options);
+        if (existingStepKeyUpdates.length === 0) {
+          return originalPutContent(content, options);
+        }
+        // Collision-run normalization touched existing steps: apply those
+        // key rewrites and the paste in ONE transaction.
+        editor.run(() => {
+          const doc = presentationManager.$getTimelineDoc();
+          for (const { stepId, key } of existingStepKeyUpdates) {
+            const step = doc.steps.find((s) => s.id === stepId);
+            if (step == null) continue;
+            for (const batch of step.batches) {
+              const cueShape = editor.getShape(
+                batch.frames[0].shapeId as TLShapeId,
+              );
+              if (cueShape == null) continue;
+              const parsed = parseFrameMeta(cueShape.meta?.frame);
+              if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
+                continue;
+              }
+              editor.updateShape({
+                id: cueShape.id,
+                type: cueShape.type,
+                meta: {
+                  ...cueShape.meta,
+                  frame: frameToMetaJson({
+                    ...parsed.frame,
+                    stepOrderKey: key,
+                  }),
+                },
+              });
+            }
+          }
+          originalPutContent(content, options);
+        });
+        return editor;
       };
     } else {
       console.warn(

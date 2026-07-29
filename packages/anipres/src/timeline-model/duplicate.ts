@@ -14,7 +14,23 @@
 import type { CueFrame, Frame, SubFrame, TimelineDoc } from "./types";
 import { parseFrameMeta } from "./parse";
 import { isReservedStepId } from "./ids";
-import { interactiveKeyBetween } from "./keys";
+import { makeInsertionSpace } from "./insertion-space";
+
+/**
+ * The operation being preprocessed. Placement semantics differ, so the
+ * caller passes this explicitly rather than the transform inferring it
+ * from id collisions (a shared-ancestry paste collides too, but the
+ * colliding local step is NOT the pasted step's original):
+ *
+ * - "duplicate": the copied shapes come from THIS document. Every copied
+ *   step gets fresh shared identities and is placed directly after its
+ *   original.
+ * - "external-paste": the content comes from another document. Colliding
+ *   `stepId`/`trackId` values are remapped, but the pasted steps keep
+ *   their source order keys (preserving their relative order); they are
+ *   not repositioned relative to any colliding local step.
+ */
+export type RemapOperation = "duplicate" | "external-paste";
 
 export interface RemapContentInput {
   /** The copied shapes (their ids are the fresh ids of the copies). */
@@ -27,10 +43,11 @@ export interface RemapContentInput {
   };
   /**
    * The destination document's derived timeline, if available — used to
-   * place remapped (within-document duplicated) steps directly after
-   * their originals. When null, remapped steps keep their source keys.
+   * place duplicated steps directly after their originals. When null,
+   * remapped steps keep their source keys.
    */
   currentDoc: TimelineDoc | null;
+  operation: RemapOperation;
   /** Mints fresh ids (injectable for deterministic tests). */
   mintId: () => string;
 }
@@ -38,6 +55,13 @@ export interface RemapContentInput {
 export interface RemapContentResult {
   /** Replacement `meta.frame` values, keyed by (copied) shape id. */
   updatedFrames: Map<string, Frame>;
+  /**
+   * Step-key rewrites for EXISTING document steps, produced when placing a
+   * duplicated step inside/adjacent to an equal-key run required
+   * collision-run normalization. The caller must apply these in the same
+   * editor transaction as the paste itself.
+   */
+  existingStepKeyUpdates: { stepId: string; key: string }[];
   diagnostics: { type: "ambiguous-cue-reference"; frameId: string }[];
 }
 
@@ -50,7 +74,7 @@ export interface RemapContentResult {
 export function remapContentFrames(
   input: RemapContentInput,
 ): RemapContentResult {
-  const { existing, currentDoc, mintId } = input;
+  const { existing, currentDoc, operation, mintId } = input;
   const diagnostics: RemapContentResult["diagnostics"] = [];
 
   const sorted = [...input.shapes].sort((a, b) =>
@@ -63,7 +87,9 @@ export function remapContentFrames(
   }
   const entries: ParsedEntry[] = [];
   for (const { shapeId, frameMeta } of sorted) {
-    const parsed = parseFrameMeta(frameMeta);
+    // Reserved stepIds are readable here ON PURPOSE (and freshened below):
+    // paste preprocessing is the one consumer allowed to see them.
+    const parsed = parseFrameMeta(frameMeta, { allowReservedStepId: true });
     // v1 frames and invalid frames pass through untouched here; v1 content
     // is handled by the mixed-document conversion on the destination side.
     if (parsed.kind !== "v2") continue;
@@ -100,47 +126,66 @@ export function remapContentFrames(
   }
 
   // --- stepId / trackId remapping: intentionally SHARED identities, so
-  // --- old-id keys are correct. Freshen on local collision (within-doc
-  // --- duplication, or shared-ancestry cross-document paste) and always
-  // --- for reserved-prefix ids.
+  // --- old-id keys are correct. Duplication freshens every copied
+  // --- identity (the sources are by definition local); external paste
+  // --- freshens only on local collision (shared-ancestry documents) and
+  // --- always for reserved-prefix ids.
   const stepIdMap = new Map<string, string>();
   const trackIdMap = new Map<string, string>();
   for (const { frame } of entries) {
     if (frame.type !== "cue") continue;
     if (
       !stepIdMap.has(frame.stepId) &&
-      (existing.stepIds.has(frame.stepId) || isReservedStepId(frame.stepId))
+      (operation === "duplicate" ||
+        existing.stepIds.has(frame.stepId) ||
+        isReservedStepId(frame.stepId))
     ) {
       stepIdMap.set(frame.stepId, mintId());
     }
     if (
       !trackIdMap.has(frame.trackId) &&
-      existing.trackIds.has(frame.trackId)
+      (operation === "duplicate" || existing.trackIds.has(frame.trackId))
     ) {
       trackIdMap.set(frame.trackId, mintId());
     }
   }
 
-  // --- Step order keys for remapped steps: place each duplicated step
-  // --- directly after its original in the destination document, keeping
-  // --- the copies' relative order. Non-remapped (foreign, non-colliding)
-  // --- steps keep their source keys.
+  // --- Step order keys. DUPLICATION places each copied step directly
+  // --- after its original via collision-run-aware insertion (equal-key
+  // --- runs are normalized, never fed to a bare key-between call);
+  // --- EXTERNAL PASTE keeps the source keys so the pasted steps preserve
+  // --- their own relative order.
   const remappedStepKey = new Map<string, string>(); // old stepId -> new key
-  if (currentDoc != null) {
-    for (const [oldStepId] of stepIdMap) {
-      const stepIndex = currentDoc.steps.findIndex((s) => s.id === oldStepId);
-      if (stepIndex < 0) continue;
-      const original = currentDoc.steps[stepIndex];
-      const next = currentDoc.steps[stepIndex + 1] ?? null;
-      remappedStepKey.set(
-        oldStepId,
-        interactiveKeyBetween(
-          original.orderKey,
-          next != null && next.orderKey > original.orderKey
-            ? next.orderKey
-            : null,
-        ),
-      );
+  const existingStepKeyUpdates = new Map<string, string>(); // stepId -> key
+  if (operation === "duplicate" && currentDoc != null) {
+    // A working key list that accumulates prior normalizations and
+    // insertions, so multiple duplicated steps compose correctly.
+    const working: { id: string; key: string }[] = currentDoc.steps.map(
+      (step) => ({ id: step.id, key: step.orderKey }),
+    );
+    const isExistingStep = new Set(working.map((entry) => entry.id));
+    // Process originals in document order for deterministic placement.
+    const orderedOldStepIds = currentDoc.steps
+      .map((step) => step.id)
+      .filter((id) => stepIdMap.has(id));
+    for (const oldStepId of orderedOldStepIds) {
+      const index = working.findIndex((entry) => entry.id === oldStepId);
+      if (index < 0) continue;
+      const insertion = makeInsertionSpace(working, index + 1);
+      for (const update of insertion.updates) {
+        const target = working.find((entry) => entry.id === update.id);
+        if (target != null) {
+          target.key = update.key;
+        }
+        if (isExistingStep.has(update.id)) {
+          existingStepKeyUpdates.set(update.id, update.key);
+        }
+      }
+      remappedStepKey.set(oldStepId, insertion.insertedKey);
+      working.splice(index + 1, 0, {
+        id: stepIdMap.get(oldStepId)!,
+        key: insertion.insertedKey,
+      });
     }
   }
 
@@ -158,20 +203,30 @@ export function remapContentFrames(
       };
       updatedFrames.set(shapeId, remapped);
     } else {
-      // Resolve the cue reference among the copies via the representative;
-      // a reference to a cue outside the copied set is kept as-is (the
-      // pasted sub arrives detached — derivation rule 3).
+      // Resolve the cue reference among the copies via the representative.
+      // When the cue is NOT part of the operation, the reference is
+      // SEVERED with a fresh deliberately-unresolved id: keeping the
+      // original id would re-attach a within-document duplicate to the
+      // original cue (and could accidentally attach a shared-ancestry
+      // paste to an unrelated local cue). The copy arrives detached
+      // (derivation rule 3) and can be reattached explicitly.
       const sourceCue = cueEntryByFrameId.get(frame.cueFrameId);
       const remapped: SubFrame = {
         ...frame,
         id: newId,
         cueFrameId: sourceCue
           ? newFrameIdBySourceShapeId.get(sourceCue.shapeId)!
-          : frame.cueFrameId,
+          : mintId(),
       };
       updatedFrames.set(shapeId, remapped);
     }
   }
 
-  return { updatedFrames, diagnostics };
+  return {
+    updatedFrames,
+    existingStepKeyUpdates: [...existingStepKeyUpdates.entries()].map(
+      ([stepId, key]) => ({ stepId, key }),
+    ),
+    diagnostics,
+  };
 }
