@@ -43,12 +43,15 @@ import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeIma
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
+  attachCopyProvenance,
+  classifyRemapOperation,
   frameToMetaJson,
   interactiveKeyAbove,
   migrateV1Frames,
   parseFrameMeta,
-  classifyRemapOperation,
+  readCopyProvenance,
   remapContentFrames,
+  stripCopyProvenance,
   type CameraZoomFrameAction,
   type CueFrame,
   type ShapeLegacyFrame,
@@ -528,6 +531,17 @@ const Inner = (props: InnerProps) => {
     //
     // When upgrading tldraw, verify that this monkey-patch still works correctly.
     // See: https://github.com/whitphx/anipres/issues/387
+    //
+    // The wrapper ALSO stamps copied content with copy-source provenance
+    // (an opaque per-mounted-instance token) — the authoritative signal
+    // the paste interception below uses to distinguish within-document
+    // duplication from external paste. Ids cannot distinguish those:
+    // documents created from the same snapshot share every id. The extra
+    // top-level property survives tldraw's clipboard serialization (the
+    // copy path spreads the content's non-asset properties into the
+    // payload and the paste path reconstructs them; verified against the
+    // pinned tldraw version) and is stripped again before insertion.
+    const copySourceToken = uniqueId();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const editorAsAny = editor as any;
     if (typeof editorAsAny.getContentFromCurrentPage === "function") {
@@ -546,12 +560,14 @@ const Inner = (props: InnerProps) => {
         augmentContentWithThemeImageAssets(content, (id) =>
           editor.getAsset(id),
         );
-        return content;
+        return attachCopyProvenance(content, copySourceToken);
       };
     } else {
       console.warn(
         "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
-          "ThemeImage assets (light/dark) will not be included in clipboard data when copying. " +
+          "ThemeImage assets (light/dark) will not be included in clipboard data when copying, " +
+          "and copied content will carry no copy-source provenance (pastes will be treated as " +
+          "external pastes, the safe fallback). " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
       );
@@ -579,6 +595,10 @@ const Inner = (props: InnerProps) => {
         content: TLContent,
         options?: object,
       ) => {
+        // Copy-source provenance: read it, then strip it so the private
+        // property is never persisted as document data.
+        const provenance = readCopyProvenance(content);
+        content = stripCopyProvenance(content);
         let existingStepKeyUpdates: { stepId: string; key: string }[] = [];
         try {
           const existingFrameIds = new Set<string>();
@@ -596,13 +616,13 @@ const Inner = (props: InnerProps) => {
               existingTrackIds.add(parsed.frame.trackId);
             }
           }
-          // Operation kind from SHAPE identity, not frame-id collisions
-          // (classification rules + limitations: see
-          // classifyRemapOperation's doc comment).
+          // Operation kind from copy-source provenance — never from
+          // shape-id or animation-id collisions, which cannot distinguish
+          // identical-snapshot sibling documents (semantics and
+          // limitations: see the provenance module comment).
           const operation = classifyRemapOperation({
-            sourceShapeIds: content.shapes.map((shape) => shape.id),
-            shapeExistsInDocument: (shapeId) =>
-              editor.getShape(shapeId as TLShapeId) != null,
+            provenance,
+            localDocumentToken: copySourceToken,
           });
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({

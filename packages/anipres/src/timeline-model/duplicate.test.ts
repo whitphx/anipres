@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyRemapOperation, remapContentFrames } from "./duplicate";
+import { remapContentFrames } from "./duplicate";
 import type { RemapContentInput } from "./duplicate";
 import { deriveTimeline } from "./derive";
 import { SYNTHETIC_STEP_PREFIX } from "./ids";
@@ -489,70 +489,5 @@ describe("remapContentFrames — shared behavior", () => {
       ...r1.updatedFrames.entries(),
     ]);
     expect(r2.existingStepKeyUpdates).toEqual(r1.existingStepKeyUpdates);
-  });
-});
-
-describe("classifyRemapOperation", () => {
-  const store = (ids: string[]) => (shapeId: string) => ids.includes(shapeId);
-
-  it("classifies same-document copy/paste (all source shapes present) as duplicate", () => {
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: ["shape:a", "shape:b"],
-        shapeExistsInDocument: store(["shape:a", "shape:b", "shape:other"]),
-      }),
-    ).toBe("duplicate");
-  });
-
-  it("classifies an external-document paste (no source shape present) as external-paste", () => {
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: ["shape:a", "shape:b"],
-        shapeExistsInDocument: store(["shape:other"]),
-      }),
-    ).toBe("external-paste");
-  });
-
-  it("classifies a shared-ancestry paste as external-paste even when animation ids collide", () => {
-    // Shape ids differ between the documents (tldraw mints them per
-    // document) even though the copied ANIMATION ids (stepId/trackId/
-    // frame.id) collide with local ones. Classification never looks at
-    // animation ids, so the collision cannot flip the result.
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: ["shape:foreign"],
-        shapeExistsInDocument: store(["shape:local"]),
-      }),
-    ).toBe("external-paste");
-  });
-
-  it("classifies cut followed by paste as external-paste (move keeps identities)", () => {
-    // Cut removed the source shapes from the store before the paste, so
-    // none of the source ids resolve. External-paste is the wanted
-    // semantics for a move: identities are kept, nothing collides.
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: ["shape:a", "shape:b"],
-        shapeExistsInDocument: store([]),
-      }),
-    ).toBe("external-paste");
-  });
-
-  it("classifies mixed present/absent source shapes as external-paste (safe default)", () => {
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: ["shape:a", "shape:deleted"],
-        shapeExistsInDocument: store(["shape:a"]),
-      }),
-    ).toBe("external-paste");
-  });
-
-  it("classifies empty content as external-paste", () => {
-    expect(
-      classifyRemapOperation({
-        sourceShapeIds: [],
-        shapeExistsInDocument: store(["shape:a"]),
-      }),
-    ).toBe("external-paste");
   });
 });

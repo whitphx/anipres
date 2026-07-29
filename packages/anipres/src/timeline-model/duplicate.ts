@@ -32,45 +32,6 @@ import { makeInsertionSpace } from "./insertion-space";
  */
 export type RemapOperation = "duplicate" | "external-paste";
 
-/**
- * Classifies a content-insertion operation from SHAPE identity — never
- * from animation-id collisions (a shared-ancestry paste collides too).
- *
- * "duplicate" requires the operation to be non-empty and EVERY source
- * shape id to resolve in the destination store: tldraw's duplicate/
- * copy-paste content carries the ORIGINAL shape ids, so a true
- * within-document duplication always satisfies this.
- *
- * Everything else is "external-paste" — deliberately the safe default,
- * because the store cannot distinguish some cases:
- *
- * - Cut followed by paste: the source shapes were removed from the store,
- *   so a same-document cut+paste classifies as external-paste. That IS
- *   the wanted semantics — a move keeps identities (only colliding ids
- *   are freshened, and after a cut nothing collides).
- * - Mixed content (some source ids present, some not — e.g. a copy taken
- *   before some sources were deleted): treated as external-paste rather
- *   than risking a partial "duplicate" placement against originals that
- *   no longer all exist.
- *
- * Misclassifying foreign content as a local duplicate would freshen and
- * reposition it; misclassifying a local duplicate as external-paste only
- * falls back to collision-driven freshening — so ties break toward
- * "external-paste".
- */
-export function classifyRemapOperation(input: {
-  /** Shape ids carried by the inserted content (= the SOURCE shape ids). */
-  sourceShapeIds: readonly string[];
-  /** Whether a shape id resolves in the destination document's store. */
-  shapeExistsInDocument: (shapeId: string) => boolean;
-}): RemapOperation {
-  const { sourceShapeIds, shapeExistsInDocument } = input;
-  return sourceShapeIds.length > 0 &&
-    sourceShapeIds.every((shapeId) => shapeExistsInDocument(shapeId))
-    ? "duplicate"
-    : "external-paste";
-}
-
 export interface RemapContentInput {
   /** The copied shapes (their ids are the fresh ids of the copies). */
   shapes: { shapeId: string; frameMeta: unknown }[];
