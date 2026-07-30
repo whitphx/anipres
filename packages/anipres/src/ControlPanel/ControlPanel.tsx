@@ -30,6 +30,8 @@ import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
   planDetachedReattach,
+  planSameTrackSplitMaterialization,
+  planStepKeyAlignment,
   planSubFrameAddAfter,
 } from "./operations";
 
@@ -189,20 +191,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     editor.updateShape({ id: shape.id, type: shape.type, meta: metaCopy });
   };
 
-  const compareByFrameIdThenShapeId = (
-    a: { shapeId: string; frame: Frame },
-    b: { shapeId: string; frame: Frame },
-  ) =>
-    a.frame.id !== b.frame.id
-      ? a.frame.id < b.frame.id
-        ? -1
-        : 1
-      : a.shapeId < b.shapeId
-        ? -1
-        : a.shapeId > b.shapeId
-          ? 1
-          : 0;
-
   const selectedCue = (() => {
     const shape = editor.getOnlySelectedShape();
     if (shape == null) {
@@ -230,28 +218,15 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         clearFrame(diagnostic.shapeId as TLShapeId);
         return;
       case "step-key-divergence": {
-        // Converge divergent keys to the canonical one — the
-        // representative's (smallest frame.id), the same rule the
-        // derivation canonicalizes with in memory.
-        const members = collectStoredFrames()
-          .filter(
-            (entry): entry is { shapeId: string; frame: CueFrame } =>
-              entry.frame.type === "cue" &&
-              entry.frame.stepId === diagnostic.stepId,
-          )
-          .sort(compareByFrameIdThenShapeId);
-        const canonicalKey = members[0]?.frame.stepOrderKey;
-        if (canonicalKey == null) {
-          return;
-        }
+        // Explicit "align step keys" repair — the only path that
+        // persists this convergence.
+        const alignment = planStepKeyAlignment({
+          currentFrames: collectStoredFrames(),
+          stepId: diagnostic.stepId,
+        });
         editor.run(() => {
-          for (const member of members) {
-            if (member.frame.stepOrderKey !== canonicalKey) {
-              writeFrame(member.shapeId as TLShapeId, {
-                ...member.frame,
-                stepOrderKey: canonicalKey,
-              });
-            }
+          for (const update of alignment) {
+            writeFrame(update.shapeId as TLShapeId, update.frame);
           }
         });
         return;
@@ -272,37 +247,25 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         return;
       }
       case "same-track-split": {
-        // Materialize the derived split: the split-off cue gets its own
-        // stored step directly after the source step.
-        const members = collectStoredFrames()
-          .filter(
-            (entry): entry is { shapeId: string; frame: CueFrame } =>
-              entry.frame.type === "cue" &&
-              entry.frame.stepId === diagnostic.stepId &&
-              entry.frame.trackId === diagnostic.trackId,
-          )
-          .sort(compareByFrameIdThenShapeId);
-        const split = members.find(
-          (entry, index) =>
-            index > 0 && diagnostic.shapeIds.includes(entry.shapeId),
-        );
-        const stepIndex = doc.steps.findIndex(
-          (step) => step.id === diagnostic.stepId,
-        );
-        if (split == null || stepIndex < 0) {
+        // Explicit "materialize split" repair — the only path that
+        // persists the split into a stored step.
+        const plan = planSameTrackSplitMaterialization({
+          doc,
+          currentFrames: collectStoredFrames(),
+          stepId: diagnostic.stepId,
+          trackId: diagnostic.trackId,
+          shapeIds: diagnostic.shapeIds,
+          mintId: uniqueId,
+        });
+        if (plan == null) {
           return;
         }
-        const insertion = makeInsertionSpace(
-          doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
-          stepIndex + 1,
-        );
         editor.run(() => {
-          applyStepKeyUpdates(insertion.updates);
-          writeFrame(split.shapeId as TLShapeId, {
-            ...split.frame,
-            stepId: uniqueId(),
-            stepOrderKey: insertion.insertedKey,
-          });
+          applyStepKeyUpdates(plan.stepKeyUpdates);
+          writeFrame(
+            plan.splitUpdate.shapeId as TLShapeId,
+            plan.splitUpdate.frame,
+          );
         });
         return;
       }

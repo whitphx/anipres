@@ -16,6 +16,7 @@ export type {
   EditedFrameRef,
   EditedBatch,
   EditedStep,
+  EditedStepSource,
 } from "./types";
 export {
   SYNTHETIC_STEP_PREFIX,

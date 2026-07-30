@@ -5,6 +5,21 @@
 //
 // This is the single write-back path that replaces v1's
 // "rewrite every shape's meta from the new batch list" approach.
+//
+// SEMANTIC DIAGNOSTICS ARE NEVER AUTO-REPAIRED HERE. The derivation
+// canonicalizes `step-key-divergence` and `same-track-split` in memory
+// for playback, but persisting those repairs is reserved for the explicit
+// diagnostic-resolution actions. Concretely:
+// - A step the edit did not move keeps EACH member cue's own stored
+//   `stepOrderKey`, divergent or not. Divergent keys converge only when
+//   the edit itself moves the step (the new order requires a new key).
+// - A rule-2 synthetic recovery step (`source.synthetic`) is TRANSPARENT
+//   to structural edits: every frame listed under it keeps its stored
+//   metadata verbatim — no step id is minted, no key is written, and a
+//   frame dragged onto it is a no-op. Dragging a frame OUT of a synthetic
+//   step into a normal step is unambiguous intent and reconciles
+//   normally. Materializing the split is the explicit Resolve action's
+//   job alone.
 
 import type { CueFrame, EditedStep, Frame, SubFrame } from "./types";
 import { isReservedStepId } from "./ids";
@@ -40,23 +55,32 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     }
   }
 
-  // --- Assign step ids: reuse a stored stepId carried by ANY of the
-  // --- edited step's cues (not just the first batch's — which batch is
-  // --- first can change in an edit that didn't move the step) when it
-  // --- isn't claimed by an earlier edited step; mint otherwise.
+  const isSynthetic = (step: EditedStep) => step.source?.synthetic != null;
+
+  // --- Assign step ids. Preference order: the SOURCE doc step's id
+  // --- (stable even when the edit changes which batch leads the step),
+  // --- then any stored stepId carried by the step's cues, then a mint.
+  // --- Synthetic steps never claim or receive an id — their members'
+  // --- stored stepId is left to the source step.
   const usedStepIds = new Set<string>();
-  const stepIds: string[] = editedSteps.map((step) => {
-    for (const batch of step) {
+  const stepIds: (string | null)[] = editedSteps.map((step) => {
+    if (isSynthetic(step)) {
+      return null;
+    }
+    const candidates: string[] = [];
+    if (step.source != null) {
+      candidates.push(step.source.id);
+    }
+    for (const batch of step.batches) {
       const cueRef = batch.frames[0];
       if (cueRef == null) continue;
       const existing = currentByShapeId.get(cueRef.shapeId);
-      const candidate =
-        existing?.frame.type === "cue" ? existing.frame.stepId : undefined;
-      if (
-        candidate != null &&
-        !usedStepIds.has(candidate) &&
-        !isReservedStepId(candidate)
-      ) {
+      if (existing?.frame.type === "cue") {
+        candidates.push(existing.frame.stepId);
+      }
+    }
+    for (const candidate of candidates) {
+      if (!usedStepIds.has(candidate) && !isReservedStepId(candidate)) {
         usedStepIds.add(candidate);
         return candidate;
       }
@@ -70,12 +94,15 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   // --- it is still strictly ascending in the edited order; otherwise
   // --- generate keys between the previous assigned key and the next
   // --- keepable key. Writes stay local to the steps that actually moved.
+  // --- Synthetic steps are excluded throughout (no key is ever written
+  // --- for them).
   const storedKeyOf = (stepIndex: number): string | null => {
     const step = editedSteps[stepIndex];
     const stepId = stepIds[stepIndex];
+    if (stepId == null) return null;
     // The key is keepable only if some cue in this step already stored
     // exactly this (stepId, key) pairing.
-    for (const batch of step) {
+    for (const batch of step.batches) {
       const cueRef = batch.frames[0];
       if (cueRef == null) continue;
       const existing = currentByShapeId.get(cueRef.shapeId);
@@ -122,26 +149,37 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     }
   }
 
-  const assignedKeys: string[] = new Array(editedSteps.length);
+  const assignedKeys: (string | null)[] = new Array(editedSteps.length);
   {
+    // Synthetic steps are transparent: they receive no key and do not
+    // count as slots in re-keyed gaps.
     let i = 0;
     let prevKey: string | null = null;
     while (i < editedSteps.length) {
+      if (isSynthetic(editedSteps[i])) {
+        assignedKeys[i] = null;
+        i++;
+        continue;
+      }
       if (kept.has(i)) {
         assignedKeys[i] = storedKeys[i]!;
         prevKey = storedKeys[i]!;
         i++;
         continue;
       }
+      const gap: number[] = [];
       let j = i;
       while (j < editedSteps.length && !kept.has(j)) {
+        if (!isSynthetic(editedSteps[j])) {
+          gap.push(j);
+        }
         j++;
       }
       const upperBound = j < editedSteps.length ? storedKeys[j]! : null;
-      const fresh = deterministicKeysBetween(prevKey, upperBound, j - i);
-      for (let k = i; k < j; k++) {
-        assignedKeys[k] = fresh[k - i];
-      }
+      const fresh = deterministicKeysBetween(prevKey, upperBound, gap.length);
+      gap.forEach((stepIndex, freshIndex) => {
+        assignedKeys[stepIndex] = fresh[freshIndex];
+      });
       prevKey = fresh.at(-1) ?? prevKey;
       i = j;
     }
@@ -150,12 +188,39 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   // --- Build the desired frame per edited frame ref.
   const desiredByShapeId = new Map<string, Frame>();
   editedSteps.forEach((step, stepIndex) => {
-    for (const batch of step) {
+    if (isSynthetic(step)) {
+      // Pinned policy: a synthetic recovery step is not editable through
+      // structural drags. Every frame listed under it keeps its stored
+      // metadata verbatim (a drag targeting it is a no-op), preserving
+      // the same-track-split diagnostic until explicitly resolved.
+      for (const batch of step.batches) {
+        for (const ref of batch.frames) {
+          const entry = currentByShapeId.get(ref.shapeId);
+          if (entry != null) {
+            desiredByShapeId.set(entry.shapeId, entry.frame);
+          }
+        }
+      }
+      return;
+    }
+    const stepId = stepIds[stepIndex]!;
+    const stepKey = assignedKeys[stepIndex]!;
+    const stepWasMoved = !kept.has(stepIndex);
+    for (const batch of step.batches) {
       const [cueRef, ...subRefs] = batch.frames;
       if (cueRef == null) continue;
       const cueEntry = currentByShapeId.get(cueRef.shapeId);
       if (cueEntry == null) continue; // refs must point at existing frames
 
+      // Divergence preservation: an UNMOVED step keeps each member cue's
+      // own stored stepOrderKey (equal to the canonical key in healthy
+      // documents; intentionally different under step-key-divergence,
+      // which only the explicit Resolve action converges). A MOVED step
+      // requires a new order, so all members adopt the assigned key.
+      const keepOwnStoredKey =
+        !stepWasMoved &&
+        cueEntry.frame.type === "cue" &&
+        cueEntry.frame.stepId === stepId;
       const cueFrame: CueFrame = {
         v: 2,
         // The stored frame id is relationship data and is never changed by
@@ -163,8 +228,10 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         id: cueEntry.frame.id,
         type: "cue",
         trackId: batch.trackId,
-        stepId: stepIds[stepIndex],
-        stepOrderKey: assignedKeys[stepIndex],
+        stepId,
+        stepOrderKey: keepOwnStoredKey
+          ? (cueEntry.frame as CueFrame).stepOrderKey
+          : stepKey,
         action: cueRef.action,
       };
       desiredByShapeId.set(cueEntry.shapeId, cueFrame);
@@ -172,7 +239,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
       // Sub frames: keep stored orderKeys when the batch membership and
       // relative order are unchanged; otherwise regenerate the batch's
       // sub-key chain (writes bounded to this batch).
-      const storedKeys = subRefs.map((ref) => {
+      const storedSubKeys = subRefs.map((ref) => {
         const entry = currentByShapeId.get(ref.shapeId);
         return entry?.frame.type === "sub" &&
           entry.frame.cueFrameId === cueEntry.frame.id
@@ -180,13 +247,13 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
           : null;
       });
       const keysAreValid =
-        storedKeys.every((k) => k != null) &&
-        storedKeys.every(
+        storedSubKeys.every((k) => k != null) &&
+        storedSubKeys.every(
           (k, idx) =>
-            idx === 0 || compareOrderKeys(storedKeys[idx - 1]!, k!) < 0,
+            idx === 0 || compareOrderKeys(storedSubKeys[idx - 1]!, k!) < 0,
         );
       const subKeys = keysAreValid
-        ? (storedKeys as string[])
+        ? (storedSubKeys as string[])
         : deterministicKeysBetween(null, null, subRefs.length);
 
       subRefs.forEach((ref, index) => {

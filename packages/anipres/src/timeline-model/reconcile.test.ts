@@ -44,27 +44,33 @@ describe("reconcileEditedSteps", () => {
     { shapeId: "shape:d", frame: cue("f4", "s3", "a3", "T") },
   ];
   const unchanged: EditedStep[] = [
-    [
-      {
-        trackId: "T",
-        frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-      },
-    ],
-    [
-      {
-        trackId: "U",
-        frames: [
-          { shapeId: "shape:b", frameId: "f2", action: ACTION },
-          { shapeId: "shape:c", frameId: "f3", action: ACTION },
-        ],
-      },
-    ],
-    [
-      {
-        trackId: "T",
-        frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
-      },
-    ],
+    {
+      batches: [
+        {
+          trackId: "T",
+          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+        },
+      ],
+    },
+    {
+      batches: [
+        {
+          trackId: "U",
+          frames: [
+            { shapeId: "shape:b", frameId: "f2", action: ACTION },
+            { shapeId: "shape:c", frameId: "f3", action: ACTION },
+          ],
+        },
+      ],
+    },
+    {
+      batches: [
+        {
+          trackId: "T",
+          frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
+        },
+      ],
+    },
   ];
 
   it("produces zero writes for an unchanged timeline", () => {
@@ -80,25 +86,29 @@ describe("reconcileEditedSteps", () => {
   it("moving one batch to another step writes only that batch's frames", () => {
     // Move f4's batch into step 2 (joins s2).
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [
-            { shapeId: "shape:b", frameId: "f2", action: ACTION },
-            { shapeId: "shape:c", frameId: "f3", action: ACTION },
-          ],
-        },
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [
+              { shapeId: "shape:b", frameId: "f2", action: ACTION },
+              { shapeId: "shape:c", frameId: "f3", action: ACTION },
+            ],
+          },
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -115,27 +125,33 @@ describe("reconcileEditedSteps", () => {
   it("inserting a new step between steps keeps every existing frame untouched", () => {
     // f4 is pulled out into its own new step between s1 and s2.
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [
-            { shapeId: "shape:b", frameId: "f2", action: ACTION },
-            { shapeId: "shape:c", frameId: "f3", action: ACTION },
-          ],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [
+              { shapeId: "shape:b", frameId: "f2", action: ACTION },
+              { shapeId: "shape:c", frameId: "f3", action: ACTION },
+            ],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -151,24 +167,28 @@ describe("reconcileEditedSteps", () => {
 
   it("converts a cue to a sub frame when merged into another batch", () => {
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [
-            { shapeId: "shape:a", frameId: "f1", action: ACTION },
-            { shapeId: "shape:d", frameId: "f4", action: ACTION }, // was a cue, becomes a sub
-          ],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [
-            { shapeId: "shape:b", frameId: "f2", action: ACTION },
-            { shapeId: "shape:c", frameId: "f3", action: ACTION },
-          ],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [
+              { shapeId: "shape:a", frameId: "f1", action: ACTION },
+              { shapeId: "shape:d", frameId: "f4", action: ACTION }, // was a cue, becomes a sub
+            ],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [
+              { shapeId: "shape:b", frameId: "f2", action: ACTION },
+              { shapeId: "shape:c", frameId: "f3", action: ACTION },
+            ],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -184,12 +204,14 @@ describe("reconcileEditedSteps", () => {
 
   it("removes frames absent from the edited structure", () => {
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -202,30 +224,38 @@ describe("reconcileEditedSteps", () => {
   it("mints a fresh stepId when a step splits (identity can't be claimed twice)", () => {
     // s2's batch splits: f2 stays, f3 becomes its own new cue/step.
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [{ shapeId: "shape:b", frameId: "f2", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [{ shapeId: "shape:c", frameId: "f3", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [{ shapeId: "shape:b", frameId: "f2", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [{ shapeId: "shape:c", frameId: "f3", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -246,27 +276,33 @@ describe("reconcileEditedSteps", () => {
   it("reordering steps rewrites only the moved step's cue frames", () => {
     // Move s3 before s2.
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "U",
-          frames: [
-            { shapeId: "shape:b", frameId: "f2", action: ACTION },
-            { shapeId: "shape:c", frameId: "f3", action: ACTION },
-          ],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:d", frameId: "f4", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [
+              { shapeId: "shape:b", frameId: "f2", action: ACTION },
+              { shapeId: "shape:c", frameId: "f3", action: ACTION },
+            ],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames,
@@ -289,18 +325,22 @@ describe("duplicate frame ids in the edit pipeline", () => {
     ];
     // Move shape:b's step before shape:a's.
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "U",
-          frames: [{ shapeId: "shape:b", frameId: "dup", action: ACTION }],
-        },
-      ],
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "dup", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [{ shapeId: "shape:b", frameId: "dup", action: ACTION }],
+          },
+        ],
+      },
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "dup", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames: frames,
@@ -330,15 +370,17 @@ describe("reconcileEditedSteps — detached sub frames", () => {
     ];
     // The edit re-states the timeline exactly as derived (no change).
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [
-            { shapeId: "shape:a", frameId: "f1", action: ACTION },
-            { shapeId: "shape:b", frameId: "f2", action: ACTION },
-          ],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [
+              { shapeId: "shape:a", frameId: "f1", action: ACTION },
+              { shapeId: "shape:b", frameId: "f2", action: ACTION },
+            ],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames: frames,
@@ -356,12 +398,14 @@ describe("reconcileEditedSteps — detached sub frames", () => {
       { shapeId: "shape:z", frame: sub("f9", "missing-cue", "a0") }, // detached
     ];
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames: frames,
@@ -386,16 +430,18 @@ describe("reconcileEditedSteps — step identity stability", () => {
       { shapeId: "shape:x", frame: sub("f2", "f1", "a0") },
     ];
     const edited: EditedStep[] = [
-      [
-        {
-          trackId: "U",
-          frames: [{ shapeId: "shape:x", frameId: "f2", action: ACTION }],
-        },
-        {
-          trackId: "T",
-          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
-        },
-      ],
+      {
+        batches: [
+          {
+            trackId: "U",
+            frames: [{ shapeId: "shape:x", frameId: "f2", action: ACTION }],
+          },
+          {
+            trackId: "T",
+            frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+          },
+        ],
+      },
     ];
     const result = reconcileEditedSteps({
       currentFrames: frames,

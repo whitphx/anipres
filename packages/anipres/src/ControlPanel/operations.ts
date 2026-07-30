@@ -204,3 +204,107 @@ export function planDetachedReattach(input: {
     cueFrameUpdate: cueTarget.cueFrameUpdate,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Explicit diagnostic-resolution planners (design Risk 7). These are the
+// ONLY paths that persist semantic repairs — reconciliation deliberately
+// preserves unresolved step-key-divergence and same-track-split states.
+// ---------------------------------------------------------------------------
+
+const compareByFrameIdThenShapeId = (
+  a: { shapeId: string; frame: Frame },
+  b: { shapeId: string; frame: Frame },
+) =>
+  a.frame.id !== b.frame.id
+    ? a.frame.id < b.frame.id
+      ? -1
+      : 1
+    : a.shapeId < b.shapeId
+      ? -1
+      : a.shapeId > b.shapeId
+        ? 1
+        : 0;
+
+/**
+ * Plans the explicit "align step keys" repair for a `step-key-divergence`
+ * diagnostic: every member converges to the canonical key — the
+ * representative's (smallest frame.id, then shapeId), the same rule the
+ * derivation canonicalizes with in memory.
+ */
+export function planStepKeyAlignment(input: {
+  currentFrames: { shapeId: string; frame: Frame }[];
+  stepId: string;
+}): { shapeId: string; frame: CueFrame }[] {
+  const members = input.currentFrames
+    .filter(
+      (entry): entry is { shapeId: string; frame: CueFrame } =>
+        entry.frame.type === "cue" && entry.frame.stepId === input.stepId,
+    )
+    .sort(compareByFrameIdThenShapeId);
+  const canonicalKey = members[0]?.frame.stepOrderKey;
+  if (canonicalKey == null) {
+    return [];
+  }
+  return members
+    .filter((member) => member.frame.stepOrderKey !== canonicalKey)
+    .map((member) => ({
+      shapeId: member.shapeId,
+      frame: { ...member.frame, stepOrderKey: canonicalKey },
+    }));
+}
+
+export interface SameTrackSplitPlan {
+  /** Step-key rewrites from collision-run normalization (existing steps). */
+  stepKeyUpdates: { id: string; key: string }[];
+  /** The split-off cue's rewrite: fresh stored stepId + key after source. */
+  splitUpdate: { shapeId: string; frame: CueFrame };
+}
+
+/**
+ * Plans the explicit "materialize split" repair for a `same-track-split`
+ * diagnostic: the split-off cue gets its own stored step directly after
+ * the source step. Apply `stepKeyUpdates` and `splitUpdate` in one
+ * transaction.
+ */
+export function planSameTrackSplitMaterialization(input: {
+  doc: TimelineDoc;
+  currentFrames: { shapeId: string; frame: Frame }[];
+  stepId: string;
+  trackId: string;
+  /** The diagnostic's shapeIds (the split-off members). */
+  shapeIds: readonly string[];
+  mintId: () => string;
+}): SameTrackSplitPlan | null {
+  const members = input.currentFrames
+    .filter(
+      (entry): entry is { shapeId: string; frame: CueFrame } =>
+        entry.frame.type === "cue" &&
+        entry.frame.stepId === input.stepId &&
+        entry.frame.trackId === input.trackId,
+    )
+    .sort(compareByFrameIdThenShapeId);
+  const split = members.find(
+    (entry, index) => index > 0 && input.shapeIds.includes(entry.shapeId),
+  );
+  const stepIndex = input.doc.steps.findIndex(
+    (step) => step.id === input.stepId,
+  );
+  if (split == null || stepIndex < 0) {
+    return null;
+  }
+  const insertion = makeInsertionSpace(
+    input.doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
+    stepIndex + 1,
+  );
+  return {
+    stepKeyUpdates: insertion.updates,
+    splitUpdate: {
+      shapeId: split.shapeId,
+      frame: {
+        ...split.frame,
+        stepId: input.mintId(),
+        stepOrderKey: insertion.insertedKey,
+      },
+    },
+  };
+}

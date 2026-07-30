@@ -157,5 +157,28 @@ export interface EditedBatch {
   /** frames[0] takes the cue role; the rest become sub frames, in order. */
   frames: EditedFrameRef[];
 }
+/**
+ * Identity of the derived doc step an edited step DISPLAYS. Carried so
+ * reconciliation can tell a stored step, a rule-2 synthetic recovery
+ * step, and a newly created step apart — without it, ordinary drags of
+ * UNRELATED steps would silently persist semantic repairs (converging
+ * divergent keys, materializing same-track splits) that the design
+ * reserves for explicit diagnostic resolution.
+ */
+export interface EditedStepSource {
+  /** The doc step id (stored stepId, or a reserved synthetic id). */
+  id: string;
+  /** The doc step's canonical order key. */
+  orderKey: string;
+  /** Present iff the source step is a rule-2 recovery step. */
+  synthetic?: {
+    reason: "same-track-split";
+    sourceStepId: string;
+  };
+}
 /** One presentation step: batches that fire simultaneously. */
-export type EditedStep = EditedBatch[];
+export interface EditedStep {
+  batches: EditedBatch[];
+  /** Source doc step identity; absent for steps the edit created. */
+  source?: EditedStepSource;
+}

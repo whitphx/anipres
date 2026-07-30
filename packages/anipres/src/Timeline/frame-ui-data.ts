@@ -1,4 +1,8 @@
-import type { FrameAction, TimelineDoc } from "../timeline-model";
+import type {
+  EditedStepSource,
+  FrameAction,
+  TimelineDoc,
+} from "../timeline-model";
 
 export interface FrameUIData {
   id: string;
@@ -26,6 +30,14 @@ export interface Track {
 
 export function calcFrameBatchUIData(doc: TimelineDoc) {
   const stepsUIData: FrameBatchUIData[][] = [];
+  // Parallel to `steps`: the source doc step identity each column
+  // displays, threaded through structural edits so reconciliation can
+  // distinguish stored / synthetic / newly-created steps.
+  const stepSources: EditedStepSource[] = doc.steps.map((step) => ({
+    id: step.id,
+    orderKey: step.orderKey,
+    ...(step.synthetic ? { synthetic: step.synthetic } : {}),
+  }));
   const tracksMap: Record<
     string,
     {
@@ -96,5 +108,5 @@ export function calcFrameBatchUIData(doc: TimelineDoc) {
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
-  return { steps: stepsUIData, tracks };
+  return { steps: stepsUIData, stepSources, tracks };
 }

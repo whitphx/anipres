@@ -340,7 +340,7 @@ export function Timeline({
   onReattachDetached,
   canReattachDetached,
 }: TimelineProps) {
-  const { steps, tracks } = useMemo(
+  const { steps, stepSources, tracks } = useMemo(
     () => calcFrameBatchUIData(timelineDoc),
     [timelineDoc],
   );
@@ -426,6 +426,7 @@ export function Timeline({
 
       const newSteps = moveFrame(
         steps,
+        stepSources,
         trackId,
         srcGlobalIndex,
         srcTrackIndex,
@@ -436,7 +437,7 @@ export function Timeline({
         onEditedStepsChange(newSteps);
       }
     },
-    [steps, onEditedStepsChange],
+    [steps, stepSources, onEditedStepsChange],
   );
 
   // To capture click events on draggable elements.

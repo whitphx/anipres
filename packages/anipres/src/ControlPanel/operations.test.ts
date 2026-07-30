@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   findFramePosition,
   planDetachedReattach,
+  planSameTrackSplitMaterialization,
+  planStepKeyAlignment,
   planSubFrameAddAfter,
 } from "./operations";
 import {
@@ -298,5 +300,59 @@ describe("planDetachedReattach (shapeId target identity)", () => {
     expect(plan).not.toBeNull();
     expect(plan!.cueFrameUpdate).toBeNull();
     expect(compareOrderKeys("a3", plan!.orderKey)).toBeLessThan(0);
+  });
+});
+
+describe("explicit diagnostic resolution planners", () => {
+  it("planStepKeyAlignment converges divergent keys to the canonical member's", () => {
+    // Canonical = smallest frame.id ("f1"), key "a1".
+    const entries = [
+      { shapeId: "shape:b", frame: cue("f2", "s1", "a9", "U") },
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:c", frame: cue("f3", "s2", "a5", "V") },
+    ];
+    const plan = planStepKeyAlignment({
+      currentFrames: entries,
+      stepId: "s1",
+    });
+    expect(plan.map((u) => u.shapeId)).toEqual(["shape:b"]);
+    expect(plan[0].frame.stepOrderKey).toBe("a1");
+
+    // Applying the plan clears the diagnostic.
+    const after = rederive(entries, plan);
+    expect(
+      after.diagnostics.filter((d) => d.type === "step-key-divergence"),
+    ).toEqual([]);
+  });
+
+  it("planSameTrackSplitMaterialization gives the split-off cue a real step after the source", () => {
+    const entries = [
+      { shapeId: "shape:a", frame: cue("g1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frame: cue("g2", "s1", "a1", "T") },
+      { shapeId: "shape:c", frame: cue("g3", "s2", "a5", "U") },
+    ];
+    const { doc } = makeDoc(entries);
+    const plan = planSameTrackSplitMaterialization({
+      doc,
+      currentFrames: entries,
+      stepId: "s1",
+      trackId: "T",
+      shapeIds: ["shape:b"],
+      mintId: makeMinter(),
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.splitUpdate.shapeId).toBe("shape:b");
+    const materialized = plan!.splitUpdate.frame;
+    expect(materialized.stepId).not.toBe("s1"); // fresh stored step
+    expect(compareOrderKeys("a1", materialized.stepOrderKey)).toBeLessThan(0);
+    expect(compareOrderKeys(materialized.stepOrderKey, "a5")).toBeLessThan(0);
+
+    // Applying the plan clears the diagnostic and yields three REAL steps.
+    const after = rederive(entries, [plan!.splitUpdate]);
+    expect(
+      after.diagnostics.filter((d) => d.type === "same-track-split"),
+    ).toEqual([]);
+    expect(after.steps).toHaveLength(3);
+    expect(after.steps.every((s) => s.synthetic == null)).toBe(true);
   });
 });

@@ -1,4 +1,8 @@
-import type { EditedBatch, EditedStep } from "../timeline-model";
+import type {
+  EditedBatch,
+  EditedStep,
+  EditedStepSource,
+} from "../timeline-model";
 import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
 
 // The Timeline drag & drop semantics (pinned by frame-movement.test.ts):
@@ -10,7 +14,10 @@ import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
 // the sequences merge into one batch.
 //
 // The output is a plain EditedStep[] structure; reconcileEditedSteps
-// turns it into a minimal per-shape diff.
+// turns it into a minimal per-shape diff. Each output step that displays
+// a source doc step carries that step's identity (`source`), so
+// reconciliation can preserve unresolved semantic diagnostics on steps
+// the edit did not touch; steps fabricated by the move carry none.
 
 interface RoleFrame {
   frame: FrameUIData;
@@ -57,12 +64,19 @@ function rebatch(pushedOut: RoleFrame[], trackId: string): EditedBatch[] {
 
 export function moveFrame(
   steps: FrameBatchUIData[][],
+  stepSources: readonly EditedStepSource[],
   trackId: Track["id"],
   srcGlobalIndex: number,
   srcTrackIndex: number,
   dstGlobalIndex: number,
   dstType: "after" | "at",
 ): EditedStep[] | undefined {
+  const sourced = (batches: EditedBatch[], stepIndex: number): EditedStep => ({
+    batches,
+    ...(stepSources[stepIndex] != null
+      ? { source: stepSources[stepIndex] }
+      : {}),
+  });
   if (
     srcGlobalIndex < dstGlobalIndex ||
     (srcGlobalIndex === dstGlobalIndex && dstType === "after")
@@ -77,12 +91,12 @@ export function moveFrame(
       // NOTE: Loop until `stepIndex` is `steps.length` to handle the case where `dstGlobalIndex = steps.length` and `dstType = "after"`.
       const step = steps[stepIndex] ?? [];
       if (stepIndex < srcGlobalIndex) {
-        newSteps.push(step.map(uiBatchToEdited));
+        newSteps.push(sourced(step.map(uiBatchToEdited), stepIndex));
       } else if (stepIndex === srcGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         step.forEach((frameBatch) => {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             const [cueFrame, ...subFrames] = frameBatch.data;
             if (cueFrame.trackIndex === srcTrackIndex) {
@@ -103,16 +117,18 @@ export function moveFrame(
                   pushedOut.push({ frame: subFrame, role: "sub" });
                 }
               });
-              newStep.push(batchToEdited({ trackId, frames: remaining }));
+              newStepBatches.push(
+                batchToEdited({ trackId, frames: remaining }),
+              );
             }
           }
         });
-        newSteps.push(newStep);
+        newSteps.push(sourced(newStepBatches, stepIndex));
       } else if (srcGlobalIndex < stepIndex && stepIndex < dstGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         step.forEach((frameBatch) => {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             pushedOut.push(
               ...frameBatch.data.map((frame) => ({
@@ -122,13 +138,13 @@ export function moveFrame(
             );
           }
         });
-        newSteps.push(newStep);
+        newSteps.push(sourced(newStepBatches, stepIndex));
       } else if (stepIndex === dstGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         let existingDstFrameBatch: FrameBatchUIData | null = null;
         for (const frameBatch of step) {
           if (!(dstType === "at" && frameBatch.trackId === trackId)) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             existingDstFrameBatch = frameBatch;
           }
@@ -157,19 +173,19 @@ export function moveFrame(
         if (dstType === "at") {
           const lastBatch = batchesToInsert.at(-1);
           if (lastBatch != null) {
-            newStep.push(lastBatch);
+            newStepBatches.push(lastBatch);
             batchesToInsert = batchesToInsert.slice(0, -1);
           }
         }
         batchesToInsert.forEach((batch) => {
-          newSteps.push([batch]);
+          newSteps.push({ batches: [batch] });
         });
-        newSteps.push(newStep);
+        newSteps.push(sourced(newStepBatches, stepIndex));
       } else if (dstGlobalIndex < stepIndex) {
-        newSteps.push(step.map(uiBatchToEdited));
+        newSteps.push(sourced(step.map(uiBatchToEdited), stepIndex));
       }
     }
-    return newSteps.filter((step) => step.length > 0);
+    return newSteps.filter((step) => step.batches.length > 0);
   } else if (
     dstGlobalIndex < srcGlobalIndex ||
     (dstGlobalIndex === srcGlobalIndex && dstType === "after")
@@ -181,12 +197,12 @@ export function moveFrame(
       // NOTE: Loop until `stepIndex` is -1 to handle the case where `dstGlobalIndex = -1` and `dstType = "after"`.
       const step = steps[stepIndex] ?? [];
       if (srcGlobalIndex < stepIndex) {
-        newSteps.unshift(step.map(uiBatchToEdited));
+        newSteps.unshift(sourced(step.map(uiBatchToEdited), stepIndex));
       } else if (stepIndex === srcGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         for (const frameBatch of step) {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             const lastFrame = frameBatch.data.at(-1);
             if (lastFrame && lastFrame.trackIndex === srcTrackIndex) {
@@ -210,16 +226,18 @@ export function moveFrame(
                 }
               });
               pushedOut.unshift({ frame: cueFrame, role: "cue" });
-              newStep.push(batchToEdited({ trackId, frames: remaining }));
+              newStepBatches.push(
+                batchToEdited({ trackId, frames: remaining }),
+              );
             }
           }
         }
-        newSteps.unshift(newStep);
+        newSteps.unshift(sourced(newStepBatches, stepIndex));
       } else if (dstGlobalIndex < stepIndex && stepIndex < srcGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         for (const frameBatch of step) {
           if (frameBatch.trackId !== trackId) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             pushedOut.unshift(
               ...frameBatch.data.map((frame) => ({
@@ -229,13 +247,13 @@ export function moveFrame(
             );
           }
         }
-        newSteps.unshift(newStep);
+        newSteps.unshift(sourced(newStepBatches, stepIndex));
       } else if (stepIndex === dstGlobalIndex) {
-        const newStep: EditedStep = [];
+        const newStepBatches: EditedBatch[] = [];
         let existingDstFrameBatch: FrameBatchUIData | null = null;
         for (const frameBatch of step) {
           if (!(dstType === "at" && frameBatch.trackId === trackId)) {
-            newStep.push(uiBatchToEdited(frameBatch));
+            newStepBatches.push(uiBatchToEdited(frameBatch));
           } else {
             existingDstFrameBatch = frameBatch;
           }
@@ -265,20 +283,20 @@ export function moveFrame(
         const batchesToInsert = rebatch(pushedOut, trackId);
         const [firstBatchToInsert, ...restBatchesToInsert] = batchesToInsert;
         [...restBatchesToInsert].reverse().forEach((batch) => {
-          newSteps.unshift([batch]);
+          newSteps.unshift({ batches: [batch] });
         });
         if (firstBatchToInsert != null) {
           if (dstType === "at") {
-            newStep.push(firstBatchToInsert);
+            newStepBatches.push(firstBatchToInsert);
           } else {
-            newSteps.unshift([firstBatchToInsert]);
+            newSteps.unshift({ batches: [firstBatchToInsert] });
           }
         }
-        newSteps.unshift(newStep);
+        newSteps.unshift(sourced(newStepBatches, stepIndex));
       } else if (stepIndex < dstGlobalIndex) {
-        newSteps.unshift(step.map(uiBatchToEdited));
+        newSteps.unshift(sourced(step.map(uiBatchToEdited), stepIndex));
       }
     }
-    return newSteps.filter((step) => step.length > 0);
+    return newSteps.filter((step) => step.batches.length > 0);
   }
 }
