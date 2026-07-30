@@ -286,14 +286,20 @@ export function planSameTrackSplitMaterialization(input: {
   const split = members.find(
     (entry, index) => index > 0 && input.shapeIds.includes(entry.shapeId),
   );
-  const stepIndex = input.doc.steps.findIndex(
-    (step) => step.id === input.stepId,
-  );
+  // Insertion space over REAL stored steps only. Synthetic recovery
+  // steps are not independently stored timeline slots — they share
+  // their source step's key by construction, so feeding them into
+  // collision-run normalization would re-key the source and any
+  // still-unresolved split members to DIFFERENT keys, fabricating a
+  // step-key-divergence while resolving one member. Their reserved ids
+  // must never appear in stepKeyUpdates.
+  const storedSteps = input.doc.steps.filter((step) => step.synthetic == null);
+  const stepIndex = storedSteps.findIndex((step) => step.id === input.stepId);
   if (split == null || stepIndex < 0) {
     return null;
   }
   const insertion = makeInsertionSpace(
-    input.doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
+    storedSteps.map((step) => ({ id: step.id, key: step.orderKey })),
     stepIndex + 1,
   );
   return {

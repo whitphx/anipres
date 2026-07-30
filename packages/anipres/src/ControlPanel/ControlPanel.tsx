@@ -123,17 +123,26 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   /**
    * Applies step-key rewrites produced by collision-run normalization —
    * bounded to the run, executed inline in the mutating transaction.
+   * Keyed by STORED stepId, so the write reaches EVERY cue sharing the
+   * step identity — including split members displayed under synthetic
+   * recovery steps — and a normalization can never re-key a step away
+   * from its unresolved split siblings.
    */
   const applyStepKeyUpdates = (updates: { id: string; key: string }[]) => {
+    if (updates.length === 0) return;
+    const frames = collectStoredFrames();
     for (const { id: stepId, key } of updates) {
-      const step = doc.steps.find((s) => s.id === stepId);
-      if (step == null) continue;
-      for (const batch of step.batches) {
-        const cueShape = editor.getShape(batch.frames[0].shapeId as TLShapeId);
-        if (cueShape == null) continue;
-        const frame = getStoredFrame(cueShape);
-        if (frame?.type !== "cue") continue;
-        writeFrame(cueShape.id, { ...frame, stepOrderKey: key });
+      for (const entry of frames) {
+        if (
+          entry.frame.type === "cue" &&
+          entry.frame.stepId === stepId &&
+          entry.frame.stepOrderKey !== key
+        ) {
+          writeFrame(entry.shapeId as TLShapeId, {
+            ...entry.frame,
+            stepOrderKey: key,
+          });
+        }
       }
     }
   };

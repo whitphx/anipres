@@ -356,3 +356,149 @@ describe("explicit diagnostic resolution planners", () => {
     expect(after.steps.every((s) => s.synthetic == null)).toBe(true);
   });
 });
+
+describe("split materialization with multiple unresolved members", () => {
+  // A, B and C all store (stepId s1, track T, key a1): derivation shows
+  // A as the normal step and B/C as two synthetic recovery steps.
+  const THREE_WAY = [
+    { shapeId: "shape:a", frame: cue("g1", "s1", "a1", "T") },
+    { shapeId: "shape:b", frame: cue("g2", "s1", "a1", "T") },
+    { shapeId: "shape:c", frame: cue("g3", "s1", "a1", "T") },
+  ];
+
+  function applyPlan(
+    entries: { shapeId: string; frame: Frame }[],
+    plan: {
+      stepKeyUpdates: { id: string; key: string }[];
+      splitUpdate: { shapeId: string; frame: CueFrame };
+    },
+  ) {
+    // Mirrors the ControlPanel apply: step-key updates reach every cue
+    // sharing the stored stepId, then the split cue is rewritten.
+    return entries.map((entry) => {
+      if (entry.shapeId === plan.splitUpdate.shapeId) {
+        return { shapeId: entry.shapeId, frame: plan.splitUpdate.frame };
+      }
+      const frame = entry.frame;
+      const keyUpdate =
+        frame.type === "cue"
+          ? plan.stepKeyUpdates.find((u) => u.id === frame.stepId)
+          : undefined;
+      return keyUpdate != null
+        ? {
+            shapeId: entry.shapeId,
+            frame: { ...frame, stepOrderKey: keyUpdate.key },
+          }
+        : entry;
+    });
+  }
+
+  it("resolving ONE of two splits leaves the other member byte-unchanged", () => {
+    const { doc } = makeDoc(THREE_WAY);
+    expect(doc.steps).toHaveLength(3);
+    expect(doc.steps.filter((s) => s.synthetic != null)).toHaveLength(2);
+
+    const mintId = makeMinter();
+    const plan = planSameTrackSplitMaterialization({
+      doc,
+      currentFrames: THREE_WAY,
+      stepId: "s1",
+      trackId: "T",
+      shapeIds: ["shape:b"],
+      mintId,
+    });
+    expect(plan).not.toBeNull();
+    // Only real stored steps participate in normalization: the single
+    // real step needs no rewrite, and synthetic ids never appear.
+    expect(plan!.stepKeyUpdates).toEqual([]);
+    expect(plan!.splitUpdate.shapeId).toBe("shape:b");
+    expect(plan!.splitUpdate.frame.stepId).not.toBe("s1");
+
+    const after = applyPlan(THREE_WAY, plan!);
+    // The unresolved member C is completely untouched.
+    expect(after.find((e) => e.shapeId === "shape:c")!.frame).toEqual(
+      cue("g3", "s1", "a1", "T"),
+    );
+    expect(after.find((e) => e.shapeId === "shape:a")!.frame).toEqual(
+      cue("g1", "s1", "a1", "T"),
+    );
+    const rederived = deriveTimeline({
+      shapes: after.map(({ shapeId, frame }) => ({
+        shapeId,
+        frameMeta: frameToMetaJson(frame),
+      })),
+      pageId: "page:page",
+    });
+    // B is now a real stored step; C remains an unresolved synthetic
+    // split; no divergence was fabricated.
+    expect(rederived.steps).toHaveLength(3);
+    expect(rederived.steps.filter((s) => s.synthetic != null)).toHaveLength(1);
+    expect(rederived.diagnostics.map((d) => d.type)).toEqual([
+      "same-track-split",
+    ]);
+
+    // Resolving the remaining split yields three real steps, no
+    // diagnostics.
+    const secondPlan = planSameTrackSplitMaterialization({
+      doc: rederived,
+      currentFrames: after,
+      stepId: "s1",
+      trackId: "T",
+      shapeIds: ["shape:c"],
+      mintId,
+    });
+    expect(secondPlan).not.toBeNull();
+    const final = applyPlan(after, secondPlan!);
+    const finalDoc = deriveTimeline({
+      shapes: final.map(({ shapeId, frame }) => ({
+        shapeId,
+        frameMeta: frameToMetaJson(frame),
+      })),
+      pageId: "page:page",
+    });
+    expect(finalDoc.steps).toHaveLength(3);
+    expect(finalDoc.steps.every((s) => s.synthetic == null)).toBe(true);
+    expect(finalDoc.diagnostics).toEqual([]);
+  });
+
+  it("normalizes an equal-key run of REAL steps without touching synthetics", () => {
+    // Real steps s1 and s2 collide on "a1"; s1 also carries a split (B).
+    const entries = [
+      { shapeId: "shape:a", frame: cue("g1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frame: cue("g2", "s1", "a1", "T") },
+      { shapeId: "shape:c", frame: cue("g3", "s2", "a1", "U") },
+    ];
+    const { doc } = makeDoc(entries);
+    const plan = planSameTrackSplitMaterialization({
+      doc,
+      currentFrames: entries,
+      stepId: "s1",
+      trackId: "T",
+      shapeIds: ["shape:b"],
+      mintId: makeMinter(),
+    });
+    expect(plan).not.toBeNull();
+    // The equal-key run (s1, s2) IS normalized — but only real stored
+    // step ids appear, never synthetic ones.
+    expect(plan!.stepKeyUpdates.map((u) => u.id).sort()).toEqual(["s1", "s2"]);
+    expect(
+      plan!.stepKeyUpdates.every((u) => !u.id.startsWith("synthstep:")),
+    ).toBe(true);
+
+    const after = applyPlan(entries, plan!);
+    const rederived = deriveTimeline({
+      shapes: after.map(({ shapeId, frame }) => ({
+        shapeId,
+        frameMeta: frameToMetaJson(frame),
+      })),
+      pageId: "page:page",
+    });
+    // Order: s1, materialized B, s2 — all real, no diagnostics at all
+    // (the stepId-keyed apply moves every s1 member together).
+    expect(rederived.steps).toHaveLength(3);
+    expect(rederived.steps.every((s) => s.synthetic == null)).toBe(true);
+    expect(rederived.diagnostics).toEqual([]);
+    expect(rederived.steps[0].id).toBe("s1");
+    expect(rederived.steps[2].id).toBe("s2");
+  });
+});
