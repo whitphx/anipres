@@ -16,10 +16,13 @@
 // - A rule-2 synthetic recovery step (`source.synthetic`) is TRANSPARENT
 //   to structural edits: every frame listed under it keeps its stored
 //   metadata verbatim — no step id is minted, no key is written, and a
-//   frame dragged onto it is a no-op. Dragging a frame OUT of a synthetic
-//   step into a normal step is unambiguous intent and reconciles
-//   normally. Materializing the split is the explicit Resolve action's
-//   job alone.
+//   frame dragged onto it is a no-op. An edit that restructures the
+//   split batch ITSELF is different: dragging it out of the synthetic
+//   step, or a same-track drag whose push sweep crosses it (the sweep
+//   re-emits swept batches as sourceless new steps), materializes the
+//   split — the batch genuinely took part in that edit. Outside those
+//   cases, materializing is the explicit Resolve action's job alone.
+//   (Both are pinned by semantic-preservation.test.ts.)
 // - Transparency must not CREATE diagnostics either: a step carrying
 //   split-off members is pinned to its stored key so unrelated moves
 //   never re-key it around its frozen siblings, and if re-keying it is

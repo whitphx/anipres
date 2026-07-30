@@ -217,6 +217,44 @@ describe("semantic-diagnostic preservation through Timeline edits", () => {
     expect(derive(after).diagnostics).toEqual([]);
   });
 
+  it("a same-track sweep crossing the split batch materializes it (pinned)", () => {
+    // The pinned drag semantics push EVERY same-track batch between
+    // source and destination — a split batch in the sweep path is
+    // restructured like any other batch (it genuinely takes part in this
+    // edit, unlike the unrelated-track moves above), so the sweep
+    // materializes it as its own stored step. This is the one structural
+    // edit allowed to persist a split, because the drag itself
+    // restructures the batch.
+    const SWEEP: Entry[] = [
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frame: cue("f2", "s1", "a1", "T") }, // synthetic
+      { shapeId: "shape:c", frame: cue("f3", "s2", "a2", "T") }, // same track
+    ];
+    const doc = derive(SWEEP);
+    expect(doc.diagnostics.map((d) => d.type)).toEqual(["same-track-split"]);
+    const ui = calcFrameBatchUIData(doc);
+    // Drag s2's track-T batch (step 2) left past the synthetic step: the
+    // sweep range contains the split batch, so it is pushed along.
+    const edited = moveFrame(ui.steps, ui.stepSources, "T", 2, 2, 0, "after");
+    expect(edited).not.toBeNull();
+    const result = reconcile(SWEEP, edited!);
+    expect(result.removedShapeIds).toEqual([]);
+    // The swept split cue lands in its own real step: fresh stepId,
+    // keyed between the source step and s2.
+    expect(result.updates.map((u) => u.shapeId)).toEqual(["shape:b"]);
+    const swept = result.updates[0].frame as CueFrame;
+    expect(swept.stepId).not.toBe("s1");
+    expect(swept.stepOrderKey > "a1" && swept.stepOrderKey < "a2").toBe(true);
+    const after = apply(SWEEP, result);
+    const rederived = derive(after);
+    expect(rederived.diagnostics).toEqual([]);
+    expect(rederived.steps.map((s) => s.batches[0].frames[0].shapeId)).toEqual([
+      "shape:a",
+      "shape:b",
+      "shape:c",
+    ]);
+  });
+
   it("a no-change round trip over every diagnostic class writes nothing", () => {
     const ALL: Entry[] = [
       // step-key-divergence

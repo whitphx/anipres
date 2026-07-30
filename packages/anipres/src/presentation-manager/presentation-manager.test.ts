@@ -1,11 +1,14 @@
+/** @vitest-environment happy-dom */
 import { describe, it, expect } from "vitest";
-import { atom } from "tldraw";
-import type { Editor, TLShape } from "tldraw";
+import { atom, createShapeId, getSnapshot, type Editor } from "tldraw";
 import { PresentationManager } from "./presentation-manager";
-import { calculateTotalSteps } from "../headless-editor-utils";
-import type { TLStoreSnapshot } from "tldraw";
+import {
+  calculateTotalSteps,
+  loadHeadlessEditor,
+} from "../headless-editor-utils";
+import { frameToMetaJson, type CueFrame } from "../timeline-model";
 
-const CUE_FRAME = {
+const CUE_FRAME: CueFrame = {
   v: 2,
   id: "f1",
   type: "cue",
@@ -15,28 +18,6 @@ const CUE_FRAME = {
   action: { type: "shapeAnimation" },
 };
 
-function makeShape(
-  id: string,
-  type: string,
-  parentId: string,
-  meta: Record<string, unknown> = {},
-): TLShape {
-  return {
-    id,
-    typeName: "shape",
-    type,
-    x: 0,
-    y: 0,
-    rotation: 0,
-    index: "a1",
-    parentId,
-    isLocked: false,
-    opacity: 1,
-    props: {},
-    meta,
-  } as unknown as TLShape;
-}
-
 // Regression: an animated shape inside a group must be fed to the
 // derivation exactly ONCE. tldraw's getCurrentPageShapes() already
 // includes group children (every shape whose ancestor chain reaches the
@@ -44,59 +25,60 @@ function makeShape(
 // duplicate entry fabricates a duplicate-frame-id diagnostic and a
 // phantom synthetic step (rule 4 then rule 2) for well-formed content,
 // desyncing live navigation from the snapshot-based step count.
+//
+// A REAL editor (not a hand-rolled mock) is load-bearing here: the test
+// exists to guard against tldraw's getCurrentPageShapes() semantics, so
+// a mock encoding those semantics would keep passing if upstream changed
+// them.
 describe("PresentationManager with grouped shapes", () => {
-  function makeGroupedEditor() {
-    const group = makeShape("shape:g", "group", "page:page");
-    const a = makeShape("shape:a", "geo", "shape:g", { frame: CUE_FRAME });
-    const b = makeShape("shape:b", "geo", "shape:g");
-    const byId = new Map<string, TLShape>(
-      [group, a, b].map((shape) => [shape.id, shape]),
-    );
-    const editor = {
-      // tldraw semantics: ALL page descendants, group children INCLUDED.
-      getCurrentPageShapes: () => [a, b, group],
-      getSortedChildIdsForParent: (id: string) =>
-        id === "shape:g" ? ["shape:a", "shape:b"] : [],
-      getShape: (id: string) => byId.get(id),
-      getCurrentPageId: () => "page:page",
-    } as unknown as Editor;
-    return PresentationManager.create(editor, atom("stepIndex", 0));
+  function withGroupedEditor<T>(
+    run: (manager: PresentationManager, editor: Editor) => T,
+  ): T {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const a = createShapeId("a");
+      const b = createShapeId("b");
+      const g = createShapeId("g");
+      editor.createShapes([
+        { id: a, type: "geo", x: 0, y: 0 },
+        { id: b, type: "geo", x: 200, y: 0 },
+      ]);
+      editor.createShape({ id: g, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([a, b], g);
+      const shapeA = editor.getShape(a)!;
+      editor.updateShape({
+        id: a,
+        type: shapeA.type,
+        meta: { ...shapeA.meta, frame: frameToMetaJson(CUE_FRAME) },
+      });
+      const manager = PresentationManager.create(editor, atom("stepIndex", 0));
+      return run(manager, editor);
+    } finally {
+      dispose();
+    }
   }
 
   it("returns each descendant shape exactly once", () => {
-    const manager = makeGroupedEditor();
-    const ids = manager.$getCurrentPageDescendantShapes().map((s) => s.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["shape:a", "shape:b", "shape:g"]);
+    withGroupedEditor((manager) => {
+      const ids = manager.$getCurrentPageDescendantShapes().map((s) => s.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect([...ids].sort()).toEqual(["shape:a", "shape:b", "shape:g"]);
+    });
   });
 
   it("derives one step and no diagnostics for one grouped animated shape", () => {
-    const manager = makeGroupedEditor();
-    const doc = manager.$getTimelineDoc();
-    expect(doc.steps).toHaveLength(1);
-    expect(doc.diagnostics).toEqual([]);
-    expect(manager.$getTotalSteps()).toBe(1);
+    withGroupedEditor((manager) => {
+      const doc = manager.$getTimelineDoc();
+      expect(doc.steps).toHaveLength(1);
+      expect(doc.diagnostics).toEqual([]);
+      expect(manager.$getTotalSteps()).toBe(1);
+    });
   });
 
   it("agrees with the snapshot-based step count", () => {
-    const manager = makeGroupedEditor();
-    const snapshot = {
-      store: {
-        "document:document": { typeName: "document", id: "document:document" },
-        "page:page": {
-          typeName: "page",
-          id: "page:page",
-          name: "Page",
-          index: "a1",
-        },
-        "shape:g": makeShape("shape:g", "group", "page:page"),
-        "shape:a": makeShape("shape:a", "geo", "shape:g", {
-          frame: CUE_FRAME,
-        }),
-        "shape:b": makeShape("shape:b", "geo", "shape:g"),
-      },
-      schema: {},
-    } as unknown as TLStoreSnapshot;
-    expect(calculateTotalSteps(snapshot)).toBe(manager.$getTotalSteps());
+    withGroupedEditor((manager, editor) => {
+      const snapshot = getSnapshot(editor.store);
+      expect(calculateTotalSteps(snapshot)).toBe(manager.$getTotalSteps());
+    });
   });
 });

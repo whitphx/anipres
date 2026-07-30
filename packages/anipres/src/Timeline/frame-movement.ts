@@ -17,7 +17,11 @@ import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
 // turns it into a minimal per-shape diff. Each output step that displays
 // a source doc step carries that step's identity (`source`), so
 // reconciliation can preserve unresolved semantic diagnostics on steps
-// the edit did not touch; steps fabricated by the move carry none.
+// the edit did not touch; steps fabricated by the move carry none —
+// including steps re-emitted for SWEPT batches, deliberately: a split
+// batch caught in the sweep is restructured like any other batch, so
+// reconciliation materializes it as a real stored step (pinned by
+// semantic-preservation.test.ts).
 
 interface RoleFrame {
   frame: FrameUIData;

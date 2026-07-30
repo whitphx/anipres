@@ -350,8 +350,11 @@ const Inner = (props: InnerProps) => {
     // O(page) to build, and editor.duplicateShapes of N framed shapes
     // fires the handler N times synchronously — so the set is cached for
     // the current task (cleared on the next microtask) and extended
-    // incrementally with ids the batch keeps, matching the per-shape
-    // store-scan semantics without the O(N·M) cost.
+    // incrementally with ids the batch keeps. Unlike a live store scan
+    // the cache only gains ids, never loses them: a same-task
+    // delete-then-recreate reusing a frame id would be spuriously
+    // freshened. Accepted — no such synchronous path exists, and the
+    // safety net's failure mode is a fresh id, never data loss.
     let existingFrameIdCache: Set<string> | null = null;
     const getExistingFrameIds = (): Set<string> => {
       if (existingFrameIdCache == null) {
