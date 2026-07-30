@@ -316,3 +316,99 @@ describe("duplicate frame ids in the edit pipeline", () => {
     expect(moved.stepOrderKey < "a1").toBe(true);
   });
 });
+
+describe("reconcileEditedSteps — detached sub frames", () => {
+  it("never removes a detached sub frame absent from the edit (rule 3)", () => {
+    // Detached frames (dangling cueFrameId) are not part of doc.steps, so
+    // the Timeline's EditedStep[] cannot mention them — their absence is
+    // not a deletion. Regression: a plain drag used to strip their
+    // metadata via removedShapeIds.
+    const frames: { shapeId: string; frame: Frame }[] = [
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frame: sub("f2", "f1", "a0") },
+      { shapeId: "shape:z", frame: sub("f9", "missing-cue", "a0") },
+    ];
+    // The edit re-states the timeline exactly as derived (no change).
+    const edited: EditedStep[] = [
+      [
+        {
+          trackId: "T",
+          frames: [
+            { shapeId: "shape:a", frameId: "f1", action: ACTION },
+            { shapeId: "shape:b", frameId: "f2", action: ACTION },
+          ],
+        },
+      ],
+    ];
+    const result = reconcileEditedSteps({
+      currentFrames: frames,
+      editedSteps: edited,
+      mintId: makeMinter(),
+    });
+    expect(result.removedShapeIds).toEqual([]);
+    expect(result.updates).toEqual([]);
+  });
+
+  it("still removes attached frames the edit actually took out", () => {
+    const frames: { shapeId: string; frame: Frame }[] = [
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:b", frame: sub("f2", "f1", "a0") }, // attached
+      { shapeId: "shape:z", frame: sub("f9", "missing-cue", "a0") }, // detached
+    ];
+    const edited: EditedStep[] = [
+      [
+        {
+          trackId: "T",
+          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+        },
+      ],
+    ];
+    const result = reconcileEditedSteps({
+      currentFrames: frames,
+      editedSteps: edited,
+      mintId: makeMinter(),
+    });
+    // The attached sub the edit dropped is removed; the detached one is
+    // protected.
+    expect(result.removedShapeIds).toEqual(["shape:b"]);
+  });
+});
+
+describe("reconcileEditedSteps — step identity stability", () => {
+  it("keeps the stored stepId and key when the first batch's cue cannot supply them", () => {
+    // The edited step's FIRST batch is led by a frame whose stored record
+    // is a sub (promoted to cue by the drag); the second batch still
+    // carries the stored step identity. Reading only step[0].frames[0]
+    // would mint a fresh stepId and re-key the step even though it never
+    // moved.
+    const frames: { shapeId: string; frame: Frame }[] = [
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:x", frame: sub("f2", "f1", "a0") },
+    ];
+    const edited: EditedStep[] = [
+      [
+        {
+          trackId: "U",
+          frames: [{ shapeId: "shape:x", frameId: "f2", action: ACTION }],
+        },
+        {
+          trackId: "T",
+          frames: [{ shapeId: "shape:a", frameId: "f1", action: ACTION }],
+        },
+      ],
+    ];
+    const result = reconcileEditedSteps({
+      currentFrames: frames,
+      editedSteps: edited,
+      mintId: makeMinter(),
+    });
+    // The stored cue keeps its step identity and key — it is NOT part of
+    // the updates at all; only the promoted frame is rewritten, joining
+    // the stored step.
+    expect(result.updates.map((u) => u.shapeId)).toEqual(["shape:x"]);
+    const promoted = result.updates[0].frame as CueFrame;
+    expect(promoted.type).toBe("cue");
+    expect(promoted.stepId).toBe("s1");
+    expect(promoted.stepOrderKey).toBe("a1");
+  });
+});

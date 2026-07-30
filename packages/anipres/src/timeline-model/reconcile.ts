@@ -40,23 +40,26 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     }
   }
 
-  // --- Assign step ids: reuse the stored stepId of the first batch's cue
-  // --- when it isn't claimed by an earlier edited step; mint otherwise.
+  // --- Assign step ids: reuse a stored stepId carried by ANY of the
+  // --- edited step's cues (not just the first batch's — which batch is
+  // --- first can change in an edit that didn't move the step) when it
+  // --- isn't claimed by an earlier edited step; mint otherwise.
   const usedStepIds = new Set<string>();
   const stepIds: string[] = editedSteps.map((step) => {
-    const firstCueRef = step[0]?.frames[0];
-    const existing = firstCueRef
-      ? currentByShapeId.get(firstCueRef.shapeId)
-      : undefined;
-    const candidate =
-      existing?.frame.type === "cue" ? existing.frame.stepId : undefined;
-    if (
-      candidate != null &&
-      !usedStepIds.has(candidate) &&
-      !isReservedStepId(candidate)
-    ) {
-      usedStepIds.add(candidate);
-      return candidate;
+    for (const batch of step) {
+      const cueRef = batch.frames[0];
+      if (cueRef == null) continue;
+      const existing = currentByShapeId.get(cueRef.shapeId);
+      const candidate =
+        existing?.frame.type === "cue" ? existing.frame.stepId : undefined;
+      if (
+        candidate != null &&
+        !usedStepIds.has(candidate) &&
+        !isReservedStepId(candidate)
+      ) {
+        usedStepIds.add(candidate);
+        return candidate;
+      }
     }
     const minted = mintId();
     usedStepIds.add(minted);
@@ -202,6 +205,18 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     }
   });
 
+  // Detached sub frames — dangling cueFrameId, derivation rule 3 — never
+  // appear in doc.steps, so the UI's EditedStep[] cannot reference them.
+  // Their absence from an edit is therefore NOT a deletion: they survive
+  // untouched ("detached, surfaced, never dropped"). Mirrors derivation
+  // attachment: a sub is detached iff no current CUE carries its
+  // cueFrameId.
+  const currentCueFrameIds = new Set(
+    currentFrames
+      .filter((entry) => entry.frame.type === "cue")
+      .map((entry) => entry.frame.id),
+  );
+
   // --- Diff against current state; only changed frames become writes.
   const updates: ReconcileResult["updates"] = [];
   const removedShapeIds: string[] = [];
@@ -211,9 +226,17 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     seenShapeIds.add(shapeId);
     const desired = desiredByShapeId.get(shapeId);
     if (desired == null) {
+      if (frame.type === "sub" && !currentCueFrameIds.has(frame.cueFrameId)) {
+        continue; // detached — unreferencable by edits, never removed
+      }
       removedShapeIds.push(shapeId);
       continue;
     }
+    // Key-order-sensitive comparison — safe ONLY because both sides are
+    // built by frame constructors in this module family with a fixed
+    // property order. If either side ever comes from foreign JSON, this
+    // must become a field-wise comparison (the failure mode is a spurious
+    // full-document rewrite).
     if (JSON.stringify(desired) !== JSON.stringify(frame)) {
       updates.push({ shapeId, frame: desired });
     }
