@@ -105,6 +105,147 @@ jobs:
           command: pages deploy packages/slidev-addon-anipres/dist --project-name=slidev-addon-anipres-preview --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ env.HEAD_SHA }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
+  # `workflow_run` has secrets even when the triggering PR would not. Restrict
+  # runtime deployment to same-repository PRs because the Worker bundle can
+  # read its preview secrets; fork and Dependabot PRs keep the Pages previews
+  # and the secretless Worker dry-run from CI.
+  deploy-worker-preview:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login != 'dependabot[bot]' }}
+    needs: initialize-status
+
+    permissions:
+      contents: read
+      deployments: write
+      actions: read
+      pull-requests: read
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Migration tags make edited migrations look already applied. Both the
+      # change decision and reset program must therefore come from GitHub and
+      # the default branch, not from the credential-less PR artifact.
+      - name: Prepare trusted preview deployment inputs
+        id: prepare-preview
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { mkdir, writeFile } = require('node:fs/promises')
+
+            const repository = `${context.repo.owner}/${context.repo.repo}`
+            const defaultBranch = context.payload.repository.default_branch
+            const headSha = context.payload.workflow_run.head_sha
+            const { data: branch } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: defaultBranch,
+            })
+            const trustedRef = branch.commit.sha
+
+            const [configuration, resetScript, associatedPullRequests] = await Promise.all([
+              github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: 'packages/worker/wrangler.toml',
+                ref: trustedRef,
+              }),
+              github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: 'packages/worker/scripts/reset-preview-d1.mjs',
+                ref: trustedRef,
+              }),
+              github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: headSha,
+                per_page: 100,
+              }),
+            ])
+
+            const pullRequests = associatedPullRequests.filter((pullRequest) =>
+              pullRequest.state === 'open' &&
+              pullRequest.base.repo.full_name === repository &&
+              pullRequest.base.ref === defaultBranch &&
+              pullRequest.head.repo?.full_name === repository &&
+              pullRequest.head.sha === headSha
+            )
+            if (pullRequests.length !== 1) {
+              throw new Error(`Expected one matching pull request, found ${pullRequests.length}`)
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequests[0].number,
+              per_page: 100,
+            })
+            const migrationPath = 'packages/worker/migrations/'
+            const migrationsChanged = files.some((file) =>
+              file.filename.startsWith(migrationPath) ||
+              file.previous_filename?.startsWith(migrationPath)
+            )
+            core.setOutput('migrations-changed', String(migrationsChanged))
+
+            const writeTrustedFile = async (response, destination) => {
+              const data = response.data
+              if (Array.isArray(data) || data.type !== 'file' || data.encoding !== 'base64') {
+                throw new Error(`Expected a base64-encoded file for ${destination}`)
+              }
+              await writeFile(destination, Buffer.from(data.content, data.encoding))
+            }
+
+            await mkdir('packages/worker/scripts', { recursive: true })
+            await Promise.all([
+              writeTrustedFile(configuration, 'packages/worker/wrangler.toml'),
+              writeTrustedFile(resetScript, 'packages/worker/scripts/reset-preview-d1.mjs'),
+            ])
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: worker-deploy-package
+          path: packages/worker
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: app-dist
+          path: packages/app/dist
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Point trusted configuration at the prebuilt bundle
+        working-directory: packages/worker
+        run: |
+          test -f dist/worker.js
+          sed -i -E 's|^main[[:space:]]*=.*|main = "./dist/worker.js"|' wrangler.toml
+          grep -Fxq 'main = "./dist/worker.js"' wrangler.toml
+
+      - name: Reset preview D1 if needed and apply migrations
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        env:
+          MIGRATIONS_CHANGED: ${{ steps.prepare-preview.outputs.migrations-changed }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/worker
+          wranglerVersion: '4.85.0'
+          # preCommands bypass the package-manager exec that exposes Wrangler.
+          preCommands: if [ "$MIGRATIONS_CHANGED" = "true" ]; then PATH="$PWD/node_modules/.bin:$PATH" node scripts/reset-preview-d1.mjs; fi
+          command: d1 migrations apply DB --remote --env preview
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy preview worker
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/worker
+          wranglerVersion: '4.85.0'
+          command: deploy --env preview --no-bundle
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
   # Worker code can read its runtime secrets, so only the bundle from a
   # successful default-branch push is eligible for deployment. The resource
   # configuration is checked out from that exact commit instead of coming
@@ -188,6 +329,7 @@ jobs:
       - initialize-status
       - deploy-app
       - deploy-slidev-addon-anipres-preview
+      - deploy-worker-preview
       - deploy-worker
     permissions:
       statuses: write
@@ -198,6 +340,7 @@ jobs:
           INITIALIZE_RESULT: ${{ needs.initialize-status.result }}
           APP_RESULT: ${{ needs.deploy-app.result }}
           SLIDEV_RESULT: ${{ needs.deploy-slidev-addon-anipres-preview.result }}
+          WORKER_PREVIEW_RESULT: ${{ needs.deploy-worker-preview.result }}
           WORKER_RESULT: ${{ needs.deploy-worker.result }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
@@ -206,6 +349,7 @@ jobs:
               process.env.INITIALIZE_RESULT,
               process.env.APP_RESULT,
               process.env.SLIDEV_RESULT,
+              process.env.WORKER_PREVIEW_RESULT,
               process.env.WORKER_RESULT,
             ]
             const state = results.includes('failure')
