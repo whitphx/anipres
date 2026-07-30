@@ -121,6 +121,12 @@ export class PresentationManager {
   }
 
   @computed $getCurrentPageDescendantShapes(): TLShape[] {
+    // tldraw's getCurrentPageShapes() already includes group CHILDREN
+    // (it returns every shape whose ancestor chain reaches the page), so
+    // the recursion below re-visits them. The result must be deduplicated
+    // by shape id — feeding a shape to the derivation twice fabricates a
+    // duplicate-frame-id diagnostic and a phantom synthetic step (rule 4
+    // then rule 2) for perfectly well-formed grouped content.
     const getDescendantShapes = (ancestorShape: TLShape): TLShape[] => {
       if (ancestorShape.type !== GroupShapeUtil.type) {
         return [ancestorShape];
@@ -139,7 +145,15 @@ export class PresentationManager {
     };
 
     const pageShapes = this.editor.getCurrentPageShapes();
-    return pageShapes.flatMap((shape) => getDescendantShapes(shape));
+    const seen = new Set<TLShapeId>();
+    const result: TLShape[] = [];
+    for (const shape of pageShapes.flatMap(getDescendantShapes)) {
+      if (!seen.has(shape.id)) {
+        seen.add(shape.id);
+        result.push(shape);
+      }
+    }
+    return result;
   }
 
   /**
