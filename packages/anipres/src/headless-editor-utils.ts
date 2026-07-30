@@ -90,31 +90,70 @@ export function getShapeRecordsFromSnapshot(
   );
 }
 
-function getPageIdFromSnapshot(
+/**
+ * Deterministic page selection — never `Object.values` iteration order:
+ * 1. An explicit `pageId` argument wins.
+ * 2. A `TLEditorSnapshot`'s `session.currentPageId`, when it references
+ *    an existing page record.
+ * 3. Otherwise the page with the smallest tldraw page index (code-unit
+ *    comparison; ties broken by id).
+ * 4. No page records → null (zero steps).
+ */
+function resolvePageId(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
-): string {
+  explicitPageId?: string,
+): string | null {
   const storeSnapshot: TLStoreSnapshot | undefined =
     "store" in snapshot && snapshot.store != null
       ? (snapshot as TLStoreSnapshot)
       : (snapshot as Partial<TLEditorSnapshot>).document;
-  const page = Object.values(storeSnapshot?.store ?? {}).find(
-    (record) => (record as { typeName?: string }).typeName === "page",
+  const pages = (Object.values(storeSnapshot?.store ?? {}) as unknown[]).filter(
+    (record): record is { id: string; index: string } =>
+      (record as { typeName?: string }).typeName === "page",
   );
-  return (page as { id?: string } | undefined)?.id ?? "page:page";
+  if (explicitPageId != null) {
+    return explicitPageId;
+  }
+  if (pages.length === 0) {
+    return null;
+  }
+  const sessionPageId =
+    "store" in snapshot
+      ? undefined
+      : (snapshot as Partial<TLEditorSnapshot>).session?.currentPageId;
+  if (
+    sessionPageId != null &&
+    pages.some((page) => page.id === sessionPageId)
+  ) {
+    return sessionPageId;
+  }
+  return [...pages].sort((a, b) =>
+    a.index !== b.index
+      ? a.index < b.index
+        ? -1
+        : 1
+      : a.id < b.id
+        ? -1
+        : a.id > b.id
+          ? 1
+          : 0,
+  )[0].id;
 }
 
 export function calculateTotalSteps(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
+  options: { pageId?: string } = {},
 ): number {
   // Read the snapshot's shape records directly — no headless Editor
   // needed. The derivation is mixed-tolerant: v1 frames are converted in
   // memory with the same deterministic mapping migration uses.
   //
-  // Scope to the page getPageIdFromSnapshot picked (transitively through
-  // shape parents): callers today pass single-page snapshots
-  // (options={ maxPages: 1 }), but this must not silently mix pages if
-  // that ever changes.
-  const pageId = getPageIdFromSnapshot(snapshot);
+  // Scope to the resolved page (transitively through shape parents) so a
+  // multi-page snapshot never mixes pages into one count.
+  const pageId = resolvePageId(snapshot, options.pageId);
+  if (pageId == null) {
+    return 0;
+  }
   const allShapes = getShapeRecordsFromSnapshot(snapshot);
   const onPage = new Set<string>([pageId]);
   for (let added = true; added; ) {
