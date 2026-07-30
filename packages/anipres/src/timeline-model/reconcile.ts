@@ -20,6 +20,11 @@
 //   step into a normal step is unambiguous intent and reconciles
 //   normally. Materializing the split is the explicit Resolve action's
 //   job alone.
+// - Transparency must not CREATE diagnostics either: a step carrying
+//   split-off members is pinned to its stored key so unrelated moves
+//   never re-key it around its frozen siblings, and if re-keying it is
+//   unavoidable, the split members follow it to the same key — an
+//   ordinary drag can neither repair nor fabricate a divergence.
 
 import type { CueFrame, EditedStep, Frame, SubFrame } from "./types";
 import { isReservedStepId } from "./ids";
@@ -121,19 +126,19 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   const storedKeys: (string | null)[] = editedSteps.map((_, i) =>
     storedKeyOf(i),
   );
-  const kept = new Set<number>();
-  {
-    const tails: number[] = []; // indices; storedKeys[tails[k]] = smallest tail of LIS length k+1
-    const prev: number[] = new Array(editedSteps.length).fill(-1);
-    for (let i = 0; i < storedKeys.length; i++) {
-      const key = storedKeys[i];
+
+  /** Patience LIS over non-null keys; returns the kept local indices. */
+  const longestIncreasingIndices = (keys: (string | null)[]): Set<number> => {
+    const tails: number[] = [];
+    const prev: number[] = new Array(keys.length).fill(-1);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
       if (key == null) continue;
-      // Binary search: first tail with key >= current key.
       let lo = 0;
       let hi = tails.length;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
-        if (compareOrderKeys(storedKeys[tails[mid]]!, key) < 0) {
+        if (compareOrderKeys(keys[tails[mid]]!, key) < 0) {
           lo = mid + 1;
         } else {
           hi = mid;
@@ -142,10 +147,80 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
       prev[i] = lo > 0 ? tails[lo - 1] : -1;
       tails[lo] = i;
     }
+    const kept = new Set<number>();
     let cursor = tails.at(-1) ?? -1;
     while (cursor >= 0) {
       kept.add(cursor);
       cursor = prev[cursor];
+    }
+    return kept;
+  };
+
+  // A step that carries split-off members (its assigned stepId is the
+  // sourceStepId of a synthetic step in this edit) shares its key with
+  // FROZEN synthetic members — re-keying it would either fabricate a
+  // step-key-divergence or force writes to the split members. So such
+  // steps are PINNED: they keep their stored key whenever the pinned
+  // keys are mutually consistent, and the re-key blame falls on the
+  // other steps (typically the one the user actually dragged).
+  const splitSourceStepIds = new Set(
+    editedSteps.flatMap((step) =>
+      step.source?.synthetic != null
+        ? [step.source.synthetic.sourceStepId]
+        : [],
+    ),
+  );
+  const kept = new Set<number>();
+  {
+    const pinnedIndices: number[] = [];
+    for (let i = 0; i < editedSteps.length; i++) {
+      const stepId = stepIds[i];
+      if (
+        stepId != null &&
+        splitSourceStepIds.has(stepId) &&
+        storedKeys[i] != null
+      ) {
+        pinnedIndices.push(i);
+      }
+    }
+    // Mutually inconsistent pinned keys (only possible when several
+    // split-carrying steps were reordered against each other): keep the
+    // largest consistent subset; the rest fall through to the safety net
+    // below, which moves their split members WITH them.
+    const pinnedKeptLocal = longestIncreasingIndices(
+      pinnedIndices.map((i) => storedKeys[i]!),
+    );
+    const pinnedKept = [...pinnedKeptLocal].map((li) => pinnedIndices[li]);
+    for (const i of pinnedKept) {
+      kept.add(i);
+    }
+    // Between consecutive pinned boundaries, keep the longest increasing
+    // run of stored keys that fits STRICTLY inside the boundary keys.
+    const boundaries = [...pinnedKept].sort((a, b) => a - b);
+    const segments: { lo: number; hi: number }[] = [];
+    let start = 0;
+    for (const boundary of boundaries) {
+      segments.push({ lo: start, hi: boundary });
+      start = boundary + 1;
+    }
+    segments.push({ lo: start, hi: editedSteps.length });
+    for (const { lo, hi } of segments) {
+      const lowerKey = lo > 0 ? (storedKeys[lo - 1] ?? null) : null;
+      const upperKey = hi < editedSteps.length ? storedKeys[hi]! : null;
+      const localKeys: (string | null)[] = [];
+      const localToGlobal: number[] = [];
+      for (let i = lo; i < hi; i++) {
+        const key = storedKeys[i];
+        const fits =
+          key != null &&
+          (lowerKey == null || compareOrderKeys(lowerKey, key) < 0) &&
+          (upperKey == null || compareOrderKeys(key, upperKey) < 0);
+        localKeys.push(fits ? key : null);
+        localToGlobal.push(i);
+      }
+      for (const li of longestIncreasingIndices(localKeys)) {
+        kept.add(localToGlobal[li]);
+      }
     }
   }
 
@@ -186,6 +261,12 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
   }
 
   // --- Build the desired frame per edited frame ref.
+  const stepIndexByStepId = new Map<string, number>();
+  stepIds.forEach((id, i) => {
+    if (id != null && !stepIndexByStepId.has(id)) {
+      stepIndexByStepId.set(id, i);
+    }
+  });
   const desiredByShapeId = new Map<string, Frame>();
   editedSteps.forEach((step, stepIndex) => {
     if (isSynthetic(step)) {
@@ -193,12 +274,30 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
       // structural drags. Every frame listed under it keeps its stored
       // metadata verbatim (a drag targeting it is a no-op), preserving
       // the same-track-split diagnostic until explicitly resolved.
+      //
+      // ONE exception — the divergence safety net: when the SOURCE step
+      // (whose stepId the split members share) is being re-keyed by this
+      // edit, the split members must follow it to the same key. Leaving
+      // them frozen at the old key would fabricate a brand-new
+      // step-key-divergence (two cues, one stepId, different keys) out
+      // of an ordinary drag. Pinning (above) makes this path rare; it
+      // fires only when keeping the source step's key was impossible.
       for (const batch of step.batches) {
         for (const ref of batch.frames) {
           const entry = currentByShapeId.get(ref.shapeId);
-          if (entry != null) {
-            desiredByShapeId.set(entry.shapeId, entry.frame);
+          if (entry == null) continue;
+          let desired = entry.frame;
+          if (entry.frame.type === "cue") {
+            const sourceIndex = stepIndexByStepId.get(entry.frame.stepId);
+            const followKey =
+              sourceIndex != null && !kept.has(sourceIndex)
+                ? assignedKeys[sourceIndex]
+                : null;
+            if (followKey != null && entry.frame.stepOrderKey !== followKey) {
+              desired = { ...entry.frame, stepOrderKey: followKey };
+            }
           }
+          desiredByShapeId.set(entry.shapeId, desired);
         }
       }
       return;
