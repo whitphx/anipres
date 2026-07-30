@@ -15,7 +15,9 @@ import {
  * rejected IN-PROTOCOL: the upgrade is accepted and the socket
  * immediately closed with tldraw's sync-error close code and
  * `CLIENT_TOO_OLD` — the same mechanism `TLSocketRoom` uses for its own
- * protocol-version rejections — so `useSync` surfaces a
+ * protocol-version rejections (see
+ * https://github.com/tldraw/tldraw/blob/v3.15.5/packages/sync-core/src/lib/TLSyncClient.ts
+ * for the close-code contract) — so `useSync` surfaces a
  * `TLRemoteSyncError("CLIENT_TOO_OLD")` the app can show a reload screen
  * for. Rejecting with an HTTP status before the upgrade would instead
  * surface as close code 1006, which the client treats as a transient

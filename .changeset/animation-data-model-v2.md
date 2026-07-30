@@ -26,10 +26,10 @@ export.
 The sync server now enforces the animation-data version gate: sync
 connections and snapshot uploads must declare
 `animationDataVersion >= 2` (query param or
-`x-anipres-animation-data-version` header). v1 clients send neither and
-are rejected with HTTP 426 after deployment — reload to pick up the new
-client. The gate constant is derived from the library's
-`TIMELINE_FORMAT_VERSION`.
+`x-anipres-animation-data-version` header). v1 clients send neither: a
+sync connection is rejected in-protocol (see DEPLOY ORDER below) and a
+snapshot upload with HTTP 426 — reload to pick up the new client. The
+gate constant is derived from the library's `TIMELINE_FORMAT_VERSION`.
 
 DEPLOY ORDER: deploy the app (clients that declare the version) BEFORE
 or together with the worker gate — a worker-first deploy cuts off every

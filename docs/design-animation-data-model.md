@@ -12,7 +12,8 @@ Implemented. PR #486 carries both this document and the implementation:
 the `timeline-model` core (`packages/anipres/src/timeline-model/`), the
 runtime integration, the deterministic v1 → v2 migration, the
 server-enforced version gate (Risk 6;
-`packages/worker/src/animation-data-version.ts`), and the
+`packages/worker/src/animation-data-version.ts` +
+`animation-data-version-gate.ts`), and the
 diagnostic-resolution Timeline UI (Risk 7 — user-triggered semantic
 repairs: align divergent step keys, materialize same-track splits,
 freshen duplicate ids, reattach or clear detached sub frames). A sibling

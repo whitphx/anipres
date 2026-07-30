@@ -234,7 +234,11 @@ describe("semantic-diagnostic preservation through Timeline edits", () => {
     expect(doc.diagnostics.map((d) => d.type)).toEqual(["same-track-split"]);
     const ui = calcFrameBatchUIData(doc);
     // Drag s2's track-T batch (step 2) left past the synthetic step: the
-    // sweep range contains the split batch, so it is pushed along.
+    // sweep range contains the split batch, so it is pushed along. In
+    // this minimal arrangement the pushed batches land back in the same
+    // visible order (a, b, c) — the assertion below pinning an unchanged
+    // order is correct, not a bug; the persisted effect of the drag is
+    // the materialization itself.
     const edited = moveFrame(ui.steps, ui.stepSources, "T", 2, 2, 0, "after");
     expect(edited).not.toBeNull();
     const result = reconcile(SWEEP, edited!);
