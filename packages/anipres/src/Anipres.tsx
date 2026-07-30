@@ -346,6 +346,30 @@ const Inner = (props: InnerProps) => {
       }
     }
 
+    // Existing-frame-id set for the beforeCreate safety net below. It is
+    // O(page) to build, and editor.duplicateShapes of N framed shapes
+    // fires the handler N times synchronously — so the set is cached for
+    // the current task (cleared on the next microtask) and extended
+    // incrementally with ids the batch keeps, matching the per-shape
+    // store-scan semantics without the O(N·M) cost.
+    let existingFrameIdCache: Set<string> | null = null;
+    const getExistingFrameIds = (): Set<string> => {
+      if (existingFrameIdCache == null) {
+        const ids = new Set<string>();
+        for (const other of editor.getCurrentPageShapes()) {
+          const otherParsed = parseFrameMeta(other.meta?.frame);
+          if (otherParsed.kind === "v2" || otherParsed.kind === "v1") {
+            ids.add(otherParsed.frame.id);
+          }
+        }
+        existingFrameIdCache = ids;
+        queueMicrotask(() => {
+          existingFrameIdCache = null;
+        });
+      }
+      return existingFrameIdCache;
+    };
+
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
@@ -395,14 +419,9 @@ const Inner = (props: InnerProps) => {
             return shape;
           }
           const frame = parsed.frame;
-          const frameIdExists = editor.getCurrentPageShapes().some((other) => {
-            const otherParsed = parseFrameMeta(other.meta?.frame);
-            return (
-              (otherParsed.kind === "v2" || otherParsed.kind === "v1") &&
-              otherParsed.frame.id === frame.id
-            );
-          });
-          if (!frameIdExists) {
+          const existingFrameIds = getExistingFrameIds();
+          if (!existingFrameIds.has(frame.id)) {
+            existingFrameIds.add(frame.id);
             return shape;
           }
           console.warn(
@@ -428,12 +447,9 @@ const Inner = (props: InnerProps) => {
         }
       }),
     );
-    // NOTE: v1 registered an afterDelete handler here to renumber
-    // globalIndexes and re-link sub-frame chains. v2 needs neither:
-    // deletion requires zero writes to other shapes (fractional keys are
-    // relative; sub frames of a deleted cue become detached and are
-    // surfaced by the derivation, so undoing the deletion restores them
-    // with no reconciliation).
+    // Deletion needs no reconciliation handler: fractional keys are
+    // relative, and sub frames of a deleted cue become detached and are
+    // surfaced by the derivation (undoing the deletion restores them).
 
     stopHandlers.push(
       editor.sideEffects.registerBeforeChangeHandler(

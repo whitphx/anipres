@@ -1,7 +1,7 @@
 import type { EditedBatch, EditedStep } from "../timeline-model";
 import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
 
-// The Timeline drag & drop semantics, unchanged from v1:
+// The Timeline drag & drop semantics (pinned by frame-movement.test.ts):
 // moving a frame takes it — plus, within its batch, the frames on the far
 // side of it relative to the move direction, plus every same-track batch
 // between source and destination — and "pushes" them toward the
@@ -9,10 +9,8 @@ import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
 // own step); when dropped "at" a step that already has a same-track batch,
 // the sequences merge into one batch.
 //
-// v1 expressed the result by fabricating frames with sentinel
-// globalIndexes (999999) and rewriting every shape's meta. v2 outputs a
-// plain EditedStep[] structure; reconcileEditedSteps turns it into a
-// minimal per-shape diff.
+// The output is a plain EditedStep[] structure; reconcileEditedSteps
+// turns it into a minimal per-shape diff.
 
 interface RoleFrame {
   frame: FrameUIData;

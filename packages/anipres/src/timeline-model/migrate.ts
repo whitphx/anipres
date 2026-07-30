@@ -350,7 +350,7 @@ export function migrateV1Frames(
         } else {
           // Deterministic choice among duplicate sub frame ids.
           const prevEntry = [...prevSubs].sort((a, b) =>
-            a.shapeId < b.shapeId ? -1 : 1,
+            a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0,
           )[0];
           const r = resolveEntry(prevEntry);
           result = {
@@ -390,7 +390,7 @@ export function migrateV1Frames(
     list.sort((a, b) => {
       if (a.minIndex !== b.minIndex) return a.minIndex - b.minIndex;
       if (a.frame.id !== b.frame.id) return a.frame.id < b.frame.id ? -1 : 1;
-      return a.shapeId < b.shapeId ? -1 : 1;
+      return a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0;
     });
     // Reserve the chain indices already persisted by an interrupted run so
     // the remaining sub frames land on exactly the keys a complete

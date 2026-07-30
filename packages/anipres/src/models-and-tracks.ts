@@ -28,6 +28,5 @@ export {
   getFrameBatches as getLegacyFrameBatches,
   newTrackId,
 } from "./models";
-// NOTE: `ordered-track-item` (getGlobalOrder, OrderedTrackItem, ItemGroup)
-// is internal-only as of v2 — the v1 ordering pipeline is kept solely for
-// the legacy types above; order derivation goes through `deriveTimeline`.
+// NOTE: `ordered-track-item` retains only the OrderedTrackItem type (for
+// the legacy types above); order derivation goes through `deriveTimeline`.

@@ -109,13 +109,30 @@ export function calculateTotalSteps(
   // Read the snapshot's shape records directly — no headless Editor
   // needed. The derivation is mixed-tolerant: v1 frames are converted in
   // memory with the same deterministic mapping migration uses.
-  const shapes = getShapeRecordsFromSnapshot(snapshot);
+  //
+  // Scope to the page getPageIdFromSnapshot picked (transitively through
+  // shape parents): callers today pass single-page snapshots
+  // (options={ maxPages: 1 }), but this must not silently mix pages if
+  // that ever changes.
+  const pageId = getPageIdFromSnapshot(snapshot);
+  const allShapes = getShapeRecordsFromSnapshot(snapshot);
+  const onPage = new Set<string>([pageId]);
+  for (let added = true; added; ) {
+    added = false;
+    for (const shape of allShapes) {
+      if (!onPage.has(shape.id) && onPage.has(shape.parentId)) {
+        onPage.add(shape.id);
+        added = true;
+      }
+    }
+  }
+  const shapes = allShapes.filter((shape) => onPage.has(shape.id));
   const doc = deriveTimeline({
     shapes: shapes.map((shape) => ({
       shapeId: shape.id,
       frameMeta: shape.meta?.frame,
     })),
-    pageId: getPageIdFromSnapshot(snapshot),
+    pageId,
   });
   return doc.steps.length;
 }

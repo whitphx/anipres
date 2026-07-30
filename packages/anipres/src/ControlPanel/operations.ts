@@ -133,13 +133,17 @@ export function planSubFrameAddAfter(input: {
   if (cueTarget == null) {
     return null;
   }
-  const subEntries = position.batch.frames.slice(1).map((frame) => {
+  const subEntries: { id: string; key: string }[] = [];
+  for (const frame of position.batch.frames.slice(1)) {
     const stored = getStoredFrame(frame.shapeId);
-    return {
-      id: frame.shapeId,
-      key: stored?.type === "sub" ? stored.orderKey : "",
-    };
-  });
+    if (stored?.type !== "sub") {
+      // The doc and the store disagree (a doc sub frame with no stored
+      // sub) — bail out rather than synthesizing an invalid empty key
+      // that would make key generation throw downstream.
+      return null;
+    }
+    subEntries.push({ id: frame.shapeId, key: stored.orderKey });
+  }
   // frames[0] is the cue, so the sub-list insertion index IS frameIndex.
   const insertion = makeInsertionSpace(subEntries, position.frameIndex);
   return {

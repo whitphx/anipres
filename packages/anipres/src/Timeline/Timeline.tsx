@@ -271,6 +271,22 @@ const RESOLVE_LABELS: Record<TimelineDiagnostic["type"], string> = {
   "invalid-frame": "Clear animation data",
 };
 
+/** Stable identity for React keys — never array position. */
+function diagnosticKey(diagnostic: TimelineDiagnostic): string {
+  switch (diagnostic.type) {
+    case "step-key-divergence":
+      return `${diagnostic.type}:${diagnostic.stepId}`;
+    case "same-track-split":
+      return `${diagnostic.type}:${diagnostic.stepId}:${diagnostic.trackId}:${diagnostic.shapeIds.join(",")}`;
+    case "detached-sub-frame":
+      return `${diagnostic.type}:${diagnostic.shapeId}`;
+    case "duplicate-frame-id":
+      return `${diagnostic.type}:${diagnostic.frameId}`;
+    case "invalid-frame":
+      return `${diagnostic.type}:${diagnostic.shapeId}`;
+  }
+}
+
 function describeDiagnostic(diagnostic: TimelineDiagnostic): string {
   switch (diagnostic.type) {
     case "step-key-divergence":
@@ -444,39 +460,48 @@ export function Timeline({
       sensors={sensors}
       autoScroll={AUTO_SCROLL_CONFIG}
     >
-      {timelineDoc.diagnostics.length > 0 && (
-        <div className={styles.diagnosticsPanel} role="status">
-          {timelineDoc.diagnostics.map((diagnostic, index) => (
-            <div
-              key={`${diagnostic.type}-${index}`}
-              className={styles.diagnosticItem}
+      {/* Stable live region: rendered unconditionally so assistive tech
+          announces diagnostics as they APPEAR; stable content-derived
+          keys keep unchanged entries' DOM nodes intact so a re-derivation
+          (every shape edit) does not re-announce the whole list. */}
+      <div
+        className={
+          timelineDoc.diagnostics.length > 0
+            ? styles.diagnosticsPanel
+            : undefined
+        }
+        aria-live="polite"
+      >
+        {timelineDoc.diagnostics.map((diagnostic) => (
+          <div
+            key={diagnosticKey(diagnostic)}
+            className={styles.diagnosticItem}
+          >
+            <span>{describeDiagnostic(diagnostic)}</span>
+            <button
+              type="button"
+              onClick={() => onDiagnosticSelect(diagnostic)}
             >
-              <span>{describeDiagnostic(diagnostic)}</span>
+              Select shape
+            </button>
+            {diagnostic.type === "detached-sub-frame" && (
               <button
                 type="button"
-                onClick={() => onDiagnosticSelect(diagnostic)}
+                disabled={!canReattachDetached}
+                onClick={() => onReattachDetached(diagnostic)}
               >
-                Select shape
+                Reattach to selected cue
               </button>
-              {diagnostic.type === "detached-sub-frame" && (
-                <button
-                  type="button"
-                  disabled={!canReattachDetached}
-                  onClick={() => onReattachDetached(diagnostic)}
-                >
-                  Reattach to selected cue
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => onResolveDiagnostic(diagnostic)}
-              >
-                {RESOLVE_LABELS[diagnostic.type]}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+            <button
+              type="button"
+              onClick={() => onResolveDiagnostic(diagnostic)}
+            >
+              {RESOLVE_LABELS[diagnostic.type]}
+            </button>
+          </div>
+        ))}
+      </div>
       <DragStateStyleDiv
         ref={containerRef}
         className={styles.timelineContainer}

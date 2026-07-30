@@ -97,8 +97,10 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
         subs.push({ shapeId, frame });
       }
     }
-    cues.sort((a, b) => (a.shapeId < b.shapeId ? -1 : 1));
-    subs.sort((a, b) => (a.shapeId < b.shapeId ? -1 : 1));
+    const byShapeId = (a: { shapeId: string }, b: { shapeId: string }) =>
+      a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0;
+    cues.sort(byShapeId);
+    subs.sort(byShapeId);
   }
 
   // --- Rule 4: duplicate frame ids — lossless. All shapes stay; ambiguous
