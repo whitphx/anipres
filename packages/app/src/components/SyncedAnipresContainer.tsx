@@ -346,6 +346,38 @@ export function SyncedAnipresContainer({
     };
   }, [currentSessionId, documentId, onSnapshotUpdate, storeWithStatus]);
 
+  if (storeWithStatus.status === "error") {
+    // A rejected connection surfaces here (WebSocket upgrades expose no
+    // HTTP status to JS, so the server's HTTP 426 animation-data-version
+    // gate is indistinguishable from other rejections). The most common
+    // cause after a deploy is a stale open tab running an outdated
+    // bundle — give it an explicit "reload to continue" path instead of
+    // an opaque dead editor.
+    return (
+      <div
+        role="alert"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.75rem",
+          height: "100%",
+          padding: "2rem",
+          textAlign: "center",
+        }}
+      >
+        <p>
+          Could not connect to this document. If the app was updated recently,
+          this tab may be running an outdated version.
+        </p>
+        <button type="button" onClick={() => window.location.reload()}>
+          Reload to continue
+        </button>
+      </div>
+    );
+  }
+
   return (
     <Anipres
       key={documentId}

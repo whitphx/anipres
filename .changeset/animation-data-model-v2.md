@@ -31,6 +31,14 @@ are rejected with HTTP 426 after deployment — reload to pick up the new
 client. The gate constant is derived from the library's
 `TIMELINE_FORMAT_VERSION`.
 
+DEPLOY ORDER: deploy the app (clients that declare the version) BEFORE
+or together with the worker gate — a worker-first deploy cuts off every
+running client. Tabs still running the previous bundle when the gate
+lands lose sync (the WebSocket upgrade exposes no HTTP status, so the
+426 surfaces as a connection error); the app shows a "reload to
+continue" screen on sync-connection errors and a version-specific
+message on rejected snapshot pushes.
+
 Also fixes the app's document-list ordering: `sortOrder` values are
 fractional index keys, and comparing them with `localeCompare`
 mis-sorts entries keyed before the first item (capital-prefixed keys)
