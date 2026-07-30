@@ -358,3 +358,90 @@ describe("re-keying around split-carrying steps never creates divergence", () =>
     ]);
   });
 });
+
+describe("sourced step identity reservation (two-phase assignment)", () => {
+  // Stored step s1 fires two batches simultaneously: track T (cue A) and
+  // track U (cue B). Splitting batch T out into a NEW step must leave the
+  // stored identity with the SURVIVING sourced step — regardless of
+  // whether the new step lands before or after it in the edited order.
+  const SIMULTANEOUS: Entry[] = [
+    { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+    { shapeId: "shape:b", frame: cue("f2", "s1", "a1", "U") },
+  ];
+
+  it("splitting a batch out BEFORE the surviving step leaves s1 with the survivor", () => {
+    const doc = derive(SIMULTANEOUS);
+    expect(doc.steps).toHaveLength(1);
+    const ui = calcFrameBatchUIData(doc);
+    // Move batch T of step 0 to before everything.
+    const edited = moveFrame(ui.steps, ui.stepSources, "T", 0, 0, -1, "after");
+    expect(edited).not.toBeNull();
+    // The new unsourced step comes FIRST in display order — without the
+    // reservation phase it would claim s1 via its cue's stored stepId.
+    const result = reconcile(SIMULTANEOUS, edited!);
+    // Only the moved batch's cue is rewritten; the stationary one is not.
+    expect(result.removedShapeIds).toEqual([]);
+    expect(result.updates.map((u) => u.shapeId)).toEqual(["shape:a"]);
+    const moved = result.updates[0].frame as CueFrame;
+    expect(moved.stepId).not.toBe("s1"); // fresh identity for the split
+    expect(moved.stepOrderKey < "a1").toBe(true);
+    const after = apply(SIMULTANEOUS, result);
+    expect(storedFrame(after, "shape:b")).toEqual(cue("f2", "s1", "a1", "U"));
+    const rederived = derive(after);
+    expect(rederived.steps).toHaveLength(2);
+    expect(rederived.steps[1].id).toBe("s1"); // survivor owns the identity
+    expect(rederived.diagnostics).toEqual([]);
+  });
+
+  it("splitting a batch out AFTER the surviving step behaves identically", () => {
+    const doc = derive(SIMULTANEOUS);
+    const ui = calcFrameBatchUIData(doc);
+    const edited = moveFrame(ui.steps, ui.stepSources, "T", 0, 0, 0, "after");
+    expect(edited).not.toBeNull();
+    const result = reconcile(SIMULTANEOUS, edited!);
+    expect(result.removedShapeIds).toEqual([]);
+    expect(result.updates.map((u) => u.shapeId)).toEqual(["shape:a"]);
+    const moved = result.updates[0].frame as CueFrame;
+    expect(moved.stepId).not.toBe("s1");
+    expect(moved.stepOrderKey > "a1").toBe(true);
+    const after = apply(SIMULTANEOUS, result);
+    expect(storedFrame(after, "shape:b")).toEqual(cue("f2", "s1", "a1", "U"));
+    const rederived = derive(after);
+    expect(rederived.steps).toHaveLength(2);
+    expect(rederived.steps[0].id).toBe("s1"); // same ownership, other order
+    expect(rederived.diagnostics).toEqual([]);
+  });
+
+  it("a surviving step led by a promoted sub keeps source id AND key (no re-key)", () => {
+    // Batch [cue A, sub S] on track T; dragging the cue out leaves S
+    // promoted as the surviving step's cue. No current cue stores the
+    // (s1, a1) pairing, so only source.orderKey can keep the step's key.
+    const PROMOTION: Entry[] = [
+      { shapeId: "shape:a", frame: cue("f1", "s1", "a1", "T") },
+      { shapeId: "shape:s", frame: sub("f2", "f1", "a0") },
+    ];
+    const doc = derive(PROMOTION);
+    const ui = calcFrameBatchUIData(doc);
+    // Drag the cue (trackIndex 0) out to the front.
+    const edited = moveFrame(ui.steps, ui.stepSources, "T", 0, 0, -1, "after");
+    expect(edited).not.toBeNull();
+    const result = reconcile(PROMOTION, edited!);
+    expect(result.removedShapeIds).toEqual([]);
+    // Exactly the two directly involved shapes are written: the dragged
+    // cue (fresh step) and the promoted sub (now a cue) — which RETAINS
+    // the source step's id and canonical key.
+    expect(result.updates.map((u) => u.shapeId).sort()).toEqual([
+      "shape:a",
+      "shape:s",
+    ]);
+    const promoted = result.updates.find((u) => u.shapeId === "shape:s")!
+      .frame as CueFrame;
+    expect(promoted.type).toBe("cue");
+    expect(promoted.stepId).toBe("s1");
+    expect(promoted.stepOrderKey).toBe("a1"); // no needless re-key
+    const dragged = result.updates.find((u) => u.shapeId === "shape:a")!
+      .frame as CueFrame;
+    expect(dragged.stepId).not.toBe("s1");
+    expect(dragged.stepOrderKey < "a1").toBe(true);
+  });
+});

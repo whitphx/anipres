@@ -62,37 +62,51 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
 
   const isSynthetic = (step: EditedStep) => step.source?.synthetic != null;
 
-  // --- Assign step ids. Preference order: the SOURCE doc step's id
-  // --- (stable even when the edit changes which batch leads the step),
-  // --- then any stored stepId carried by the step's cues, then a mint.
-  // --- Synthetic steps never claim or receive an id — their members'
-  // --- stored stepId is left to the source step.
+  // --- Assign step ids in TWO PHASES so identity ownership does not
+  // --- depend on edited-array order:
+  // --- 1. Every surviving sourced step RESERVES its (valid,
+  // ---    non-synthetic) source id — an unsourced step must never steal
+  // ---    a stored identity whose owner is still present (e.g. a batch
+  // ---    split out of a step and placed BEFORE the surviving step
+  // ---    would otherwise claim the stored stepId via its cue and force
+  // ---    a mint onto the stationary step).
+  // --- 2. Remaining steps reuse an unreserved stored cue stepId, or
+  // ---    mint. Synthetic steps never claim or receive an id.
   const usedStepIds = new Set<string>();
-  const stepIds: (string | null)[] = editedSteps.map((step) => {
-    if (isSynthetic(step)) {
-      return null;
+  const stepIds: (string | null)[] = new Array(editedSteps.length).fill(null);
+  editedSteps.forEach((step, i) => {
+    if (isSynthetic(step)) return;
+    const sourceId = step.source?.id;
+    if (
+      sourceId != null &&
+      !isReservedStepId(sourceId) &&
+      !usedStepIds.has(sourceId)
+    ) {
+      usedStepIds.add(sourceId);
+      stepIds[i] = sourceId;
     }
-    const candidates: string[] = [];
-    if (step.source != null) {
-      candidates.push(step.source.id);
-    }
+  });
+  editedSteps.forEach((step, i) => {
+    if (isSynthetic(step) || stepIds[i] != null) return;
     for (const batch of step.batches) {
       const cueRef = batch.frames[0];
       if (cueRef == null) continue;
       const existing = currentByShapeId.get(cueRef.shapeId);
-      if (existing?.frame.type === "cue") {
-        candidates.push(existing.frame.stepId);
-      }
-    }
-    for (const candidate of candidates) {
-      if (!usedStepIds.has(candidate) && !isReservedStepId(candidate)) {
+      const candidate =
+        existing?.frame.type === "cue" ? existing.frame.stepId : undefined;
+      if (
+        candidate != null &&
+        !usedStepIds.has(candidate) &&
+        !isReservedStepId(candidate)
+      ) {
         usedStepIds.add(candidate);
-        return candidate;
+        stepIds[i] = candidate;
+        return;
       }
     }
     const minted = mintId();
     usedStepIds.add(minted);
-    return minted;
+    stepIds[i] = minted;
   });
 
   // --- Assign step order keys: keep each step's stored canonical key when
@@ -105,8 +119,21 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
     const step = editedSteps[stepIndex];
     const stepId = stepIds[stepIndex];
     if (stepId == null) return null;
-    // The key is keepable only if some cue in this step already stored
-    // exactly this (stepId, key) pairing.
+    // A step that RETAINED its source identity keeps the source's
+    // canonical key as its authoritative stored key. This matters when
+    // no current cue can supply the (stepId, key) pairing — e.g. the
+    // surviving step is led only by a promoted sub frame after a batch
+    // was split out — where a cue-only scan would force a needless
+    // re-key.
+    if (
+      step.source != null &&
+      step.source.synthetic == null &&
+      step.source.id === stepId
+    ) {
+      return step.source.orderKey;
+    }
+    // Otherwise the key is keepable only if some cue in this step
+    // already stored exactly this (stepId, key) pairing.
     for (const batch of step.batches) {
       const cueRef = batch.frames[0];
       if (cueRef == null) continue;
