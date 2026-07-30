@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TIMELINE_FORMAT_VERSION } from "anipres/models";
 import {
+  TLSyncErrorCloseEventCode,
+  TLSyncErrorCloseEventReason,
+} from "@tldraw/sync-core";
+import {
   MINIMUM_SYNC_ANIMATION_DATA_VERSION,
   getAnimationDataVersionGateResponse,
 } from "./animation-data-version";
@@ -52,10 +56,30 @@ describe("sync animation data version gate", () => {
     ).toBeUndefined();
   });
 
-  it("rejects stale clients at the sync and snapshot route boundaries", async () => {
+  it("rejects a stale sync upgrade IN-PROTOCOL with CLIENT_TOO_OLD", async () => {
+    // The rejection must ride the accepted socket's close frame: an HTTP
+    // status returned before the upgrade reaches the client as an opaque
+    // 1006, which tldraw's sync client treats as a transient network
+    // failure and retries forever instead of surfacing an error state.
     const connectResponse = await connectRoutes.request(
       `/api/connect/${documentId}?animationDataVersion=1`,
       { headers: { Upgrade: "websocket" } },
+    );
+    expect(connectResponse.status).toBe(101);
+    const ws = connectResponse.webSocket;
+    expect(ws).not.toBeNull();
+    const closeEvent = new Promise<CloseEvent>((resolve) => {
+      ws!.addEventListener("close", (event) => resolve(event));
+    });
+    ws!.accept();
+    const { code, reason } = await closeEvent;
+    expect(code).toBe(TLSyncErrorCloseEventCode);
+    expect(reason).toBe(TLSyncErrorCloseEventReason.CLIENT_TOO_OLD);
+  });
+
+  it("rejects stale non-upgrade requests with HTTP 426", async () => {
+    const connectResponse = await connectRoutes.request(
+      `/api/connect/${documentId}?animationDataVersion=1`,
     );
     expect(connectResponse.status).toBe(426);
 

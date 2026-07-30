@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useSync } from "@tldraw/sync";
+import {
+  TLRemoteSyncError,
+  TLSyncErrorCloseEventReason,
+  useSync,
+} from "@tldraw/sync";
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
@@ -17,6 +21,7 @@ import {
   snapshotsEqual,
   type ReconnectSnapshotState,
 } from "../documents/offline-recovery";
+import styles from "./SyncedAnipresContainer.module.css";
 
 interface SyncedAnipresContainerProps {
   documentId: string;
@@ -347,33 +352,44 @@ export function SyncedAnipresContainer({
   }, [currentSessionId, documentId, onSnapshotUpdate, storeWithStatus]);
 
   if (storeWithStatus.status === "error") {
-    // A rejected connection surfaces here (WebSocket upgrades expose no
-    // HTTP status to JS, so the server's HTTP 426 animation-data-version
-    // gate is indistinguishable from other rejections). The most common
-    // cause after a deploy is a stale open tab running an outdated
-    // bundle — give it an explicit "reload to continue" path instead of
-    // an opaque dead editor.
+    // A terminal sync rejection: the server closed the socket with
+    // tldraw's sync-error close code and a reason string. The worker's
+    // animation-data version gate rejects stale tabs with
+    // CLIENT_TOO_OLD — the same reason tldraw uses for its own protocol
+    // staleness — so both get the reload path; other reasons get
+    // accurate copy instead of a misleading "reload to continue".
+    const reason =
+      storeWithStatus.error instanceof TLRemoteSyncError
+        ? storeWithStatus.error.reason
+        : undefined;
+    let message: string;
+    let canReload = true;
+    switch (reason) {
+      case TLSyncErrorCloseEventReason.CLIENT_TOO_OLD:
+        message =
+          "This tab is running an outdated version of the app. Reload to continue.";
+        break;
+      case TLSyncErrorCloseEventReason.NOT_FOUND:
+        message = "This document could not be found. It may have been deleted.";
+        canReload = false;
+        break;
+      case TLSyncErrorCloseEventReason.FORBIDDEN:
+      case TLSyncErrorCloseEventReason.NOT_AUTHENTICATED:
+        message = "You don't have access to this document.";
+        canReload = false;
+        break;
+      default:
+        message = "Could not connect to this document.";
+        break;
+    }
     return (
-      <div
-        role="alert"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "0.75rem",
-          height: "100%",
-          padding: "2rem",
-          textAlign: "center",
-        }}
-      >
-        <p>
-          Could not connect to this document. If the app was updated recently,
-          this tab may be running an outdated version.
-        </p>
-        <button type="button" onClick={() => window.location.reload()}>
-          Reload to continue
-        </button>
+      <div role="alert" className={styles.syncErrorScreen}>
+        <p>{message}</p>
+        {canReload && (
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        )}
       </div>
     );
   }

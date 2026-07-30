@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import * as z from "zod";
 import { documentIdSchema } from "../schemas";
 import type { AppBindings } from "../types";
-import { getAnimationDataVersionGateResponse } from "../animation-data-version";
+import { getSyncAnimationDataVersionGateResponse } from "../animation-data-version-gate";
 
 const documentConnectParamSchema = z.object({
   documentId: documentIdSchema,
@@ -23,7 +23,9 @@ export const connectRoutes = new Hono<AppBindings>().get(
     }
   }),
   async (c) => {
-    const versionGateResponse = getAnimationDataVersionGateResponse(c.req.raw);
+    const versionGateResponse = getSyncAnimationDataVersionGateResponse(
+      c.req.raw,
+    );
     if (versionGateResponse) return versionGateResponse;
     if (c.req.header("Upgrade") !== "websocket") {
       return c.text("Expected WebSocket upgrade", 426);

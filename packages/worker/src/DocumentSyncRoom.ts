@@ -2,7 +2,7 @@ import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
 import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
-import { getAnimationDataVersionGateResponse } from "./animation-data-version";
+import { getSyncAnimationDataVersionGateResponse } from "./animation-data-version-gate";
 import {
   slideShapeProps,
   SlideShapeType,
@@ -534,7 +534,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
-    const versionGateResponse = getAnimationDataVersionGateResponse(request);
+    const versionGateResponse = getSyncAnimationDataVersionGateResponse(request);
     if (versionGateResponse) return versionGateResponse;
     const url = new URL(request.url);
     const documentId = this.getDocumentIdFromRequest(request);

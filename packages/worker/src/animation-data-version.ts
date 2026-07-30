@@ -19,23 +19,33 @@ export const MINIMUM_SYNC_ANIMATION_DATA_VERSION: number =
   TIMELINE_FORMAT_VERSION;
 
 /**
- * Returns an HTTP 426 response when the request does not declare a
- * sufficient animation-data version (via the `animationDataVersion` query
- * param or the `x-anipres-animation-data-version` header), or undefined
- * when the request may proceed. v1 clients send neither, so they are
- * rejected.
+ * Whether the request declares a sufficient animation-data version (via
+ * the `animationDataVersion` query param or the
+ * `x-anipres-animation-data-version` header). v1 clients send neither.
  */
-export function getAnimationDataVersionGateResponse(
-  request: Request,
-): Response | undefined {
+export function isAnimationDataVersionAllowed(request: Request): boolean {
   const rawVersion =
     new URL(request.url).searchParams.get("animationDataVersion") ??
     request.headers.get("x-anipres-animation-data-version");
   const version = rawVersion === null ? NaN : Number(rawVersion);
-  if (
+  return (
     Number.isSafeInteger(version) &&
     version >= MINIMUM_SYNC_ANIMATION_DATA_VERSION
-  ) {
+  );
+}
+
+/**
+ * Returns an HTTP 426 response when the request fails the version check,
+ * or undefined when it may proceed. For plain HTTP endpoints (snapshot
+ * push) only — a WebSocket upgrade must be rejected in-protocol instead
+ * (see `getSyncAnimationDataVersionGateResponse`): an HTTP status
+ * returned before the upgrade surfaces to the client as an opaque
+ * close code 1006, indistinguishable from a network failure.
+ */
+export function getAnimationDataVersionGateResponse(
+  request: Request,
+): Response | undefined {
+  if (isAnimationDataVersionAllowed(request)) {
     return undefined;
   }
   return Response.json(

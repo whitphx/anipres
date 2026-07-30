@@ -224,6 +224,16 @@ async function defaultPushSnapshot(
       },
     },
   );
+  // The gate responds outside the route's typed status set, so widen.
+  const status: number = res.status;
+  if (status === 426) {
+    // The server's animation-data-version gate rejected this client:
+    // the running bundle is older than the deployed worker requires.
+    throw new Error(
+      "Snapshot push rejected: this app version is too old for the server " +
+        "(HTTP 426). Reload the app to update, then try again.",
+    );
+  }
   if (!res.ok) {
     throw new Error(`Snapshot push failed: ${res.status}`);
   }
