@@ -8,10 +8,15 @@ import { documentsRoutes } from "./documents";
 // against a real (miniflare) D1 with the production schema applied by
 // the test setup file.
 
-const OWNER_DOC = "019e0000-0000-7000-8000-000000000001";
-const FINALIZED_DOC = "019e0000-0000-7000-8000-000000000002";
-const FOREIGN_DOC = "019e0000-0000-7000-8000-000000000003";
-const MISSING_DOC = "019e0000-0000-7000-8000-00000000000f";
+// Fresh ids per test: the isolated-storage rollback between tests does
+// NOT reset a live DO's in-memory fields, so reusing one document id
+// (= one DO instance) would leak snapshotVersion / reservation state
+// across tests. Same reason DocumentSyncRoom.test.ts uses a distinct
+// room name per test.
+let OWNER_DOC: string;
+let FINALIZED_DOC: string;
+let FOREIGN_DOC: string;
+let MISSING_DOC: string;
 
 // The auth middleware lives on the app root, not on documentsRoutes;
 // the harness supplies the resolved userId the same way it would.
@@ -43,6 +48,10 @@ let ownerUserId: number;
 let foreignUserId: number;
 
 beforeEach(async () => {
+  OWNER_DOC = crypto.randomUUID();
+  FINALIZED_DOC = crypto.randomUUID();
+  FOREIGN_DOC = crypto.randomUUID();
+  MISSING_DOC = crypto.randomUUID();
   await env.DB.prepare(`DELETE FROM documents`).run();
   await env.DB.prepare(`DELETE FROM workspaces`).run();
   await env.DB.prepare(`DELETE FROM users`).run();
@@ -149,5 +158,67 @@ describe("DELETE /api/documents/:id/initialization", () => {
     const res = await cancelInitialization(app, OWNER_DOC);
     expect(res.status).toBe(409);
     expect(await documentExists(OWNER_DOC)).toBe(true);
+    // The refusal must not leave a reservation behind — future pushes
+    // to this (real, content-bearing) room stay possible.
+    await runInDurableObject(room, async (instance) => {
+      expect(
+        (instance as unknown as { initializationCancelled: boolean })
+          .initializationCancelled,
+      ).toBe(false);
+    });
+  });
+
+  // The cancellation-vs-snapshot race is decided inside the DO on the
+  // same serialized task queue as replaceSnapshot, so each interleaving
+  // is reproduced deterministically by ordering the serialized steps —
+  // there is no in-between state left to pause in.
+
+  it("cancellation wins: a push that passed its row check is rejected and no snapshot is retained", async () => {
+    // The push route's failing interleaving: its D1 row check passed
+    // (row was initializing), then cancellation completed fully, then
+    // its replaceSnapshot call runs. The persisted reservation must
+    // reject the push instead of writing into the orphaned room.
+    const room = env.DOCUMENT_SYNC_ROOM.getByName(OWNER_DOC);
+    await room.claimDocument(OWNER_DOC);
+
+    const app = appAsUser(ownerUserId);
+    const res = await cancelInitialization(app, OWNER_DOC);
+    expect(res.status).toBe(200);
+    expect(await documentExists(OWNER_DOC)).toBe(false);
+
+    const push = await room.replaceSnapshot({}, 0);
+    expect(push.replaced).toBe(false);
+    expect(push.reason).toBe("initialization-cancelled");
+    expect(await room.peekSnapshotVersion()).toBe(0);
+  });
+
+  it("finalize wins the D1 race: cancellation answers 409 and lifts the reservation", async () => {
+    // A cancellation attempt reserved the room but its D1 delete lost
+    // to /finalize (or the attempt crashed in between): the document is
+    // live after all, so the next cancellation call must both refuse
+    // (409) and lift the reservation so pushes to the live doc work.
+    const room = env.DOCUMENT_SYNC_ROOM.getByName(OWNER_DOC);
+    await room.claimDocument(OWNER_DOC);
+    expect((await room.cancelInitialization()).cancelled).toBe(true);
+    await env.DB.prepare(
+      `UPDATE documents SET initializing_at = NULL WHERE id = ?`,
+    )
+      .bind(OWNER_DOC)
+      .run();
+
+    const app = appAsUser(ownerUserId);
+    const res = await cancelInitialization(app, OWNER_DOC);
+    expect(res.status).toBe(409);
+    expect(await documentExists(OWNER_DOC)).toBe(true);
+    await runInDurableObject(room, async (instance) => {
+      expect(
+        (instance as unknown as { initializationCancelled: boolean })
+          .initializationCancelled,
+      ).toBe(false);
+    });
+    // A push to the now-live document is no longer blocked by the
+    // reservation (it proceeds to the ordinary version check).
+    const push = await room.replaceSnapshot({}, 99);
+    expect(push.reason).not.toBe("initialization-cancelled");
   });
 });

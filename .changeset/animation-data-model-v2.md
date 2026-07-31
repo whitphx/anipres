@@ -48,12 +48,19 @@ generic failure.
 
 New worker endpoint `DELETE /api/documents/:id/initialization`: cancels
 a document its creating client abandoned before finalizing (the regular
-DELETE route deliberately 404s initializing rows). It only ever removes
-a row that is still initializing and whose room never received a
-snapshot — mirroring the initialization sweep's "genuinely abandoned"
-test — so it can never destroy pushed content. The offline-reconnect
-fork flow uses it to clean up a fork whose snapshot push failed; if the
-cancellation itself fails, the invisible row is left for the sweep.
+DELETE route deliberately 404s initializing rows). The
+cancellation-vs-snapshot race is decided atomically inside the
+document's Durable Object, on the same serialized task queue as
+snapshot pushes: if a snapshot has landed, cancellation is refused
+(mirroring the initialization sweep's "genuinely abandoned" test);
+otherwise a persisted reservation makes any later push to that id fail
+with 404 instead of writing into a room whose D1 row is being deleted —
+so no interleaving can destroy pushed content or orphan a pushed
+snapshot. The snapshot-push route also verifies its finalizing D1
+update actually landed and reports 404 when the row vanished
+mid-flight. The offline-reconnect fork flow uses the endpoint to clean
+up a fork whose snapshot push failed; if the cancellation itself fails,
+the invisible row is left for the sweep.
 
 Also fixes the app's document-list ordering: `sortOrder` values are
 fractional index keys, and comparing them with `localeCompare`
