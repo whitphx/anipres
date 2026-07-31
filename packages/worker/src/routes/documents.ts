@@ -444,13 +444,10 @@ export const documentsRoutes = new Hono<AppBindings>()
         return c.json({ error: "Document is already finalized" }, 409);
       }
 
-      // The cancellation-vs-snapshot race is decided INSIDE the DO, on
-      // the same serialized task queue as replaceSnapshot: either a
-      // snapshot already landed (refuse — the sweep later reconciles
-      // that row by finalizing it) or a persisted reservation now makes
-      // every later push to this id fail. A read-only peek cannot do
-      // this — its answer is stale by the time the D1 delete below
-      // runs.
+      // Refuses if a snapshot already landed (the sweep later
+      // reconciles that row by finalizing it); otherwise reserves the
+      // room so later pushes fail. See DocumentSyncRoom.
+      // cancelInitialization for why this cannot be a read-only probe.
       const { cancelled } = await room.cancelInitialization();
       if (!cancelled) {
         return c.json({ error: "Document already has content" }, 409);

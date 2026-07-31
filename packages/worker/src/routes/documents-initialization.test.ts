@@ -1,6 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import {
+  createExecutionContext,
+  env,
+  runInDurableObject,
+} from "cloudflare:test";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
+import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "../animation-data-version";
 import type { AppBindings } from "../types";
 import { documentsRoutes } from "./documents";
 
@@ -36,6 +41,32 @@ function cancelInitialization(app: ReturnType<typeof appAsUser>, id: string) {
     env,
   );
 }
+
+function pushSnapshotViaRoute(
+  app: ReturnType<typeof appAsUser>,
+  id: string,
+  body: { snapshot: Record<string, unknown>; expectedSnapshotVersion: number },
+) {
+  return app.request(
+    `/api/documents/${id}/snapshot`,
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-anipres-animation-data-version": String(
+          MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+        ),
+      },
+      body: JSON.stringify(body),
+    },
+    env,
+    // The push route's feed bump uses executionCtx.waitUntil.
+    createExecutionContext(),
+  );
+}
+
+/** A minimal RoomSnapshot that TLSocketRoom.loadSnapshot accepts. */
+const EMPTY_ROOM_SNAPSHOT = { clock: 0, documents: [] };
 
 async function documentExists(id: string): Promise<boolean> {
   const row = await env.DB.prepare(`SELECT 1 FROM documents WHERE id = ?`)
@@ -190,6 +221,16 @@ describe("DELETE /api/documents/:id/initialization", () => {
     expect(push.replaced).toBe(false);
     expect(push.reason).toBe("initialization-cancelled");
     expect(await room.peekSnapshotVersion()).toBe(0);
+    // The reservation is persisted, not just in-memory — it must
+    // survive a DO eviction to keep rejecting late pushes.
+    await runInDurableObject(room, async (instance) => {
+      const internals = instance as unknown as {
+        ctx: { storage: { get(key: string): Promise<unknown> } };
+      };
+      expect(await internals.ctx.storage.get("initializationCancelled")).toBe(
+        true,
+      );
+    });
   });
 
   it("finalize wins the D1 race: cancellation answers 409 and lifts the reservation", async () => {
@@ -220,5 +261,42 @@ describe("DELETE /api/documents/:id/initialization", () => {
     // reservation (it proceeds to the ordinary version check).
     const push = await room.replaceSnapshot({}, 99);
     expect(push.reason).not.toBe("initialization-cancelled");
+  });
+
+  it("push ROUTE: a push racing a completed reservation answers 404 with no snapshot retained", async () => {
+    // The exact reviewed interleaving, driven through the real route:
+    // the D1 row is still initializing (so the route's row check
+    // passes), but the room already carries the cancellation
+    // reservation — the push must answer 404, not write a snapshot.
+    const room = env.DOCUMENT_SYNC_ROOM.getByName(OWNER_DOC);
+    await room.claimDocument(OWNER_DOC);
+    expect((await room.cancelInitialization()).cancelled).toBe(true);
+
+    const app = appAsUser(ownerUserId);
+    const res = await pushSnapshotViaRoute(app, OWNER_DOC, {
+      snapshot: EMPTY_ROOM_SNAPSHOT,
+      expectedSnapshotVersion: 0,
+    });
+    expect(res.status).toBe(404);
+    expect(await room.peekSnapshotVersion()).toBe(0);
+  });
+
+  it("push ROUTE: an ordinary push succeeds and finalizes the row", async () => {
+    // Happy-path pin for the finalizing-UPDATE affected-rows check: a
+    // mis-read of the result must not turn every successful push into
+    // a 404.
+    const app = appAsUser(ownerUserId);
+    const res = await pushSnapshotViaRoute(app, OWNER_DOC, {
+      snapshot: EMPTY_ROOM_SNAPSHOT,
+      expectedSnapshotVersion: 0,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    const row = await env.DB.prepare(
+      `SELECT initializing_at FROM documents WHERE id = ?`,
+    )
+      .bind(OWNER_DOC)
+      .first<{ initializing_at: number | null }>();
+    expect(row?.initializing_at).toBeNull();
   });
 });
