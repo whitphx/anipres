@@ -20,7 +20,7 @@ import {
   reconcileOfflineEdits,
   type ReconnectResult,
 } from "../documents/reconnect";
-import { CLIENT_TOO_OLD_MESSAGE } from "../documents/snapshot-push";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
 import { useSyncedRepository } from "../documents/useSyncedRepository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
@@ -500,8 +500,6 @@ export function OfflineAwareSyncedContainer({
     return (
       <>
         <div
-          role="status"
-          aria-live="polite"
           style={{
             position: "fixed",
             top: 0,
@@ -516,17 +514,23 @@ export function OfflineAwareSyncedContainer({
             fontWeight: 500,
           }}
         >
-          {clientTooOld ? (
+          {/* Live region carries only the text — screen readers handle
+              interactive controls inside aria-live inconsistently, so
+              the reload button sits next to it as a sibling. */}
+          <span role="status" aria-live="polite">
+            {clientTooOld
+              ? CLIENT_TOO_OLD_MESSAGE
+              : isReconnecting
+                ? "Reconnecting…"
+                : "Offline — changes saved locally"}
+          </span>
+          {clientTooOld && (
             <>
-              {CLIENT_TOO_OLD_MESSAGE}{" "}
+              {" "}
               <button type="button" onClick={() => window.location.reload()}>
                 Reload
               </button>
             </>
-          ) : isReconnecting ? (
-            "Reconnecting…"
-          ) : (
-            "Offline — changes saved locally"
           )}
         </div>
         <Anipres

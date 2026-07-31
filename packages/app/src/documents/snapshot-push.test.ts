@@ -1,31 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import type { TLStoreSnapshot } from "tldraw";
 import { putSnapshot } from "./snapshot-push";
+import {
+  capturedRequest,
+  expectSnapshotPutRequest,
+  mockResponse,
+} from "./test-helpers";
 
 const SNAPSHOT = {
   store: { "shape:a": { id: "shape:a" } },
   schema: {},
 } as unknown as TLStoreSnapshot;
-
-function mockResponse(body: unknown, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  } as Response;
-}
-
-/** Rebuilds the outgoing request from a captured `fetch` call. */
-function capturedRequest(call: unknown[]): Request {
-  const [input, init] = call as [RequestInfo | URL, RequestInit | undefined];
-  if (input instanceof Request) {
-    return input;
-  }
-  // The client uses a relative base; anchor it so Request construction
-  // works under Node.
-  return new Request(new URL(String(input), "http://test.local"), init);
-}
 
 describe("putSnapshot", () => {
   beforeEach(() => {
@@ -36,7 +21,7 @@ describe("putSnapshot", () => {
     vi.unstubAllGlobals();
   });
 
-  it("always declares the animation-data version header", async () => {
+  it("sends the version header WITHOUT displacing the client's computed headers", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(mockResponse({ ok: true }));
 
     await putSnapshot({
@@ -46,11 +31,11 @@ describe("putSnapshot", () => {
     });
 
     const request = capturedRequest(vi.mocked(fetch).mock.calls[0]);
-    expect(request.method).toBe("PUT");
     expect(request.url).toContain("/api/documents/doc-id/snapshot");
-    expect(request.headers.get("x-anipres-animation-data-version")).toBe(
-      String(MINIMUM_SYNC_ANIMATION_DATA_VERSION),
-    );
+    // Asserts content-type and client-id too: routing the version
+    // header through `init.headers` would replace hono's computed
+    // headers and break the worker's json validation.
+    expectSnapshotPutRequest(vi.mocked(fetch).mock.calls[0]);
   });
 
   it("forwards the abort signal (migration timeout/abort composition)", async () => {

@@ -8,7 +8,8 @@ import {
   type ReconnectSnapshotState,
 } from "./offline-recovery";
 import { nextTailSortOrder } from "./sort-order";
-import { CLIENT_TOO_OLD_MESSAGE, putSnapshot } from "./snapshot-push";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import { putSnapshot } from "./snapshot-push";
 
 export type ReconnectResult =
   | { action: "noop" }

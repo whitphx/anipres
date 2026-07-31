@@ -91,9 +91,13 @@ describe("sync animation data version gate", () => {
   });
 
   it("passes a snapshot PUT that declares the version, as the app's putSnapshot helper does", async () => {
-    // Header equivalent by construction to the app's shared snapshot
-    // client (packages/app/src/documents/snapshot-push.ts): both sides
-    // stringify MINIMUM_SYNC_ANIMATION_DATA_VERSION.
+    // Proves the GATE MIDDLEWARE admits a request carrying the current
+    // version header (stringified from the same
+    // MINIMUM_SYNC_ANIMATION_DATA_VERSION constant the app's shared
+    // snapshot client uses). The app-side request shape itself —
+    // content type, client id, version header — is pinned by
+    // packages/app/src/documents/snapshot-push.test.ts against the
+    // real hono client.
     const withHeader = await documentsRoutes.request(
       `/api/documents/${documentId}/snapshot`,
       {

@@ -15,13 +15,6 @@ import { apiClient } from "../lib/api-client";
 // room with empty state would pre-empt useSync's natural "populate on
 // first connect" path.
 
-/**
- * Same wording as the sync connection's `CLIENT_TOO_OLD` screen — both
- * mean the running bundle predates the deployed worker's version gate.
- */
-export const CLIENT_TOO_OLD_MESSAGE =
-  "This tab is running an outdated version of the app. Reload to continue.";
-
 export interface PutSnapshotParams {
   documentId: string;
   snapshot: TLStoreSnapshot;
@@ -58,14 +51,17 @@ export async function putSnapshot(
       },
     },
     {
-      init: {
-        ...(signal != null ? { signal } : {}),
-        headers: {
-          "x-anipres-animation-data-version": String(
-            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
-          ),
-        },
+      // The header must ride the client's `headers` option, NOT
+      // `init.headers`: hono spreads `init` last, so `init.headers`
+      // would REPLACE the computed headers — silently dropping
+      // `Content-Type: application/json` (the worker's json validator
+      // then rejects the body with 400) and the client-id header.
+      headers: {
+        "x-anipres-animation-data-version": String(
+          MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+        ),
       },
+      init: { signal },
     },
   );
   if (res.ok) {

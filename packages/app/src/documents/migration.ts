@@ -1,6 +1,7 @@
 import type { TLStoreSnapshot } from "tldraw";
 import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
-import { CLIENT_TOO_OLD_MESSAGE, putSnapshot } from "./snapshot-push";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import { putSnapshot } from "./snapshot-push";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
 

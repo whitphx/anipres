@@ -21,7 +21,7 @@ import {
   snapshotsEqual,
   type ReconnectSnapshotState,
 } from "../documents/offline-recovery";
-import { CLIENT_TOO_OLD_MESSAGE } from "../documents/snapshot-push";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
 import styles from "./SyncedAnipresContainer.module.css";
 
 interface SyncedAnipresContainerProps {
