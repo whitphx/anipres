@@ -8,6 +8,7 @@ import {
   type ReconnectSnapshotState,
 } from "./offline-recovery";
 import { nextTailSortOrder } from "./sort-order";
+import { CLIENT_TOO_OLD_MESSAGE, putSnapshot } from "./snapshot-push";
 
 export type ReconnectResult =
   | { action: "noop" }
@@ -16,8 +17,19 @@ export type ReconnectResult =
   | {
       action: "error";
       reason: string;
-      reasonCode?: "active-session" | "other";
+      /**
+       * `client-too-old` = the worker's animation-data version gate
+       * rejected the push (HTTP 426): retrying from this bundle can
+       * never succeed — the caller must offer a reload instead.
+       */
+      reasonCode?: "active-session" | "client-too-old" | "other";
     };
+
+const CLIENT_TOO_OLD_RESULT: ReconnectResult = {
+  action: "error",
+  reason: CLIENT_TOO_OLD_MESSAGE,
+  reasonCode: "client-too-old",
+};
 
 async function fetchOfflineCache(documentId: string): Promise<{
   snapshot: TLStoreSnapshot;
@@ -64,30 +76,29 @@ export async function reconcileOfflineEdits(params: {
   // Try to push: the server endpoint rejects with 409 if the DO
   // snapshot version has advanced since this cached snapshot was
   // written.
-  const pushRes = await apiClient.api.documents[":id"].snapshot.$put({
-    param: { id: documentId },
-    json: {
-      snapshot: localSnapshot as unknown as Record<string, unknown>,
-      expectedSnapshotVersion: snapshotVersion,
-    },
+  const push = await putSnapshot({
+    documentId,
+    snapshot: localSnapshot,
+    expectedSnapshotVersion: snapshotVersion,
   });
 
-  if (pushRes.ok) {
+  if (push.outcome === "success") {
     return { action: "pushed" };
   }
 
-  if (pushRes.status !== 409) {
+  if (push.outcome === "client-too-old") {
+    return CLIENT_TOO_OLD_RESULT;
+  }
+
+  if (push.outcome === "failed") {
     return {
       action: "error",
-      reason: `Snapshot push failed: ${pushRes.status}`,
+      reason: `Snapshot push failed: ${push.status}`,
       reasonCode: "other",
     };
   }
 
-  const conflictBody = (await pushRes.json().catch(() => null)) as {
-    reason?: "active-session" | "version-conflict";
-  } | null;
-  if (conflictBody?.reason === "active-session") {
+  if (push.reason === "active-session") {
     return {
       action: "error",
       reason: "Document is still open in another session",
@@ -111,35 +122,33 @@ export async function reconcileOfflineEdits(params: {
       snapshotsEqual(serverCache.snapshot, recovery.baselineSnapshot) ||
       snapshotsEqual(serverCache.snapshot, recovery.reconnectSnapshot)
     ) {
-      const retryPushRes = await apiClient.api.documents[":id"].snapshot.$put({
-        param: { id: documentId },
-        json: {
-          snapshot: localSnapshot as unknown as Record<string, unknown>,
-          expectedSnapshotVersion: serverCache.snapshotVersion,
-        },
+      const retryPush = await putSnapshot({
+        documentId,
+        snapshot: localSnapshot,
+        expectedSnapshotVersion: serverCache.snapshotVersion,
       });
 
-      if (retryPushRes.ok) {
+      if (retryPush.outcome === "success") {
         return { action: "pushed" };
       }
 
-      if (retryPushRes.status === 409) {
-        const retryConflictBody = (await retryPushRes
-          .json()
-          .catch(() => null)) as {
-          reason?: "active-session" | "version-conflict";
-        } | null;
-        if (retryConflictBody?.reason === "active-session") {
+      if (retryPush.outcome === "client-too-old") {
+        return CLIENT_TOO_OLD_RESULT;
+      }
+
+      if (retryPush.outcome === "conflict") {
+        if (retryPush.reason === "active-session") {
           return {
             action: "error",
             reason: "Document is still open in another session",
             reasonCode: "active-session",
           };
         }
+        // version-conflict again: fall through to the fork decision.
       } else {
         return {
           action: "error",
-          reason: `Snapshot retry failed: ${retryPushRes.status}`,
+          reason: `Snapshot retry failed: ${retryPush.status}`,
           reasonCode: "other",
         };
       }
@@ -176,14 +185,12 @@ export async function reconcileOfflineEdits(params: {
     snapshot: null,
   });
 
-  let forkPushRes;
+  let forkPush;
   try {
-    forkPushRes = await apiClient.api.documents[":id"].snapshot.$put({
-      param: { id: forkId },
-      json: {
-        snapshot: localSnapshot as unknown as Record<string, unknown>,
-        expectedSnapshotVersion: 0,
-      },
+    forkPush = await putSnapshot({
+      documentId: forkId,
+      snapshot: localSnapshot,
+      expectedSnapshotVersion: 0,
     });
   } catch (error) {
     await repository.delete(forkId).catch(() => {});
@@ -194,11 +201,17 @@ export async function reconcileOfflineEdits(params: {
     };
   }
 
-  if (!forkPushRes.ok) {
+  if (forkPush.outcome !== "success") {
+    // The fork row was created but never seeded — remove the empty
+    // placeholder so a failed (or version-gated) push does not leave a
+    // ghost document behind.
     await repository.delete(forkId).catch(() => {});
+    if (forkPush.outcome === "client-too-old") {
+      return CLIENT_TOO_OLD_RESULT;
+    }
     return {
       action: "error",
-      reason: `Failed to push snapshot to forked document: ${forkPushRes.status}`,
+      reason: `Failed to push snapshot to forked document: ${forkPush.status}`,
       reasonCode: "other",
     };
   }

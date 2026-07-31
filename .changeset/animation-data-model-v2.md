@@ -39,9 +39,12 @@ sync-error close code and `CLIENT_TOO_OLD` (an HTTP status before the
 upgrade would surface as an opaque 1006 the client retries forever), so
 `useSync` reports an error state and the app shows a reason-specific
 screen — "outdated version, reload" for `CLIENT_TOO_OLD`, accurate copy
-for `NOT_FOUND`/`FORBIDDEN`/`NOT_AUTHENTICATED`. Rejected snapshot
-pushes (HTTP 426) get a version-specific error message on both push
-paths.
+for `NOT_FOUND`/`FORBIDDEN`/`NOT_AUTHENTICATED`. Every
+snapshot-replacement flow (local-to-synced migration, offline
+reconnect, stale-version retry, offline-copy fork) declares the version
+through one shared client helper; a rejected push (HTTP 426) surfaces
+as an explicit client-too-old result with a reload path instead of a
+generic failure.
 
 Also fixes the app's document-list ordering: `sortOrder` values are
 fractional index keys, and comparing them with `localeCompare`

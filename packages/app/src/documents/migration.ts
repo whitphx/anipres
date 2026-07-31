@@ -1,7 +1,6 @@
 import type { TLStoreSnapshot } from "tldraw";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
-import { apiClient } from "../lib/api-client";
 import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
+import { CLIENT_TOO_OLD_MESSAGE, putSnapshot } from "./snapshot-push";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
 
@@ -205,37 +204,17 @@ async function defaultPushSnapshot(
   snapshot: TLStoreSnapshot,
   abortSignal: AbortSignal | undefined,
 ): Promise<void> {
-  const res = await apiClient.api.documents[":id"].snapshot.$put(
-    {
-      param: { id: documentId },
-      json: {
-        snapshot: snapshot as unknown as Record<string, unknown>,
-        expectedSnapshotVersion: 0,
-      },
-    },
-    {
-      init: {
-        signal: composeWithTimeout(abortSignal),
-        headers: {
-          "x-anipres-animation-data-version": String(
-            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
-          ),
-        },
-      },
-    },
-  );
-  // The gate responds outside the route's typed status set, so widen.
-  const status: number = res.status;
-  if (status === 426) {
-    // The server's animation-data-version gate rejected this client:
-    // the running bundle is older than the deployed worker requires.
-    throw new Error(
-      "Snapshot push rejected: this app version is too old for the server " +
-        "(HTTP 426). Reload the app to update, then try again.",
-    );
+  const result = await putSnapshot({
+    documentId,
+    snapshot,
+    expectedSnapshotVersion: 0,
+    signal: composeWithTimeout(abortSignal),
+  });
+  if (result.outcome === "client-too-old") {
+    throw new Error(CLIENT_TOO_OLD_MESSAGE);
   }
-  if (!res.ok) {
-    throw new Error(`Snapshot push failed: ${res.status}`);
+  if (result.outcome !== "success") {
+    throw new Error(`Snapshot push failed: ${result.status}`);
   }
 }
 

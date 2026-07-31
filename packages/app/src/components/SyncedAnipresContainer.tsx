@@ -21,6 +21,7 @@ import {
   snapshotsEqual,
   type ReconnectSnapshotState,
 } from "../documents/offline-recovery";
+import { CLIENT_TOO_OLD_MESSAGE } from "../documents/snapshot-push";
 import styles from "./SyncedAnipresContainer.module.css";
 
 interface SyncedAnipresContainerProps {
@@ -366,8 +367,7 @@ export function SyncedAnipresContainer({
     let canReload = true;
     switch (reason) {
       case TLSyncErrorCloseEventReason.CLIENT_TOO_OLD:
-        message =
-          "This tab is running an outdated version of the app. Reload to continue.";
+        message = CLIENT_TOO_OLD_MESSAGE;
         break;
       case TLSyncErrorCloseEventReason.NOT_FOUND:
         message = "This document could not be found. It may have been deleted.";

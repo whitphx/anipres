@@ -89,4 +89,46 @@ describe("sync animation data version gate", () => {
     );
     expect(snapshotResponse.status).toBe(426);
   });
+
+  it("passes a snapshot PUT that declares the version, as the app's putSnapshot helper does", async () => {
+    // Header equivalent by construction to the app's shared snapshot
+    // client (packages/app/src/documents/snapshot-push.ts): both sides
+    // stringify MINIMUM_SYNC_ANIMATION_DATA_VERSION.
+    const withHeader = await documentsRoutes.request(
+      `/api/documents/${documentId}/snapshot`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-anipres-animation-data-version": String(
+            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+          ),
+        },
+        body: JSON.stringify({
+          snapshot: { store: {}, schema: {} },
+          expectedSnapshotVersion: 0,
+        }),
+      },
+    );
+    // Past the gate the route needs live bindings this test does not
+    // provide, so any status except 426 proves the gate admitted the
+    // request; the same request WITHOUT the header is rejected above.
+    expect(withHeader.status).not.toBe(426);
+
+    const stale = await documentsRoutes.request(
+      `/api/documents/${documentId}/snapshot`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-anipres-animation-data-version": "1",
+        },
+        body: JSON.stringify({
+          snapshot: { store: {}, schema: {} },
+          expectedSnapshotVersion: 0,
+        }),
+      },
+    );
+    expect(stale.status).toBe(426);
+  });
 });
