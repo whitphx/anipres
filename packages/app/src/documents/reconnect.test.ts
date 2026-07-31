@@ -489,45 +489,82 @@ describe("reconcileOfflineEdits — HTTP 426 (client too old)", () => {
     expect(repository.cancelInitialization).toHaveBeenCalledWith(forkId);
     expect(repository.delete).not.toHaveBeenCalled();
   });
+});
 
-  it("keeps the client-too-old result when the fork cancellation itself fails", async () => {
-    const server = createSnapshot("server-diverged");
-    const repository = makeForkableRepository();
-    repository.cancelInitialization.mockRejectedValue(
-      new Error("cancel failed"),
-    );
+// Cleanup of a fork whose snapshot push failed: the placeholder row is
+// cancelled through the dedicated initialization-cancel endpoint (the
+// regular DELETE route 404s initializing rows), and a failing
+// cancellation never displaces the push's own error result.
+describe("reconcileOfflineEdits — fork cancellation", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** 409 conflict, then a diverged server cache: the fork path runs. */
+  function mockConflictThenDivergedCache() {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
       )
       .mockResolvedValueOnce(
-        mockResponse({ snapshot: server, snapshotVersion: 10 }),
-      )
-      .mockResolvedValueOnce(mockResponse(null, 426));
+        mockResponse(
+          { snapshot: createSnapshot("server-diverged"), snapshotVersion: 10 },
+          200,
+        ),
+      );
+  }
+
+  it("cancels the placeholder when the fork push THROWS (network error)", async () => {
+    const repository = makeForkableRepository();
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network down"));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result.action).toBe("error");
+    if (result.action === "error") {
+      expect(result.reasonCode).toBe("other");
+      expect(result.reason).toContain("network down");
+    }
+    const forkId = (
+      repository.save.mock.calls[0][0] as { meta: { id: string } }
+    ).meta.id;
+    expect(repository.cancelInitialization).toHaveBeenCalledWith(forkId);
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the client-too-old result when the fork cancellation itself fails", async () => {
+    const repository = makeForkableRepository();
+    repository.cancelInitialization.mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(null, 426));
 
     const result = await reconcileOfflineEdits(reconnectParams(repository));
 
     // The cancellation failure is swallowed (the server sweep reaps the
     // invisible row); the push's own outcome is what the caller sees,
     // so the offline cache is preserved by the error path as usual.
-    expect(result).toEqual(clientTooOldResult);
+    expect(result).toEqual({
+      action: "error",
+      reason: CLIENT_TOO_OLD_MESSAGE,
+      reasonCode: "client-too-old",
+    });
     expect(repository.cancelInitialization).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the original failure result when a failed fork push's cancellation fails", async () => {
-    const server = createSnapshot("server-diverged");
     const repository = makeForkableRepository();
     repository.cancelInitialization.mockRejectedValue(
       new Error("cancel failed"),
     );
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
-      )
-      .mockResolvedValueOnce(
-        mockResponse({ snapshot: server, snapshotVersion: 10 }),
-      )
-      .mockResolvedValueOnce(mockResponse(null, 500));
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(null, 500));
 
     const result = await reconcileOfflineEdits(reconnectParams(repository));
 

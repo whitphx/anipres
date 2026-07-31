@@ -124,10 +124,25 @@ describe("DELETE /api/documents/:id/initialization", () => {
   it("refuses to cancel when the DO already holds a snapshot (pushed content survives)", async () => {
     // Simulate the partial-push case: the DO write landed but the
     // finalizing D1 update never did — peekSnapshotVersion then
-    // reports > 0 for a row that is still initializing in D1.
+    // reports > 0 for a row that is still initializing in D1. Both the
+    // in-memory field and its backing storage row are set so the state
+    // survives a DO eviction between this poke and the route's RPC.
     const room = env.DOCUMENT_SYNC_ROOM.getByName(OWNER_DOC);
     await runInDurableObject(room, async (instance) => {
-      (instance as unknown as { snapshotVersion: number }).snapshotVersion = 3;
+      const internals = instance as unknown as {
+        snapshotVersion: number;
+        ctx: {
+          storage: {
+            sql: { exec: (query: string, ...bindings: unknown[]) => unknown };
+          };
+        };
+      };
+      internals.snapshotVersion = 3;
+      internals.ctx.storage.sql.exec(
+        "INSERT OR REPLACE INTO snapshot (id, data, version) VALUES (1, ?, ?)",
+        JSON.stringify({ clock: 0, documents: [] }),
+        3,
+      );
     });
 
     const app = appAsUser(ownerUserId);

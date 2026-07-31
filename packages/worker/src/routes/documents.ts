@@ -461,7 +461,19 @@ export const documentsRoutes = new Hono<AppBindings>()
         .bind(id, userId)
         .run();
       if ((result.meta.changes ?? 0) === 0) {
-        return c.json({ error: "Document is already finalized" }, 409);
+        // The row changed state between the SELECT and the DELETE.
+        // Distinguish the two races so the response stays truthful: a
+        // concurrent push finalized it (409, same as the pre-check) or
+        // a concurrent cancellation removed it (404, same as a repeat).
+        const raced = await c.env.DB.prepare(
+          `SELECT 1 FROM documents WHERE id = ?`,
+        )
+          .bind(id)
+          .first();
+        if (raced) {
+          return c.json({ error: "Document is already finalized" }, 409);
+        }
+        return c.json({ error: "Not found" }, 404);
       }
       // No feed bump: an initializing row was never visible in any
       // list, so its removal changes nothing for subscribers.
