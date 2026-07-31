@@ -390,6 +390,84 @@ export const documentsRoutes = new Hono<AppBindings>()
       return c.json({ ok: true as const }, 200);
     },
   )
+  // Cancels a document the creating client gave up on before it was
+  // finalized — the offline-reconnect fork flow creates the row first
+  // and pushes the snapshot second, and a failed push (e.g. the
+  // animation-data version gate's 426) would otherwise strand an
+  // invisible initializing row until the scheduled sweep reaps it.
+  // The regular DELETE route deliberately 404s initializing rows
+  // (the user never saw them in a list), so cancellation is its own
+  // narrowly-scoped operation: it only ever removes a row that is
+  // still initializing AND whose DO never received a snapshot —
+  // mirroring the sweep's "genuinely abandoned" test, so it can
+  // never destroy pushed content.
+  .delete(
+    "/api/documents/:id/initialization",
+    zValidator("param", documentIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          { error: "Invalid document id", details: result.error.issues },
+          400,
+        );
+      }
+    }),
+    async (c) => {
+      const userId = c.get("userId");
+      const { id } = c.req.valid("param");
+      const document = await c.env.DB.prepare(
+        `SELECT initializing_at, deleting_at
+         FROM documents
+         WHERE id = ?
+           AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)`,
+      )
+        .bind(id, userId)
+        .first<{
+          initializing_at: number | null;
+          deleting_at: number | null;
+        }>();
+      // Missing, foreign-workspace, and mid-deletion rows all collapse
+      // to the same 404 — no existence leak, and a repeated
+      // cancellation after success lands here (safe: the state it
+      // wanted is already reality).
+      if (!document || document.deleting_at !== null) {
+        return c.json({ error: "Not found" }, 404);
+      }
+      if (document.initializing_at === null) {
+        // Finalized documents must go through the regular deletion
+        // lifecycle; this path only exists for rows the user never saw.
+        return c.json({ error: "Document is already finalized" }, 409);
+      }
+
+      const room = c.env.DOCUMENT_SYNC_ROOM.getByName(id);
+      if ((await room.peekSnapshotVersion()) > 0) {
+        // The push actually landed on the DO and only the finalizing
+        // D1 update was lost. Cancelling would destroy pushed content;
+        // leave the row for the sweep, which reconciles this case by
+        // finalizing it.
+        return c.json({ error: "Document already has content" }, 409);
+      }
+
+      // The IS NOT NULL guard re-asserts the initializing state
+      // atomically — if a concurrent snapshot push finalized the row
+      // between the SELECT and here, this becomes a no-op instead of
+      // deleting a live document. FK cascade removes any asset rows
+      // from the abandoned attempt.
+      const result = await c.env.DB.prepare(
+        `DELETE FROM documents
+          WHERE id = ?
+            AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
+            AND initializing_at IS NOT NULL`,
+      )
+        .bind(id, userId)
+        .run();
+      if ((result.meta.changes ?? 0) === 0) {
+        return c.json({ error: "Document is already finalized" }, 409);
+      }
+      // No feed bump: an initializing row was never visible in any
+      // list, so its removal changes nothing for subscribers.
+      return c.json({ ok: true as const }, 200);
+    },
+  )
   // Fresh creates have no content yet and the DO room can stay
   // un-seeded until the user actually opens the doc — so this just
   // clears `initializing_at` to make the row visible. Flows that

@@ -186,6 +186,15 @@ export async function reconcileOfflineEdits(params: {
     snapshot: null,
   });
 
+  // The fork row was created but never seeded: cancel it through the
+  // dedicated initialization-cancel endpoint (the regular DELETE route
+  // deliberately 404s initializing rows, which the user never saw).
+  // Cancellation failures are swallowed — the row stays invisible and
+  // the server's initialization sweep reaps it — and never displace
+  // the push's own error result.
+  const cancelFork = () =>
+    repository.cancelInitialization(forkId).catch(() => {});
+
   let forkPush;
   try {
     forkPush = await putSnapshot({
@@ -194,7 +203,7 @@ export async function reconcileOfflineEdits(params: {
       expectedSnapshotVersion: 0,
     });
   } catch (error) {
-    await repository.delete(forkId).catch(() => {});
+    await cancelFork();
     return {
       action: "error",
       reason: `Failed to push snapshot to forked document: ${String(error)}`,
@@ -203,10 +212,7 @@ export async function reconcileOfflineEdits(params: {
   }
 
   if (forkPush.outcome !== "success") {
-    // The fork row was created but never seeded — remove the empty
-    // placeholder so a failed (or version-gated) push does not leave a
-    // ghost document behind.
-    await repository.delete(forkId).catch(() => {});
+    await cancelFork();
     if (forkPush.outcome === "client-too-old") {
       return CLIENT_TOO_OLD_RESULT;
     }

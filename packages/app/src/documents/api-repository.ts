@@ -96,4 +96,22 @@ export class ApiDocumentRepository implements DocumentRepository {
     });
     if (!res.ok) throw new Error(`Failed to delete document: ${res.status}`);
   }
+
+  /**
+   * Cancels a document this client created but never finalized (its
+   * snapshot push failed). The regular DELETE route deliberately 404s
+   * initializing rows, so abandoning one goes through the dedicated
+   * cancellation endpoint; the server only ever removes a row that is
+   * still initializing and whose room never received content.
+   */
+  async cancelInitialization(id: string): Promise<void> {
+    const res = await apiClient.api.documents[":id"].initialization.$delete({
+      param: { id },
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to cancel document initialization: ${res.status}`,
+      );
+    }
+  }
 }

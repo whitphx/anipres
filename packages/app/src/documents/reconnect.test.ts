@@ -40,6 +40,7 @@ function makeForkableRepository() {
       snapshot: null,
     })),
     delete: vi.fn().mockResolvedValue(undefined),
+    cancelInitialization: vi.fn().mockResolvedValue(undefined),
   } as const;
 }
 
@@ -478,12 +479,63 @@ describe("reconcileOfflineEdits — HTTP 426 (client too old)", () => {
     const result = await reconcileOfflineEdits(reconnectParams(repository));
 
     expect(result).toEqual(clientTooOldResult);
-    // The empty fork row was created and then removed — a version-gated
-    // push must not leave a ghost document behind.
+    // The empty fork row is cancelled through the dedicated
+    // initialization-cancel endpoint — the regular DELETE route 404s
+    // initializing rows, so calling it would silently do nothing.
     expect(repository.save).toHaveBeenCalledTimes(1);
     const forkId = (
       repository.save.mock.calls[0][0] as { meta: { id: string } }
     ).meta.id;
-    expect(repository.delete).toHaveBeenCalledWith(forkId);
+    expect(repository.cancelInitialization).toHaveBeenCalledWith(forkId);
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the client-too-old result when the fork cancellation itself fails", async () => {
+    const server = createSnapshot("server-diverged");
+    const repository = makeForkableRepository();
+    repository.cancelInitialization.mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: server, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse(null, 426));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    // The cancellation failure is swallowed (the server sweep reaps the
+    // invisible row); the push's own outcome is what the caller sees,
+    // so the offline cache is preserved by the error path as usual.
+    expect(result).toEqual(clientTooOldResult);
+    expect(repository.cancelInitialization).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the original failure result when a failed fork push's cancellation fails", async () => {
+    const server = createSnapshot("server-diverged");
+    const repository = makeForkableRepository();
+    repository.cancelInitialization.mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: server, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse(null, 500));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual({
+      action: "error",
+      reason: "Failed to push snapshot to forked document: 500",
+      reasonCode: "other",
+    });
+    expect(repository.cancelInitialization).toHaveBeenCalledTimes(1);
   });
 });

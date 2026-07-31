@@ -46,6 +46,15 @@ through one shared client helper; a rejected push (HTTP 426) surfaces
 as an explicit client-too-old result with a reload path instead of a
 generic failure.
 
+New worker endpoint `DELETE /api/documents/:id/initialization`: cancels
+a document its creating client abandoned before finalizing (the regular
+DELETE route deliberately 404s initializing rows). It only ever removes
+a row that is still initializing and whose room never received a
+snapshot — mirroring the initialization sweep's "genuinely abandoned"
+test — so it can never destroy pushed content. The offline-reconnect
+fork flow uses it to clean up a fork whose snapshot push failed; if the
+cancellation itself fails, the invisible row is left for the sweep.
+
 Also fixes the app's document-list ordering: `sortOrder` values are
 fractional index keys, and comparing them with `localeCompare`
 mis-sorts entries keyed before the first item (capital-prefixed keys)

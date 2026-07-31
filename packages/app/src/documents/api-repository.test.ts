@@ -225,4 +225,19 @@ describe("ApiDocumentRepository", () => {
     expect(url).toBe("/api/documents/42");
     expect(init?.method).toBe("DELETE");
   });
+
+  it("cancelInitialization sends DELETE to /api/documents/:id/initialization", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    await repo.cancelInitialization("42");
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/documents/42/initialization");
+    expect(init?.method).toBe("DELETE");
+  });
+
+  it("cancelInitialization throws on a non-2xx response", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(null, 409));
+    await expect(repo.cancelInitialization("42")).rejects.toThrow(
+      "Failed to cancel document initialization: 409",
+    );
+  });
 });
