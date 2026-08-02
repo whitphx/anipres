@@ -58,6 +58,10 @@ import {
   type ShapeV2Frame,
 } from "./timeline-model";
 import { PresentationManager } from "./presentation-manager";
+import {
+  applyStoredStepKeyUpdates,
+  createDuplicateShapesRemap,
+} from "./duplicate-shapes-remap";
 import React, {
   useCallback,
   useEffect,
@@ -373,6 +377,15 @@ const Inner = (props: InnerProps) => {
       return existingFrameIdCache;
     };
 
+    // Relationship-preserving remap for editor.duplicateShapes — the path
+    // tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes, which
+    // bypasses putContentOntoCurrentPage. Installed BEFORE the safety net
+    // so the net can hand captured copies over during a wrapped call.
+    const duplicateShapesRemap = createDuplicateShapesRemap(editor, () =>
+      presentationManager.$getTimelineDoc(),
+    );
+    duplicateShapesRemap.install();
+
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
@@ -410,16 +423,22 @@ const Inner = (props: InnerProps) => {
             },
           };
         } else {
-          // SAFETY NET for creation paths that bypass content insertion
-          // (e.g. editor.duplicateShapes): freshen duplicated frame
-          // identities shape-at-a-time. This cannot preserve
-          // relationships among a multi-shape operation — the
-          // putContentOntoCurrentPage preprocessing below is the primary,
-          // relationship-preserving mechanism.
+          // SAFETY NET for creation paths that bypass BOTH preprocessed
+          // mechanisms (putContentOntoCurrentPage for paste, the
+          // duplicateShapes wrapper for Duplicate — e.g. alt-drag
+          // cloning): freshen duplicated frame identities shape-at-a-time.
+          // This cannot preserve relationships among a multi-shape
+          // operation.
           const parsed = parseFrameMeta(shape.meta?.frame);
           if (parsed.kind !== "v2") {
             // none: nothing to do; invalid: the derivation diagnoses it;
             // v1: converted in memory and migrated on next load.
+            return shape;
+          }
+          if (duplicateShapesRemap.capture(shape.id)) {
+            // A wrapped duplicateShapes call is running: the copy passes
+            // through untouched and the wrapper rewrites the COMPLETE
+            // set relationship-preservingly afterwards.
             return shape;
           }
           const frame = parsed.frame;
@@ -686,34 +705,12 @@ const Inner = (props: InnerProps) => {
           return originalPutContent(content, options);
         }
         // Collision-run normalization touched existing steps: apply those
-        // key rewrites and the paste in ONE transaction.
+        // key rewrites and the paste in ONE transaction. The rewrites are
+        // keyed by STORED stepId so they reach split members displayed
+        // under synthetic recovery steps too — a walk over the derived
+        // doc's batches would miss them and fabricate a divergence.
         editor.run(() => {
-          const doc = presentationManager.$getTimelineDoc();
-          for (const { stepId, key } of existingStepKeyUpdates) {
-            const step = doc.steps.find((s) => s.id === stepId);
-            if (step == null) continue;
-            for (const batch of step.batches) {
-              const cueShape = editor.getShape(
-                batch.frames[0].shapeId as TLShapeId,
-              );
-              if (cueShape == null) continue;
-              const parsed = parseFrameMeta(cueShape.meta?.frame);
-              if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
-                continue;
-              }
-              editor.updateShape({
-                id: cueShape.id,
-                type: cueShape.type,
-                meta: {
-                  ...cueShape.meta,
-                  frame: frameToMetaJson({
-                    ...parsed.frame,
-                    stepOrderKey: key,
-                  }),
-                },
-              });
-            }
-          }
+          applyStoredStepKeyUpdates(editor, existingStepKeyUpdates);
           originalPutContent(content, options);
         });
         return editor;
