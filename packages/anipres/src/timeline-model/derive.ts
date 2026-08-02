@@ -48,6 +48,7 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
   // --- Parse (soft-fail).
   const cues: ShapeCue[] = [];
   const subs: ShapeSub[] = [];
+  const v1ShapeIds: string[] = [];
 
   // Deterministic regardless of input iteration order.
   const sortedShapes = [...input.shapes].sort((a, b) =>
@@ -62,11 +63,10 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
       continue;
     }
     if (parsed.kind === "v1") {
-      // v1 records are no longer converted at read time: the one-time
-      // batch migration (removed after it ran; see the design doc's r9
-      // revision entry) converted all known documents. A resurfacing v1
-      // record is surfaced instead of animated.
-      diagnostics.push({ type: "v1-frame", shapeId });
+      // v1 records are recognized, not converted: the one-time batch
+      // migration is gone (design doc r9). Aggregated into one
+      // diagnostic below.
+      v1ShapeIds.push(shapeId);
       continue;
     }
     if (parsed.frame.type === "cue") {
@@ -74,6 +74,10 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
     } else {
       subs.push({ shapeId, frame: parsed.frame });
     }
+  }
+
+  if (v1ShapeIds.length > 0) {
+    diagnostics.push({ type: "v1-frame", shapeIds: v1ShapeIds });
   }
 
   // --- Rule 4: duplicate frame ids — lossless. All shapes stay; ambiguous

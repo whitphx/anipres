@@ -1,8 +1,8 @@
 // Soft-fail parsing of `shape.meta.frame`.
 //
 // Parsing NEVER throws — and it is the single place malformed data is
-// rejected, so nothing downstream (derivation, migration) can throw on
-// reachable input. A malformed frame is reported as `invalid` (with a
+// rejected, so the derivation downstream cannot throw on reachable
+// input. A malformed frame is reported as `invalid` (with a
 // structured diagnostic downstream) instead of taking down rendering —
 // without a diagnostic, a shape with corrupted animation metadata would be
 // indistinguishable from a never-animated shape.
@@ -162,9 +162,8 @@ export function parseFrameMeta(
   if (
     raw.type === "cue" &&
     isNonEmptyString(raw.id) &&
-    // v1 never produced non-integer or negative indexes; anything else is
-    // corruption and must not reach migration key generation (which
-    // requires non-negative safe integers).
+    // v1 never produced non-integer or negative indexes; anything else
+    // is corruption.
     typeof raw.globalIndex === "number" &&
     Number.isSafeInteger(raw.globalIndex) &&
     raw.globalIndex >= 0 &&

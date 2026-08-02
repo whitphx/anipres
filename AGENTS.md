@@ -22,7 +22,7 @@
 - Formatting enforced by Prettier 3; keep imports sorted logically and avoid lint overrides unless necessary.
 - ESLint flat configs with React, React Hooks, and Prettier plugins; fix warnings before merging.
 - Lint-staged: Prettier + ESLint run on commit via husky
-- Component/utility files use kebab- or dash-separated filenames (e.g., `ordered-track-item.ts`); exported symbols in PascalCase for components and camelCase for helpers.
+- Component/utility files use kebab- or dash-separated filenames (e.g., `headless-editor-utils.ts`); exported symbols in PascalCase for components and camelCase for helpers.
 - Styling: CSS Modules (`.module.scss`, `.module.css`)
 - File naming: Mixed — React components and their files use PascalCase (e.g. `Anipres.tsx`, `App.tsx`), most other modules use kebab-case; camelCase for helpers. Prefer the existing convention in a given folder.
 - Tests: Vitest, co-located with source (`*.test.ts`)

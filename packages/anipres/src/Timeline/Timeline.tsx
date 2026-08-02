@@ -269,7 +269,7 @@ const RESOLVE_LABELS: Record<TimelineDiagnostic["type"], string> = {
   "duplicate-frame-id": "Freshen ids",
   "detached-sub-frame": "Clear animation data",
   "invalid-frame": "Clear animation data",
-  "v1-frame": "Clear animation data",
+  "v1-frame": "Delete animation data",
 };
 
 /** Stable identity for React keys — never array position. */
@@ -284,8 +284,10 @@ function diagnosticKey(diagnostic: TimelineDiagnostic): string {
     case "duplicate-frame-id":
       return `${diagnostic.type}:${diagnostic.frameId}`;
     case "invalid-frame":
-    case "v1-frame":
       return `${diagnostic.type}:${diagnostic.shapeId}`;
+    case "v1-frame":
+      // One aggregated diagnostic per document.
+      return diagnostic.type;
   }
 }
 
@@ -302,7 +304,7 @@ function describeDiagnostic(diagnostic: TimelineDiagnostic): string {
     case "invalid-frame":
       return "Shape carries unreadable animation data";
     case "v1-frame":
-      return "Shape carries v1 animation data from an older version";
+      return `${diagnostic.shapeIds.length} shape(s) carry v1 animation data, not supported by this version`;
   }
 }
 

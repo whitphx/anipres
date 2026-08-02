@@ -1,9 +1,4 @@
-// Editor-facing helpers that survived the v1 model removal: track-id
-// minting and group-leaf traversal. The v1 frame types and their
-// serializers/getters lived here until the one-time v1 -> v2 batch
-// migration ran (design doc r9).
-import { uniqueId, type Editor, type TLShape } from "tldraw";
-import { GroupShapeUtil } from "tldraw";
+import { GroupShapeUtil, uniqueId, type Editor, type TLShape } from "tldraw";
 
 export function newTrackId(): string {
   // Use a timestamp to make the tracks sorted in the timeline.

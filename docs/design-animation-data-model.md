@@ -980,16 +980,16 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | File                                               | Impact                                                                                                                                                                                                                                           |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                                     |
-| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration                     |
+| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration (removed in r9)     |
 | `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                                    |
 | `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                        |
 | `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                                        |
 | `src/Timeline/frame-movement.ts`                   | `moveFrame` keeps the v1 push/sweep semantics and emits structural `EditedStep[]`; the ~40-line "key assignment" estimate was traded off for behavior preservation (see Background & Goals note) — write-back is where the simplification landed |
 | `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                                        |
 | `src/ControlPanel/ControlPanel.tsx`                | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths                                                                                                                              |
-| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount                                                          |
+| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount (removed in r9)                                          |
 | `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                                          |
-| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily                                                                                                                                                              |
+| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily (removed in r9: decks were batch-converted)                                                                                                                  |
 
 Testing: the derivation, canonicalization, `makeInsertionSpace`, and
 migration are pure functions over JSON — they get direct unit tests,
@@ -1112,8 +1112,9 @@ could happen, contradicting the design's own detached-frames principle
    proposed default.
 4. **External consumers of `anipres/models`.** The `./models` entry point is
    consumed outside this repo (agent CLI, worker). The v2 types are a
-   breaking change to that surface — needs a coordinated major bump and the
-   legacy module exported during the transition.
+   breaking change to that surface — shipped as a coordinated major
+   bump. (The transitional legacy module was removed in r9 together
+   with the migration machinery.)
 5. **Key implementation choice.** Resolved (r8): key generation uses
    Rocicorp's `fractional-indexing` behind the `OrderKey` module,
    independent of tldraw's index-key API. (r8 also pinned the migration

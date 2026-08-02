@@ -239,7 +239,9 @@ describe("deriveTimeline", () => {
     // Only the v2 record derives; the v1 record is surfaced, not lost.
     expect(doc.steps).toHaveLength(1);
     expect(doc.steps[0].id).toBe("s2");
-    expect(doc.diagnostics).toEqual([{ type: "v1-frame", shapeId: "shape:a" }]);
+    expect(doc.diagnostics).toEqual([
+      { type: "v1-frame", shapeIds: ["shape:a"] },
+    ]);
   });
 });
 

@@ -450,6 +450,10 @@ intent:
   paths use `getNextGlobalIndexFromCueFrames`, which is
   `Math.max(...indexes) + 1`.
 
+(Historical: Animation Data Model v2 removed `globalIndex` entirely;
+both sides now append via `orderKeyBetween` and the divergence cannot
+occur.)
+
 These agree on a healthy timeline (no gaps), and differ when there
 _are_ gaps — e.g. after a delete that wasn't reconciled, the React
 side picks the count (skipping the gap), the agent side picks
