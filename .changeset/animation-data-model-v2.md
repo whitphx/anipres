@@ -1,5 +1,5 @@
 ---
-"anipres": major
+"anipres": minor
 "anipres-worker": minor
 "slidev-addon-anipres": patch
 "@anipres/agent-core": patch
