@@ -498,10 +498,13 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
    * `/finalize`) — safe: nothing is written, and the client retries
    * against the revived document.
    *
-   * The reservation is never cleared on the success path: cancelled ids
-   * are never re-created (the only caller cancels client-minted fork
-   * ids that are abandoned for good; the replayable create-PUT flow
-   * reuses ids only in flows that never cancel).
+   * After a successful cancellation the reservation lives exactly as
+   * long as the deletion lifecycle: the route transitions the row into
+   * `deleting_at` and schedules this DO's delete cycle, whose
+   * completion reset clears the reservation together with the rest of
+   * the per-document state — so the id could even be safely re-created
+   * afterwards. Until then, every push to the half-deleted id fails
+   * here instead of writing into a room whose row is on its way out.
    */
   async cancelInitialization(): Promise<{ cancelled: boolean }> {
     return this.runRoomTask(async () => {
