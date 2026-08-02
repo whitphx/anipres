@@ -4,7 +4,10 @@ import { nanoid } from "nanoid";
 import * as z from "zod";
 import { getAnimationDataVersionGateResponse } from "../animation-data-version";
 import { documentIdParamSchema } from "../schemas";
-import { startDocumentDeletion } from "../tldraw-assets";
+import {
+  deleteAllDocumentAssetObjects,
+  startDocumentDeletion,
+} from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
 import { bumpWorkspaceFeed } from "../WorkspaceFeedRoom";
 
@@ -484,6 +487,13 @@ export const documentsRoutes = new Hono<AppBindings>()
         }
         return c.json({ error: "Not found" }, 404);
       }
+      // The row is gone (FK cascade removed the asset rows); reap the
+      // R2 objects of the abandoned attempt too. Deliberately AFTER the
+      // confirmed delete — reaping first could destroy assets of a doc a
+      // concurrent /finalize just made live. A failure here leaks
+      // objects (as any crash before this point would); acceptable for
+      // an already-best-effort cleanup path.
+      await deleteAllDocumentAssetObjects(c.env.ASSETS, id);
       // No feed bump: an initializing row was never visible in any
       // list, so its removal changes nothing for subscribers.
       return c.json({ ok: true as const }, 200);

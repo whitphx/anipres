@@ -45,6 +45,28 @@ async function scheduleDocumentDeletion(
   await room.startDelete();
 }
 
+/**
+ * Removes every R2 object under a document's asset prefix. For the
+ * initialization-cancel path, which hard-deletes the row (FK cascade
+ * removes the asset ROWS) without entering the deletion lifecycle that
+ * owns the scheduled R2 sweep — without this, uploads from the abandoned
+ * attempt would leak in the bucket forever.
+ */
+export async function deleteAllDocumentAssetObjects(
+  bucket: R2Bucket,
+  documentId: string,
+): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const next = await deleteDocumentAssetPrefixBatch(
+      bucket,
+      documentId,
+      cursor,
+    );
+    cursor = next ?? undefined;
+  } while (cursor);
+}
+
 async function deleteDocumentAssetPrefixBatch(
   bucket: R2Bucket,
   documentId: string,

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "../animation-data-version";
 import type { AppBindings } from "../types";
 import { documentsRoutes } from "./documents";
+import { getDocumentAssetKey } from "../tldraw-assets";
 
 // Route-level tests for DELETE /api/documents/:id/initialization
 // against a real (miniflare) D1 with the production schema applied by
@@ -298,5 +299,25 @@ describe("DELETE /api/documents/:id/initialization", () => {
       .bind(OWNER_DOC)
       .first<{ initializing_at: number | null }>();
     expect(row?.initializing_at).toBeNull();
+  });
+});
+
+describe("R2 asset reaping on cancellation", () => {
+  it("removes the abandoned attempt's R2 objects along with the row", async () => {
+    // Uploads can land before the snapshot push fails; the row's FK
+    // cascade only removes the asset ROWS, so cancellation must reap the
+    // R2 objects too or they leak forever.
+    const key = getDocumentAssetKey(OWNER_DOC, "orphan.png");
+    await env.ASSETS.put(key, "bytes");
+    const unrelatedKey = getDocumentAssetKey(FINALIZED_DOC, "keep.png");
+    await env.ASSETS.put(unrelatedKey, "bytes");
+
+    const app = appAsUser(ownerUserId);
+    const res = await cancelInitialization(app, OWNER_DOC);
+    expect(res.status).toBe(200);
+    expect(await documentExists(OWNER_DOC)).toBe(false);
+    expect(await env.ASSETS.get(key)).toBeNull();
+    // Other documents' objects are untouched.
+    expect(await env.ASSETS.get(unrelatedKey)).not.toBeNull();
   });
 });
