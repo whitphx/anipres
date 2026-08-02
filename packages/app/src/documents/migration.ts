@@ -1,6 +1,7 @@
 import type { TLStoreSnapshot } from "tldraw";
-import { apiClient } from "../lib/api-client";
 import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import { putSnapshot } from "./snapshot-push";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
 
@@ -204,18 +205,17 @@ async function defaultPushSnapshot(
   snapshot: TLStoreSnapshot,
   abortSignal: AbortSignal | undefined,
 ): Promise<void> {
-  const res = await apiClient.api.documents[":id"].snapshot.$put(
-    {
-      param: { id: documentId },
-      json: {
-        snapshot: snapshot as unknown as Record<string, unknown>,
-        expectedSnapshotVersion: 0,
-      },
-    },
-    { init: { signal: composeWithTimeout(abortSignal) } },
-  );
-  if (!res.ok) {
-    throw new Error(`Snapshot push failed: ${res.status}`);
+  const result = await putSnapshot({
+    documentId,
+    snapshot,
+    expectedSnapshotVersion: 0,
+    signal: composeWithTimeout(abortSignal),
+  });
+  if (result.outcome === "client-too-old") {
+    throw new Error(CLIENT_TOO_OLD_MESSAGE);
+  }
+  if (result.outcome !== "success") {
+    throw new Error(`Snapshot push failed: ${result.status}`);
   }
 }
 

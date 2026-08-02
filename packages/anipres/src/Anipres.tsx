@@ -43,15 +43,25 @@ import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeIma
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
 import {
-  cueFrameToJsonObject,
-  getFrame,
+  attachCopyProvenance,
+  classifyRemapOperation,
+  frameToMetaJson,
+  migrateV1Frames,
+  orderKeyBetween,
+  parseFrameMeta,
+  readCopyProvenance,
+  remapContentFrames,
+  stripCopyProvenance,
   type CameraZoomFrameAction,
   type CueFrame,
-  type SubFrame,
-  getSubFrame,
-  subFrameToJsonObject,
-} from "./models";
+  type ShapeLegacyFrame,
+  type ShapeV2Frame,
+} from "./timeline-model";
 import { PresentationManager } from "./presentation-manager";
+import {
+  applyStoredStepKeyUpdates,
+  createDuplicateShapesRemap,
+} from "./duplicate-shapes-remap";
 import React, {
   useCallback,
   useEffect,
@@ -297,78 +307,172 @@ const Inner = (props: InnerProps) => {
 
     const stopHandlers: (() => void)[] = [];
 
+    // One-time v1 -> v2 migration of the loaded document's animation
+    // metadata. Deterministic and convergent (see
+    // docs/design-animation-data-model.md "Migration from v1"), so it is
+    // safe to persist at load even for synced documents; history-ignored.
+    {
+      const shapes = editor.getCurrentPageShapes();
+      const v1Frames: ShapeLegacyFrame[] = [];
+      const v2Frames: ShapeV2Frame[] = [];
+      for (const shape of shapes) {
+        const parsed = parseFrameMeta(shape.meta?.frame);
+        if (parsed.kind === "v1") {
+          v1Frames.push({ shapeId: shape.id, frame: parsed.frame });
+        } else if (parsed.kind === "v2") {
+          v2Frames.push({ shapeId: shape.id, frame: parsed.frame });
+        }
+      }
+      if (v1Frames.length > 0) {
+        const migration = migrateV1Frames(
+          v1Frames,
+          v2Frames,
+          editor.getCurrentPageId(),
+        );
+        editor.run(
+          () => {
+            editor.updateShapes(
+              migration.updates.map(({ shapeId, frame }) => {
+                const shape = editor.getShape(shapeId as TLShapeId)!;
+                return {
+                  id: shape.id,
+                  type: shape.type,
+                  meta: { ...shape.meta, frame: frameToMetaJson(frame) },
+                };
+              }),
+            );
+          },
+          { history: "ignore" },
+        );
+        for (const diagnostic of migration.diagnostics) {
+          console.warn("anipres: v1 -> v2 migration diagnostic:", diagnostic);
+        }
+      }
+    }
+
+    // Existing-frame-id set for the beforeCreate safety net below. It is
+    // O(page) to build, and editor.duplicateShapes of N framed shapes
+    // fires the handler N times synchronously — so the set is cached for
+    // the current task (cleared on the next microtask) and extended
+    // incrementally with ids the batch keeps. Unlike a live store scan
+    // the cache only gains ids, never loses them: a same-task
+    // delete-then-recreate reusing a frame id would be spuriously
+    // freshened. Accepted — no such synchronous path exists, and the
+    // safety net's failure mode is a fresh id, never data loss.
+    let existingFrameIdCache: Set<string> | null = null;
+    const getExistingFrameIds = (): Set<string> => {
+      if (existingFrameIdCache == null) {
+        const ids = new Set<string>();
+        for (const other of editor.getCurrentPageShapes()) {
+          const otherParsed = parseFrameMeta(other.meta?.frame);
+          if (otherParsed.kind === "v2" || otherParsed.kind === "v1") {
+            ids.add(otherParsed.frame.id);
+          }
+        }
+        existingFrameIdCache = ids;
+        queueMicrotask(() => {
+          existingFrameIdCache = null;
+        });
+      }
+      return existingFrameIdCache;
+    };
+
+    // Relationship-preserving remap for editor.duplicateShapes — the path
+    // tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes, which
+    // bypasses putContentOntoCurrentPage. Installed BEFORE the safety net
+    // so the net can hand captured copies over during a wrapped call.
+    const duplicateShapesRemap = createDuplicateShapesRemap(editor, () =>
+      presentationManager.$getTimelineDoc(),
+    );
+    duplicateShapesRemap.install();
+
     stopHandlers.push(
       editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
         if (shape.type === SlideShapeType && shape.meta?.frame == null) {
           // Auto attach camera cueFrame to the newly created slide shape
-          const orderedSteps = presentationManager.$getOrderedSteps();
-          const lastCameraCueFrame = orderedSteps
-            .reverse()
-            .flat()
-            .find((ab) => ab.data[0].action.type === "cameraZoom");
+          const doc = presentationManager.$getTimelineDoc();
+          let lastCameraTrackId: string | undefined;
+          outer: for (let i = doc.steps.length - 1; i >= 0; i--) {
+            for (const batch of doc.steps[i].batches) {
+              if (batch.frames[0]?.action.type === "cameraZoom") {
+                lastCameraTrackId = batch.trackId;
+                break outer;
+              }
+            }
+          }
           const cueFrame: CueFrame<CameraZoomFrameAction> = {
+            v: 2,
             id: uniqueId(),
             type: "cue",
-            globalIndex: orderedSteps.length,
-            trackId: lastCameraCueFrame
-              ? lastCameraCueFrame.trackId
-              : uniqueId(),
+            stepId: uniqueId(),
+            stepOrderKey: orderKeyBetween(
+              doc.steps.at(-1)?.orderKey ?? null,
+              null,
+            ),
+            trackId: lastCameraTrackId ?? uniqueId(),
             action: {
               type: "cameraZoom",
-              duration: lastCameraCueFrame ? 1000 : 0,
+              duration: lastCameraTrackId != null ? 1000 : 0,
             },
           };
           return {
             ...shape,
             meta: {
               ...shape.meta,
-              frame: cueFrameToJsonObject(cueFrame),
+              frame: frameToMetaJson(cueFrame),
             },
           };
         } else {
-          // If the shape contains a frame, ensure that the frame is unique.
-          // This is necessary e.g. when a shape is duplicated, the frame should not be duplicated.
-          const frame = getFrame(shape);
-          if (frame == null) {
+          // SAFETY NET for creation paths that bypass BOTH preprocessed
+          // mechanisms (putContentOntoCurrentPage for paste, the
+          // duplicateShapes wrapper for Duplicate — e.g. alt-drag
+          // cloning): freshen duplicated frame identities shape-at-a-time.
+          // This cannot preserve relationships among a multi-shape
+          // operation.
+          const parsed = parseFrameMeta(shape.meta?.frame);
+          if (parsed.kind !== "v2") {
+            // none: nothing to do; invalid: the derivation diagnoses it;
+            // v1: converted in memory and migrated on next load.
             return shape;
           }
-
-          const allShapes = editor.getCurrentPageShapes();
-          const allFrameIds = allShapes.map((shape) => getFrame(shape)?.id);
-          if (allFrameIds.includes(frame.id)) {
-            const newFrameId = uniqueId();
-            const nextSubFrameShape = allShapes.find(
-              (shape) => getSubFrame(shape)?.prevFrameId === frame.id,
-            );
-            if (nextSubFrameShape != null) {
-              const nextSubFrame = getSubFrame(nextSubFrameShape)!;
-              editor.updateShape({
-                ...nextSubFrameShape,
-                meta: {
-                  ...nextSubFrameShape.meta,
-                  frame: subFrameToJsonObject({
-                    ...nextSubFrame,
-                    prevFrameId: newFrameId,
-                  }),
-                },
-              });
-            }
-            shape.meta.frame = {
-              id: newFrameId,
-              type: "sub",
-              prevFrameId: frame.id,
-              action: frame.action,
-            } satisfies SubFrame;
+          if (duplicateShapesRemap.capture(shape.id)) {
+            // A wrapped duplicateShapes call is running: the copy passes
+            // through untouched and the wrapper rewrites the COMPLETE
+            // set relationship-preservingly afterwards.
+            return shape;
           }
-          return shape;
+          const frame = parsed.frame;
+          const existingFrameIds = getExistingFrameIds();
+          if (!existingFrameIds.has(frame.id)) {
+            existingFrameIds.add(frame.id);
+            return shape;
+          }
+          console.warn(
+            "anipres: duplicated animation frame reached the beforeCreate safety net; " +
+              "identities are freshened per-shape without relationship preservation.",
+          );
+          const freshened =
+            frame.type === "cue"
+              ? {
+                  ...frame,
+                  id: uniqueId(),
+                  stepId: uniqueId(),
+                  trackId: uniqueId(),
+                }
+              : { ...frame, id: uniqueId() };
+          return {
+            ...shape,
+            meta: {
+              ...shape.meta,
+              frame: frameToMetaJson(freshened),
+            },
+          };
         }
       }),
     );
-    stopHandlers.push(
-      editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
-        presentationManager.reconcileShapeDeletion(shape);
-      }),
-    );
+    // Deletion needs no reconciliation handler: fractional keys are
+    // relative, and sub frames of a deleted cue become detached and are
+    // surfaced by the derivation (undoing the deletion restores them).
 
     stopHandlers.push(
       editor.sideEffects.registerBeforeChangeHandler(
@@ -466,6 +570,18 @@ const Inner = (props: InnerProps) => {
     //
     // When upgrading tldraw, verify that this monkey-patch still works correctly.
     // See: https://github.com/whitphx/anipres/issues/387
+    //
+    // The wrapper ALSO stamps copied content with copy-source provenance
+    // (an opaque per-mounted-instance token) — the authoritative signal
+    // the paste interception below uses to distinguish within-document
+    // operations (duplicate, cut/paste move) from external paste. Ids
+    // cannot distinguish those:
+    // documents created from the same snapshot share every id. The extra
+    // top-level property survives tldraw's clipboard serialization (the
+    // copy path spreads the content's non-asset properties into the
+    // payload and the paste path reconstructs them; verified against the
+    // pinned tldraw version) and is stripped again before insertion.
+    const copySourceToken = uniqueId();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const editorAsAny = editor as any;
     if (typeof editorAsAny.getContentFromCurrentPage === "function") {
@@ -484,14 +600,125 @@ const Inner = (props: InnerProps) => {
         augmentContentWithThemeImageAssets(content, (id) =>
           editor.getAsset(id),
         );
-        return content;
+        return attachCopyProvenance(content, copySourceToken);
       };
     } else {
       console.warn(
         "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
-          "ThemeImage assets (light/dark) will not be included in clipboard data when copying. " +
+          "ThemeImage assets (light/dark) will not be included in clipboard data when copying, " +
+          "and copied content will carry no copy-source provenance (pastes will be treated as " +
+          "external pastes, the safe fallback). " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
+      );
+    }
+
+    // Content-level paste preprocessing — the PRIMARY duplication/paste
+    // mechanism: an order-independent transform over the complete copied
+    // content, with operation-scoped identity maps (frame ids keyed by
+    // source shape id; stepId/trackId shared among the copies), so
+    // relationships among pasted frames are preserved and links to
+    // everything outside the operation are severed.
+    // `putContentOntoCurrentPage` is public tldraw API; the guard keeps a
+    // future signature change from breaking paste (frames would then hit
+    // the beforeCreate safety net instead).
+    const editorWithPut = editor as Editor & {
+      putContentOntoCurrentPage?: (
+        content: TLContent,
+        options?: object,
+      ) => Editor;
+    };
+    if (typeof editorWithPut.putContentOntoCurrentPage === "function") {
+      const originalPutContent =
+        editorWithPut.putContentOntoCurrentPage.bind(editor);
+      editorWithPut.putContentOntoCurrentPage = (
+        content: TLContent,
+        options?: object,
+      ) => {
+        // Copy-source provenance: read it, then strip it so the private
+        // property is never persisted as document data.
+        const provenance = readCopyProvenance(content);
+        content = stripCopyProvenance(content);
+        let existingStepKeyUpdates: { stepId: string; key: string }[] = [];
+        try {
+          const existingFrameIds = new Set<string>();
+          const existingStepIds = new Set<string>();
+          const existingTrackIds = new Set<string>();
+          for (const shape of editor.getCurrentPageShapes()) {
+            const parsed = parseFrameMeta(shape.meta?.frame);
+            if (parsed.kind !== "v2" && parsed.kind !== "v1") continue;
+            existingFrameIds.add(parsed.frame.id);
+            if (parsed.kind === "v2" && parsed.frame.type === "cue") {
+              existingStepIds.add(parsed.frame.stepId);
+              existingTrackIds.add(parsed.frame.trackId);
+            }
+            if (parsed.kind === "v1" && parsed.frame.type === "cue") {
+              existingTrackIds.add(parsed.frame.trackId);
+            }
+          }
+          // Operation kind from copy-source provenance + source-shape
+          // existence (duplicate vs move vs external paste) — never from
+          // shape-id or animation-id collisions, which cannot distinguish
+          // identical-snapshot sibling documents (semantics and
+          // limitations: see the provenance module comment).
+          const operation = classifyRemapOperation({
+            provenance,
+            localDocumentToken: copySourceToken,
+            sourceShapeIds: content.shapes.map((shape) => shape.id),
+            shapeExistsInDocument: (shapeId) =>
+              editor.getShape(shapeId as TLShapeId) != null,
+          });
+          const remap = remapContentFrames({
+            shapes: content.shapes.map((shape) => ({
+              shapeId: shape.id,
+              frameMeta: shape.meta?.frame,
+            })),
+            existing: {
+              frameIds: existingFrameIds,
+              stepIds: existingStepIds,
+              trackIds: existingTrackIds,
+            },
+            currentDoc: presentationManager.$getTimelineDoc(),
+            operation,
+            mintId: uniqueId,
+          });
+          existingStepKeyUpdates = remap.existingStepKeyUpdates;
+          if (remap.updatedFrames.size > 0) {
+            content = {
+              ...content,
+              shapes: content.shapes.map((shape) => {
+                const frame = remap.updatedFrames.get(shape.id);
+                return frame != null
+                  ? {
+                      ...shape,
+                      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
+                    }
+                  : shape;
+              }),
+            };
+          }
+        } catch (e) {
+          console.warn("anipres: paste frame preprocessing failed:", e);
+          existingStepKeyUpdates = [];
+        }
+        if (existingStepKeyUpdates.length === 0) {
+          return originalPutContent(content, options);
+        }
+        // Collision-run normalization touched existing steps: apply those
+        // key rewrites and the paste in ONE transaction. The rewrites are
+        // keyed by STORED stepId so they reach split members displayed
+        // under synthetic recovery steps too — a walk over the derived
+        // doc's batches would miss them and fabricate a divergence.
+        editor.run(() => {
+          applyStoredStepKeyUpdates(editor, existingStepKeyUpdates);
+          originalPutContent(content, options);
+        });
+        return editor;
+      };
+    } else {
+      console.warn(
+        "anipres: editor.putContentOntoCurrentPage is missing or has an unexpected signature. " +
+          "Pasted animation frames will be deduplicated per-shape without relationship preservation.",
       );
     }
 

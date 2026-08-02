@@ -1,16 +1,19 @@
-import { type TLShape, EASINGS, createShapeId } from "tldraw";
-import { type Frame, type Step } from "../models";
+import { type TLShape, type TLShapeId, EASINGS, createShapeId } from "tldraw";
+import type {
+  RuntimeFrame,
+  RuntimeStep,
+} from "../timeline-model/runtime-steps";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
   presentationManager: PresentationManager,
-  frames: Frame[],
+  frames: RuntimeFrame[],
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
-    const shape = presentationManager.getShapeByFrameId(frame.id);
+    const shape = editor.getShape(frame.shapeId as TLShapeId);
     if (shape == null) {
       throw new Error(`Shape not found for frame ${frame.id}`);
     }
@@ -122,7 +125,7 @@ async function runFrames(
 
 export function runStep(
   presentationManager: PresentationManager,
-  steps: Step[],
+  steps: RuntimeStep[],
   index: number,
 ): Promise<void> {
   const step = steps[index];
@@ -145,12 +148,12 @@ export function runStep(
     const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
     const predecessorShape =
       predecessorLastFrame != null
-        ? presentationManager.getShapeByFrameId(predecessorLastFrame.id)
+        ? editor.getShape(predecessorLastFrame.shapeId as TLShapeId)
         : null;
 
     const frames = frameBatch.data;
     const frameShapes = frames
-      .map((frame) => presentationManager.getShapeByFrameId(frame.id))
+      .map((frame) => editor.getShape(frame.shapeId as TLShapeId))
       .filter((shape) => shape != null);
 
     editor.run(
