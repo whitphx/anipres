@@ -3,10 +3,10 @@ import { migrateV1Frames } from "./migrate";
 import type { ShapeLegacyFrame, ShapeV2Frame } from "./migrate";
 import { makeMigratedStepId, parseMigratedStepId } from "./ids";
 import {
-  deterministicKeysBetween,
+  orderKeysBetween,
   getMigratedStepOrderKey,
   getMigratedSubFrameOrderKey,
-} from "./keys";
+} from "./order-key";
 import type { LegacyCueFrame, LegacySubFrame } from "./parse";
 import type { CueFrame } from "./types";
 
@@ -53,7 +53,10 @@ describe("getMigratedStepOrderKey", () => {
     expect(getMigratedStepOrderKey(1, 0)).toBe("a1");
     expect(getMigratedStepOrderKey(4, 0)).toBe("a4");
     expect(getMigratedStepOrderKey(4, 1)).toBe("a4V");
-    expect(getMigratedStepOrderKey(4, 2)).toBe("a4k");
+    // "a4k" under fractional-indexing-jittered; Rocicorp's
+    // fractional-indexing rounds this midpoint to "a4l". Accepted while
+    // switching libraries — no persisted data had been migrated yet.
+    expect(getMigratedStepOrderKey(4, 2)).toBe("a4l");
   });
 
   it("is a pure function preserving (globalIndex, partition) order", () => {
@@ -401,7 +404,7 @@ describe("sub-frame chain resume (mixed-batch partial migration)", () => {
   });
 
   it("getMigratedSubFrameOrderKey matches the complete-run key sequence", () => {
-    const keys = deterministicKeysBetween(null, null, 6);
+    const keys = orderKeysBetween(null, null, 6);
     for (let i = 0; i < keys.length; i++) {
       expect(getMigratedSubFrameOrderKey(i)).toBe(keys[i]);
     }

@@ -3,7 +3,7 @@ import { remapContentFrames } from "./duplicate";
 import type { RemapContentInput } from "./duplicate";
 import { deriveTimeline } from "./derive";
 import { SYNTHETIC_STEP_PREFIX } from "./ids";
-import { compareOrderKeys } from "./keys";
+import { compareOrderKeys } from "./order-key";
 import type { CueFrame, SubFrame } from "./types";
 
 function cueMeta(

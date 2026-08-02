@@ -12,7 +12,10 @@
 import type { CueFrame, Frame, SubFrame } from "./types";
 import type { LegacyCueFrame, LegacyFrame, LegacySubFrame } from "./parse";
 import { makeMigratedStepId, parseMigratedStepId } from "./ids";
-import { getMigratedStepOrderKey, getMigratedSubFrameOrderKey } from "./keys";
+import {
+  getMigratedStepOrderKey,
+  getMigratedSubFrameOrderKey,
+} from "./order-key";
 
 export interface ShapeLegacyFrame {
   shapeId: string;

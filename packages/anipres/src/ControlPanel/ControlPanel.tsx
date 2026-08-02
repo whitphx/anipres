@@ -10,8 +10,8 @@ import {
 } from "tldraw";
 import {
   frameToMetaJson,
-  interactiveKeyAbove,
   makeInsertionSpace,
+  orderKeyBetween,
   parseFrameMeta,
   planDuplicateFrameIdRepair,
   reconcileEditedSteps,
@@ -317,7 +317,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           : {
               ...frame,
               cueFrameId: selectedCue.frame.id,
-              orderKey: interactiveKeyAbove(null),
+              orderKey: orderKeyBetween(null, null),
             },
       );
     });

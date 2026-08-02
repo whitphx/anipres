@@ -2,7 +2,7 @@ import { uniqueId, type Editor } from "tldraw";
 import {
   deriveTimeline,
   frameToMetaJson,
-  interactiveKeyAbove,
+  orderKeyBetween,
   newTrackId,
   parseFrameMeta,
   type CueFrame,
@@ -42,7 +42,7 @@ export const AttachCueFrameActionUtil =
         type: "cue",
         trackId,
         stepId: uniqueId(),
-        stepOrderKey: interactiveKeyAbove(doc.steps.at(-1)?.orderKey ?? null),
+        stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
         action: action.action as FrameAction,
       };
 

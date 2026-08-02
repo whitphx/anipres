@@ -27,12 +27,12 @@ export {
   parseMigratedStepId,
 } from "./ids";
 export {
-  interactiveKeyBetween,
-  interactiveKeyAbove,
-  deterministicKeysBetween,
+  orderKeyBetween,
+  orderKeysBetween,
   compareOrderKeys,
   getMigratedStepOrderKey,
-} from "./keys";
+} from "./order-key";
+export type { OrderKey } from "./order-key";
 export { parseFrameMeta, frameToMetaJson } from "./parse";
 export type {
   LegacyCueFrame,

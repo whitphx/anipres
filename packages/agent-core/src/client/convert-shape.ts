@@ -8,7 +8,7 @@ import { toRichText, uniqueId, type Editor, type TLShapePartial } from "tldraw";
 import {
   deriveTimeline,
   frameToMetaJson,
-  interactiveKeyAbove,
+  orderKeyBetween,
   newTrackId,
   type CameraZoomFrameAction,
   type CueFrame,
@@ -89,7 +89,7 @@ function buildAutoCameraCueFrame(
     id: uniqueId(),
     type: "cue",
     stepId: uniqueId(),
-    stepOrderKey: interactiveKeyAbove(doc.steps.at(-1)?.orderKey ?? null),
+    stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
     trackId: lastCameraTrackId ?? newTrackId(),
     action: {
       type: "cameraZoom",

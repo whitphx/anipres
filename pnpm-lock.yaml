@@ -209,9 +209,9 @@ importers:
       classnames:
         specifier: ^2.5.1
         version: 2.5.1
-      fractional-indexing-jittered:
-        specifier: ^1.0.0
-        version: 1.0.0
+      fractional-indexing:
+        specifier: ^3.2.0
+        version: 3.2.0
       re-resizable:
         specifier: ^6.11.2
         version: 6.11.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -249,9 +249,6 @@ importers:
       anipres-worker:
         specifier: workspace:*
         version: link:../worker
-      fractional-indexing:
-        specifier: ^3.2.0
-        version: 3.2.0
       hono:
         specifier: ^4.12.15
         version: 4.12.15

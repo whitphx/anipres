@@ -6,8 +6,8 @@
 // the derived doc, so interactive operations must not confuse them).
 
 import {
-  interactiveKeyAbove,
   makeInsertionSpace,
+  orderKeyBetween,
   type BatchData,
   type CueFrame,
   type Frame,
@@ -200,7 +200,7 @@ export function planDetachedReattach(input: {
   const lastSubKey = lastStored?.type === "sub" ? lastStored.orderKey : null;
   return {
     cueFrameId: cueTarget.cueFrameId,
-    orderKey: interactiveKeyAbove(lastSubKey),
+    orderKey: orderKeyBetween(lastSubKey, null),
     cueFrameUpdate: cueTarget.cueFrameUpdate,
   };
 }

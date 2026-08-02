@@ -19,7 +19,7 @@ import { parseFrameMeta } from "./parse";
 import type { ShapeLegacyFrame } from "./migrate";
 import { migrateV1Frames } from "./migrate";
 import { makeSyntheticStepId } from "./ids";
-import { compareOrderKeys } from "./keys";
+import { compareOrderKeys } from "./order-key";
 
 export interface DeriveTimelineInput {
   /** Raw `meta.frame` values keyed by the carrying shape. */

@@ -31,7 +31,7 @@
 
 import type { CueFrame, EditedStep, Frame, SubFrame } from "./types";
 import { isReservedStepId } from "./ids";
-import { compareOrderKeys, deterministicKeysBetween } from "./keys";
+import { compareOrderKeys, orderKeysBetween } from "./order-key";
 
 export interface ReconcileInput {
   /** Current frames keyed by the shape carrying them. */
@@ -281,7 +281,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         j++;
       }
       const upperBound = j < editedSteps.length ? storedKeys[j]! : null;
-      const fresh = deterministicKeysBetween(prevKey, upperBound, gap.length);
+      const fresh = orderKeysBetween(prevKey, upperBound, gap.length);
       gap.forEach((stepIndex, freshIndex) => {
         assignedKeys[stepIndex] = fresh[freshIndex];
       });
@@ -383,7 +383,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         );
       const subKeys = keysAreValid
         ? (storedSubKeys as string[])
-        : deterministicKeysBetween(null, null, subRefs.length);
+        : orderKeysBetween(null, null, subRefs.length);
 
       subRefs.forEach((ref, index) => {
         const entry = currentByShapeId.get(ref.shapeId);

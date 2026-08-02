@@ -11,7 +11,7 @@ import {
 import {
   deriveTimeline,
   frameToMetaJson,
-  interactiveKeyAbove,
+  orderKeyBetween,
   type CueFrame,
   type FrameAction,
   type TimelineDoc,
@@ -80,7 +80,7 @@ export class PresentationManager {
     const doc = this.$getTimelineDoc();
     const lastStepKey = doc.steps.at(-1)?.orderKey ?? null;
     const stepId = uniqueId();
-    const stepOrderKey = interactiveKeyAbove(lastStepKey);
+    const stepOrderKey = orderKeyBetween(lastStepKey, null);
 
     const attachCueFrameToShape = (shapeId: TLShapeId) => {
       const shape = this.editor.getShape(shapeId);

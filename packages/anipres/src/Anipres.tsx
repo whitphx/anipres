@@ -46,8 +46,8 @@ import {
   attachCopyProvenance,
   classifyRemapOperation,
   frameToMetaJson,
-  interactiveKeyAbove,
   migrateV1Frames,
+  orderKeyBetween,
   parseFrameMeta,
   readCopyProvenance,
   remapContentFrames,
@@ -392,8 +392,9 @@ const Inner = (props: InnerProps) => {
             id: uniqueId(),
             type: "cue",
             stepId: uniqueId(),
-            stepOrderKey: interactiveKeyAbove(
+            stepOrderKey: orderKeyBetween(
               doc.steps.at(-1)?.orderKey ?? null,
+              null,
             ),
             trackId: lastCameraTrackId ?? uniqueId(),
             action: {

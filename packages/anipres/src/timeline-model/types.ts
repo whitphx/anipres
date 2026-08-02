@@ -7,6 +7,7 @@
 
 import type { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
+import type { OrderKey } from "./order-key";
 
 /**
  * The animation-metadata format this build reads AND writes.
@@ -51,7 +52,7 @@ export interface CueFrame<T extends FrameAction = FrameAction> {
   type: "cue";
   trackId: string;
   stepId: string;
-  stepOrderKey: string;
+  stepOrderKey: OrderKey;
   action: T;
 }
 
@@ -65,7 +66,7 @@ export interface SubFrame<T extends FrameAction = FrameAction> {
   id: string;
   type: "sub";
   cueFrameId: string;
-  orderKey: string;
+  orderKey: OrderKey;
   action: T;
 }
 
@@ -106,7 +107,7 @@ export interface StepData {
    */
   id: string;
   /** Canonical stepOrderKey of the step (the representative member's key). */
-  orderKey: string;
+  orderKey: OrderKey;
   batches: BatchData[];
   /** Present ONLY on rule-2 recovery steps. */
   synthetic?: {
@@ -169,7 +170,7 @@ export interface EditedStepSource {
   /** The doc step id (stored stepId, or a reserved synthetic id). */
   id: string;
   /** The doc step's canonical order key. */
-  orderKey: string;
+  orderKey: OrderKey;
   /** Present iff the source step is a rule-2 recovery step. */
   synthetic?: {
     reason: "same-track-split";

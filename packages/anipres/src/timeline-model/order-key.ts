@@ -1,47 +1,52 @@
-// Fractional order-key helpers.
+// Fractional order keys, wrapped behind this module so nothing else in
+// the codebase imports the underlying library.
 //
-// We depend on `fractional-indexing-jittered` directly — the same
-// implementation tldraw's own index keys use (so key formats are
-// byte-compatible with tldraw z-order keys) — instead of tldraw's
-// `getIndexBetween` helpers, because those switch to deterministic
-// generation under NODE_ENV=test, which would be a determinism trap for
-// migration keys (they must be deterministic in EVERY environment).
+// Implementation: Rocicorp's `fractional-indexing`
+// (https://github.com/rocicorp/fractional-indexing), the reference
+// implementation of the scheme. The previously used
+// `fractional-indexing-jittered` can emit invalid keys with trailing
+// zeroes (https://github.com/TMeerhof/fractional-indexing-jittered/issues/6),
+// and jitter buys nothing here: keys order items for a single editor,
+// not for conflict-free concurrent or offline insertion. If
+// multi-client editing ever needs jitter, swap the implementation
+// inside this module — callers only see `OrderKey` and the operations
+// below.
 //
-// Policy (spec: docs/design-animation-data-model.md):
-// - Interactive key generation uses the JITTERED variants: identity is
-//   carried by `stepId`, never by key equality, so jitter is a pure
-//   collision-frequency optimization.
-// - Migration keys use the DETERMINISTIC variants only.
+// Keys are compared as plain code units (`<`/`>`), never
+// `localeCompare`: locale collation mis-sorts the capital-prefixed
+// keys generated before the first item and varies with the ICU locale.
+// Equal keys are legal (identity lives in ids, never in keys), so every
+// sort over keyed objects must tie-break on the object's stable unique
+// id to stay deterministic.
 
-import {
-  generateJitteredKeyBetween,
-  generateKeyBetween,
-  generateNKeysBetween,
-} from "fractional-indexing-jittered";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
-/** Interactive: a key strictly between a and b (null = open end). */
-export function interactiveKeyBetween(
-  a: string | null,
-  b: string | null,
-): string {
-  return generateJitteredKeyBetween(a, b);
+/** An opaque fractional order key. Persists as a plain JSON string. */
+export type OrderKey = string;
+
+/** A key strictly between a and b (null = open end). */
+export function orderKeyBetween(
+  a: OrderKey | null,
+  b: OrderKey | null,
+): OrderKey {
+  return generateKeyBetween(a, b);
 }
 
-/** Interactive: a key strictly above a (or an initial key if a is null). */
-export function interactiveKeyAbove(a: string | null): string {
-  return generateJitteredKeyBetween(a, null);
-}
-
-/** Deterministic: n keys strictly between a and b (null = open end). */
-export function deterministicKeysBetween(
-  a: string | null,
-  b: string | null,
+/**
+ * n keys strictly between a and b (null = open end), strictly
+ * ascending. Preferred over n repeated `orderKeyBetween` calls for
+ * adjacent inserts: the keys are spread instead of nested, so they stay
+ * short.
+ */
+export function orderKeysBetween(
+  a: OrderKey | null,
+  b: OrderKey | null,
   n: number,
-): string[] {
+): OrderKey[] {
   return generateNKeysBetween(a, b, n);
 }
 
-export function compareOrderKeys(a: string, b: string): number {
+export function compareOrderKeys(a: OrderKey, b: OrderKey): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
@@ -56,9 +61,9 @@ export function compareOrderKeys(a: string, b: string): number {
 // so (globalIndex, partition) order is preserved.
 // ---------------------------------------------------------------------------
 
-const integerKeyCache: string[] = [];
+const integerKeyCache: OrderKey[] = [];
 
-function integerKey(globalIndex: number): string {
+function integerKey(globalIndex: number): OrderKey {
   if (!Number.isInteger(globalIndex) || globalIndex < 0) {
     throw new Error(`Invalid globalIndex: ${globalIndex}`);
   }
@@ -76,16 +81,16 @@ function integerKey(globalIndex: number): string {
  * run and assign the remaining sub frames the next free indices, making
  * sub-chain resume byte-identical to a complete migration.
  */
-export function getMigratedSubFrameOrderKey(index: number): string {
+export function getMigratedSubFrameOrderKey(index: number): OrderKey {
   return integerKey(index);
 }
 
-const partitionKeyCache = new Map<string, string>();
+const partitionKeyCache = new Map<string, OrderKey>();
 
 export function getMigratedStepOrderKey(
   globalIndex: number,
   partitionIndex: number,
-): string {
+): OrderKey {
   if (!Number.isInteger(partitionIndex) || partitionIndex < 0) {
     throw new Error(`Invalid partitionIndex: ${partitionIndex}`);
   }

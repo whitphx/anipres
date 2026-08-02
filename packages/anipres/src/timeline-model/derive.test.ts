@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveTimeline } from "./derive";
-import { deterministicKeysBetween } from "./keys";
+import { orderKeysBetween } from "./order-key";
 import { makeSyntheticStepId, SYNTHETIC_STEP_PREFIX } from "./ids";
 import type { CueFrame, SubFrame } from "./types";
 
@@ -265,7 +265,7 @@ describe("makeSyntheticStepId", () => {
 describe("before-first key ordering (capital-prefixed keys)", () => {
   it("derives a step keyed below the previous first step as the new first step", () => {
     // "a0" is the lowest integer key; the key below it is capital-prefixed.
-    const [belowKey] = deterministicKeysBetween(null, "a0", 1);
+    const [belowKey] = orderKeysBetween(null, "a0", 1);
     // The premise this guards: before-first keys are capital-prefixed and
     // mis-sort under locale comparison.
     expect(belowKey < "a0").toBe(true);
@@ -279,7 +279,7 @@ describe("before-first key ordering (capital-prefixed keys)", () => {
   });
 
   it("derives a sub frame keyed below its batch's first sub frame first", () => {
-    const [belowKey] = deterministicKeysBetween(null, "a0", 1);
+    const [belowKey] = orderKeysBetween(null, "a0", 1);
     const doc = derive([
       { shapeId: "shape:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
       { shapeId: "shape:b", frameMeta: subMeta("f2", "f1", "a0") },

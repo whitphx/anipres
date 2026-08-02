@@ -30,8 +30,9 @@ actions/indexes classify as `invalid-frame`, with a paste-only mode for
 reading reserved step ids); sub-frame-only copies sever their cue
 reference; duplicated-step placement is collision-run-aware and
 transactional, with duplication and external paste distinguished by
-shape identity rather than id collisions; interactive insertion keys are
-jittered while run normalization stays deterministic; migration resume
+shape identity rather than id collisions; all key generation is
+deterministic (Rocicorp's `fractional-indexing` behind the internal
+`OrderKey` module — see r8); migration resume
 covers arbitrary persisted subsets via chain-position reconstruction;
 and duplicate-id repair prefers the cue as keeper, matching the
 derivation's representative.
@@ -43,6 +44,15 @@ user-triggered); the compiled Slidev viewer and the other items under
 
 ## Revision History
 
+- **r8 (2026-08-02)**: Key implementation switched from
+  `fractional-indexing-jittered` to Rocicorp's `fractional-indexing`,
+  wrapped behind the internal `OrderKey` module. Jitter dropped: the
+  jittered fork can emit invalid trailing-zero keys
+  (<https://github.com/TMeerhof/fractional-indexing-jittered/issues/6>),
+  and the editor has no concurrent-insertion requirement (sole-user
+  deployment). One pinned migration literal changed (`a4k` → `a4l`, a
+  midpoint-rounding difference between the fork and upstream) — accepted
+  because no persisted data had been migrated yet.
 - **r7 (2026-07-27)**: Two corrections to the synthetic-step
   specification from a sixth external review: the "`StepData.id` is the
   stored `stepId`" description is qualified for rule-2 recovery steps
@@ -339,17 +349,20 @@ Semantics:
   recognized by the presence of `globalIndex`/`prevFrameId` and the absence
   of `v`.
 
-Key generation uses tldraw's own fractional-index machinery
-(`IndexKey`, `getIndexBetween`, `getIndexAbove`, `sortByIndex`, re-exported
-from `@tldraw/utils` — the same mechanism tldraw uses for shape z-order).
-If the exact exports differ in the pinned tldraw version, the
-`fractional-indexing` package (already a dependency of `packages/app`) is an
-equivalent fallback. Interactively generated keys add **random jitter** (as
-recommended by the `fractional-indexing` documentation) to make concurrent
-key collisions rare. Jitter is safe precisely because identity is carried by
-`stepId`, never by key equality — it is a frequency optimization for the
-collision-run handling below, not a correctness mechanism. (Migration is the
-exception: it must generate keys _without_ jitter, deterministically.)
+Key generation uses Rocicorp's `fractional-indexing` package, wrapped
+behind the internal `OrderKey` module (`timeline-model/order-key.ts`) so
+no other file imports the library. Keys are opaque strings compared by
+code units, independent of tldraw's types. Generation is fully
+**deterministic — no jitter**: the editor has no concurrent or offline
+multi-client insertion requirement, and the previously used
+`fractional-indexing-jittered` fork can emit invalid keys with trailing
+zeroes (<https://github.com/TMeerhof/fractional-indexing-jittered/issues/6>).
+Deterministic keys mean two clients inserting between the same neighbors
+produce byte-identical keys — safe precisely because identity is carried
+by `stepId`, never by key equality; the collision-run handling below
+resolves display order. If multi-client editing is added later, a
+jittered implementation can be swapped in inside the `OrderKey` module
+without touching callers.
 
 ### Parsing is soft-fail — and diagnosed
 
@@ -633,9 +646,8 @@ dramatically:
   tldraw batching the reconciliation writes into the same history entry;
   v2 has nothing to batch.
 - **Concurrent step inserts stay separate.** Two clients inserting between
-  the same neighbors may generate the same fractional key (deterministic
-  algorithm; jitter makes this rare, not impossible) — this is expected,
-  not exceptional. Their distinct `stepId`s keep them separate steps,
+  the same neighbors generate the same fractional key (the algorithm is
+  deterministic) — this is expected, not exceptional. Their distinct `stepId`s keep them separate steps,
   ordered by `(stepOrderKey, stepId)`; a later insertion between them uses
   collision-run normalization.
 - **No renumbering storms.** v1's reorder/delete produced write bursts
@@ -794,12 +806,13 @@ unrecoverable. Therefore:
   Since tldraw page ids themselves contain `:` (`page:xyz`), parsing must
   take the two _trailing_ numeric segments rather than splitting naively.
 - **`stepOrderKey` is a pure function of the coordinates**:
-  `getMigratedStepOrderKey(globalIndex, partitionIndex)`, generated
-  **without jitter**, whose output depends on nothing but its arguments —
+  `getMigratedStepOrderKey(globalIndex, partitionIndex)`, whose output
+  depends on nothing but its arguments —
   in particular, not on which other records are currently v1 or v2.
   Construction (Option A): `f(gi)` = the _gi_-th key of the iterated
-  `getIndexAbove` chain from the initial key; partition _p_ > 0 = the
-  _p_-th key of the iterated `getIndexBetween(f(gi), f(gi+1))` chain —
+  key-above chain from the initial key; partition _p_ > 0 = the
+  _p_-th key of the iterated key-between chain nested in
+  `(f(gi), f(gi+1))` —
   content-independent, and nested strictly between the integer coordinates
   so `(globalIndex, partition)` order is preserved. A naive "ascending
   sequence over the groups present in the document" is **not acceptable**:
