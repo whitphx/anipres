@@ -7,10 +7,10 @@ import type { DocumentMeta } from "./types";
  * lexicographically and the new key is bumped past the tail.
  *
  * If `existing` is empty, falls back to the package's "first" key
- * (typically `"a0"`) via `generateKeyBetween(null, null)`.
+ * (typically `"a0"`) via `orderKeyBetween(null, null)`.
  *
  * Known limitation: when two callers race on the same `existing`
- * snapshot they pick the same key. `generateKeyBetween` is
+ * snapshot they pick the same key. `orderKeyBetween` is
  * deterministic per (prev, next) pair, so the collision is silent —
  * the sidebar's stable sort still shows both, just in a
  * non-deterministic order between them, and any user reorder heals it.

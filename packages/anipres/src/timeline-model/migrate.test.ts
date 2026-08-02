@@ -53,9 +53,9 @@ describe("getMigratedStepOrderKey", () => {
     expect(getMigratedStepOrderKey(1, 0)).toBe("a1");
     expect(getMigratedStepOrderKey(4, 0)).toBe("a4");
     expect(getMigratedStepOrderKey(4, 1)).toBe("a4V");
-    // "a4k" under fractional-indexing-jittered; Rocicorp's
-    // fractional-indexing rounds this midpoint to "a4l". Accepted while
-    // switching libraries — no persisted data had been migrated yet.
+    // These literals are the key implementation's exact output. Changing
+    // the implementation changes them — a migration-determinism break
+    // once documents have been migrated (design doc, Risk 5).
     expect(getMigratedStepOrderKey(4, 2)).toBe("a4l");
   });
 

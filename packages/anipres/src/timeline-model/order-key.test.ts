@@ -14,8 +14,9 @@ function isSorted(keys: OrderKey[]): boolean {
 
 describe("orderKeyBetween", () => {
   it("matches the upstream fractional-indexing test vectors", () => {
-    // From rocicorp/fractional-indexing's own test file (default digits):
-    // https://github.com/rocicorp/fractional-indexing/blob/main/src/test.js
+    // From rocicorp/fractional-indexing (CC0-1.0), its own test file
+    // (default digits):
+    // https://github.com/rocicorp/fractional-indexing/blob/f1193a783b08/src/test.js
     const vectors: [OrderKey | null, OrderKey | null, OrderKey][] = [
       [null, null, "a0"],
       [null, "a0", "Zz"],

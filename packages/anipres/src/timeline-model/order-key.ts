@@ -6,11 +6,11 @@
 // implementation of the scheme. The previously used
 // `fractional-indexing-jittered` can emit invalid keys with trailing
 // zeroes (https://github.com/TMeerhof/fractional-indexing-jittered/issues/6),
-// and jitter buys nothing here: keys order items for a single editor,
-// not for conflict-free concurrent or offline insertion. If
-// multi-client editing ever needs jitter, swap the implementation
-// inside this module — callers only see `OrderKey` and the operations
-// below.
+// and jitter buys nothing here: the ordering these keys carry tolerates
+// equal keys by design (identity lives in ids, and collision runs are
+// normalized), so a rare duplicate costs a bounded re-key rather than
+// correctness. If jitter is ever wanted, swap the implementation inside
+// this module — callers only see `OrderKey` and the operations below.
 //
 // Keys are compared as plain code units (`<`/`>`), never
 // `localeCompare`: locale collation mis-sorts the capital-prefixed
@@ -21,7 +21,7 @@
 
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
-/** An opaque fractional order key. Persists as a plain JSON string. */
+/** A fractional order key. Persists as a plain JSON string. */
 export type OrderKey = string;
 
 /** A key strictly between a and b (null = open end). */

@@ -479,14 +479,14 @@ being edited:
 
 | Operation                                               | v1                                                                     | v2                                                                                                                                                                                  |
 | ------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Append a step at the end                                | write new cue with `getNextGlobalIndex()`                              | new `stepId`, `stepOrderKey = getIndexAbove(lastStepKey)` — **0 extra writes**                                                                                                      |
-| Insert a step between steps _i_ and _i+1_               | `insertOrderedTrackItem` → renumber **every** later cue shape          | new `stepId`, `stepOrderKey = getIndexBetween(key_i, key_i+1)` — **0 extra writes** (unless the neighbors form an equal-key run — see below)                                        |
+| Append a step at the end                                | write new cue with `getNextGlobalIndex()`                              | new `stepId`, `stepOrderKey = orderKeyBetween(lastStepKey, null)` — **0 extra writes**                                                                                              |
+| Insert a step between steps _i_ and _i+1_               | `insertOrderedTrackItem` → renumber **every** later cue shape          | new `stepId`, `stepOrderKey = orderKeyBetween(key_i, key_i+1)` — **0 extra writes** (unless the neighbors form an equal-key run — see below)                                        |
 | Add a simultaneous batch to an existing step            | renumber to share an index, then reindex globally                      | copy the target step's `stepId` + `stepOrderKey` onto the new cue — **0 extra writes** (UI prevents a same-track duplicate; derivation rule 2 tolerates it)                         |
 | Move a batch to another step                            | full rewrite via `onFrameBatchesChange`                                | copy the target's `stepId` + `stepOrderKey` — **1 write**                                                                                                                           |
 | Move a batch out into a new step (Timeline drag & drop) | `moveFrame`: ~290 lines, sentinel indices, full rewrite of all batches | mint `stepId`, compute one key between target neighbors — **1 write**, ~20 lines                                                                                                    |
 | Reorder a whole step                                    | renumbering cascade across the deck                                    | write the new `stepOrderKey` on the step's cue frames — **writes = batches in the step** (typically 1–3; identical cost to r1's key-equality encoding, and still local to the step) |
 | Delete a cue/sub frame                                  | renumber all cue shapes / relink the sub-frame chain                   | **0 extra writes** (see [Deletion](#deletion-orphans-and-reconciliation))                                                                                                           |
-| Add a sub-frame to a batch                              | append to linked list (find tail, set `prevFrameId`)                   | `cueFrameId` + `orderKey = getIndexAbove(lastSubKey)`                                                                                                                               |
+| Add a sub-frame to a batch                              | append to linked list (find tail, set `prevFrameId`)                   | `cueFrameId` + `orderKey = orderKeyBetween(lastSubKey, null)`                                                                                                                       |
 | Reorder sub-frames within a batch                       | pointer surgery on the chain                                           | rewrite one sub-frame's `orderKey`                                                                                                                                                  |
 
 `reassignGlobalIndexInplace`, `insertOrderedTrackItem`, `getGlobalOrder`,
@@ -495,7 +495,7 @@ the `OrderedTrackItem` type, and every `999999` sentinel are deleted.
 ### Inserting between equal keys (collision runs)
 
 Distinct `stepId`s keep concurrently inserted steps separate, but equal
-`stepOrderKey`s create a later editing problem: `getIndexBetween(k, k)` is
+`stepOrderKey`s create a later editing problem: `orderKeyBetween(k, k)` is
 undefined, so the user cannot insert between two steps whose keys collided.
 (The same applies to sub-frame `orderKey`s within a batch.)
 
@@ -520,8 +520,12 @@ function makeInsertionSpace(
 This rewrites several records, but only within the local run — never the
 rest of the deck — and it is **order-preserving**, so it runs inline in the
 insert transaction (see [Canonicalization & Repair](#canonicalization--repair))
-with no coordination concerns beyond ordinary sync merging. Jitter on
-interactive key generation keeps runs rare in the first place.
+with no coordination concerns beyond ordinary sync merging. Generation
+is deterministic, so two clients inserting between the same neighbors
+produce the same key: runs are an expected state, and this normalization
+is the designed response — order-preserving, run-local, and identical on
+every client, so concurrent normalizations converge under
+last-writer-wins.
 
 ## Duplication & Paste Policy
 
@@ -563,7 +567,7 @@ const trackIdMap = new Map<OldTrackId, NewTrackId>();
   duplicating **several cue frames that share a step** gives all copies the
   _same fresh_ `stepId` and one fresh `stepOrderKey` — they remain
   simultaneous with each other, as a new step placed after the original
-  (`getIndexBetween(original, next)`), but never joined to it. (If product
+  (`orderKeyBetween(original, next)`), but never joined to it. (If product
   feedback favors v1's duplicate-becomes-sub-frame behavior instead, that
   decision is orthogonal to this encoding and can be layered on.)
 - **Freshen `trackId` through `trackIdMap` — never per-cue.** `trackId` is
@@ -953,7 +957,7 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                                     |
 | `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration                     |
 | `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                                    |
-| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + `getIndexAbove`; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                                                    |
+| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                        |
 | `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                                        |
 | `src/Timeline/frame-movement.ts`                   | `moveFrame` keeps the v1 push/sweep semantics and emits structural `EditedStep[]`; the ~40-line "key assignment" estimate was traded off for behavior preservation (see Background & Goals note) — write-back is where the simplification landed |
 | `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                                        |
@@ -1050,10 +1054,12 @@ under key equality).
 equality improbable while keeping equality-as-identity). Rejected in r2: it
 converts a correctness property into a probabilistic one, still cannot
 _distinguish_ accident from intent when a collision does occur, and forgoes
-stable step identity. Note the r3 distinction: jitter **is** adopted — but
+stable step identity. Note the r3 distinction: jitter **was** adopted — but
 as a frequency optimization that keeps collision runs rare, layered on top
 of `stepId`-carried identity, where a collision costs a bounded
-normalization instead of a semantic merge.
+normalization instead of a semantic merge. (Superseded in r8: jitter is
+dropped entirely; collision runs are handled by normalization rather
+than made rare.)
 
 **G. Last-write-wins for duplicate frame ids (r2 rule 4).** Deterministic
 but lossy: it removed a shape from the derived timeline before any repair
@@ -1070,8 +1076,8 @@ could happen, contradicting the design's own detached-frames principle
    [Canonicalization & Repair](#canonicalization--repair) rules. Risk is
    bounded to a step's members (typically 1–3 shapes), and the failure mode
    is a diagnosed, resolvable inconsistency — not data loss or misordering.
-2. **Key growth.** Pathological insert patterns lengthen fractional keys
-   (jitter adds a small constant). At presentation scale this is cosmetic;
+2. **Key growth.** Pathological insert patterns lengthen fractional keys.
+   At presentation scale this is cosmetic;
    collision-run normalization already re-keys locally, and an optional
    "compact keys" maintenance action can renormalize globally if it ever
    matters.
@@ -1083,13 +1089,12 @@ could happen, contradicting the design's own detached-frames principle
    consumed outside this repo (agent CLI, worker). The v2 types are a
    breaking change to that surface — needs a coordinated major bump and the
    legacy module exported during the transition.
-5. **Exact tldraw index-key API availability** in the pinned version
-   (`getIndexBetween` et al.) must be verified at implementation time;
-   fallback is the `fractional-indexing` package already used in
-   `packages/app`. Whichever is chosen, the **migration key sequence is
-   pinned to one implementation** — changing it later would break migration
-   determinism across app versions (mitigated by the version gate below,
-   but avoid churn here).
+5. **Key implementation choice.** Resolved (r8): key generation uses
+   Rocicorp's `fractional-indexing` behind the `OrderKey` module,
+   independent of tldraw's index-key API. The **migration key sequence
+   is pinned to that implementation** — changing it later would break
+   migration determinism across app versions (mitigated by the version
+   gate below, but avoid churn here).
 6. **Rollout requires a server-enforced version gate.** Two-phase deploy
    (reader support first, writer flip second) is necessary but not
    sufficient: before v2 writes are enabled on a synced document, sync must
