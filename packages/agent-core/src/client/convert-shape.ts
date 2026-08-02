@@ -71,7 +71,6 @@ function buildAutoCameraCueFrame(
       shapeId: s.id,
       frameMeta: s.meta?.frame,
     })),
-    pageId: editor.getCurrentPageId(),
   });
 
   let lastCameraTrackId: string | undefined;

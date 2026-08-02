@@ -51,7 +51,6 @@ function makeDoc(entries: { shapeId: string; frame: Frame }[]) {
       shapeId,
       frameMeta: frameToMetaJson(frame),
     })),
-    pageId: "page:page",
   });
   const byShapeId = new Map(entries.map((e) => [e.shapeId, e.frame]));
   const getStoredFrame = (shapeId: string) => byShapeId.get(shapeId) ?? null;
@@ -72,7 +71,6 @@ function rederive(
       shapeId,
       frameMeta: frameToMetaJson(frame),
     })),
-    pageId: "page:page",
   });
 }
 
@@ -427,7 +425,6 @@ describe("split materialization with multiple unresolved members", () => {
         shapeId,
         frameMeta: frameToMetaJson(frame),
       })),
-      pageId: "page:page",
     });
     // B is now a real stored step; C remains an unresolved synthetic
     // split; no divergence was fabricated.
@@ -454,7 +451,6 @@ describe("split materialization with multiple unresolved members", () => {
         shapeId,
         frameMeta: frameToMetaJson(frame),
       })),
-      pageId: "page:page",
     });
     expect(finalDoc.steps).toHaveLength(3);
     expect(finalDoc.steps.every((s) => s.synthetic == null)).toBe(true);
@@ -491,7 +487,6 @@ describe("split materialization with multiple unresolved members", () => {
         shapeId,
         frameMeta: frameToMetaJson(frame),
       })),
-      pageId: "page:page",
     });
     // Order: s1, materialized B, s2 — all real, no diagnostics at all
     // (the stepId-keyed apply moves every s1 member together).

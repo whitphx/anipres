@@ -102,8 +102,8 @@ export function remapContentFrames(
     // Reserved stepIds are readable here ON PURPOSE (and freshened below):
     // paste preprocessing is the one consumer allowed to see them.
     const parsed = parseFrameMeta(frameMeta, { allowReservedStepId: true });
-    // v1 frames and invalid frames pass through untouched here; v1 content
-    // is handled by the mixed-document conversion on the destination side.
+    // v1 and invalid frames pass through untouched here; the derivation
+    // surfaces both as diagnostics on the destination side.
     if (parsed.kind !== "v2") continue;
     entries.push({ shapeId, frame: parsed.frame });
   }

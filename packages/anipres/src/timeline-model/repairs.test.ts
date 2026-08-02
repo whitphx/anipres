@@ -66,7 +66,6 @@ describe("planDuplicateFrameIdRepair", () => {
         shapeId,
         frameMeta: frameToMetaJson(frame),
       })),
-      pageId: "page:page",
     });
     expect(
       doc.diagnostics.filter((d) => d.type === "duplicate-frame-id"),

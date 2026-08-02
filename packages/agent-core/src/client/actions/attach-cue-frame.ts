@@ -34,7 +34,6 @@ export const AttachCueFrameActionUtil =
           shapeId: s.id,
           frameMeta: s.meta?.frame,
         })),
-        pageId: editor.getCurrentPageId(),
       });
       const cueFrame: CueFrame = {
         v: 2,

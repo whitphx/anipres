@@ -223,6 +223,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
   const handleResolveDiagnostic = (diagnostic: TimelineDiagnostic) => {
     switch (diagnostic.type) {
       case "invalid-frame":
+      case "v1-frame":
       case "detached-sub-frame":
         clearFrame(diagnostic.shapeId as TLShapeId);
         return;

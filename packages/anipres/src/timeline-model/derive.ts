@@ -16,20 +16,12 @@ import type {
   TimelineDoc,
 } from "./types";
 import { parseFrameMeta } from "./parse";
-import type { ShapeLegacyFrame } from "./migrate";
-import { migrateV1Frames } from "./migrate";
 import { makeSyntheticStepId } from "./ids";
 import { compareOrderKeys } from "./order-key";
 
 export interface DeriveTimelineInput {
   /** Raw `meta.frame` values keyed by the carrying shape. */
   shapes: { shapeId: string; frameMeta: unknown }[];
-  /**
-   * The page the shapes belong to — needed so mixed v1/v2 documents
-   * convert v1 records with the same deterministic coordinates a
-   * persisted migration would use.
-   */
-  pageId: string;
 }
 
 interface ShapeCue {
@@ -53,10 +45,9 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
   const diagnostics: TimelineDiagnostic[] = [];
   const detachedFrames: FrameData[] = [];
 
-  // --- Parse (soft-fail) + in-memory conversion of leftover v1 records.
+  // --- Parse (soft-fail).
   const cues: ShapeCue[] = [];
   const subs: ShapeSub[] = [];
-  const v1Frames: ShapeLegacyFrame[] = [];
 
   // Deterministic regardless of input iteration order.
   const sortedShapes = [...input.shapes].sort((a, b) =>
@@ -71,7 +62,11 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
       continue;
     }
     if (parsed.kind === "v1") {
-      v1Frames.push({ shapeId, frame: parsed.frame });
+      // v1 records are no longer converted at read time: the one-time
+      // batch migration (removed after it ran; see the design doc's r9
+      // revision entry) converted all known documents. A resurfacing v1
+      // record is surfaced instead of animated.
+      diagnostics.push({ type: "v1-frame", shapeId });
       continue;
     }
     if (parsed.frame.type === "cue") {
@@ -79,28 +74,6 @@ export function deriveTimeline(input: DeriveTimelineInput): TimelineDoc {
     } else {
       subs.push({ shapeId, frame: parsed.frame });
     }
-  }
-
-  if (v1Frames.length > 0) {
-    // Mixed document: convert v1 records in memory via the deterministic
-    // migration mapping (group reconstruction included), yielding exactly
-    // the values a persisted migration would have written.
-    const existingV2 = [...cues, ...subs].map(({ shapeId, frame }) => ({
-      shapeId,
-      frame,
-    }));
-    const converted = migrateV1Frames(v1Frames, existingV2, input.pageId);
-    for (const { shapeId, frame } of converted.updates) {
-      if (frame.type === "cue") {
-        cues.push({ shapeId, frame });
-      } else {
-        subs.push({ shapeId, frame });
-      }
-    }
-    const byShapeId = (a: { shapeId: string }, b: { shapeId: string }) =>
-      a.shapeId < b.shapeId ? -1 : a.shapeId > b.shapeId ? 1 : 0;
-    cues.sort(byShapeId);
-    subs.sort(byShapeId);
   }
 
   // --- Rule 4: duplicate frame ids — lossless. All shapes stay; ambiguous

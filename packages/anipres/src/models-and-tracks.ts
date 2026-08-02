@@ -1,32 +1,11 @@
-// Re-export the pure data-model types and helpers used by the presentation
-// engine — split out so external tools (e.g. the agent CLI) can consume them
-// without depending on the React/UI surface in the main entry.
+// Re-export the pure data-model surface used by the presentation
+// engine — split out so external tools (e.g. the agent CLI) can consume
+// it without depending on the React/UI surface in the main entry.
 //
-// As of Animation Data Model v2 (docs/design-animation-data-model.md) this
-// entry exposes the v2 model (timeline-model). The v1 helpers remain
-// available from here for migration-era consumers, prefixed `legacy`.
+// This is the v2 model (timeline-model). The v1 helper surface lived
+// here until the one-time v1 -> v2 batch migration ran and the
+// migration machinery was removed (design doc r9).
 
 export * from "./timeline-model";
 
-// --- Legacy v1 surface (deprecated; retained for migration-era tooling).
-export type {
-  Frame as LegacyModelFrame,
-  CueFrame as LegacyModelCueFrame,
-  SubFrame as LegacyModelSubFrame,
-  FrameBatch as LegacyFrameBatch,
-  Step as LegacyStep,
-  BatchedFrames as LegacyBatchedFrames,
-} from "./models";
-export {
-  cueFrameToJsonObject as legacyCueFrameToJsonObject,
-  subFrameToJsonObject as legacySubFrameToJsonObject,
-  frameToJsonObject as legacyFrameToJsonObject,
-  getFrame as getLegacyFrame,
-  getCueFrame as getLegacyCueFrame,
-  getSubFrame as getLegacySubFrame,
-  getFrames as getLegacyFrames,
-  getFrameBatches as getLegacyFrameBatches,
-  newTrackId,
-} from "./models";
-// NOTE: `ordered-track-item` retains only the OrderedTrackItem type (for
-// the legacy types above); order derivation goes through `deriveTimeline`.
+export { newTrackId } from "./models";

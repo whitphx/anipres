@@ -46,7 +46,6 @@ import {
   attachCopyProvenance,
   classifyRemapOperation,
   frameToMetaJson,
-  migrateV1Frames,
   orderKeyBetween,
   parseFrameMeta,
   readCopyProvenance,
@@ -54,8 +53,6 @@ import {
   stripCopyProvenance,
   type CameraZoomFrameAction,
   type CueFrame,
-  type ShapeLegacyFrame,
-  type ShapeV2Frame,
 } from "./timeline-model";
 import { PresentationManager } from "./presentation-manager";
 import {
@@ -307,49 +304,6 @@ const Inner = (props: InnerProps) => {
 
     const stopHandlers: (() => void)[] = [];
 
-    // One-time v1 -> v2 migration of the loaded document's animation
-    // metadata. Deterministic and convergent (see
-    // docs/design-animation-data-model.md "Migration from v1"), so it is
-    // safe to persist at load even for synced documents; history-ignored.
-    {
-      const shapes = editor.getCurrentPageShapes();
-      const v1Frames: ShapeLegacyFrame[] = [];
-      const v2Frames: ShapeV2Frame[] = [];
-      for (const shape of shapes) {
-        const parsed = parseFrameMeta(shape.meta?.frame);
-        if (parsed.kind === "v1") {
-          v1Frames.push({ shapeId: shape.id, frame: parsed.frame });
-        } else if (parsed.kind === "v2") {
-          v2Frames.push({ shapeId: shape.id, frame: parsed.frame });
-        }
-      }
-      if (v1Frames.length > 0) {
-        const migration = migrateV1Frames(
-          v1Frames,
-          v2Frames,
-          editor.getCurrentPageId(),
-        );
-        editor.run(
-          () => {
-            editor.updateShapes(
-              migration.updates.map(({ shapeId, frame }) => {
-                const shape = editor.getShape(shapeId as TLShapeId)!;
-                return {
-                  id: shape.id,
-                  type: shape.type,
-                  meta: { ...shape.meta, frame: frameToMetaJson(frame) },
-                };
-              }),
-            );
-          },
-          { history: "ignore" },
-        );
-        for (const diagnostic of migration.diagnostics) {
-          console.warn("anipres: v1 -> v2 migration diagnostic:", diagnostic);
-        }
-      }
-    }
-
     // Existing-frame-id set for the beforeCreate safety net below. It is
     // O(page) to build, and editor.duplicateShapes of N framed shapes
     // fires the handler N times synchronously — so the set is cached for
@@ -431,8 +385,8 @@ const Inner = (props: InnerProps) => {
           // operation.
           const parsed = parseFrameMeta(shape.meta?.frame);
           if (parsed.kind !== "v2") {
-            // none: nothing to do; invalid: the derivation diagnoses it;
-            // v1: converted in memory and migrated on next load.
+            // none: nothing to do; invalid or v1: the derivation
+            // diagnoses them.
             return shape;
           }
           if (duplicateShapesRemap.capture(shape.id)) {

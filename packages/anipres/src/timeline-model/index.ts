@@ -20,17 +20,13 @@ export type {
 } from "./types";
 export {
   SYNTHETIC_STEP_PREFIX,
-  V1_STEP_PREFIX,
   makeSyntheticStepId,
   isReservedStepId,
-  makeMigratedStepId,
-  parseMigratedStepId,
 } from "./ids";
 export {
   orderKeyBetween,
   orderKeysBetween,
   compareOrderKeys,
-  getMigratedStepOrderKey,
 } from "./order-key";
 export type { OrderKey } from "./order-key";
 export { parseFrameMeta, frameToMetaJson } from "./parse";
@@ -43,13 +39,6 @@ export type {
 } from "./parse";
 export { deriveTimeline } from "./derive";
 export type { DeriveTimelineInput } from "./derive";
-export { migrateV1Frames } from "./migrate";
-export type {
-  MigrationResult,
-  MigrationDiagnostic,
-  ShapeLegacyFrame,
-  ShapeV2Frame,
-} from "./migrate";
 export { makeInsertionSpace } from "./insertion-space";
 export type { InsertionSpace, OrderedKeyedItem } from "./insertion-space";
 export { reconcileEditedSteps } from "./reconcile";

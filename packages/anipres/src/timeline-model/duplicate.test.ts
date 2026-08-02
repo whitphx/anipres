@@ -104,7 +104,6 @@ describe("remapContentFrames — external paste", () => {
         { shapeId: "shape:x", frameMeta: cueMeta("g1", "s1", "a9", "T") },
         { shapeId: "shape:y", frameMeta: cueMeta("g2", "s2", "a1", "U") },
       ],
-      pageId: "page:page",
     });
     const result = remapContentFrames(
       makeInput({
@@ -245,7 +244,6 @@ describe("remapContentFrames — within-document duplication", () => {
         { shapeId: "shape:a", frameMeta: cueMeta("f1", "s1", "a1", "T") },
         { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", "a5", "U") },
       ],
-      pageId: "page:page",
     });
     const result = remapContentFrames(
       makeInput({
@@ -275,7 +273,6 @@ describe("remapContentFrames — within-document duplication", () => {
         { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", "a1", "U") },
         { shapeId: "shape:c", frameMeta: cueMeta("f3", "s3", "a5", "V") },
       ],
-      pageId: "page:page",
     });
     const result = remapContentFrames(
       makeInput({
@@ -522,7 +519,6 @@ describe("remapContentFrames — same-document move (cut + paste)", () => {
         { shapeId: "shape:b", frameMeta: cueMeta("f2", "s1", "a1", "U") },
         { shapeId: "shape:pasted", frameMeta: a },
       ],
-      pageId: "page:page",
     });
     expect(doc.steps).toHaveLength(1);
     expect(doc.steps[0].batches).toHaveLength(2);
@@ -553,7 +549,6 @@ describe("remapContentFrames — same-document move (cut + paste)", () => {
         { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", "a2", "T") },
         { shapeId: "shape:pasted", frameMeta: a },
       ],
-      pageId: "page:page",
     });
     expect(doc.steps).toHaveLength(2);
     expect(doc.steps[0].batches[0].trackId).toBe("T");
@@ -590,7 +585,6 @@ describe("remapContentFrames — same-document move (cut + paste)", () => {
         { shapeId: "shape:x", frameMeta: x },
         { shapeId: "shape:y", frameMeta: y },
       ],
-      pageId: "page:page",
     });
     expect(doc.detachedFrames).toEqual([]);
     expect(doc.steps[0].batches[0].frames.map((f) => f.frameId)).toEqual([
@@ -612,7 +606,6 @@ describe("remapContentFrames — same-document move (cut + paste)", () => {
       shapes: [
         { shapeId: "shape:other", frameMeta: cueMeta("g1", "s9", "a9", "V") },
       ],
-      pageId: "page:page",
     });
     const result = remapContentFrames(
       makeInput({

@@ -126,7 +126,13 @@ export type TimelineDiagnostic =
     }
   | { type: "detached-sub-frame"; shapeId: string; cueFrameId: string }
   | { type: "duplicate-frame-id"; frameId: string; shapeIds: string[] }
-  | { type: "invalid-frame"; shapeId: string };
+  | { type: "invalid-frame"; shapeId: string }
+  /**
+   * The shape carries v1 animation data. Read-time conversion was
+   * removed after the one-time batch migration of all known documents
+   * (design doc r9); the record is surfaced, not animated.
+   */
+  | { type: "v1-frame"; shapeId: string };
 
 export interface TimelineDoc {
   version: 1;

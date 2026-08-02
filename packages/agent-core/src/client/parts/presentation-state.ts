@@ -32,7 +32,6 @@ function summarise(editor: Editor): {
       shapeId: shape.id,
       frameMeta: shape.meta?.frame,
     })),
-    pageId: editor.getCurrentPageId(),
   });
 
   // 1-indexed: Anipres' UI numbers steps from 1 ("Step 1", "Step 2"

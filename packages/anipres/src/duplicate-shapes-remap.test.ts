@@ -75,7 +75,6 @@ function withEditor<T>(
           shapeId: shape.id,
           frameMeta: shape.meta?.frame,
         })),
-        pageId: editor.getCurrentPageId(),
       }),
     );
     remap.install();

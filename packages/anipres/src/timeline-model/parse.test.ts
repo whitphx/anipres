@@ -1,12 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseFrameMeta } from "./parse";
 import { deriveTimeline } from "./derive";
-import { migrateV1Frames } from "./migrate";
-import {
-  MAX_MIGRATION_COORDINATE,
-  SYNTHETIC_STEP_PREFIX,
-  parseMigratedStepId,
-} from "./ids";
+import { SYNTHETIC_STEP_PREFIX } from "./ids";
 
 const ACTION = { type: "shapeAnimation" };
 
@@ -68,19 +63,16 @@ describe("parseFrameMeta — total validation", () => {
     ).toBe("invalid");
   });
 
-  it("never lets malformed input make deriveTimeline or migration throw", () => {
+  it("never lets malformed input make deriveTimeline throw", () => {
     const shapes = malformedCues.map(([label, meta], index) => ({
       shapeId: `shape:${index}-${label}`,
       frameMeta: meta,
     }));
-    const doc = deriveTimeline({ shapes, pageId: "page:page" });
+    const doc = deriveTimeline({ shapes });
     expect(doc.steps).toEqual([]);
     expect(
       doc.diagnostics.filter((d) => d.type === "invalid-frame"),
     ).toHaveLength(malformedCues.length);
-    // Migration only ever receives parser-accepted frames, so malformed
-    // input cannot reach its (internal) coordinate assertions.
-    expect(() => migrateV1Frames([], [], "page:page")).not.toThrow();
   });
 });
 
@@ -105,25 +97,5 @@ describe("parseFrameMeta — reserved stepId paste mode", () => {
     if (parsed.kind === "v2" && parsed.frame.type === "cue") {
       expect(parsed.frame.stepId.startsWith(SYNTHETIC_STEP_PREFIX)).toBe(true);
     }
-  });
-});
-
-describe("parseFrameMeta — migration coordinate bound", () => {
-  it("classifies an absurdly large v1 globalIndex as invalid (no key-chain hang)", () => {
-    expect(parseFrameMeta(v1Cue(1_000_000_000)).kind).toBe("invalid");
-    expect(parseFrameMeta(v1Cue(MAX_MIGRATION_COORDINATE)).kind).toBe("v1");
-    expect(parseFrameMeta(v1Cue(MAX_MIGRATION_COORDINATE + 1)).kind).toBe(
-      "invalid",
-    );
-  });
-
-  it("treats v1step ids with out-of-range coordinates as ordinary stepIds", () => {
-    expect(parseMigratedStepId(`v1step:page:page:1000000000:0`)).toBeNull();
-    expect(parseMigratedStepId(`v1step:page:page:3:1000000000`)).toBeNull();
-    expect(parseMigratedStepId(`v1step:page:page:3:1`)).toEqual({
-      pageId: "page:page",
-      globalIndex: 3,
-      partitionIndex: 1,
-    });
   });
 });

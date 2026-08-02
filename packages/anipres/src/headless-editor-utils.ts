@@ -145,8 +145,8 @@ export function calculateTotalSteps(
   options: { pageId?: string } = {},
 ): number {
   // Read the snapshot's shape records directly — no headless Editor
-  // needed. The derivation is mixed-tolerant: v1 frames are converted in
-  // memory with the same deterministic mapping migration uses.
+  // needed. v1 frames are not counted: they surface as `v1-frame`
+  // diagnostics rather than converting (design doc r9).
   //
   // Scope to the resolved page (transitively through shape parents) so a
   // multi-page snapshot never mixes pages into one count.
@@ -171,7 +171,6 @@ export function calculateTotalSteps(
       shapeId: shape.id,
       frameMeta: shape.meta?.frame,
     })),
-    pageId,
   });
   return doc.steps.length;
 }

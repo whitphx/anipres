@@ -39,7 +39,6 @@ export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
         shapeId: shape.id,
         frameMeta: shape.meta?.frame,
       })),
-      pageId: editor.getCurrentPageId(),
     });
     const frameCount = doc.steps.reduce(
       (n, step) =>

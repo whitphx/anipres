@@ -10,7 +10,8 @@
 
 Implemented. PR #486 carries both this document and the implementation:
 the `timeline-model` core (`packages/anipres/src/timeline-model/`), the
-runtime integration, the deterministic v1 → v2 migration, the
+runtime integration, the deterministic v1 → v2 migration (removed again
+in r9 after its one-time run), the
 server-enforced version gate (Risk 6;
 `packages/worker/src/animation-data-version.ts` +
 `animation-data-version-gate.ts`), and the
@@ -44,6 +45,21 @@ user-triggered); the compiled Slidev viewer and the other items under
 
 ## Revision History
 
+- **r9 (2026-08-03)**: Migration machinery removed after its one-time
+  run. The deployment is sole-user (no live app users, no other tools;
+  usage only through the Slidev addon), so all known v1 documents were
+  batch-converted locally in one verified pass — per-deck structural
+  equivalence against the v1 ordering, deterministic output,
+  idempotent re-run — making the concurrent-migration machinery
+  (determinism, `v1step:` parse contract, group reconstruction,
+  sub-chain resume, mixed-document read conversion, mount-time
+  migration) dead weight. Deleted: `migrate.ts` and its tests, the
+  migration key section of `order-key.ts`, the `v1step:` contract in
+  `ids.ts`, `deriveTimeline`'s v1 conversion (and its now-unused
+  `pageId` input), the mount migration in `Anipres.tsx`, and the v1
+  model surface in `models.ts`. v1 parsing survives as recognition
+  only: derivation surfaces a `v1-frame` diagnostic. Persisted
+  `v1step:`-prefixed step ids remain valid opaque `stepId`s.
 - **r8 (2026-08-02)**: Key implementation switched from
   `fractional-indexing-jittered` to Rocicorp's `fractional-indexing`,
   wrapped behind the internal `OrderKey` module. Jitter dropped: the
@@ -778,6 +794,15 @@ out a stored timeline record do not apply to it.
 
 ## Migration from v1
 
+> **Removed in r9.** The machinery specified below was implemented in
+> PR #486, validated and executed once against every known v1 document
+> (the sole user's Slidev decks — 17 snapshots, 204 frames, structural
+> equivalence with the v1 ordering verified per deck), and then deleted
+> in the follow-up PR. v1 records encountered after that surface as a
+> `v1-frame` diagnostic instead of converting; recovering one means
+> checking out a pre-removal version. The section is kept as the record
+> of the migration's semantics.
+
 One-time, mechanical, order-preserving — and **deterministic**, so that any
 number of clients migrating the same document concurrently write
 byte-identical records and converge under per-record last-writer-wins.
@@ -1091,10 +1116,9 @@ could happen, contradicting the design's own detached-frames principle
    legacy module exported during the transition.
 5. **Key implementation choice.** Resolved (r8): key generation uses
    Rocicorp's `fractional-indexing` behind the `OrderKey` module,
-   independent of tldraw's index-key API. The **migration key sequence
-   is pinned to that implementation** — changing it later would break
-   migration determinism across app versions (mitigated by the version
-   gate below, but avoid churn here).
+   independent of tldraw's index-key API. (r8 also pinned the migration
+   key sequence to that implementation; moot since r9 removed the
+   migration machinery after its one-time run.)
 6. **Rollout requires a server-enforced version gate.** Two-phase deploy
    (reader support first, writer flip second) is necessary but not
    sufficient: before v2 writes are enabled on a synced document, sync must
