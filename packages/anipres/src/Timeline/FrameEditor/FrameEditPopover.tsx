@@ -25,7 +25,7 @@ export function FrameEditPopover({
   children,
 }: FrameEditPopoverProps) {
   return (
-    <TldrawUiPopover id={`frame-config-${frame.id}`}>
+    <TldrawUiPopover id={`frame-config-${frame.shapeId}`}>
       <TldrawUiPopoverTrigger>{children}</TldrawUiPopoverTrigger>
       <TldrawUiPopoverContent side="bottom" sideOffset={6}>
         <div className={styles.popoverContent}>

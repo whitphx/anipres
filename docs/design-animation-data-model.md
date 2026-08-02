@@ -384,7 +384,7 @@ over every shape.)
 Replaces `getFrameBatches` + `getGlobalOrder` (and the `OrderedTrackItem`
 abstraction entirely):
 
-```
+```text
 groups   = cue frames grouped by stepId
 steps    = groups sorted by (canonicalKey(group), stepId)
 batches  = for each cue: [cue, ...subs where sub.cueFrameId === cue.id,

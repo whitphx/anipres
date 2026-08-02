@@ -21,7 +21,9 @@ export type RuntimeStep = RuntimeBatch[];
 export function timelineDocToRuntimeSteps(doc: TimelineDoc): RuntimeStep[] {
   return doc.steps.map((step, stepIndex) =>
     step.batches.map((batch) => ({
-      id: `batch-${batch.frames[0]?.frameId ?? "empty"}`,
+      // Keyed by the cue SHAPE id — unique by tldraw's guarantee, unlike
+      // stored frame ids, which duplicate-id corruption can collide.
+      id: `batch-${batch.frames[0]?.shapeId ?? "empty"}`,
       trackId: batch.trackId,
       stepIndex,
       data: batch.frames.map((frame, frameIndex) => ({

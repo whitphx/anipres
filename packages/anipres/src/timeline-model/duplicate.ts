@@ -209,6 +209,14 @@ export function remapContentFrames(
       (step) => ({ id: step.id, key: step.orderKey }),
     );
     const isExistingStep = new Set(working.map((entry) => entry.id));
+    // Reverse mapping for duplicates inserted by earlier iterations, so a
+    // later normalization that re-keys one of them refreshes the key the
+    // emit phase reads (`remappedStepKey`) instead of silently dropping
+    // the rewrite. Defensive: normalization only re-keys equal-key runs,
+    // and inserted keys are strictly between distinct neighbors, so this
+    // path should be unreachable — but relying on that is exactly the
+    // kind of subtle invariant a later key-generation change could break.
+    const oldStepIdByNewId = new Map<string, string>();
     // Process originals in document order for deterministic placement.
     const orderedOldStepIds = currentDoc.steps
       .map((step) => step.id)
@@ -224,9 +232,15 @@ export function remapContentFrames(
         }
         if (isExistingStep.has(update.id)) {
           existingStepKeyUpdates.set(update.id, update.key);
+        } else {
+          const sourceStepId = oldStepIdByNewId.get(update.id);
+          if (sourceStepId != null) {
+            remappedStepKey.set(sourceStepId, update.key);
+          }
         }
       }
       remappedStepKey.set(oldStepId, insertion.insertedKey);
+      oldStepIdByNewId.set(stepIdMap.get(oldStepId)!, oldStepId);
       working.splice(index + 1, 0, {
         id: stepIdMap.get(oldStepId)!,
         key: insertion.insertedKey,

@@ -37,6 +37,16 @@ export function isReservedStepId(stepId: string): boolean {
  */
 export const V1_STEP_PREFIX = "v1step:";
 
+/**
+ * Upper bound for migration coordinates (v1 `globalIndex`, partition
+ * index). The coordinate-pure key functions iterate and CACHE one key per
+ * index, so an unbounded value from corrupted or hostile persisted data
+ * (e.g. `globalIndex: 1e9`) would hang migration at load time and retain
+ * that many strings. Real decks have orders of magnitude fewer steps;
+ * out-of-range records are classified invalid / non-migrated instead.
+ */
+export const MAX_MIGRATION_COORDINATE = 100_000;
+
 export function makeMigratedStepId(
   pageId: string,
   globalIndex: number,
@@ -77,9 +87,16 @@ export function parseMigratedStepId(
   if (pageId.length === 0) {
     return null;
   }
-  return {
-    pageId,
-    globalIndex: Number(globalIndexSegment),
-    partitionIndex: Number(partitionSegment),
-  };
+  const globalIndex = Number(globalIndexSegment);
+  const partitionIndex = Number(partitionSegment);
+  if (
+    globalIndex > MAX_MIGRATION_COORDINATE ||
+    partitionIndex > MAX_MIGRATION_COORDINATE
+  ) {
+    // Out-of-range coordinates cannot come from a real migration run —
+    // treat the id as an ordinary (non-migrated) stepId so the key-chain
+    // iteration stays bounded.
+    return null;
+  }
+  return { pageId, globalIndex, partitionIndex };
 }

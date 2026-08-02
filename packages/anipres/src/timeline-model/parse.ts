@@ -10,7 +10,7 @@
 import { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
 import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
-import { isReservedStepId } from "./ids";
+import { MAX_MIGRATION_COORDINATE, isReservedStepId } from "./ids";
 
 // --- Legacy (v1) frame shapes, kept here so this module tree stays
 // --- self-contained (no import from ../models).
@@ -168,6 +168,9 @@ export function parseFrameMeta(
     typeof raw.globalIndex === "number" &&
     Number.isSafeInteger(raw.globalIndex) &&
     raw.globalIndex >= 0 &&
+    // Bounded: the migration key chain iterates once per index, so an
+    // absurd persisted value must classify as invalid, not hang the load.
+    raw.globalIndex <= MAX_MIGRATION_COORDINATE &&
     isNonEmptyString(raw.trackId)
   ) {
     const action = parseFrameAction(raw.action);
