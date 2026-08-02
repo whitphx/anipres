@@ -76,6 +76,37 @@ async function documentExists(id: string): Promise<boolean> {
   return row !== null;
 }
 
+/**
+ * "The cancellation took": the row is either mid-lifecycle
+ * (`deleting_at` set — 404 for every active route) or already fully
+ * removed. Both must be accepted because the DO's deletion alarm fires
+ * on its own in this environment, racing the assertions.
+ */
+async function isDocumentGoneOrDeleting(id: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT deleting_at FROM documents WHERE id = ?`,
+  )
+    .bind(id)
+    .first<{ deleting_at: number | null }>();
+  return row === null || row.deleting_at !== null;
+}
+
+/**
+ * Cancellation only *transitions* the row into the `deleting_at`
+ * lifecycle; the document DO's alarm loop performs the R2 prefix sweep
+ * and the final row delete. Driving the alarm by hand makes the async
+ * tail deterministic in tests (each alarm run handles one sweep batch,
+ * so a bounded loop covers multi-batch prefixes too).
+ */
+async function driveScheduledDeletion(id: string) {
+  const room = env.DOCUMENT_SYNC_ROOM.getByName(id);
+  for (let i = 0; i < 20 && (await documentExists(id)); i++) {
+    await runInDurableObject(room, (instance) =>
+      (instance as unknown as { alarm(): Promise<void> }).alarm(),
+    );
+  }
+}
+
 let ownerUserId: number;
 let foreignUserId: number;
 
@@ -127,11 +158,16 @@ beforeEach(async () => {
 });
 
 describe("DELETE /api/documents/:id/initialization", () => {
-  it("lets the owner cancel an initializing document and removes the row", async () => {
+  it("lets the owner cancel an initializing document and removes the row via the deletion lifecycle", async () => {
     const app = appAsUser(ownerUserId);
     const res = await cancelInitialization(app, OWNER_DOC);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+    // The route only transitions the row into the retryable deleting
+    // state — invisible to every active route; the DO's alarm loop
+    // performs the actual removal.
+    expect(await isDocumentGoneOrDeleting(OWNER_DOC)).toBe(true);
+    await driveScheduledDeletion(OWNER_DOC);
     expect(await documentExists(OWNER_DOC)).toBe(false);
   });
 
@@ -205,33 +241,32 @@ describe("DELETE /api/documents/:id/initialization", () => {
   // is reproduced deterministically by ordering the serialized steps —
   // there is no in-between state left to pause in.
 
-  it("cancellation wins: a push that passed its row check is rejected and no snapshot is retained", async () => {
-    // The push route's failing interleaving: its D1 row check passed
-    // (row was initializing), then cancellation completed fully, then
-    // its replaceSnapshot call runs. The persisted reservation must
-    // reject the push instead of writing into the orphaned room.
+  it("cancellation wins: the lifecycle removes the row and a late push cannot resurrect the document", async () => {
+    // End-state pin for the cancellation-vs-push race. The in-window
+    // half (a push whose row check passed being rejected by the
+    // persisted reservation) is covered deterministically by the
+    // "push ROUTE: a push racing a completed reservation" test below —
+    // here the DO's auto-firing deletion alarm makes in-window timing
+    // unobservable, so this test asserts the terminal state instead.
     const room = env.DOCUMENT_SYNC_ROOM.getByName(OWNER_DOC);
     await room.claimDocument(OWNER_DOC);
 
     const app = appAsUser(ownerUserId);
     const res = await cancelInitialization(app, OWNER_DOC);
     expect(res.status).toBe(200);
+    expect(await isDocumentGoneOrDeleting(OWNER_DOC)).toBe(true);
+
+    await driveScheduledDeletion(OWNER_DOC);
     expect(await documentExists(OWNER_DOC)).toBe(false);
 
-    const push = await room.replaceSnapshot({}, 0);
-    expect(push.replaced).toBe(false);
-    expect(push.reason).toBe("initialization-cancelled");
-    expect(await room.peekSnapshotVersion()).toBe(0);
-    // The reservation is persisted, not just in-memory — it must
-    // survive a DO eviction to keep rejecting late pushes.
-    await runInDurableObject(room, async (instance) => {
-      const internals = instance as unknown as {
-        ctx: { storage: { get(key: string): Promise<unknown> } };
-      };
-      expect(await internals.ctx.storage.get("initializationCancelled")).toBe(
-        true,
-      );
+    // A push after full deletion fails on the route's row check; no
+    // snapshot lands anywhere.
+    const push = await pushSnapshotViaRoute(app, OWNER_DOC, {
+      snapshot: EMPTY_ROOM_SNAPSHOT,
+      expectedSnapshotVersion: 0,
     });
+    expect(push.status).toBe(404);
+    expect(await room.peekSnapshotVersion()).toBe(0);
   });
 
   it("finalize wins the D1 race: cancellation answers 409 and lifts the reservation", async () => {
@@ -306,7 +341,9 @@ describe("R2 asset reaping on cancellation", () => {
   it("removes the abandoned attempt's R2 objects along with the row", async () => {
     // Uploads can land before the snapshot push fails; the row's FK
     // cascade only removes the asset ROWS, so cancellation must reap the
-    // R2 objects too or they leak forever.
+    // R2 objects too or they leak forever. The reap runs inside the
+    // DO-driven deletion lifecycle (retryable, and the row only falls
+    // once the prefix is empty), not inline in the request.
     const key = getDocumentAssetKey(OWNER_DOC, "orphan.png");
     await env.ASSETS.put(key, "bytes");
     const unrelatedKey = getDocumentAssetKey(FINALIZED_DOC, "keep.png");
@@ -315,6 +352,7 @@ describe("R2 asset reaping on cancellation", () => {
     const app = appAsUser(ownerUserId);
     const res = await cancelInitialization(app, OWNER_DOC);
     expect(res.status).toBe(200);
+    await driveScheduledDeletion(OWNER_DOC);
     expect(await documentExists(OWNER_DOC)).toBe(false);
     expect(await env.ASSETS.get(key)).toBeNull();
     // Other documents' objects are untouched.

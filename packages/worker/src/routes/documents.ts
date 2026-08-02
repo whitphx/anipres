@@ -5,7 +5,7 @@ import * as z from "zod";
 import { getAnimationDataVersionGateResponse } from "../animation-data-version";
 import { documentIdParamSchema } from "../schemas";
 import {
-  deleteAllDocumentAssetObjects,
+  scheduleDocumentDeletion,
   startDocumentDeletion,
 } from "../tldraw-assets";
 import type { AppBindings, AppContext } from "../types";
@@ -459,41 +459,58 @@ export const documentsRoutes = new Hono<AppBindings>()
       // The IS NOT NULL guard re-asserts the initializing state
       // atomically. With the room reserved, the only way this row can
       // change state concurrently is /finalize (which never touches the
-      // DO) or another cancellation. FK cascade removes any asset rows
-      // from the abandoned attempt.
+      // DO) or another cancellation. Not a hard DELETE: the FK cascade
+      // would only remove the asset ROWS, while R2 objects from the
+      // abandoned attempt need the retryable, DO-driven prefix sweep
+      // that the `deleting_at` lifecycle owns — the same one the
+      // regular delete route uses (`finalizeDeletingDocument` removes
+      // the row once the prefix is empty).
       const result = await c.env.DB.prepare(
-        `DELETE FROM documents
+        `UPDATE documents
+            SET deleting_at = ?
           WHERE id = ?
             AND workspace_id IN (SELECT id FROM workspaces WHERE owner_user_id = ?)
-            AND initializing_at IS NOT NULL`,
+            AND initializing_at IS NOT NULL
+            AND deleting_at IS NULL`,
       )
-        .bind(id, userId)
+        .bind(Date.now(), id, userId)
         .run();
       if ((result.meta.changes ?? 0) === 0) {
-        // The row changed state between the SELECT and the DELETE.
-        // Distinguish the two races so the response stays truthful: a
+        // The row changed state between the SELECT and the UPDATE.
+        // Distinguish the races so the response stays truthful: a
         // concurrent /finalize made the doc live (409, and the
-        // reservation must be lifted so pushes to it work) or a
-        // concurrent cancellation removed the row (404, same as a
-        // repeat).
+        // reservation must be lifted so pushes to it work), while a
+        // concurrent cancellation already moved the row into deletion
+        // — or it is gone entirely — (404, same as a repeat: the state
+        // this call wanted is already reality).
         const raced = await c.env.DB.prepare(
-          `SELECT 1 FROM documents WHERE id = ?`,
+          `SELECT deleting_at FROM documents WHERE id = ?`,
         )
           .bind(id)
-          .first();
-        if (raced) {
+          .first<{ deleting_at: number | null }>();
+        if (raced && raced.deleting_at === null) {
           await room.clearInitializationCancellation();
           return c.json({ error: "Document is already finalized" }, 409);
         }
         return c.json({ error: "Not found" }, 404);
       }
-      // The row is gone (FK cascade removed the asset rows); reap the
-      // R2 objects of the abandoned attempt too. Deliberately AFTER the
-      // confirmed delete — reaping first could destroy assets of a doc a
-      // concurrent /finalize just made live. A failure here leaks
-      // objects (as any crash before this point would); acceptable for
-      // an already-best-effort cleanup path.
-      await deleteAllDocumentAssetObjects(c.env.ASSETS, id);
+      try {
+        await scheduleDocumentDeletion(c.env, id);
+      } catch (error) {
+        // Scheduling failed: revert to the initializing state so the
+        // scheduled sweep retries the same transition later, instead of
+        // leaving the row stuck in a deleting state nothing is driving.
+        // (The room reservation stays — it blocks pushes either way,
+        // and cancelled ids are never legitimately reused.)
+        await c.env.DB.prepare(
+          `UPDATE documents
+              SET deleting_at = NULL
+            WHERE id = ? AND deleting_at IS NOT NULL`,
+        )
+          .bind(id)
+          .run();
+        throw error;
+      }
       // No feed bump: an initializing row was never visible in any
       // list, so its removal changes nothing for subscribers.
       return c.json({ ok: true as const }, 200);

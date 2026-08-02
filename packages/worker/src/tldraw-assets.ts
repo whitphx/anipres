@@ -36,35 +36,21 @@ function getAssetNameFromDocumentAssetSrc(src: string, documentId: string) {
   }
 }
 
-async function scheduleDocumentDeletion(
-  c: AppContext,
+/**
+ * Hands the actual delete work for a row already marked `deleting_at`
+ * to the document's DO: its alarm loop drives the retryable R2 prefix
+ * sweep and only then removes the D1 row (`finalizeDeletingDocument`).
+ * Callers own the `deleting_at` transition — and its rollback if this
+ * scheduling call throws, so the row is not stranded in a deleting
+ * state that nothing is driving.
+ */
+export async function scheduleDocumentDeletion(
+  env: AppContext["env"],
   documentId: string,
 ): Promise<void> {
-  const room = c.env.DOCUMENT_SYNC_ROOM.getByName(documentId);
+  const room = env.DOCUMENT_SYNC_ROOM.getByName(documentId);
   await room.claimDocument(documentId);
   await room.startDelete();
-}
-
-/**
- * Removes every R2 object under a document's asset prefix. For the
- * initialization-cancel path, which hard-deletes the row (FK cascade
- * removes the asset ROWS) without entering the deletion lifecycle that
- * owns the scheduled R2 sweep — without this, uploads from the abandoned
- * attempt would leak in the bucket forever.
- */
-export async function deleteAllDocumentAssetObjects(
-  bucket: R2Bucket,
-  documentId: string,
-): Promise<void> {
-  let cursor: string | undefined;
-  do {
-    const next = await deleteDocumentAssetPrefixBatch(
-      bucket,
-      documentId,
-      cursor,
-    );
-    cursor = next ?? undefined;
-  } while (cursor);
 }
 
 async function deleteDocumentAssetPrefixBatch(
@@ -352,7 +338,7 @@ export async function startDocumentDeletion(
     // Prefix cleanup can take long enough to exceed a request budget. Hand the
     // actual delete work to the document DO so `deleting_at` can remain a
     // retryable state until the R2 sweep finishes successfully.
-    await scheduleDocumentDeletion(c, documentId);
+    await scheduleDocumentDeletion(c.env, documentId);
   } catch (error) {
     // Only roll back the deleting state if this call actually transitioned the
     // document into deletion. Existing delete retries must stay hidden from
