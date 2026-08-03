@@ -798,10 +798,11 @@ out a stored timeline record do not apply to it.
 > PR #486, validated and executed once against every known v1 document
 > (the sole user's Slidev decks — 17 snapshots, 204 frames, structural
 > equivalence with the v1 ordering verified per deck), and then deleted
-> in the follow-up PR. v1 records encountered after that surface as a
-> `v1-frame` diagnostic instead of converting; recovering one means
-> checking out a pre-removal version. The section is kept as the record
-> of the migration's semantics.
+> in the follow-up PR. The machinery shipped in `anipres` 0.14.0, so
+> that release line remains the recovery path: v1 records encountered
+> under later versions surface as a `v1-frame` diagnostic instead of
+> converting; opening the document once under 0.14.x converts it. The
+> section is kept as the record of the migration's semantics.
 
 One-time, mechanical, order-preserving — and **deterministic**, so that any
 number of clients migrating the same document concurrently write
