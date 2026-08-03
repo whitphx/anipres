@@ -334,8 +334,8 @@ Semantics:
 
 - **Step grouping** = cue frames sharing a `stepId`. Grouping is explicit
   intent: joining a step means copying its `stepId` (and `stepOrderKey`);
-  creating a step means minting a fresh `stepId` (via `uniqueId()`;
-  migration-minted ids are deterministic — see
+  creating a step means minting a fresh `stepId` (via `uniqueId()`; the
+  removed migration minted deterministic ids — see
   [Migration](#migration-from-v1)). Fractional-key coincidence has **no**
   grouping meaning — two concurrently inserted steps may legitimately
   receive identical `stepOrderKey`s (the key-between algorithm is
@@ -992,8 +992,9 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                                          |
 | `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily (removed in r9: decks were batch-converted)                                                                                                                  |
 
-Testing: the derivation, canonicalization, `makeInsertionSpace`, and
-migration are pure functions over JSON — they get direct unit tests,
+Testing (the migration-specific tests listed here were removed with the
+machinery in r9): the derivation, canonicalization, `makeInsertionSpace`,
+and migration are pure functions over JSON — they get direct unit tests,
 including: all four totality rules (with synthetic-step ids verified
 deterministic and stable across repeated derivations and input iteration
 orders, `StepData.synthetic` populated with the source `stepId`,
