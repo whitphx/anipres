@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { compareOrderKeys } from "anipres/models";
 import type { TLStoreSnapshot } from "tldraw";
+import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
 import { reconcileOfflineEdits } from "./reconnect";
+import { expectSnapshotPutRequest, mockResponse } from "./test-helpers";
 
 function createSnapshot(id: string): TLStoreSnapshot {
   return {
@@ -11,12 +14,50 @@ function createSnapshot(id: string): TLStoreSnapshot {
   } as unknown as TLStoreSnapshot;
 }
 
-function mockResponse(body: unknown, status = 200): Response {
+// Fixture shared by the request-level and 426 suites below: a document
+// with pending offline edits whose repository supports the fork flow.
+const LOCAL_EDITS = createSnapshot("local-edits");
+const BASELINE = createSnapshot("baseline");
+
+function makeForkableRepository() {
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  } as Response;
+    get: vi.fn().mockResolvedValue({
+      meta: { id: "doc-id", title: "Foo", sortOrder: "a0" },
+    }),
+    list: vi
+      .fn()
+      .mockResolvedValue([
+        { id: "doc-id", title: "Foo", sortOrder: "a0", source: "synced" },
+      ]),
+    save: vi.fn().mockImplementation(async (data) => ({
+      meta: {
+        ...data.meta,
+        slug: "fork-slug",
+        createdAt: 0,
+        updatedAt: 0,
+        source: "synced",
+      },
+      snapshot: null,
+    })),
+    delete: vi.fn().mockResolvedValue(undefined),
+    cancelInitialization: vi.fn().mockResolvedValue(undefined),
+  } as const;
+}
+
+function reconnectParams(
+  repository: ReturnType<typeof makeForkableRepository>,
+) {
+  return {
+    documentId: "doc-id",
+    localSnapshot: LOCAL_EDITS,
+    recovery: {
+      baselineSnapshot: BASELINE,
+      reconnectSnapshot: LOCAL_EDITS,
+      hasPendingOfflineChanges: true,
+    },
+    snapshotVersion: 3,
+    repository: repository as never,
+  };
 }
 
 describe("reconcileOfflineEdits", () => {
@@ -269,7 +310,9 @@ describe("reconcileOfflineEdits", () => {
     const sentToCreate = repository.save.mock.calls[0][0] as {
       meta: { sortOrder: string };
     };
-    expect(sentToCreate.meta.sortOrder > "a1").toBe(true);
+    expect(compareOrderKeys(sentToCreate.meta.sortOrder, "a1")).toBeGreaterThan(
+      0,
+    );
   });
 
   it("retries a stale-revision push without forking when the server still matches the baseline", async () => {
@@ -306,5 +349,230 @@ describe("reconcileOfflineEdits", () => {
 
     expect(result).toEqual({ action: "pushed" });
     expect(repository.save).not.toHaveBeenCalled();
+  });
+});
+
+// Request-level coverage: the worker's animation-data version gate
+// rejects any snapshot PUT that does not declare the version header, so
+// every reconnect write path must send it — response-sequence mocks
+// alone would keep passing if a call site dropped the header.
+describe("reconcileOfflineEdits — snapshot PUT version header", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("declares the version on the initial reconnect push", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse({ ok: true }));
+
+    const result = await reconcileOfflineEdits(
+      reconnectParams(makeForkableRepository()),
+    );
+
+    expect(result).toEqual({ action: "pushed" });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expectSnapshotPutRequest(vi.mocked(fetch).mock.calls[0]);
+  });
+
+  it("declares the version on BOTH pushes of a stale-version retry", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: BASELINE, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: true }));
+
+    const result = await reconcileOfflineEdits(
+      reconnectParams(makeForkableRepository()),
+    );
+
+    expect(result).toEqual({ action: "pushed" });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+    expectSnapshotPutRequest(vi.mocked(fetch).mock.calls[0]);
+    expectSnapshotPutRequest(vi.mocked(fetch).mock.calls[2]);
+  });
+
+  it("declares the version on the offline-copy fork push", async () => {
+    const server = createSnapshot("server-diverged");
+    const repository = makeForkableRepository();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: server, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: true }));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result.action).toBe("forked");
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+    expectSnapshotPutRequest(vi.mocked(fetch).mock.calls[2]);
+  });
+});
+
+describe("reconcileOfflineEdits — HTTP 426 (client too old)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const clientTooOldResult = {
+    action: "error",
+    reason: CLIENT_TOO_OLD_MESSAGE,
+    reasonCode: "client-too-old",
+  };
+
+  it("stops at the initial push: no cache compare, no fork, no cleanup", async () => {
+    const repository = makeForkableRepository();
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(null, 426));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual(clientTooOldResult);
+    // No offline-cache fetch, no retry, no fork push.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("stops at the stale-version retry: no fork", async () => {
+    const repository = makeForkableRepository();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: BASELINE, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse(null, 426));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual(clientTooOldResult);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the fork placeholder when the fork push is rejected", async () => {
+    const server = createSnapshot("server-diverged");
+    const repository = makeForkableRepository();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ snapshot: server, snapshotVersion: 10 }),
+      )
+      .mockResolvedValueOnce(mockResponse(null, 426));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual(clientTooOldResult);
+    // The empty fork row is cancelled through the dedicated
+    // initialization-cancel endpoint — the regular DELETE route 404s
+    // initializing rows, so calling it would silently do nothing.
+    expect(repository.save).toHaveBeenCalledTimes(1);
+    const forkId = (
+      repository.save.mock.calls[0][0] as { meta: { id: string } }
+    ).meta.id;
+    expect(repository.cancelInitialization).toHaveBeenCalledWith(forkId);
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+});
+
+// Cleanup of a fork whose snapshot push failed: the placeholder row is
+// cancelled through the dedicated initialization-cancel endpoint (the
+// regular DELETE route 404s initializing rows), and a failing
+// cancellation never displaces the push's own error result.
+describe("reconcileOfflineEdits — fork cancellation", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** 409 conflict, then a diverged server cache: the fork path runs. */
+  function mockConflictThenDivergedCache() {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        mockResponse({ reason: "version-conflict", snapshotVersion: 10 }, 409),
+      )
+      .mockResolvedValueOnce(
+        mockResponse(
+          { snapshot: createSnapshot("server-diverged"), snapshotVersion: 10 },
+          200,
+        ),
+      );
+  }
+
+  it("cancels the placeholder when the fork push THROWS (network error)", async () => {
+    const repository = makeForkableRepository();
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network down"));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result.action).toBe("error");
+    if (result.action === "error") {
+      expect(result.reasonCode).toBe("other");
+      expect(result.reason).toContain("network down");
+    }
+    const forkId = (
+      repository.save.mock.calls[0][0] as { meta: { id: string } }
+    ).meta.id;
+    expect(repository.cancelInitialization).toHaveBeenCalledWith(forkId);
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the client-too-old result when the fork cancellation itself fails", async () => {
+    const repository = makeForkableRepository();
+    repository.cancelInitialization.mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(null, 426));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    // The cancellation failure is swallowed (the server sweep reaps the
+    // invisible row); the push's own outcome is what the caller sees,
+    // so the offline cache is preserved by the error path as usual.
+    expect(result).toEqual({
+      action: "error",
+      reason: CLIENT_TOO_OLD_MESSAGE,
+      reasonCode: "client-too-old",
+    });
+    expect(repository.cancelInitialization).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the original failure result when a failed fork push's cancellation fails", async () => {
+    const repository = makeForkableRepository();
+    repository.cancelInitialization.mockRejectedValue(
+      new Error("cancel failed"),
+    );
+    mockConflictThenDivergedCache();
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(null, 500));
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual({
+      action: "error",
+      reason: "Failed to push snapshot to forked document: 500",
+      reasonCode: "other",
+    });
+    expect(repository.cancelInitialization).toHaveBeenCalledTimes(1);
   });
 });

@@ -159,3 +159,31 @@ $inbetween-droppable-cell-width: 16px;
     min-height: 16px;
   }
 }
+
+.diagnosticsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  font-size: 11px;
+
+  .diagnosticItem {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-warn, #c9a227);
+    border-radius: var(--radius-2);
+
+    button {
+      font-size: 11px;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+  }
+}

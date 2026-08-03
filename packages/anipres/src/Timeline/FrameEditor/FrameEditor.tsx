@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Resizable } from "re-resizable";
-import { Frame } from "../../models";
+import type { FrameUIData } from "../frame-ui-data";
 import { FrameEditPopover } from "./FrameEditPopover";
 import styles from "./FrameEditor.module.scss";
 
@@ -13,9 +13,9 @@ function Handle() {
 }
 
 export interface FrameEditorProps {
-  frame: Frame;
+  frame: FrameUIData;
   isPlaceholder: boolean;
-  onUpdate: (newFrame: Frame) => void;
+  onUpdate: (newFrame: FrameUIData) => void;
   isSelected: boolean;
   onClick: () => void;
 }

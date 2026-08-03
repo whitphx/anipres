@@ -1,4 +1,5 @@
 import { createStore, get, set, del, entries } from "idb-keyval";
+import { compareOrderKeys } from "anipres/models";
 import type { DocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
@@ -13,7 +14,7 @@ export class IdbDocumentRepository implements DocumentRepository {
     const all = await entries<string, DocumentData>(store);
     return all
       .map(([, data]) => stampLocal(data.meta))
-      .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder));
+      .sort((a, b) => compareOrderKeys(a.sortOrder, b.sortOrder));
   }
 
   async get(id: string): Promise<DocumentData | undefined> {

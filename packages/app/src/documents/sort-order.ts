@@ -1,4 +1,4 @@
-import { generateKeyBetween } from "fractional-indexing";
+import { compareOrderKeys, orderKeyBetween } from "anipres/models";
 import type { DocumentMeta } from "./types";
 
 /**
@@ -7,10 +7,10 @@ import type { DocumentMeta } from "./types";
  * lexicographically and the new key is bumped past the tail.
  *
  * If `existing` is empty, falls back to the package's "first" key
- * (typically `"a0"`) via `generateKeyBetween(null, null)`.
+ * (typically `"a0"`) via `orderKeyBetween(null, null)`.
  *
  * Known limitation: when two callers race on the same `existing`
- * snapshot they pick the same key. `generateKeyBetween` is
+ * snapshot they pick the same key. `orderKeyBetween` is
  * deterministic per (prev, next) pair, so the collision is silent —
  * the sidebar's stable sort still shows both, just in a
  * non-deterministic order between them, and any user reorder heals it.
@@ -18,7 +18,7 @@ import type { DocumentMeta } from "./types";
 export function nextTailSortOrder(
   existing: ReadonlyArray<Pick<DocumentMeta, "sortOrder">>,
 ): string {
-  const keys = existing.map((d) => d.sortOrder).sort();
+  const keys = existing.map((d) => d.sortOrder).sort(compareOrderKeys);
   const tail = keys[keys.length - 1] ?? null;
-  return generateKeyBetween(tail, null);
+  return orderKeyBetween(tail, null);
 }

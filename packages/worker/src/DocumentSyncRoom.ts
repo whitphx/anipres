@@ -2,6 +2,7 @@ import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
 import { createTLSchema, defaultShapeSchemas } from "tldraw";
 import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
+import { getSyncAnimationDataVersionGateResponse } from "./animation-data-version-gate";
 import {
   slideShapeProps,
   SlideShapeType,
@@ -27,6 +28,7 @@ const schema = createTLSchema({
 
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
+const INITIALIZATION_CANCELLED_STORAGE_KEY = "initializationCancelled";
 const SNAPSHOT_SAVE_DELAY_MS = 3_000;
 
 function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
@@ -70,6 +72,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   private room!: TLSocketRoom<TLRecord, void>;
   private documentId: string | null = null;
   private snapshotVersion = 0;
+  private initializationCancelled = false;
   private lastSyncedAssetNamesJson: string | null = null;
   private assetSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -90,6 +93,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       // even though they run without a request path.
       this.documentId =
         (await this.ctx.storage.get<string>("documentId")) ?? null;
+      this.initializationCancelled =
+        (await this.ctx.storage.get<boolean>(
+          INITIALIZATION_CANCELLED_STORAGE_KEY,
+        )) ?? false;
 
       let initialSnapshot: RoomSnapshot | undefined;
       const rows = ctx.storage.sql
@@ -359,11 +366,13 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
         await this.ctx.storage.delete(DOCUMENT_DELETE_CURSOR_STORAGE_KEY);
         this.ctx.storage.sql.exec("DELETE FROM snapshot WHERE id = 1");
         await this.ctx.storage.delete("documentId");
+        await this.ctx.storage.delete(INITIALIZATION_CANCELLED_STORAGE_KEY);
         await this.ctx.storage.deleteAlarm();
         // Reset in-memory state so a warm DO doesn't serve stale data if the
         // same document UUID is re-created.
         this.documentId = null;
         this.snapshotVersion = 0;
+        this.initializationCancelled = false;
         this.lastSyncedAssetNamesJson = null;
         this.snapshotDirty = false;
         this.room = this.createRoom();
@@ -417,9 +426,10 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   /**
    * Replace the room snapshot with a snapshot pushed by an offline client.
-   * Returns `true` on success, `false` if the room currently has active
-   * WebSocket sessions (which means live editing is in progress and overwriting
-   * could clobber unsaved changes).
+   * Refused (`replaced: false` with a reason) when the room has active
+   * WebSocket sessions (live editing would be clobbered), when the version
+   * check fails, or when an initialization-cancellation reservation is set
+   * (see `cancelInitialization`).
    *
    * The snapshot arrives as a deserialized JSON object via DO RPC, so the
    * concrete TS type is lost. `loadSnapshot` accepts both `RoomSnapshot` and
@@ -431,11 +441,23 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   ): Promise<{
     replaced: boolean;
     snapshotVersion: number;
-    reason?: "active-session" | "version-conflict";
+    reason?: "active-session" | "version-conflict" | "initialization-cancelled";
   }> {
     this.requireDocumentId();
     return this.runRoomTask(async () => {
       this.flushSnapshotIfDirty();
+      // The `snapshotVersion === 0` condition is defense in depth: a
+      // reservation can only be written while the room is empty and
+      // blocks pushes from landing afterwards, so a room with content
+      // can only carry a stale reservation (a crashed clear) — which
+      // must not brick a live document.
+      if (this.initializationCancelled && this.snapshotVersion === 0) {
+        return {
+          replaced: false,
+          snapshotVersion: this.snapshotVersion,
+          reason: "initialization-cancelled",
+        };
+      }
       if (this.room.getNumActiveSessions() > 0) {
         return {
           replaced: false,
@@ -456,6 +478,55 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
       this.flushSnapshot(undefined, true);
       await this.syncSnapshotAndReferencedAssets();
       return { replaced: true, snapshotVersion: this.snapshotVersion };
+    });
+  }
+
+  /**
+   * Atomically decides the cancellation-vs-snapshot race for a document
+   * that is still initializing in D1. This runs on the same serialized
+   * task queue as `replaceSnapshot`, so exactly one side wins: if a
+   * snapshot has already landed here, cancellation is refused (the
+   * caller must not delete the D1 row out from under pushed content);
+   * otherwise a PERSISTED, restart-surviving reservation is written
+   * first, and every later `replaceSnapshot` fails against it instead
+   * of writing into a room whose D1 row is being deleted. A read-only
+   * probe (`peekSnapshotVersion`) cannot provide this — its answer is
+   * stale the moment it returns.
+   *
+   * A push that lands inside the reservation window is answered 404
+   * even if the cancellation is later reverted (D1 delete lost to
+   * `/finalize`) — safe: nothing is written, and the client retries
+   * against the revived document.
+   *
+   * After a successful cancellation the reservation lives exactly as
+   * long as the deletion lifecycle: the route transitions the row into
+   * `deleting_at` and schedules this DO's delete cycle, whose
+   * completion reset clears the reservation together with the rest of
+   * the per-document state — so the id could even be safely re-created
+   * afterwards. Until then, every push to the half-deleted id fails
+   * here instead of writing into a room whose row is on its way out.
+   */
+  async cancelInitialization(): Promise<{ cancelled: boolean }> {
+    return this.runRoomTask(async () => {
+      this.flushSnapshotIfDirty();
+      if (this.snapshotVersion > 0) {
+        return { cancelled: false };
+      }
+      await this.ctx.storage.put(INITIALIZATION_CANCELLED_STORAGE_KEY, true);
+      this.initializationCancelled = true;
+      return { cancelled: true };
+    });
+  }
+
+  /**
+   * Reverts a cancellation reservation whose D1 delete lost the race to
+   * `/finalize` (the document is live after all, so pushes to it must
+   * work again).
+   */
+  async clearInitializationCancellation(): Promise<void> {
+    await this.runRoomTask(async () => {
+      await this.ctx.storage.delete(INITIALIZATION_CANCELLED_STORAGE_KEY);
+      this.initializationCancelled = false;
     });
   }
 
@@ -533,6 +604,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    const versionGateResponse = getSyncAnimationDataVersionGateResponse(request);
+    if (versionGateResponse) return versionGateResponse;
     const url = new URL(request.url);
     const documentId = this.getDocumentIdFromRequest(request);
     try {

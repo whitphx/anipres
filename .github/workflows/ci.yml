@@ -69,13 +69,8 @@ jobs:
           name: anipres
           input-path: packages/anipres/dist
 
-  build-agent-core:
-    needs: [build-anipres]
+  test-agent-core:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      actions: read
     defaults:
       run:
         working-directory: packages/agent-core
@@ -98,11 +93,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
       - name: Lint
         run: pnpm lint
 
@@ -114,22 +104,6 @@ jobs:
 
       - name: Test
         run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Upload dist
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          path: packages/agent-core/dist
-          name: agent-core-dist
-
-      - name: Measure bundle size
-        uses: ./.github/actions/measure-bundle-size
-        with:
-          key: agent-core
-          name: agent-core
-          input-path: packages/agent-core/dist
 
   test-slidev-addon-anipres:
     runs-on: ubuntu-latest
@@ -165,7 +139,7 @@ jobs:
       #   run: pnpm test
 
   build-slidev-addon-anipres-preview:
-    needs: [test-slidev-addon-anipres, build-anipres]
+    needs: [test-slidev-addon-anipres]
     permissions:
       contents: read
       pull-requests: write
@@ -203,11 +177,6 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
       - name: Build the sample slides for preview
         run: pnpm slidev build
 
@@ -224,28 +193,6 @@ jobs:
           key: slidev-addon-anipres
           name: slidev-addon-anipres
           input-path: packages/slidev-addon-anipres/dist
-
-  deploy-slidev-addon-anipres-preview:
-    needs: [build-slidev-addon-anipres-preview]
-
-    permissions:
-      contents: read
-      deployments: write
-
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: slidev-addon-anipres-dist
-          path: packages/slidev-addon-anipres/dist
-
-      - name: Deploy
-        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/slidev-addon-anipres/dist --project-name=slidev-addon-anipres-preview --branch=${{ github.head_ref || github.ref_name }} --commit-hash=${{ github.sha }}
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
   lint-app:
     runs-on: ubuntu-latest
@@ -278,7 +225,7 @@ jobs:
         run: pnpm format --check
 
   test-worker:
-    needs: [build-anipres, build-agent-core]
+    needs: [test-agent-core]
 
     runs-on: ubuntu-latest
     defaults:
@@ -303,16 +250,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agent-core-dist
-          path: packages/agent-core/dist
-
       - name: Typecheck
         run: pnpm typecheck
 
@@ -320,7 +257,7 @@ jobs:
         run: pnpm test
 
   build-app:
-    needs: [build-anipres, build-agent-core, lint-app]
+    needs: [test-agent-core, lint-app]
 
     runs-on: ubuntu-latest
     permissions:
@@ -352,16 +289,6 @@ jobs:
       # https://github.com/KonghaYao/cn-font-split/issues/149
       - run: pnpm cn-font-split i default
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agent-core-dist
-          path: packages/agent-core/dist
-
       - name: Build
         run: pnpm build
 
@@ -377,48 +304,20 @@ jobs:
           name: app
           input-path: packages/app/dist
 
-  # Per-PR Pages deploy — UI smoke check at <branch>.anipres.pages.dev.
-  # Pages production (anipres.app) is now served by the unified worker
-  # (`deploy-worker` below), so this job is gated to PRs only.
-  deploy-app:
-    needs: [build-app]
-
-    if: ${{ github.event_name == 'pull_request' }}
-
-    permissions:
-      contents: read
-      deployments: write
-
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: app-dist
-          path: packages/app/dist
-
-      - name: Deploy
-        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/app/dist --project-name=anipres --branch=${{ github.head_ref || github.ref_name }} --commit-hash=${{ github.sha }}
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-
-  # Worker deploy — same code, two targets:
-  # - on PR: shared preview worker (*.workers.dev, isolated D1/R2/DO,
-  #   last push wins, see [env.preview] in wrangler.toml).
-  # - on push to main: prod worker at anipres.app, bundles app/dist via
-  #   the top-level [assets] binding and handles /api/* and /auth/*.
-  # The per-PR Pages preview (`deploy-app` above) covers UI smoke checks;
-  # the preview worker is for exercising auth + sync end-to-end.
-  deploy-worker:
-    needs: [build-anipres, build-agent-core, build-app, lint-app, test-worker]
-
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
+  # Worker bundle build — produces the dist for bundle-size measurement
+  # on every run and for the post-build production deploy on main pushes.
+  # PR bundles are never uploaded to the secret-bearing preview worker.
+  #
+  # `wrangler deploy --dry-run --outdir dist` bundles via esbuild
+  # without contacting the Cloudflare API, so this step works without
+  # secrets and produces the same JS the deploy will upload via
+  # `--no-bundle`. Bundling here also keeps the privileged post-build
+  # job free of `pnpm install` on PR-controlled deps.
+  build-worker:
+    needs: [test-agent-core, build-app, lint-app, test-worker]
 
     permissions:
       contents: read
-      deployments: write
       pull-requests: write
       actions: read
 
@@ -431,13 +330,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Need history back to the PR base to diff
-          # `packages/worker/migrations/` for the reset gate below.
-          # Only needed on the PR path; harmless on main pushes.
-          # Quoted: GHA `&&`/`||` short-circuit like JS, and numeric `0`
-          # is falsy, so `… && 0 || 1` always yields `1`. Strings `'0'`
-          # / `'1'` are both truthy and pass through unchanged.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: pnpm/action-setup@26f6d4f2c533a43e6b5da0b4a5dd983f98f7b49a # v6.0.4
         with:
@@ -454,59 +346,18 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: anipres-dist
-          path: packages/anipres/dist
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agent-core-dist
-          path: packages/agent-core/dist
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
           name: app-dist
           path: packages/app/dist
 
-      # Wrangler tracks applied D1 migrations by filename in the
-      # internal `d1_migrations` table. If a migration file is edited
-      # mid-review (or renamed, squashed), the next apply sees the tag
-      # as done and silently skips the new contents — preview's schema
-      # then drifts permanently from the file. When this PR's
-      # `migrations/` differs from the base, wipe preview D1 first so
-      # the subsequent `migrate:remote:preview` rebuilds from scratch.
-      # Skipped on main pushes (preview isn't deployed there).
-      - name: Reset preview D1 if migrations changed
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        # `git diff --quiet` distinguishes the three outcomes by exit
-        # code (0 unchanged, 1 changed, >1 error), so a real failure
-        # surfaces instead of being silently routed to "skip reset" —
-        # which `if git diff … | grep -q .` would do under `set -e`,
-        # since `if` disables errexit for the condition.
+      # PR measurements include the preview environment's bindings and
+      # main pushes produce the production bundle uploaded below.
+      - name: Build worker bundle (dry-run)
         run: |
-          set +e
-          git diff --quiet "$BASE_SHA"...HEAD -- migrations/
-          rc=$?
-          set -e
-          case "$rc" in
-            0) echo "Migrations unchanged since $BASE_SHA — skipping preview D1 reset." ;;
-            1) echo "Migrations changed since $BASE_SHA — resetting preview D1."
-               pnpm reset:remote:preview ;;
-            *) echo "git diff failed (exit $rc); refusing to deploy."
-               exit "$rc" ;;
-          esac
-
-      - name: Deploy worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        # `deploy:preview` / `deploy:prod` pass `--outdir dist` to
-        # wrangler so this same step writes the deployed bundle to
-        # disk for the measurement step below.
-        run: pnpm ${{ github.event_name == 'pull_request' && 'deploy:preview' || 'deploy:prod' }}
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pnpm exec wrangler deploy --dry-run --env preview --outdir dist
+          else
+            pnpm exec wrangler deploy --dry-run --outdir dist
+          fi
 
       # CF Workers don't deploy sourcemaps by default, so drop them
       # before measuring — otherwise the report shows the sourcemap
@@ -520,6 +371,14 @@ jobs:
           key: worker
           name: worker
           input-path: packages/worker/dist
+
+      - name: Upload worker deploy package
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: worker-deploy-package
+          path: |
+            packages/worker/dist/
+            packages/worker/migrations/
 
   release:
     needs: [build-anipres, test-slidev-addon-anipres, build-slidev-addon-anipres-preview]

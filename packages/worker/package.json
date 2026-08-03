@@ -1,9 +1,10 @@
 {
   "name": "anipres-worker",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
+    "./animation-data-version": "./src/animation-data-version.ts",
     "./tldraw-asset-policy": "./src/tldraw-asset-policy.ts",
     "./api-types": {
       "types": "./dist/api-types.d.ts",

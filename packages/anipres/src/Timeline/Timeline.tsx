@@ -10,8 +10,17 @@ import {
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
-import type { Frame, FrameBatch, CueFrame } from "../models";
-import { calcFrameBatchUIData, FrameBatchUIData, Track } from "./frame-ui-data";
+import type {
+  EditedStep,
+  TimelineDiagnostic,
+  TimelineDoc,
+} from "../timeline-model";
+import {
+  calcFrameBatchUIData,
+  FrameBatchUIData,
+  FrameUIData,
+  Track,
+} from "./frame-ui-data";
 import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
@@ -99,13 +108,15 @@ interface StepColumnProps {
   onStepSelect: (stepIndex: number) => void;
   tracks: Track[];
   stepFrameBatches: FrameBatchUIData[];
-  selectedFrameIds: string[];
-  frameEditorRefCallback: (frameId: string) => React.RefCallback<HTMLElement>;
-  draggedFrame: Frame | null;
-  onFrameChange: (newFrame: Frame) => void;
-  onFrameSelect: (frameId: string) => void;
-  requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
-  requestSubFrameAddAfter: (prevFrame: Frame) => void;
+  selectedFrameShapeIds: string[];
+  frameEditorRefCallback: (
+    frameShapeId: string,
+  ) => React.RefCallback<HTMLElement>;
+  draggedFrame: FrameUIData | null;
+  onFrameChange: (newFrame: FrameUIData) => void;
+  onFrameSelect: (frameShapeId: string) => void;
+  requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
+  requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
 }
 const StepColumn = React.memo(
   ({
@@ -114,7 +125,7 @@ const StepColumn = React.memo(
     onStepSelect,
     tracks,
     stepFrameBatches,
-    selectedFrameIds,
+    selectedFrameShapeIds,
     frameEditorRefCallback,
     draggedFrame,
     onFrameChange,
@@ -163,21 +174,25 @@ const StepColumn = React.memo(
                         >
                           <FrameEditor
                             frame={cueFrame}
-                            isPlaceholder={draggedFrame?.id === cueFrame.id}
+                            isPlaceholder={
+                              draggedFrame?.shapeId === cueFrame.shapeId
+                            }
                             onUpdate={onFrameChange}
-                            isSelected={selectedFrameIds.includes(cueFrame.id)}
+                            isSelected={selectedFrameShapeIds.includes(
+                              cueFrame.shapeId,
+                            )}
                             onClick={() => {
-                              onFrameSelect(cueFrame.id);
+                              onFrameSelect(cueFrame.shapeId);
                             }}
-                            ref={frameEditorRefCallback(cueFrame.id)}
+                            ref={frameEditorRefCallback(cueFrame.shapeId)}
                           />
                         </DraggableFrameUI>
 
                         {subFrames.map((subFrame) => {
                           return (
                             <DraggableFrameUI
-                              key={subFrame.id}
-                              id={subFrame.id}
+                              key={subFrame.shapeId}
+                              id={subFrame.shapeId}
                               trackId={track.id}
                               trackIndex={subFrame.trackIndex}
                               globalIndex={trackFrameBatch.globalIndex}
@@ -185,15 +200,17 @@ const StepColumn = React.memo(
                             >
                               <FrameEditor
                                 frame={subFrame}
-                                isPlaceholder={draggedFrame?.id === subFrame.id}
+                                isPlaceholder={
+                                  draggedFrame?.shapeId === subFrame.shapeId
+                                }
                                 onUpdate={onFrameChange}
-                                isSelected={selectedFrameIds.includes(
-                                  subFrame.id,
+                                isSelected={selectedFrameShapeIds.includes(
+                                  subFrame.shapeId,
                                 )}
                                 onClick={() => {
-                                  onFrameSelect(subFrame.id);
+                                  onFrameSelect(subFrame.shapeId);
                                 }}
-                                ref={frameEditorRefCallback(subFrame.id)}
+                                ref={frameEditorRefCallback(subFrame.shapeId)}
                               />
                             </DraggableFrameUI>
                           );
@@ -246,24 +263,69 @@ const AUTO_SCROLL_CONFIG = {
   },
 };
 
+const RESOLVE_LABELS: Record<TimelineDiagnostic["type"], string> = {
+  "step-key-divergence": "Align step keys",
+  "same-track-split": "Materialize split",
+  "duplicate-frame-id": "Freshen ids",
+  "detached-sub-frame": "Clear animation data",
+  "invalid-frame": "Clear animation data",
+};
+
+/** Stable identity for React keys — never array position. */
+function diagnosticKey(diagnostic: TimelineDiagnostic): string {
+  switch (diagnostic.type) {
+    case "step-key-divergence":
+      return `${diagnostic.type}:${diagnostic.stepId}`;
+    case "same-track-split":
+      return `${diagnostic.type}:${diagnostic.stepId}:${diagnostic.trackId}:${diagnostic.shapeIds.join(",")}`;
+    case "detached-sub-frame":
+      return `${diagnostic.type}:${diagnostic.shapeId}`;
+    case "duplicate-frame-id":
+      return `${diagnostic.type}:${diagnostic.frameId}`;
+    case "invalid-frame":
+      return `${diagnostic.type}:${diagnostic.shapeId}`;
+  }
+}
+
+function describeDiagnostic(diagnostic: TimelineDiagnostic): string {
+  switch (diagnostic.type) {
+    case "step-key-divergence":
+      return "Step has conflicting order keys (concurrent edit)";
+    case "same-track-split":
+      return "Two keyframes of one track share a step (shown split)";
+    case "detached-sub-frame":
+      return "Sub frame lost its cue (deleted or missing)";
+    case "duplicate-frame-id":
+      return "Two shapes share one animation frame id";
+    case "invalid-frame":
+      return "Shape carries unreadable animation data";
+  }
+}
+
 interface TimelineProps {
-  frameBatches: FrameBatch[];
-  onFrameChange: (newFrame: Frame) => void;
-  onFrameBatchesChange: (newFrameBatches: FrameBatch[]) => void;
+  timelineDoc: TimelineDoc;
+  onFrameChange: (newFrame: FrameUIData) => void;
+  onEditedStepsChange: (editedSteps: EditedStep[]) => void;
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
   shapeSelections: ShapeSelection[];
-  onFrameSelect: (frameId: string) => void;
-  requestCueFrameAddAfter: (prevCueFrame: CueFrame) => void;
-  requestSubFrameAddAfter: (prevFrame: Frame) => void;
+  onFrameSelect: (frameShapeId: string) => void;
+  requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
+  requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
+  onDiagnosticSelect: (diagnostic: TimelineDiagnostic) => void;
+  onResolveDiagnostic: (diagnostic: TimelineDiagnostic) => void;
+  onReattachDetached: (
+    diagnostic: Extract<TimelineDiagnostic, { type: "detached-sub-frame" }>,
+  ) => void;
+  canReattachDetached: boolean;
 }
 export function Timeline({
-  frameBatches,
+  timelineDoc,
   onFrameChange,
-  onFrameBatchesChange,
+  onEditedStepsChange,
   currentStepIndex,
   onStepSelect,
   shapeSelections,
@@ -273,10 +335,14 @@ export function Timeline({
   requestCueFrameAddAfterGroup,
   showAttachCueFrameButton,
   requestAttachCueFrame,
+  onDiagnosticSelect,
+  onResolveDiagnostic,
+  onReattachDetached,
+  canReattachDetached,
 }: TimelineProps) {
-  const { steps, tracks } = useMemo(
-    () => calcFrameBatchUIData(frameBatches),
-    [frameBatches],
+  const { steps, stepSources, tracks } = useMemo(
+    () => calcFrameBatchUIData(timelineDoc),
+    [timelineDoc],
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -284,14 +350,14 @@ export function Timeline({
     Record<string, HTMLElement>
   >({});
   const frameEditorRefCallback = useCallback(
-    (frameId: string): React.RefCallback<HTMLElement> =>
+    (frameShapeId: string): React.RefCallback<HTMLElement> =>
       (elem) => {
         if (elem != null) {
-          setFrameEditorDOMs((prev) => ({ ...prev, [frameId]: elem }));
+          setFrameEditorDOMs((prev) => ({ ...prev, [frameShapeId]: elem }));
         } else {
           setFrameEditorDOMs((prev) => {
             const newState = { ...prev };
-            delete newState[frameId];
+            delete newState[frameShapeId];
             return newState;
           });
         }
@@ -299,16 +365,16 @@ export function Timeline({
     [],
   );
 
-  const selectedFrameIds = useMemo(() => {
-    return shapeSelections.flatMap((sel) => sel.frameIds);
+  const selectedFrameShapeIds = useMemo(() => {
+    return shapeSelections.flatMap((sel) => sel.frameShapeIds);
   }, [shapeSelections]);
   const groupSelectionAndEditorDOMs = useMemo(() => {
     const groupSelections = shapeSelections.filter(
-      (sel) => sel.frameIds.length > 1,
+      (sel) => sel.frameShapeIds.length > 1,
     );
     return groupSelections.map((groupSelection) => {
-      const elements = groupSelection.frameIds
-        .map((frameId) => frameEditorDOMs[frameId])
+      const elements = groupSelection.frameShapeIds
+        .map((frameShapeId) => frameEditorDOMs[frameShapeId])
         .filter((elem) => elem !== null);
       return {
         groupSelection: groupSelection,
@@ -317,13 +383,13 @@ export function Timeline({
     });
   }, [shapeSelections, frameEditorDOMs]);
 
-  const [draggedFrame, setDraggedFrame] = useState<Frame | null>(null);
+  const [draggedFrame, setDraggedFrame] = useState<FrameUIData | null>(null);
 
   const handleDragStart = useCallback<
     NonNullable<DndContextProps["onDragStart"]>
   >((event) => {
     const { active } = event;
-    const frame = active.data.current?.frame as Frame | undefined;
+    const frame = active.data.current?.frame as FrameUIData | undefined;
     if (frame == null) {
       return;
     }
@@ -360,6 +426,7 @@ export function Timeline({
 
       const newSteps = moveFrame(
         steps,
+        stepSources,
         trackId,
         srcGlobalIndex,
         srcTrackIndex,
@@ -367,10 +434,10 @@ export function Timeline({
         dstType,
       );
       if (newSteps != null) {
-        onFrameBatchesChange(newSteps.flat());
+        onEditedStepsChange(newSteps);
       }
     },
-    [steps, onFrameBatchesChange],
+    [steps, stepSources, onEditedStepsChange],
   );
 
   // To capture click events on draggable elements.
@@ -394,6 +461,48 @@ export function Timeline({
       sensors={sensors}
       autoScroll={AUTO_SCROLL_CONFIG}
     >
+      {/* Stable live region: rendered unconditionally so assistive tech
+          announces diagnostics as they APPEAR; stable content-derived
+          keys keep unchanged entries' DOM nodes intact so a re-derivation
+          (every shape edit) does not re-announce the whole list. */}
+      <div
+        className={
+          timelineDoc.diagnostics.length > 0
+            ? styles.diagnosticsPanel
+            : undefined
+        }
+        aria-live="polite"
+      >
+        {timelineDoc.diagnostics.map((diagnostic) => (
+          <div
+            key={diagnosticKey(diagnostic)}
+            className={styles.diagnosticItem}
+          >
+            <span>{describeDiagnostic(diagnostic)}</span>
+            <button
+              type="button"
+              onClick={() => onDiagnosticSelect(diagnostic)}
+            >
+              Select shape
+            </button>
+            {diagnostic.type === "detached-sub-frame" && (
+              <button
+                type="button"
+                disabled={!canReattachDetached}
+                onClick={() => onReattachDetached(diagnostic)}
+              >
+                Reattach to selected cue
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onResolveDiagnostic(diagnostic)}
+            >
+              {RESOLVE_LABELS[diagnostic.type]}
+            </button>
+          </div>
+        ))}
+      </div>
       <DragStateStyleDiv
         ref={containerRef}
         className={styles.timelineContainer}
@@ -416,7 +525,7 @@ export function Timeline({
               onStepSelect={onStepSelect}
               tracks={tracks}
               stepFrameBatches={stepFrameBatches}
-              selectedFrameIds={selectedFrameIds}
+              selectedFrameShapeIds={selectedFrameShapeIds}
               frameEditorRefCallback={frameEditorRefCallback}
               draggedFrame={draggedFrame}
               onFrameChange={onFrameChange}
@@ -465,7 +574,9 @@ export function Timeline({
                 frame={draggedFrame}
                 isPlaceholder={false}
                 onUpdate={() => {}}
-                isSelected={selectedFrameIds.includes(draggedFrame.id)}
+                isSelected={selectedFrameShapeIds.includes(
+                  draggedFrame.shapeId,
+                )}
                 onClick={() => {}}
               />
             )}

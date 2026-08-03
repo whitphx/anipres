@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { compareOrderKeys } from "anipres/models";
 import type { TLStoreSnapshot } from "tldraw";
 import type {
   DocumentData,
@@ -65,7 +66,7 @@ function makeFakeRepo(source: DocumentSource, initial: DocumentData[] = []) {
     async (): Promise<DocumentMeta[]> =>
       [...store.values()]
         .map((d) => ({ ...d.meta, source }))
-        .sort((a, b) => a.sortOrder.localeCompare(b.sortOrder)),
+        .sort((a, b) => compareOrderKeys(a.sortOrder, b.sortOrder)),
   );
   const get = vi.fn(async (id: string): Promise<DocumentData | undefined> => {
     const d = store.get(id);
@@ -382,7 +383,8 @@ describe("convertLocalDocToSynced", () => {
     expect(synced?.meta.source).toBe("synced");
     // Sort-order is computed past the existing tail.
     expect(
-      synced?.meta.sortOrder !== undefined && synced.meta.sortOrder > "a0",
+      synced?.meta.sortOrder !== undefined &&
+        compareOrderKeys(synced.meta.sortOrder, "a0") > 0,
     ).toBe(true);
 
     // Asset upload and snapshot push target the same id.

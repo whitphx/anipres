@@ -6,11 +6,10 @@
 // carries the upstream attribution.
 import { toRichText, uniqueId, type Editor, type TLShapePartial } from "tldraw";
 import {
-  cueFrameToJsonObject,
+  deriveTimeline,
+  frameToMetaJson,
+  orderKeyBetween,
   newTrackId,
-  getCueFrame,
-  getFrames,
-  getNextGlobalIndexFromCueFrames,
   type CameraZoomFrameAction,
   type CueFrame,
 } from "anipres/models";
@@ -51,7 +50,7 @@ export function focusedShapeToTldrawShape(
         x: shape.x,
         y: shape.y,
         props: { w: shape.w, h: shape.h },
-        meta: { frame: cueFrameToJsonObject(cueFrame) },
+        meta: { frame: frameToMetaJson(cueFrame) },
       };
     }
   }
@@ -67,27 +66,34 @@ export function focusedShapeToTldrawShape(
 function buildAutoCameraCueFrame(
   editor: Editor,
 ): CueFrame<CameraZoomFrameAction> {
-  const shapes = editor.getCurrentPageShapes();
-  const allFrames = getFrames(shapes);
-  const allCueFrames = shapes
-    .map(getCueFrame)
-    .filter((f): f is CueFrame => f !== undefined);
+  const doc = deriveTimeline({
+    shapes: editor.getCurrentPageShapes().map((s) => ({
+      shapeId: s.id,
+      frameMeta: s.meta?.frame,
+    })),
+    pageId: editor.getCurrentPageId(),
+  });
 
-  const lastCameraCue = [...allFrames]
-    .reverse()
-    .find(
-      (f): f is CueFrame<CameraZoomFrameAction> =>
-        f.type === "cue" && f.action.type === "cameraZoom",
-    );
+  let lastCameraTrackId: string | undefined;
+  outer: for (let i = doc.steps.length - 1; i >= 0; i--) {
+    for (const batch of doc.steps[i].batches) {
+      if (batch.frames[0]?.action.type === "cameraZoom") {
+        lastCameraTrackId = batch.trackId;
+        break outer;
+      }
+    }
+  }
 
   return {
+    v: 2,
     id: uniqueId(),
     type: "cue",
-    globalIndex: getNextGlobalIndexFromCueFrames(allCueFrames),
-    trackId: lastCameraCue?.trackId ?? newTrackId(),
+    stepId: uniqueId(),
+    stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
+    trackId: lastCameraTrackId ?? newTrackId(),
     action: {
       type: "cameraZoom",
-      duration: lastCameraCue ? 1000 : 0,
+      duration: lastCameraTrackId != null ? 1000 : 0,
     },
   };
 }
