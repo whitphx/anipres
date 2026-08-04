@@ -1114,9 +1114,9 @@ could happen, contradicting the design's own detached-frames principle
    proposed default.
 4. **External consumers of `anipres/models`.** The `./models` entry point is
    consumed outside this repo (agent CLI, worker). The v2 types are a
-   breaking change to that surface — shipped as a coordinated major
-   bump. (The transitional legacy module was removed in r9 together
-   with the migration machinery.)
+   breaking change to that surface — shipped as a coordinated minor
+   bump, anipres being pre-1.0. (The transitional legacy module was
+   removed in r9 together with the migration machinery.)
 5. **Key implementation choice.** Resolved (r8): key generation uses
    Rocicorp's `fractional-indexing` behind the `OrderKey` module,
    independent of tldraw's index-key API. (r8 also pinned the migration

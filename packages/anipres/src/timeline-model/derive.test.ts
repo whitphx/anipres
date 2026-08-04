@@ -243,6 +243,23 @@ describe("deriveTimeline", () => {
       { type: "v1-frame", shapeIds: ["shape:a"] },
     ]);
   });
+
+  it("aggregates every v1 record into one diagnostic, sorted and input-order independent", () => {
+    const v1 = (shapeId: string, frameId: string, globalIndex: number) => ({
+      shapeId,
+      frameMeta: {
+        id: frameId,
+        type: "cue",
+        globalIndex,
+        trackId: "T",
+        action: { type: "shapeAnimation" },
+      },
+    });
+    const entries = [v1("shape:c", "f3", 2), v1("shape:a", "f1", 0)];
+    const expected = [{ type: "v1-frame", shapeIds: ["shape:a", "shape:c"] }];
+    expect(derive(entries).diagnostics).toEqual(expected);
+    expect(derive([...entries].reverse()).diagnostics).toEqual(expected);
+  });
 });
 
 describe("makeSyntheticStepId", () => {

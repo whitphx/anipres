@@ -440,28 +440,26 @@ same shape, called at apply time — so slides created via the agent
 in headless flows (CLI, MCP) get the cue frame too, preserving the
 invariant that "creating a slide makes a step in the timeline."
 
-Two divergences worth flagging because the two implementations
-**don't** actually compute the same value, despite the doc-string
-intent:
+Two divergences were worth flagging because the two implementations
+**didn't** actually compute the same value, despite the doc-string
+intent. Animation Data Model v2 dissolved them: `globalIndex` is gone
+and both sides now append via `orderKeyBetween`, so the rest of this
+subsection is the record of a divergence that can no longer occur.
 
-- `Anipres.tsx`'s handler picks `globalIndex: orderedSteps.length`
+- `Anipres.tsx`'s handler picked `globalIndex: orderedSteps.length`
   (count of currently-rendered steps).
 - The agent's `buildAutoCameraCueFrame` and `attachCueFrame` apply
-  paths use `getNextGlobalIndexFromCueFrames`, which is
+  paths used `getNextGlobalIndexFromCueFrames`, which is
   `Math.max(...indexes) + 1`.
-
-(Historical: Animation Data Model v2 removed `globalIndex` entirely;
-both sides now append via `orderKeyBetween` and the divergence cannot
-occur.)
 
 These agree on a healthy timeline (no gaps), and differ when there
 _are_ gaps — e.g. after a delete that wasn't reconciled, the React
 side picks the count (skipping the gap), the agent side picks
 max+1 (preserving the gap as a hole). Tracked in
 [`agent-todo.md`](./agent-todo.md) § Headless presentation
-reconciliation, but listed there under deletion. The right fix is
-to extract a single canonical `nextGlobalIndex` helper and have
-both sides call it; currently the two sides quietly disagree.
+reconciliation, but listed there under deletion. The fix contemplated
+at the time was a single canonical `nextGlobalIndex` helper called by
+both sides.
 
 ### Each frame lives on a single shape
 

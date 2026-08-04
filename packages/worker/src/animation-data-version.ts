@@ -5,8 +5,9 @@ import { TIMELINE_FORMAT_VERSION } from "anipres/models";
  * (docs/design-animation-data-model.md, Risk 6).
  *
  * A v1-era client writing to a v2 document would silently revert newer
- * ordering, and the library no longer converts or tolerates v1 output
- * at all — so stale clients must be excluded from sync writes entirely.
+ * ordering, and the library no longer converts v1 output — it only
+ * recognizes it, as a diagnostic — so stale clients must be excluded
+ * from sync writes entirely.
  * tldraw's store schema versioning does not cover `meta` contents,
  * hence this explicit gate (rationale: TIMELINE_FORMAT_VERSION's
  * docstring in anipres).

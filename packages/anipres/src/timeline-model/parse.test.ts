@@ -30,6 +30,12 @@ describe("parseFrameMeta — total validation", () => {
     expect(parseFrameMeta(meta).kind).toBe("invalid");
   });
 
+  it("recognizes an arbitrarily large safe globalIndex as v1", () => {
+    // The upper bound existed only to keep migration key generation from
+    // iterating forever; recognition has no such limit.
+    expect(parseFrameMeta(v1Cue(1_000_000)).kind).toBe("v1");
+  });
+
   it("accepts valid actions including recognized easings and cameraZoom inset", () => {
     expect(
       parseFrameMeta({
