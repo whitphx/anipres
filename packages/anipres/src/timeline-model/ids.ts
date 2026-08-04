@@ -1,6 +1,5 @@
 // Identity helpers for the v2 timeline model.
-// Spec: docs/design-animation-data-model.md — "Derived TimelineDoc" and
-// "Migration from v1" (Determinism).
+// Spec: docs/design-animation-data-model.md — "Derived TimelineDoc".
 
 /**
  * Reserved prefix for derived (rule-2 synthetic) step ids. Persisted

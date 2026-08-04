@@ -31,8 +31,8 @@ describe("parseFrameMeta — total validation", () => {
   });
 
   it("recognizes an arbitrarily large safe globalIndex as v1", () => {
-    // The upper bound existed only to keep migration key generation from
-    // iterating forever; recognition has no such limit.
+    // Recognition is unbounded: any non-negative safe integer is a v1
+    // index. Only the removed migration needed a ceiling (design doc r9).
     expect(parseFrameMeta(v1Cue(1_000_000)).kind).toBe("v1");
   });
 

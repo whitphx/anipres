@@ -452,9 +452,9 @@ subsection is the record of a divergence that can no longer occur.
   paths used `getNextGlobalIndexFromCueFrames`, which is
   `Math.max(...indexes) + 1`.
 
-These agree on a healthy timeline (no gaps), and differ when there
-_are_ gaps — e.g. after a delete that wasn't reconciled, the React
-side picks the count (skipping the gap), the agent side picks
+These agreed on a healthy timeline (no gaps), and differed when there
+_were_ gaps — e.g. after a delete that wasn't reconciled, the React
+side picked the count (skipping the gap), the agent side picked
 max+1 (preserving the gap as a hole). Tracked in
 [`agent-todo.md`](./agent-todo.md) § Headless presentation
 reconciliation, but listed there under deletion. The fix contemplated
@@ -465,25 +465,25 @@ both sides.
 
 Anipres's animation model attaches a `Frame` (cue or sub) to each
 shape's `meta.frame`. To animate a shape from state A to state B,
-you create _two_ shapes (different ids, same `trackId`) at
-different `globalIndex` values. The agent's `attachCueFrame` action
+you create _two_ shapes (different ids, same `trackId`) in
+different steps. The agent's `attachCueFrame` action
 takes a `prevShapeId` so the agent can chain a new shape onto an
 existing track without needing to know about frame IDs at all.
 
-### Track and globalIndex are auto-assigned
+### Track and step placement are auto-assigned
 
-The agent never sets `trackId` or `globalIndex` directly. The
-`attachCueFrame` apply path:
+The agent never sets `trackId`, `stepId` or `stepOrderKey` directly.
+The `attachCueFrame` apply path:
 
-- Looks up the next available `globalIndex` from existing cue
-  frames.
+- Mints a fresh `stepId` and an order key past the last derived step,
+  appending the cue frame as a new step.
 - If `prevShapeId` is given, reuses _that_ shape's `trackId`. If
   not, mints a new `trackId`.
 
 This keeps the agent's surface narrow ("attach a cue frame to this
 shape, optionally chained from another shape") and prevents
-invariant violations (two shapes with same `trackId` + same
-`globalIndex` → undefined ordering).
+invariant violations (two cue frames sharing both a `trackId` and a
+step, which the derivation has to split apart).
 
 ---
 
@@ -502,11 +502,10 @@ context.
   action completes, not as the JSON arrives. The chat panel's
   inline-action log entries cover the same UX need from a different
   angle.
-- **Headless flows skip presentation reconciliation.** Deleting a
-  frame-bearing shape via CLI/MCP leaves a `globalIndex` gap that
-  the React app's side-effect handler would have healed. Most edits
-  hit non-frame shapes (commit-graph circles, text labels) so this
-  rarely matters in practice.
+- **Headless flows skip presentation reconciliation.** Dissolved by
+  Animation Data Model v2: steps carry explicit ids and fractional
+  order keys, so deleting a frame-bearing shape via CLI/MCP leaves
+  no index gap for a side-effect handler to heal.
 - **No native tool-use.** Discussed above. The custom JSON-action
   protocol gives provider neutrality and progressive parsing at the
   cost of one more thing in our codebase to maintain.

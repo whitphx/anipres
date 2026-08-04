@@ -24,7 +24,7 @@ For the architectural rationale behind the agent (why the worker exists, the aut
 
 ## Headless presentation reconciliation
 
-**Obsolete since Animation Data Model v2.** `globalIndex`, `prevFrameId`, `getNextGlobalIndexFromCueFrames` and `PresentationManager.reconcileShapeDeletion` no longer exist: steps carry explicit ids and fractional order keys, so a deletion leaves no hole to renumber and both sides append via `orderKeyBetween`. The rest of this section is kept as the record of the problem v2 dissolved.
+**Obsolete since Animation Data Model v2.** The persisted `globalIndex` / `prevFrameId` fields are gone from the model, and `getNextGlobalIndexFromCueFrames` / `PresentationManager.reconcileShapeDeletion` no longer exist: steps carry explicit ids and fractional order keys, so a deletion leaves no hole to renumber and both sides append via `orderKeyBetween`. The rest of this section is kept as the record of the problem v2 dissolved.
 
 When a frame-bearing shape is deleted in the React app, `PresentationManager.reconcileShapeDeletion` (registered in `Anipres.tsx`'s `onMount` via `editor.sideEffects.registerAfterDeleteHandler`) renumbers `globalIndex` across remaining steps and heals broken `prevFrameId` chains. **Headless flows (CLI, MCP) don't run that handler** — `loadHeadlessEditor` doesn't register any side effects. Symptom: deleting a slide via the agent CLI/MCP leaves a hole in the timeline (the surviving slides keep their original `globalIndex` values, so loading the snapshot back in the React app finds a gap).
 

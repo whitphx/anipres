@@ -17,8 +17,7 @@ import type { OrderKey } from "./order-key";
  * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6):
  * tldraw's store schema versioning does not cover `meta` contents, so
  * the sync layer enforces a minimum client version against this
- * constant — a v1-era writer would silently revert newer ordering, and
- * nothing tolerates its output anymore.
+ * constant — a v1-era writer would silently revert newer ordering.
  */
 export const TIMELINE_FORMAT_VERSION = 2;
 

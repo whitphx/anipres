@@ -639,8 +639,8 @@ warning so bypassing paths get promoted into the preprocessing layer.
 
 ## Deletion, Orphans, and Reconciliation
 
-`reconcileShapeDeletion` (the `afterDelete` side effect) shrinks
-dramatically:
+Deletion reconciliation shrinks dramatically (so far that the
+`afterDelete` side effect went away entirely):
 
 - **Sub-frame shape deleted**: nothing to do. No chain to heal; remaining
   sub-frames keep their `cueFrameId` and keys.
@@ -983,7 +983,7 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                                     |
 | `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration (removed in r9)     |
 | `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                                    |
-| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                        |
+| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` and `$getNextGlobalIndex` deleted                                                        |
 | `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                                        |
 | `src/Timeline/frame-movement.ts`                   | `moveFrame` keeps the v1 push/sweep semantics and emits structural `EditedStep[]`; the ~40-line "key assignment" estimate was traded off for behavior preservation (see Background & Goals note) — write-back is where the simplification landed |
 | `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                                        |
