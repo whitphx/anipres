@@ -10,12 +10,24 @@
 
 ## Status
 
-Proposed. Nothing implemented. The Animation Data Model v2 work that
-this design builds on (`TimelineDoc`, stable `stepId`s) has shipped in
-`anipres` 0.14.0.
+Proposed. Nothing implemented beyond the throwaway measurements quoted
+in [The Execution Environment](#the-execution-environment). The
+Animation Data Model v2 work that this design builds on (`TimelineDoc`,
+stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r2 (2026-08-04)**: Three review findings resolved. The compiler
+  moves into a real browser (Playwright): r1 assumed the Vite plugin
+  could bake in-process, but Node has no DOM, and a happy-dom shim was
+  measured to run the export while collapsing `autoSize` text and
+  embedding no fonts. A [Bundle Boundary](#bundle-boundary) section is
+  added, because per-deck fallback does not by itself keep tldraw out
+  of the bundle: the fallback must be dynamically imported, elided when
+  unused, and asserted absent by a test. `origin` is no longer baked
+  into embed URLs, since the page origin is unknown at build time; live
+  layers now carry structured parameters and the runtime supplies the
+  deployment-sensitive ones.
 - **r1 (2026-08-04)**: Initial proposal. Hybrid scene format (baked SVG
   for static shapes, live descriptors for interactive ones), three
   animation tiers, per-deck fallback to the tldraw runtime.
@@ -30,7 +42,9 @@ this design builds on (`TimelineDoc`, stable `stepId`s) has shipped in
 - [Shape Tiers](#shape-tiers)
 - [Animation Tiers](#animation-tiers)
 - [The Runtime](#the-runtime)
+- [The Execution Environment](#the-execution-environment)
 - [The Build Pipeline](#the-build-pipeline)
+- [Bundle Boundary](#bundle-boundary)
 - [Fallback and Degradation](#fallback-and-degradation)
 - [Risks & Open Questions](#risks--open-questions)
 - [Spike Plan](#spike-plan)
@@ -183,8 +197,17 @@ interface StaticLayer extends LayerBase {
 
 interface LiveLayer extends LayerBase {
   kind: "embed" | "video" | "bookmark";
-  /** Everything the runtime needs to build the real element. */
-  source: { url: string /* embed params baked in at compile time */ };
+  /**
+   * Structured, NOT a frozen URL: deployment-sensitive parameters such
+   * as `origin` are unknown at build time and are added by the runtime.
+   */
+  source: {
+    baseUrl: string;
+    /** Deployment-independent params, resolved at compile time. */
+    params: Record<string, string>;
+    /** Params the runtime must supply, e.g. "origin". */
+    runtimeParams?: "origin"[];
+  };
 }
 ```
 
@@ -236,13 +259,27 @@ tldraw creates an iframe, and recovers the shape id from
 tldraw's _editing state_ on click so the user can interact with an embed
 during presentation.
 
-In the compiled runtime the iframe is ours. Parameters are baked at
-build time, the element reference is held in a map keyed by `shapeId`,
-and the YouTube IFrame API is called directly when the owning step
-activates. The `MutationObserver`, the id recovery, and the
-editing-state hack all disappear, and "autoplay when the step is
-reached", which is a `TODO` comment in #172 today, becomes an ordinary
-feature of the step runtime.
+In the compiled runtime the iframe is ours. The element reference is
+held in a map keyed by `shapeId`, and the YouTube IFrame API is called
+directly when the owning step activates. The `MutationObserver`, the id
+recovery, and the editing-state hack all disappear, and "autoplay when
+the step is reached", which is a `TODO` comment in #172 today, becomes
+an ordinary feature of the step runtime.
+
+**Not every embed parameter can be baked.** Deployment-independent ones
+(`enablejsapi=1`, `mute=1`) compile fine. `origin` cannot: its value is
+the page origin, which is unknown at build time and differs between a
+local preview, GitHub Pages, and a custom domain, all of which can be
+served from one build. Baking it would produce an iframe whose declared
+origin does not match the page controlling the player, breaking the
+IFrame API exactly where it is meant to work.
+
+So `LiveLayer.source` stores structured parts rather than one frozen
+URL, and the runtime assembles the final `src` at element-creation time,
+adding `origin: window.location.origin` then. Where the origin is opaque
+(a sandboxed iframe without `allow-same-origin`, or a `file://` page)
+the parameter is omitted rather than sent as `"null"`, and the runtime
+falls back to a player without JS API control.
 
 ## Animation Tiers
 
@@ -312,27 +349,136 @@ bridge in production builds:
 The authoring path is unchanged: in dev, `import.meta.hot` is present,
 the existing editor mounts, and saving still writes the snapshot JSON.
 
+## The Execution Environment
+
+Baking requires running tldraw's renderer, so the compiler needs a DOM.
+A Vite production build runs in Node, where there is none. This section
+records what was measured rather than assumed, because the answer
+determines whether the rest of the design is reachable at all.
+
+**Constructing the editor in Node is solved.** `loadHeadlessEditor`
+calls `document.createElement` directly, so plain Node throws. But
+`agent-core` already ships `installDomGlobals()`, which patches a
+happy-dom `window`/`document`/`HTMLElement` onto `globalThis` for
+exactly this reason, and the agent CLI and MCP server run headless
+editing in production on that basis.
+
+**Baking runs under happy-dom, but produces wrong text.** Measured
+against `anipres-and-slidev/fig-webrtc.json`:
+
+- `editor.getSvgString([id])` returns real SVG for every shape type in
+  the deck (`line`, `geo`, `text`, `arrow`, `slide`), and a whole-page
+  bake yields 42,711 characters at 1180.8 x 1032.8.
+- A text shape whose stored `props.w` is **149.73** (`autoSize: true`)
+  measures **16 x 24** through `getShapePageBounds`, and bakes to an
+  80 x 88 SVG. happy-dom has no layout engine, so tldraw's text
+  measurement collapses to roughly one character.
+- Font embedding silently fails. tldraw fetches its font files to inline
+  them, the request goes to `http://localhost:3000/tldraw_draw`, and the
+  export continues after logging a `NetworkError`. The output contains
+  no `@font-face` and no embedded font data.
+- Text is exported as a `<foreignObject>` containing HTML styled with
+  `font-family: tldraw_draw`, not as SVG glyph outlines.
+
+So a DOM shim is sufficient to _run_ the export and insufficient to make
+it _correct_. Since text is 214 of the 985 shapes in the corpus, and
+`autoSize` text is the specific thing that breaks, this rules out the
+Node-plus-shim architecture.
+
+**Decision: compile in a real browser.** The compiler drives headless
+Chromium through Playwright: load a page, install anipres and the
+snapshot, run the bake, and return `CompiledScene` as JSON. Only a real
+layout engine measures text the way the authoring editor did, which is
+also the only way the baked geometry can match what the author saw.
+
+Consequences to accept deliberately:
+
+- Playwright becomes a build-time dependency of the addon, with a
+  browser download. It must be optional, so that installing the addon
+  without ever running a production compile does not pull a browser.
+- The Vite plugin **orchestrates** rather than computes: it collects
+  snapshots, hands them to the browser-side compiler, and writes the
+  results. No tldraw import survives in the plugin's Node context.
+- Build time grows by roughly one page load per deck, amortised over
+  all its slides.
+- CI needs the browser available.
+
+The two rejected alternatives, recorded so they are not re-proposed:
+a Node DOM shim (measured above: wrong text), and a tldraw server-side
+export API (none exists in the pinned 3.15.5; `getSvgString` is a method
+on the browser `Editor`).
+
 ## The Build Pipeline
 
 The addon's existing Vite plugin already owns the snapshot lifecycle
 (it receives `anipres-snapshot` over the hot channel and serves
 snapshots through the `/@slidev-anipres-snapshot` virtual module). The
-compiler slots in there:
+compiler slots in there, delegating the actual work to the browser:
 
-1. On production build, for each snapshot, boot a headless editor. The
-   machinery exists: `loadHeadlessEditor` in `headless-editor-utils.ts`.
-2. Derive the timeline with `deriveTimeline`. Any diagnostic is a build
-   warning. Once PR #490 lands, an unconverted deck surfaces as a
-   `v1-frame` diagnostic, which should be a build error telling the
-   author to convert the deck rather than a warning; before then, 0.14.x
-   still migrates v1 data on load and the case cannot arise.
+1. On production build, collect every snapshot and start one browser
+   page for the deck.
+2. In the page, for each snapshot: boot the editor with
+   `loadHeadlessEditor`, wait for fonts (`document.fonts.ready`) so text
+   measures against the real faces, and derive the timeline with
+   `deriveTimeline`. Any diagnostic is a build warning. Once PR #490
+   lands, an unconverted deck surfaces as a `v1-frame` diagnostic, which
+   should be a build error telling the author to convert the deck;
+   before then, 0.14.x still migrates v1 data on load and the case
+   cannot arise.
 3. Partition shapes into static and live, flatten groups, bake static
-   layers with `editor.getSvgString`.
-4. Emit `CompiledScene` and have the virtual module serve it instead of
-   the raw snapshot.
+   layers with `editor.getSvgString`, and assert that fonts were
+   embedded rather than silently skipped.
+4. Return `CompiledScene` to Node, emit it, and have the virtual module
+   serve it instead of the raw snapshot.
 
-Dev builds keep serving the snapshot, so authoring is unaffected and the
-compiler only runs where it pays off.
+Dev builds keep serving the snapshot, so authoring is unaffected, no
+browser is launched, and the compiler only runs where it pays off.
+
+## Bundle Boundary
+
+Goal 1 is not achieved by compiling scenes; it is achieved by there
+being no import path from the production entry to tldraw. That is a
+property of the module graph, and it has to be designed and then
+asserted, because today `SlidevAnipres.vue` statically imports from
+`"anipres"` (both the component and `calculateTotalSteps`), which pulls
+the editor, React, and veaury into the deck bundle unconditionally.
+
+Rules:
+
+- The production component imports **only** the compiled runtime. It
+  must have no static import path to `anipres`'s main entry, React,
+  veaury, or tldraw. `calculateTotalSteps` disappears from it entirely,
+  since the step count is `timeline.steps.length`.
+- The editor is reached exclusively through `await import(...)`, on two
+  paths: the dev-only authoring path (already gated on
+  `import.meta.hot`), and the fallback viewer.
+- When every scene in a build compiles and no `compile: false` opt-out
+  exists, the fallback chunk must not be emitted at all. The compiler
+  knows this at build time and can strip the dynamic import through a
+  define or a virtual module that resolves to a stub.
+- When only some slides fall back, the fallback chunk is fetched lazily,
+  when such a slide is first rendered, and is never preloaded. A deck
+  with one exotic slide must not pay for tldraw on slide 1.
+
+**Acceptance test.** A build of a fully compiled deck is asserted to
+contain no tldraw code, by scanning the emitted chunks for a tldraw
+marker and failing the test if it appears. Without that assertion the
+goal silently regresses the first time someone adds a convenience
+import, which is precisely how the current static import arose.
+
+## Fallback and Degradation
+
+The compiler must never silently produce a lesser deck. Two rules:
+
+- **Unknown shape type**, or a static shape whose `toSvg` returns
+  `null`: fail the compile for that deck with a message naming the shape
+  and type, and fall back to the tldraw runtime for that deck, loaded
+  dynamically per the boundary rules above.
+- **An explicit opt-out** (`compile: false` on the component) for
+  authors who hit a fidelity problem and need the old path immediately.
+
+This makes adoption incremental, and it means the compiled path can ship
+before it covers every shape tldraw offers.
 
 ## Fallback and Degradation
 
@@ -351,43 +497,66 @@ before it covers every shape tldraw offers.
 
 ## Risks & Open Questions
 
-1. **Text and font fidelity.** The highest risk, and the reason the
-   spike below starts here. tldraw measures `autoSize` text against the
-   DOM, which is already fragile enough to need `resetTextAutoSize` at
-   runtime; baking that measurement at build time could produce text
-   that is subtly wrong in a way nobody notices until a talk. Font
-   embedding in the exported SVG also needs checking against the decks'
-   custom fonts (`XiaolaiSC`, the Excalifont path).
-2. **Artifact size.** Baked SVG plus embedded fonts could exceed the
+1. **Text and font fidelity.** Still the highest risk, now partly
+   characterised (see [Execution Environment](#the-execution-environment)).
+   Under a DOM shim it is not a subtle risk but a certain failure:
+   `autoSize` text measures 16 x 24 where the author's browser produced
+   149.73. Compiling in a real browser is necessary, and the open
+   question is whether it is sufficient. `document.fonts.ready` must be
+   awaited before measuring, the deck's custom faces (`XiaolaiSC`, the
+   Excalifont path) must be loaded in the compile page rather than the
+   viewer's, and font embedding must be asserted rather than trusted,
+   since the export logs a `NetworkError` and continues when the fetch
+   fails.
+2. **`foreignObject` text.** tldraw exports rich text as HTML inside a
+   `<foreignObject>`, not as glyph outlines. This renders in browsers
+   when the SVG is inline, which is what the runtime does, but it means
+   compiled layers cannot be dropped into an `<img src="...svg">`, and
+   it constrains any later rasterisation or PDF path. It also means the
+   runtime must ship the fonts, so removing tldraw does not remove the
+   font payload.
+3. **Artifact size.** Baked SVG plus embedded fonts could exceed the
    snapshot JSON it replaces, partly offsetting the bundle win. Needs
    measurement on a large deck (`fig-gradio-lite.json` is 831 KB of
    snapshot).
-3. **Dark mode.** `theme-image` resolves light or dark at render time,
+4. **Dark mode.** `theme-image` resolves light or dark at render time,
    and `useDarkMode()` feeds the current editor. Either bake both
    variants and switch at runtime, or bake per theme.
-4. **Asset resolution.** `resolveAssetUrl` in the export context must
+5. **Asset resolution.** `resolveAssetUrl` in the export context must
    produce URLs that survive into the built deck rather than blob URLs
    scoped to the build process.
-5. **Live layer scaling.** Iframes scale by CSS transform, which can
+6. **Live layer scaling.** Iframes scale by CSS transform, which can
    blur or mis-hit-test at non-integer scales. The current inverse-scale
    plumbing exists partly for this reason and may need a compiled
    equivalent after all.
-6. **Behavioural drift.** Tiers 1 and 2 reimplement easing and timing
+7. **Behavioural drift.** Tiers 1 and 2 reimplement easing and timing
    that tldraw currently owns. Side-by-side comparison against the
    tldraw runtime should be part of the spike, not an afterthought.
+8. **Build-time cost and CI.** Playwright plus a browser download is a
+   real tax on `pnpm install` and on CI images. It must be an optional
+   dependency that only production compiles require, and the failure
+   mode when the browser is absent should be a clear message plus
+   fallback, not a crash.
 
 ## Spike Plan
 
 Ordered so that the riskiest unknown is answered first, and each step
 produces a decision rather than code to keep.
 
+0. **Execution environment (partly done).** Already measured: a
+   happy-dom shim runs `getSvgString` but collapses `autoSize` text and
+   embeds no fonts, so the remaining question is only whether a
+   Playwright-driven Chromium reproduces the authoring browser's
+   measurements. Bake `anipres-and-slidev/fig-webrtc.json` there and
+   compare the text shape's measured bounds against its stored
+   `props.w` of 149.73. **Decision: does a real browser measure text
+   as the author's editor did?** Everything else depends on this.
 1. **Text and font fidelity (highest risk).** Take
    `202502-oss-pycon-and-me/timeline.json` (33 frames, heavy text) and
-   `anipres-and-slidev/fig-webrtc.json`. Bake every shape with
-   `getSvgString`, render the result next to a tldraw-rendered
+   `anipres-and-slidev/fig-webrtc.json`. Bake every shape in the browser
+   environment from step 0, render the result next to a tldraw-rendered
    screenshot at the same size, and diff. **Decision: does baked text
-   match, and at what cost in embedded font bytes?** If this fails, the
-   whole design needs rethinking, so nothing else should be built first.
+   match visually, and at what cost in embedded font bytes?**
 2. **Artifact size.** Measure compiled output against snapshot size for
    the largest deck. **Decision: is the bundle win real once fonts are
    embedded?**
