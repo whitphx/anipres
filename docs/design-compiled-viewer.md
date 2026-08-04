@@ -17,6 +17,20 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r3 (2026-08-04)**: Format gaps closed after a second review.
+  `CompiledScene` gains `cameraTargets`, without which `cameraZoom`
+  could not execute at all once `slide` shapes are dropped:
+  `CameraZoomFrameAction` carries only `inset`/`duration`/`easing`, and
+  the live runtime resolves the rectangle by asking the editor for the
+  shape's page bounds. The timeline is therefore described as enriched
+  rather than verbatim. Live layers become discriminated
+  (`EmbedLayer`/`VideoLayer`/`BookmarkLayer`), since a bookmark card is
+  rendered from a `TLBookmarkAsset` that a URL-shaped descriptor cannot
+  carry. Adds [The Compile Manifest](#the-compile-manifest) for the
+  per-component inputs (fonts, theme, opt-out) that live in component
+  props rather than in the snapshot. Also fixes two internal
+  contradictions: a duplicated fallback section, and an `<img>`
+  rendering path that the `foreignObject` risk rules out.
 - **r2 (2026-08-04)**: Three review findings resolved. The compiler
   moves into a real browser (Playwright): r1 assumed the Vite plugin
   could bake in-process, but Node has no DOM, and a happy-dom shim was
@@ -44,6 +58,7 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 - [The Runtime](#the-runtime)
 - [The Execution Environment](#the-execution-environment)
 - [The Build Pipeline](#the-build-pipeline)
+- [The Compile Manifest](#the-compile-manifest)
 - [Bundle Boundary](#bundle-boundary)
 - [Fallback and Degradation](#fallback-and-degradation)
 - [Risks & Open Questions](#risks--open-questions)
@@ -170,17 +185,35 @@ the design tractable.
 One artifact per deck slide, emitted at build time:
 
 ```ts
+interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface CompiledScene {
   version: 1;
-  /** The derived timeline, verbatim. Array order = presentation order. */
+  /**
+   * The derived timeline, ENRICHED (see `cameraTargets`). Array order =
+   * presentation order.
+   */
   timeline: TimelineDoc;
+  /**
+   * Page-space target rectangle for every `cameraZoom` frame, keyed by
+   * the frame's `shapeId`. The live runtime reads this from the `slide`
+   * shape via `editor.getShapePageBounds`; the compiled runtime has no
+   * shape to ask, and `CameraZoomFrameAction` carries only `inset`,
+   * `duration`, and `easing`, so the bounds must be resolved here.
+   */
+  cameraTargets: Record<string, Bounds>;
   /** Page-space bounds of the whole scene, for the initial camera. */
-  bounds: { x: number; y: number; w: number; h: number };
+  bounds: Bounds;
   /** Every renderable shape, in z-order. */
   layers: CompiledLayer[];
 }
 
-type CompiledLayer = StaticLayer | LiveLayer;
+type CompiledLayer = StaticLayer | EmbedLayer | VideoLayer | BookmarkLayer;
 
 interface LayerBase {
   shapeId: string;
@@ -191,12 +224,17 @@ interface LayerBase {
 
 interface StaticLayer extends LayerBase {
   kind: "svg";
-  /** Baked markup from editor.getSvgString([shape]). */
+  /** Baked markup from editor.getSvgString([shape]). Rendered INLINE. */
   svg: string;
 }
 
-interface LiveLayer extends LayerBase {
-  kind: "embed" | "video" | "bookmark";
+/**
+ * Live layers are discriminated, because a URL alone cannot describe
+ * them: a bookmark's card is rendered from asset metadata, and a video
+ * needs its poster and playback attributes.
+ */
+interface EmbedLayer extends LayerBase {
+  kind: "embed";
   /**
    * Structured, NOT a frozen URL: deployment-sensitive parameters such
    * as `origin` are unknown at build time and are added by the runtime.
@@ -209,11 +247,48 @@ interface LiveLayer extends LayerBase {
     runtimeParams?: "origin"[];
   };
 }
+
+interface VideoLayer extends LayerBase {
+  kind: "video";
+  source: {
+    src: string;
+    /** Baked frame-0 image, for first paint before the video loads. */
+    posterDataUrl?: string;
+    autoplay: boolean;
+    loop: boolean;
+    muted: boolean;
+  };
+}
+
+interface BookmarkLayer extends LayerBase {
+  kind: "bookmark";
+  /**
+   * Copied from the shape's `TLBookmarkAsset`, which the raw snapshot
+   * carries and the compiled artifact replaces.
+   */
+  source: {
+    url: string;
+    title: string;
+    description?: string;
+    imageUrl?: string;
+    faviconUrl?: string;
+  };
+}
 ```
 
-`timeline` is stored as-is. It already carries `stepId` (stable click
-mapping), `trackId`, per-frame `action` with `duration`/`easing`, and the
-`shapeId` of every frame, which is the join key to `layers`.
+`timeline` is **not** verbatim. It is the derived `TimelineDoc` plus
+`cameraTargets`, which is the one piece of information the derivation
+does not carry: `cameraZoom` frames name a `shapeId` and an `inset`, and
+the live runtime resolves the rectangle by asking the editor for that
+`slide` shape's page bounds. Since the compiler drops `slide` shapes,
+the rectangle has to be resolved at compile time and stored, or 62 of
+the corpus's 70 morph pairs cannot execute.
+
+Live-layer sources are discriminated for the same reason. A bookmark's
+card is not derivable from its URL: the metadata lives in a separate
+`TLBookmarkAsset` record. In the corpus, one such asset holds
+`{ src, title, description, image, favicon }`, and dropping the snapshot
+drops the only copy.
 
 Everything the runtime needs is in this one artifact. It replaces the
 `.slidev/anipres/snapshots/*.json` payload in production builds, while
@@ -230,18 +305,23 @@ the runtime move and fade layers separately.
 runtime creates the element:
 
 - `embed`: an `<iframe>`. The compiler resolves the embed definition and
-  bakes the final URL, including the YouTube parameters that PR #172
-  currently injects at runtime (`enablejsapi=1`, `mute=1`, `origin`).
-- `video`: a `<video>` element, with the poster frame optionally baked
-  alongside for first paint.
-- `bookmark`: the link preview card, rendered from its already-fetched
-  metadata.
+  the deployment-independent parameters that PR #172 currently injects
+  at runtime (`enablejsapi=1`, `mute=1`). `origin` is deliberately left
+  to the runtime; see below.
+- `video`: a `<video>` element, carrying its playback attributes plus
+  the poster frame baked for first paint (which is all
+  `VideoShapeUtil.toSvg` would have given us anyway).
+- `bookmark`: the link preview card. Its metadata lives in a
+  `TLBookmarkAsset` record rather than on the shape, so the compiler
+  copies the asset's fields into the layer.
 
 **The `slide` shape is not a layer at all.** It is a camera region: the
 presentation runtime hides it (`$getShapeVisibilitiesInPresentationMode`
 returns `hidden` for it today) and uses only its bounds for
-`cameraZoom`. The compiler emits its bounds into the timeline's camera
-actions and drops the shape.
+`cameraZoom`. The compiler resolves those bounds into
+`CompiledScene.cameraTargets`, keyed by the frame's `shapeId`, and then
+drops the shape. Resolving them is mandatory rather than an
+optimisation: nothing in `TimelineDoc` can carry a rectangle.
 
 **Groups** are flattened. A group contributes no markup of its own; its
 transform is composed into each descendant layer's page-space
@@ -334,8 +414,11 @@ A small Vue component in `slidev-addon-anipres`, replacing the veaury
 bridge in production builds:
 
 - Renders `layers` as absolutely positioned elements inside a scene
-  container: `<svg>`/`<img>` for `kind: "svg"`, real elements for live
-  layers.
+  container: **inline** `<svg>` for `kind: "svg"`, real elements for live
+  layers. Inline is not a preference but a constraint: baked text is HTML
+  inside a `<foreignObject>`, which does not render through
+  `<img src="...svg">`, so an image-tag path would silently blank every
+  text layer.
 - Maps Slidev's click index to a step index, exactly as
   `SlidevAnipres.vue` does today via `calculateTotalSteps`. Since
   `timeline.steps.length` is now a plain array length, `calculateTotalSteps`
@@ -415,24 +498,75 @@ The addon's existing Vite plugin already owns the snapshot lifecycle
 snapshots through the `/@slidev-anipres-snapshot` virtual module). The
 compiler slots in there, delegating the actual work to the browser:
 
-1. On production build, collect every snapshot and start one browser
-   page for the deck.
-2. In the page, for each snapshot: boot the editor with
-   `loadHeadlessEditor`, wait for fonts (`document.fonts.ready`) so text
-   measures against the real faces, and derive the timeline with
+1. On production build, collect every snapshot plus the compile manifest
+   (see [The Compile Manifest](#the-compile-manifest)) and start one
+   browser page for the deck. Entries marked `compile: false` are
+   skipped and recorded as fallbacks.
+2. In the page, for each snapshot: load the manifest entry's fonts,
+   await `document.fonts.ready` so text measures against the real faces
+   rather than a fallback, boot the editor with `loadHeadlessEditor`,
+   and derive the timeline with
    `deriveTimeline`. Any diagnostic is a build warning. Once PR #490
    lands, an unconverted deck surfaces as a `v1-frame` diagnostic, which
    should be a build error telling the author to convert the deck;
    before then, 0.14.x still migrates v1 data on load and the case
    cannot arise.
-3. Partition shapes into static and live, flatten groups, bake static
-   layers with `editor.getSvgString`, and assert that fonts were
+3. Partition shapes into static and live, flatten groups, resolve
+   `cameraTargets` from the `slide` shapes before dropping them, bake
+   static layers with `editor.getSvgString`, and assert that fonts were
    embedded rather than silently skipped.
 4. Return `CompiledScene` to Node, emit it, and have the virtual module
    serve it instead of the raw snapshot.
 
 Dev builds keep serving the snapshot, so authoring is unaffected, no
 browser is launched, and the compiler only runs where it pays off.
+
+## The Compile Manifest
+
+The compiler needs inputs the snapshot does not contain. A scene's
+rendered appearance also depends on component props that
+`SlidevAnipres.vue` applies at mount time, and on ambient state:
+
+- `fontUrls` / `fontUrl`, which override tldraw's font assets.
+- `excalidrawLikeFont`, which swaps the draw font.
+- The light/dark colour scheme, read from `useDarkMode()`.
+- The proposed `compile: false` opt-out.
+
+The Vite plugin currently knows only `snapshotId -> JSON file`. Handing
+that to the browser compiler would bake text measured against the wrong
+faces, which defeats the whole point of compiling in a real browser, and
+would leave the build unable to tell whether a component opted out,
+which is the precondition for eliding the fallback chunk.
+
+So the plugin emits a manifest alongside the snapshots:
+
+```ts
+interface CompileManifestEntry {
+  snapshotId: string;
+  compile: boolean;
+  /** Resolved absolute URLs, so the compile page loads the same faces. */
+  fontUrls: Record<string, string>;
+  drawFontFamily: string;
+  /** Which colour schemes to bake; see the dark-mode risk. */
+  themes: ("light" | "dark")[];
+}
+```
+
+**How the manifest is produced** is the open part, and the answer
+depends on how the values are written:
+
+- **Static literals** (`<SlidevAnipres id="x" :excalidraw-like-font="true" />`)
+  can be read by parsing the slide's SFC at build time. This covers the
+  corpus, where the props are literals or absent.
+- **Deck-level configuration** (addon options or frontmatter) is
+  strictly easier and is the recommended way to express fonts, since
+  they are almost always uniform across a deck.
+- **Arbitrary Vue expressions** cannot be resolved statically. Such a
+  component is marked `compile: false` and falls back, rather than being
+  compiled against a guess.
+
+The manifest is therefore also the mechanism by which the build knows
+whether every scene compiled, which the next section depends on.
 
 ## Bundle Boundary
 
@@ -474,21 +608,6 @@ The compiler must never silently produce a lesser deck. Two rules:
   `null`: fail the compile for that deck with a message naming the shape
   and type, and fall back to the tldraw runtime for that deck, loaded
   dynamically per the boundary rules above.
-- **An explicit opt-out** (`compile: false` on the component) for
-  authors who hit a fidelity problem and need the old path immediately.
-
-This makes adoption incremental, and it means the compiled path can ship
-before it covers every shape tldraw offers.
-
-## Fallback and Degradation
-
-The compiler must never silently produce a lesser deck. Two rules:
-
-- **Unknown shape type**, or a static shape whose `toSvg` returns
-  `null`: fail the compile for that deck with a message naming the shape
-  and type, and fall back to shipping the tldraw runtime for that deck.
-  Per-deck granularity keeps one exotic shape from disabling the
-  optimisation everywhere.
 - **An explicit opt-out** (`compile: false` on the component) for
   authors who hit a fidelity problem and need the old path immediately.
 
