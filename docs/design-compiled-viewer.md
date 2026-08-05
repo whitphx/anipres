@@ -17,6 +17,22 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r4 (2026-08-06)**: Four findings from a third review. `CompiledScene`
+  gains per-theme `variants`, because `ThemeImageShapeUtil.toSvg` reads
+  `ctx.isDarkMode` and resolves a different `assetId`, `dimension`, and
+  `crop`, so layers and scene bounds differ per theme and a runtime style
+  swap cannot express it. Adds an explicit
+  [coordinate contract](#the-coordinate-contract) for independently
+  exported layers, after measuring that the markup is already
+  page-transformed and padded (an arrow with zero geometric height
+  exports 64px tall), so the previous schema would have double-applied
+  position and clipped stroke overflow. Infrastructure failures now fail
+  the build by default rather than falling back, since a missing browser
+  binary would otherwise publish the whole tldraw runtime. The
+  artifact-size spike is extended to measure font duplication across
+  per-shape exports. Also corrects a stale `LiveLayer.source` reference
+  and the claim that `timeline` is enriched; it is unmodified, and the
+  additions are sibling fields.
 - **r3 (2026-08-04)**: Format gaps closed after a second review.
   `CompiledScene` gains `cameraTargets`, without which `cameraZoom`
   could not execute at all once `slide` shapes are dropped:
@@ -195,8 +211,9 @@ interface Bounds {
 interface CompiledScene {
   version: 1;
   /**
-   * The derived timeline, ENRICHED (see `cameraTargets`). Array order =
-   * presentation order.
+   * The derived timeline, UNMODIFIED. Theme does not affect it, and
+   * neither does compilation: the extra data the runtime needs lives in
+   * sibling fields, never inside `TimelineDoc`.
    */
   timeline: TimelineDoc;
   /**
@@ -205,8 +222,21 @@ interface CompiledScene {
    * shape via `editor.getShapePageBounds`; the compiled runtime has no
    * shape to ask, and `CameraZoomFrameAction` carries only `inset`,
    * `duration`, and `easing`, so the bounds must be resolved here.
+   * Theme-independent, since `slide` bounds do not vary by theme.
    */
   cameraTargets: Record<string, Bounds>;
+  /**
+   * One fully baked scene per colour scheme. A theme-image shape
+   * resolves a different asset AND a different `dimension` and `crop`
+   * per theme, so layers and scene bounds genuinely differ; a runtime
+   * style swap cannot express it.
+   */
+  variants: Partial<Record<Theme, CompiledSceneVariant>>;
+}
+
+type Theme = "light" | "dark";
+
+interface CompiledSceneVariant {
   /** Page-space bounds of the whole scene, for the initial camera. */
   bounds: Bounds;
   /** Every renderable shape, in z-order. */
@@ -217,15 +247,35 @@ type CompiledLayer = StaticLayer | EmbedLayer | VideoLayer | BookmarkLayer;
 
 interface LayerBase {
   shapeId: string;
-  /** Page-space placement; groups are already flattened into this. */
+  /**
+   * The shape's MODEL transform in page space, groups already
+   * flattened. Used to compute animation deltas between keyframes, NOT
+   * to place a `StaticLayer` (see `StaticLayer.svg`). Live layers, whose
+   * elements the runtime builds itself, do position by this.
+   */
   transform: { x: number; y: number; w: number; h: number; rotation: number };
   opacity: number;
 }
 
 interface StaticLayer extends LayerBase {
   kind: "svg";
-  /** Baked markup from editor.getSvgString([shape]). Rendered INLINE. */
+  /**
+   * Baked markup from editor.getSvgString([shape]). Rendered INLINE.
+   *
+   * ALREADY PAGE-TRANSFORMED. Its `viewBox` is in page coordinates and
+   * its root `<g>` carries the shape's page transform, so the runtime
+   * must NOT position it by `LayerBase.transform`; doing so applies the
+   * position twice. See the coordinate contract below.
+   */
   svg: string;
+  /**
+   * The rectangle the `svg` covers, in page space: the shape's page
+   * bounds grown by `padding` on every side. This, not `transform`, is
+   * where the element goes.
+   */
+  exportBounds: Bounds;
+  /** Padding baked into `exportBounds`, recorded so it is not guessed. */
+  padding: number;
 }
 
 /**
@@ -276,13 +326,49 @@ interface BookmarkLayer extends LayerBase {
 }
 ```
 
-`timeline` is **not** verbatim. It is the derived `TimelineDoc` plus
-`cameraTargets`, which is the one piece of information the derivation
-does not carry: `cameraZoom` frames name a `shapeId` and an `inset`, and
-the live runtime resolves the rectangle by asking the editor for that
-`slide` shape's page bounds. Since the compiler drops `slide` shapes,
-the rectangle has to be resolved at compile time and stored, or 62 of
-the corpus's 70 morph pairs cannot execute.
+`timeline` is a plain `TimelineDoc`, unchanged by compilation. What the
+compiler adds sits beside it: `cameraTargets` carries the one piece of
+information the derivation cannot, because `cameraZoom` frames name a
+`shapeId` and an `inset` while the live runtime resolves the rectangle
+by asking the editor for that `slide` shape's page bounds. Since the
+compiler drops `slide` shapes, the rectangle must be resolved at compile
+time and stored, or 62 of the corpus's 70 morph pairs cannot execute.
+
+### The coordinate contract
+
+Per-shape export does not return a shape-sized, origin-relative
+picture, and treating it as one is the subtle way to get every layer
+slightly wrong. Measured on `fig-webrtc.json`:
+
+| shape | model `x`/`y`  | page bounds                        | svg size        | `viewBox` origin | root `<g>`                        |
+| ----- | -------------- | ---------------------------------- | --------------- | ---------------- | --------------------------------- |
+| arrow | 180.06, 200.60 | 149.47, 200.60 · 601.69 x **0.00** | 665.69 x 64.00  | 117.47, 168.60   | `matrix(1,0,0,1, 180.06, 200.60)` |
+| geo   | 645.00, 80.30  | 645.00, 80.30 · 214.00 x 61.70     | 278.00 x 125.70 | 613.00, 48.30    | `matrix(1,0,0,1, 645.00, 80.30)`  |
+
+Three facts follow, and the contract is built on them:
+
+1. **The `viewBox` is in page coordinates**, offset from the page bounds
+   by the export padding (32 per side by default: 149.47 - 32 = 117.47).
+2. **The page transform is already inside the markup**, as the root
+   `<g>`'s matrix. Placing the SVG at `transform.x`/`y` would apply the
+   translation twice.
+3. **Visual extent exceeds model bounds.** The arrow's geometric height
+   is _zero_, while its export is 64 tall: stroke width and arrowheads
+   live entirely in the padding. Sizing a layer box from `transform.w`/`h`
+   would clip them.
+
+**Contract.** A `StaticLayer`'s `svg` is treated as already
+page-transformed. The runtime positions the element at `exportBounds`,
+applies no base transform of its own, and uses `LayerBase.transform`
+only to compute _deltas_ for Tier 2 animation, which are applied on top.
+`padding` is recorded rather than assumed, because it is an export
+option and a future default change would silently shift every layer.
+
+**Unverified: rotation.** No shape in the corpus is rotated, so the
+interaction between a non-zero `rotation` and the already-baked matrix
+is untested. The spike must cover a rotated arrow, a thick-stroked
+shape, and a rotated child inside a group before this contract is
+trusted.
 
 Live-layer sources are discriminated for the same reason. A bookmark's
 card is not derivable from its URL: the metadata lives in a separate
@@ -354,7 +440,7 @@ served from one build. Baking it would produce an iframe whose declared
 origin does not match the page controlling the player, breaking the
 IFrame API exactly where it is meant to work.
 
-So `LiveLayer.source` stores structured parts rather than one frozen
+So `EmbedLayer.source` stores structured parts rather than one frozen
 URL, and the runtime assembles the final `src` at element-creation time,
 adding `origin: window.location.origin` then. Where the origin is opaque
 (a sandboxed iframe without `allow-same-origin`, or a `file://` page)
@@ -419,6 +505,11 @@ bridge in production builds:
   inside a `<foreignObject>`, which does not render through
   `<img src="...svg">`, so an image-tag path would silently blank every
   text layer.
+- Selects the `CompiledSceneVariant` for the current colour scheme,
+  watching Slidev's `useDarkMode()` and re-rendering layers on change.
+  If the requested theme was not compiled, it falls back to the one that
+  was, since a stale-but-correct scene beats a blank one; the manifest's
+  `themes` is what decides which exist.
 - Maps Slidev's click index to a step index, exactly as
   `SlidevAnipres.vue` does today via `calculateTotalSteps`. Since
   `timeline.steps.length` is now a plain array length, `calculateTotalSteps`
@@ -602,17 +693,37 @@ import, which is precisely how the current static import arose.
 
 ## Fallback and Degradation
 
-The compiler must never silently produce a lesser deck. Two rules:
+The compiler must never silently produce a lesser deck, and the two
+ways a compile can fail are not the same kind of event.
 
-- **Unknown shape type**, or a static shape whose `toSvg` returns
-  `null`: fail the compile for that deck with a message naming the shape
-  and type, and fall back to the tldraw runtime for that deck, loaded
-  dynamically per the boundary rules above.
-- **An explicit opt-out** (`compile: false` on the component) for
-  authors who hit a fidelity problem and need the old path immediately.
+**Unsupported content falls back.** An unknown shape type, or a static
+shape whose `toSvg` returns `null`, fails the compile for that deck with
+a message naming the shape and type, and that deck loads the tldraw
+runtime dynamically per the boundary rules above. An explicit
+`compile: false` behaves the same way. This is what makes adoption
+incremental, and it lets the compiled path ship before it covers every
+shape tldraw offers.
 
-This makes adoption incremental, and it means the compiled path can ship
-before it covers every shape tldraw offers.
+**Infrastructure failure fails the build.** A missing Chromium, a
+browser crash, fonts that do not load, or the font-embedding assertion
+tripping are not statements about the deck. Falling back on them means a
+machine that merely lacks a browser binary publishes a deck containing
+the entire tldraw runtime, which is the exact outcome this work exists
+to prevent, announced only by a warning nobody reads in CI output. So:
+
+```ts
+/** Addon option. Default "error". */
+compileFailure: "error" | "fallback";
+```
+
+Infrastructure failures stop a production build unless the author opts
+into `"fallback"` deliberately.
+
+This distinction matters more than it looks, because installing the
+Playwright package does not install a browser: the binary download is a
+separate step, and CI images routinely have the library without it. An
+optional dependency solves the install-weight problem and not the
+execution one, so the default has to be loud.
 
 ## Risks & Open Questions
 
@@ -638,9 +749,13 @@ before it covers every shape tldraw offers.
    snapshot JSON it replaces, partly offsetting the bundle win. Needs
    measurement on a large deck (`fig-gradio-lite.json` is 831 KB of
    snapshot).
-4. **Dark mode.** `theme-image` resolves light or dark at render time,
-   and `useDarkMode()` feeds the current editor. Either bake both
-   variants and switch at runtime, or bake per theme.
+4. **Dark mode.** Resolved in r4 by baking one `CompiledSceneVariant`
+   per theme, since `ThemeImageShapeUtil.toSvg` reads `ctx.isDarkMode`
+   and selects a per-theme `assetId`, `dimension`, and `crop`, so
+   geometry and scene bounds differ and a style swap cannot express it.
+   What remains open is cost: two variants roughly double the baked
+   payload for decks that use theme images, which folds into the
+   artifact-size spike.
 5. **Asset resolution.** `resolveAssetUrl` in the export context must
    produce URLs that survive into the built deck rather than blob URLs
    scoped to the build process.
@@ -653,9 +768,11 @@ before it covers every shape tldraw offers.
    tldraw runtime should be part of the spike, not an afterthought.
 8. **Build-time cost and CI.** Playwright plus a browser download is a
    real tax on `pnpm install` and on CI images. It must be an optional
-   dependency that only production compiles require, and the failure
-   mode when the browser is absent should be a clear message plus
-   fallback, not a crash.
+   dependency that only production compiles require. Note that
+   installing the package does not install the browser, so CI needs an
+   explicit install step; per
+   [Fallback and Degradation](#fallback-and-degradation), its absence
+   fails the build by default rather than silently shipping tldraw.
 
 ## Spike Plan
 
@@ -676,21 +793,39 @@ produces a decision rather than code to keep.
    environment from step 0, render the result next to a tldraw-rendered
    screenshot at the same size, and diff. **Decision: does baked text
    match visually, and at what cost in embedded font bytes?**
-2. **Artifact size.** Measure compiled output against snapshot size for
-   the largest deck. **Decision: is the bundle win real once fonts are
-   embedded?**
-3. **One deck end to end.** Compile `202602-oss-give-and-take`
+2. **Artifact size, and font duplication in particular.** tldraw's
+   export is self-contained: it inlines the fonts the exported content
+   needs. Per-shape export therefore risks embedding the same face once
+   per text layer, and the corpus has 214 text shapes. The scale is not
+   hypothetical, since the addon's own draw font
+   (`XiaolaiSC-Regular.ttf`) is 22 MB before the build's subsetting
+   pass. This could not be measured in the happy-dom probe because the
+   font fetch failed there, so it is genuinely open. Report, for the
+   largest deck: total embedded font bytes, unique bytes after
+   deduplication, repeated bytes across layers, and output size with
+   fonts hoisted to scene or deck level. **Decision: is the bundle win
+   real, and must fonts be shared rather than embedded?** The likely
+   answer is shared scene-level font CSS or emitted font assets, with
+   layer SVGs referring to them, which would change `StaticLayer`.
+3. **The coordinate contract under rotation.** Author a scratch deck
+   with a rotated arrow, a thick-stroked shape, and a rotated child
+   inside a group, then verify that positioning each layer at
+   `exportBounds` reproduces the tldraw rendering pixel for pixel.
+   **Decision: does the already-page-transformed contract hold when
+   `rotation` is non-zero?** Tier 2 has no well-defined endpoints until
+   it does.
+4. **One deck end to end.** Compile `202602-oss-give-and-take`
    (9 steps, no embeds, one morph) and play it in a throwaway runtime.
    **Decision: do camera and Tier 2 transitions look right against the
    tldraw original?**
-4. **A live layer.** Add an embed-bearing deck and wire YouTube autoplay
+5. **A live layer.** Add an embed-bearing deck and wire YouTube autoplay
    through the IFrame API. **Decision: is the embed story actually
    simpler, as this document claims?**
-5. **Tier 3.** Implement crossfade, compare against tldraw on the seven
+6. **Tier 3.** Implement crossfade, compare against tldraw on the seven
    `geo` morphs. **Decision: is crossfade good enough, or is option (b)
    needed?**
 
-Only after step 5 is there a case for building the real compiler.
+Only after step 6 is there a case for building the real compiler.
 
 ## Out of Scope
 
