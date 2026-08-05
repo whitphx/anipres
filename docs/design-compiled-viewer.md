@@ -17,6 +17,20 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r6 (2026-08-06)**: Two fidelity contradictions from an adversarial
+  review. Tier 3 now defaults to **pre-baked intermediate frames**
+  rather than crossfade: recommending an approximation by default
+  contradicted goal 3 and the no-silent-degradation rule, and would have
+  visibly changed eight authored morphs without asking. Crossfade
+  becomes an explicit `approximateMorphs` opt-in. Compilability is
+  redefined as a **runtime-semantics capability check** rather than
+  "`toSvg` returned non-null", after confirming that both
+  `ThemeImageShapeUtil` and tldraw's own `image` shape render a
+  `HyperlinkButton` for `props.url` and animate GIF assets, while their
+  `toSvg` emits neither: such shapes exported perfectly and lost their
+  link and their motion. Adds `AnimatedImageLayer` and
+  `HyperlinkOverlay`, a capability table driving fallback, and
+  acceptance cases for linked and animated images.
 - **r5 (2026-08-06)**: Four findings from a fourth review, one of which
   made r4's variants incorrect. Theme-image shapes must be **adapted**
   per theme before measuring or baking: `toSvg` uses `ctx.isDarkMode`
@@ -257,7 +271,13 @@ interface CompiledSceneVariant {
   layers: CompiledLayer[];
 }
 
-type CompiledLayer = StaticLayer | EmbedLayer | VideoLayer | BookmarkLayer;
+type CompiledLayer =
+  | StaticLayer
+  | EmbedLayer
+  | VideoLayer
+  | BookmarkLayer
+  | AnimatedImageLayer
+  | HyperlinkOverlay;
 
 interface LayerBase {
   shapeId: string;
@@ -333,6 +353,31 @@ interface VideoLayer extends LayerBase {
     autoplay: boolean;
     altText: string;
   };
+}
+
+/**
+ * An `image`/`theme-image` whose asset is animated. Baking would freeze
+ * it at frame zero, which `toSvg` does unconditionally while the
+ * component only does it under `prefers-reduced-motion`.
+ */
+interface AnimatedImageLayer extends LayerBase {
+  kind: "animated-image";
+  source: {
+    src: string;
+    /** Frame zero, for first paint and for reduced-motion viewers. */
+    posterDataUrl?: string;
+    altText: string;
+  };
+}
+
+/**
+ * The clickable region a shape's `props.url` produces via
+ * `HyperlinkButton`. Sits above the shape's baked layer; carries no
+ * pixels of its own.
+ */
+interface HyperlinkOverlay extends LayerBase {
+  kind: "hyperlink";
+  source: { url: string };
 }
 
 interface BookmarkLayer extends LayerBase {
@@ -433,6 +478,51 @@ theme-image shapes plus another `<defs>`-bearing shape, asserting that
 every fragment reference resolves within its own layer.
 
 ## Shape Tiers
+
+### Compilability is a runtime-semantics question
+
+A shape is compilable when the baked SVG plus its declared live
+descriptors reproduce **everything its mounted component does**. A
+successful `toSvg` is necessary and nowhere near sufficient, because
+`toSvg` is a picture of the shape and the component is the shape's
+behaviour. Classifying on "did the export return non-null" would compile
+shapes that quietly lose interaction or motion.
+
+This repo demonstrates the gap, and so does tldraw's own `image` shape,
+of which the corpus has 55:
+
+- **Hyperlinks.** `ThemeImageShapeUtil`'s component renders
+  `<HyperlinkButton url={shape.props.url} />` when `props.url` is set.
+  `toSvg` returns only `<SvgImage>`. A linked image would export
+  perfectly and stop being clickable.
+- **Animated assets.** `toSvg` calls `getFirstFrameOfAnimatedImage` and
+  bakes frame zero. The component only does that when
+  `usePrefersReducedMotion()` says to, and otherwise shows the moving
+  image. A GIF would export perfectly and stop moving.
+
+Neither is hypothetical in the code, though neither is exercised by the
+corpus today: no `image` or `theme-image` shape there carries a `url`,
+and every asset is `image/png`, `image/svg+xml`, or `image/jpeg`. That
+absence is exactly why the rule has to be right rather than
+corpus-shaped. It is the content the corpus lacks that the fallback
+exists for.
+
+So classification runs a **capability check** per shape, not an export
+attempt:
+
+| capability           | detected by                                             | handling                                      |
+| -------------------- | ------------------------------------------------------- | --------------------------------------------- |
+| hyperlink            | `props.url` non-empty                                   | live anchor overlay layer above the baked SVG |
+| animated asset       | asset `mimeType` is animated (GIF, APNG, animated WebP) | live `<img>` layer, not baked                 |
+| interactive element  | shape type in the live set (`embed`, `bookmark`)        | live descriptor, as below                     |
+| video                | shape type `video`                                      | fallback (not compiled yet)                   |
+| unknown shape type   | not in the supported set                                | fallback                                      |
+| `toSvg` returns null | export attempt                                          | fallback                                      |
+
+A shape whose capabilities are all covered compiles. A shape with a
+capability the compiler cannot preserve sends its deck to fallback. New
+tldraw shape types are unsupported until someone audits their component,
+which is the safe default rather than an inconvenience.
 
 **Static shapes** bake through `editor.getSvgString([shape], opts)`,
 which accepts a shape subset, so each layer is baked independently
@@ -572,10 +662,37 @@ in increasing fidelity and cost:
   subset. Highest fidelity, highest maintenance, and it re-imports the
   complexity we are trying to delete.
 
-**Recommendation: implement (a), and add (b) behind a per-frame opt-in
-if a deck needs it.** The corpus contains eight Tier 3 pairs, so (b)
-would cost single-digit numbers of extra bakes per deck even if applied
-everywhere. Option (c) is not worth it.
+**Recommendation: (b) is the default. (a) is an opt-in approximation.**
+
+r1 through r5 had this backwards, recommending crossfade by default
+because it looks close. That contradicts this document's own contract:
+goal 3 is preserving authored behaviour exactly, and the fallback rules
+say a compile must never silently produce a lesser deck. A crossfade is
+not the authored animation. Where tldraw grows a rectangle by
+re-rendering it at interpolated `w`/`h`, a crossfade dissolves the small
+one into the large one, and the corpus already contains eight pairs that
+would visibly change without the author ever being asked.
+
+Pre-baking is also the cheap option here, which is what makes the
+default defensible rather than merely principled: eight morph pairs
+across seventeen decks, at N intermediate bakes each, is a rounding
+error against the per-deck browser launch. The cost scales with morph
+count rather than deck size, and the artifact-size spike measures it.
+
+So:
+
+- **Default**: pre-bake intermediate frames for every Tier 3 pair. N is
+  chosen from the frame's `duration` and capped; the sequence plays as
+  the tween.
+- **Opt-in** (`approximateMorphs: true`, per deck or per frame):
+  crossfade instead, for authors who prefer a smaller artifact and
+  accept the difference.
+- **If pre-baking a pair fails** (an unbakeable intermediate, say), the
+  deck falls back rather than silently degrading to crossfade.
+
+Option (c), reimplementing tldraw's interpolator, remains rejected: it
+re-imports the complexity this design exists to delete, and pre-baking
+gets exactness without it.
 
 ### Visibility
 
@@ -816,11 +933,14 @@ import, which is precisely how the current static import arose.
 The compiler must never silently produce a lesser deck, and the two
 ways a compile can fail are not the same kind of event.
 
-**Unsupported content falls back.** An unknown shape type, a `video`
-shape (see Shape Tiers), or a static shape whose `toSvg` returns `null`
-fails the compile for that deck with a message naming the shape and
-type, and that deck loads the tldraw runtime dynamically per the
-boundary rules above. An explicit
+**Unsupported content falls back.** A shape carrying a capability the
+compiler cannot preserve (see
+[Compilability](#compilability-is-a-runtime-semantics-question)), an
+unknown shape type, a `video` shape, a Tier 3 pair whose intermediate
+frames cannot be baked, or a static shape whose `toSvg` returns `null`
+fails the compile for that deck. The message names the shape, its type,
+and the capability that could not be preserved, and that deck loads the
+tldraw runtime dynamically per the boundary rules above. An explicit
 `compile: false` behaves the same way. This is what makes adoption
 incremental, and it lets the compiled path ship before it covers every
 shape tldraw offers.
@@ -887,7 +1007,16 @@ execution one, so the default has to be loud.
 7. **Behavioural drift.** Tiers 1 and 2 reimplement easing and timing
    that tldraw currently owns. Side-by-side comparison against the
    tldraw runtime should be part of the spike, not an afterthought.
-8. **Build-time cost and CI.** Playwright plus a browser download is a
+8. **Capability drift.** The compilability table is a hand-maintained
+   mirror of what shape components do. A tldraw upgrade that adds
+   behaviour to an existing component (another overlay, a new
+   interactive affordance) would not trip any check, and the compiler
+   would keep compiling that shape while silently dropping the new
+   behaviour. Mitigations worth considering: pinning the tldraw version
+   the compiler supports and failing on mismatch, and an audit checklist
+   in the upgrade process. This is the structural cost of compiling a
+   renderer someone else maintains.
+9. **Build-time cost and CI.** Playwright plus a browser download is a
    real tax on `pnpm install` and on CI images. It must be an optional
    dependency that only production compiles require. Note that
    installing the package does not install the browser, so CI needs an
@@ -937,12 +1066,17 @@ produces a decision rather than code to keep.
    already-page-transformed contract hold when `rotation` is non-zero,
    and does id namespacing hold?** Tier 2 has no well-defined endpoints
    until the first does.
-4. **Theme-image variant correctness.** Give a theme image deliberately
-   different `dimensionLight`/`dimensionDark` **and**
-   `cropLight`/`cropDark`, not just different assets, then bake both
-   variants headlessly. **Decision: does the compiler's theme adaptation
-   reproduce what the mounted component's `useEffect` produces?** This
-   is the check that the r5 adaptation actually closes the gap.
+4. **Theme-image variant correctness, and the capability rule.** Give a
+   theme image deliberately different `dimensionLight`/`dimensionDark`
+   **and** `cropLight`/`cropDark`, not just different assets, then bake
+   both variants headlessly. In the same scratch deck, include a linked
+   `image`, a linked `theme-image`, an animated GIF `image`, and an
+   animated `theme-image`. **Decisions: does the theme adaptation
+   reproduce what the mounted component's `useEffect` produces, and does
+   every shape retain its click target and its motion?** The linked and
+   animated cases must either survive as live layers or send the deck to
+   fallback; compiling them into a still picture is the failure this
+   step exists to catch.
 5. **One deck end to end.** Compile `202602-oss-give-and-take`
    (9 steps, no embeds, one morph) and play it in a throwaway runtime.
    **Decision: do camera and Tier 2 transitions look right against the
@@ -950,9 +1084,11 @@ produces a decision rather than code to keep.
 6. **A live layer.** Add an embed-bearing deck and wire YouTube autoplay
    through the IFrame API. **Decision: is the embed story actually
    simpler, as this document claims?**
-7. **Tier 3.** Implement crossfade, compare against tldraw on the seven
-   `geo` morphs. **Decision: is crossfade good enough, or is option (b)
-   needed?**
+7. **Tier 3.** Implement pre-baked intermediate frames and compare
+   against tldraw on the seven `geo` morphs and the one `image` move.
+   **Decisions: how many intermediate frames does exactness need, what
+   do they cost in bytes, and is the opt-in crossfade close enough to be
+   worth offering at all?**
 
 Only after step 7 is there a case for building the real compiler.
 
