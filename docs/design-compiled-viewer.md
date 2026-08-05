@@ -17,11 +17,37 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r7 (2026-08-06)**: Ten findings from a workflow-backed review, plus
+  a re-measurement of the corpus that corrects this document's own
+  numbers. Three of them would have shipped a visibly wrong deck. A
+  **group can carry the frame** (33 framed shapes in the corpus are
+  groups), so flattening groups away entirely would have left their
+  frames matching no layer and painted every grouped diagram from step
+  0; layers now record `groupIds`. The **visibility** rule was restated
+  as track-only, dropping the guard that hides shapes whose frames are
+  detached, which inverts to always-visible. The compile page must
+  attach the editor's container to the document, since
+  `loadHeadlessEditor` builds a detached one and Chromium gives
+  detached subtrees no layout, so **Playwright alone would have
+  reproduced the happy-dom text collapse** the browser was chosen to
+  fix. r6's Tier 3 default reached the prose but not the schema, so
+  `CompiledSceneVariant` gains `morphs`; Tier 2's unconditional
+  crossfade is replaced by moving one opaque layer, matching what
+  `animation.ts` does, and any `w`/`h` change is now Tier 3 because
+  CSS `scale()` scales stroke widths. Animated assets are detected by
+  the shape module's `getIsAnimated`, not a mime-type list, since
+  tldraw classifies `image/webp` as static and animated WebP is caught
+  only by the asset's `isAnimated` flag. `HyperlinkOverlay` mirrors
+  `HyperlinkButton`'s corner anchor rather than covering the shape.
+  The manifest loses `themes`, because the colour scheme is ambient
+  Slidev state rather than a prop and both variants are now always
+  baked, and carries font-face descriptors plus a `stepCount` that
+  fallback slides need before their runtime loads.
 - **r6 (2026-08-06)**: Two fidelity contradictions from an adversarial
   review. Tier 3 now defaults to **pre-baked intermediate frames**
   rather than crossfade: recommending an approximation by default
   contradicted goal 3 and the no-silent-degradation rule, and would have
-  visibly changed eight authored morphs without asking. Crossfade
+  visibly changed four authored morphs without asking. Crossfade
   becomes an explicit `approximateMorphs` opt-in. Compilability is
   redefined as a **runtime-semantics capability check** rather than
   "`toSvg` returned non-null", after confirming that both
@@ -178,7 +204,7 @@ Shape types present:
 | `text`        | 214   | SVG                               |
 | `line`        | 159   | SVG                               |
 | `arrow`       | 122   | SVG                               |
-| `group`       | 100   | flattened at compile time         |
+| `group`       | 100   | flattened, but still frameable    |
 | `slide`       | 80    | not rendered (camera region only) |
 | `image`       | 55    | SVG                               |
 | `theme-image` | 12    | SVG (already implements `toSvg`)  |
@@ -186,13 +212,16 @@ Shape types present:
 | `bookmark`    | 4     | **live DOM**                      |
 | `note`        | 1     | SVG                               |
 
-Morphing keyframe pairs, by the type of the shape being morphed:
+Animated transitions, meaning consecutive frames on one track, by what
+the transition has to reproduce:
 
-| morphs                | pairs | props that change                   |
-| --------------------- | ----- | ----------------------------------- |
-| `slide` (camera zoom) | 62    | `w`/`h` of the camera rect          |
-| `geo`                 | 7     | `w`/`h` (4), `fill` (2), `size` (2) |
-| `image`               | 1     | none (pure `x`/`y` move)            |
+| transition               | count | what changes                        |
+| ------------------------ | ----- | ----------------------------------- |
+| camera zoom              | 60    | the camera rect only                |
+| `geo`, transform only    | 5     | `x`/`y`                             |
+| `geo`, prop morph        | 4     | `w`/`h` (4), `fill` (2), `size` (2) |
+| `image`, transform only  | 1     | `y`                                 |
+| `slide`, renders nothing | 3     | `x`/`y` of a shape kept hidden      |
 
 Two conclusions drive the whole design:
 
@@ -200,9 +229,14 @@ Two conclusions drive the whole design:
    `bookmark` shapes carry no animation frame at all. They are static
    content that appears at a step. So the compiler never has to morph an
    iframe, only position, show, and hide it.
-2. **Genuine shape morphing is rare.** 62 of 70 morph pairs are camera
-   zooms, which are pure arithmetic on bounds. The entire corpus contains
-   **eight** real shape morphs.
+2. **Genuine shape morphing is rare.** Of the 73 animated transitions in
+   the corpus, 60 are camera zooms, which are pure arithmetic on bounds.
+   Ten of the remaining 13 act on a renderable shape: **six** move it
+   without changing a prop, and only **four** are real prop morphs, all
+   on `geo` shapes (two change `w`/`h`, two also change `fill` and
+   `size`). The other three animate a `slide` shape, which the
+   presentation runtime hides, so they render nothing and only spend
+   their duration.
 
 ## Key Insight: Two Axes, Not One
 
@@ -258,8 +292,12 @@ interface CompiledScene {
    * resolves a different asset AND a different `dimension` and `crop`
    * per theme, so layers and scene bounds genuinely differ; a runtime
    * style swap cannot express it.
+   *
+   * Total, not `Partial`: the scheme is ambient state the viewer can
+   * toggle mid-presentation, so a missing variant has no correct
+   * playback behaviour.
    */
-  variants: Partial<Record<Theme, CompiledSceneVariant>>;
+  variants: Record<Theme, CompiledSceneVariant>;
 }
 
 type Theme = "light" | "dark";
@@ -269,6 +307,25 @@ interface CompiledSceneVariant {
   bounds: Bounds;
   /** Every renderable shape, in z-order. */
   layers: CompiledLayer[];
+  /**
+   * Pre-baked tweens for Tier 3 pairs, keyed by the id of the frame
+   * whose `shapeAnimation` plays them. A Tier 3 frame with no entry
+   * here and no `approximateMorphs` opt-in is a build error, not a
+   * silent crossfade.
+   */
+  morphs: Record<string, MorphSequence>;
+}
+
+/**
+ * The baked stills of one prop morph, in order. Frame 0 is the
+ * predecessor's appearance and the last is the successor's, so the
+ * runtime shows exactly one still at a time and never blends two.
+ * Each obeys the same coordinate contract as `StaticLayer.svg`, and
+ * `exportBounds` is per still because interpolating `w`/`h` moves them.
+ */
+interface MorphSequence {
+  frames: { svg: string; exportBounds: Bounds }[];
+  padding: number;
 }
 
 type CompiledLayer =
@@ -281,6 +338,14 @@ type CompiledLayer =
 
 interface LayerBase {
   shapeId: string;
+  /**
+   * Ancestor group ids, outermost first. Groups contribute no markup,
+   * but a frame can be attached to one, so a frame's `shapeId` matches
+   * a layer when it equals `shapeId` OR appears here. Without this the
+   * group's frame would match nothing and its members would be treated
+   * as unframed. See Groups under Shape Tiers.
+   */
+  groupIds: string[];
   /**
    * The shape's MODEL transform in page space, groups already
    * flattened. Used to compute animation deltas between keyframes, NOT
@@ -371,13 +436,24 @@ interface AnimatedImageLayer extends LayerBase {
 }
 
 /**
- * The clickable region a shape's `props.url` produces via
- * `HyperlinkButton`. Sits above the shape's baked layer; carries no
- * pixels of its own.
+ * The affordance a shape's `props.url` produces via `HyperlinkButton`.
+ * NOT a transparent hit area over the whole shape: the button is a
+ * corner `<a class="tl-hyperlink-button" target="_blank">` carrying a
+ * visible link icon, so a shape-sized region would both lose the icon
+ * and swallow clicks anywhere on the shape that the author expected to
+ * advance the slide. It reuses tldraw's own class names so the compiled
+ * deck inherits the stylesheet rather than restating the geometry.
  */
 interface HyperlinkOverlay extends LayerBase {
   kind: "hyperlink";
   source: { url: string };
+  /**
+   * Below this scene scale the live button hides itself
+   * (`editor.getZoomLevel() < 0.32`). The compiled runtime has no
+   * editor, so the threshold is recorded rather than inferred, and the
+   * runtime compares it against the Tier 1 camera scale.
+   */
+  hideBelowScale: number;
 }
 
 interface BookmarkLayer extends LayerBase {
@@ -402,7 +478,7 @@ information the derivation cannot, because `cameraZoom` frames name a
 `shapeId` and an `inset` while the live runtime resolves the rectangle
 by asking the editor for that `slide` shape's page bounds. Since the
 compiler drops `slide` shapes, the rectangle must be resolved at compile
-time and stored, or 62 of the corpus's 70 morph pairs cannot execute.
+time and stored, or 60 of the corpus's 73 transitions cannot execute.
 
 ### The coordinate contract
 
@@ -510,19 +586,31 @@ exists for.
 So classification runs a **capability check** per shape, not an export
 attempt:
 
-| capability           | detected by                                             | handling                                      |
-| -------------------- | ------------------------------------------------------- | --------------------------------------------- |
-| hyperlink            | `props.url` non-empty                                   | live anchor overlay layer above the baked SVG |
-| animated asset       | asset `mimeType` is animated (GIF, APNG, animated WebP) | live `<img>` layer, not baked                 |
-| interactive element  | shape type in the live set (`embed`, `bookmark`)        | live descriptor, as below                     |
-| video                | shape type `video`                                      | fallback (not compiled yet)                   |
-| unknown shape type   | not in the supported set                                | fallback                                      |
-| `toSvg` returns null | export attempt                                          | fallback                                      |
+| capability           | detected by                                      | handling                                      |
+| -------------------- | ------------------------------------------------ | --------------------------------------------- |
+| hyperlink            | `props.url` non-empty                            | live anchor overlay layer above the baked SVG |
+| animated asset       | `getIsAnimated(editor, assetId)`, exported       | live `<img>` layer, not baked                 |
+| interactive element  | shape type in the live set (`embed`, `bookmark`) | live descriptor, as below                     |
+| video                | shape type `video`                               | fallback (not compiled yet)                   |
+| unknown shape type   | not in the supported set                         | fallback                                      |
+| `toSvg` returns null | export attempt                                   | fallback                                      |
 
 A shape whose capabilities are all covered compiles. A shape with a
 capability the compiler cannot preserve sends its deck to fallback. New
 tldraw shape types are unsupported until someone audits their component,
 which is the safe default rather than an inconvenience.
+
+**Animation is detected by the shape module's own helper, never by a
+mime-type list restated here.** `getIsAnimated` is
+`MediaHelpers.isAnimatedImageType(mimeType) || asset.props.isAnimated`,
+and both halves matter: in the pinned tldraw 3.15.5, `image/webp` is in
+`DEFAULT_SUPPORTED_STATIC_IMAGE_TYPES` while `image/avif` is animated,
+so an animated WebP is caught only by the boolean asset flag. A
+compiler that checked the mime type alone would classify an animated
+WebP as static, bake it through `toSvg`, and publish a deck showing a
+frozen first frame, which is the exact failure the capability check
+exists to prevent. `getIsAnimated` is module-private today, so this
+design requires exporting it alongside `applyThemeToShape` below.
 
 **Static shapes** bake through `editor.getSvgString([shape], opts)`,
 which accepts a shape subset, so each layer is baked independently
@@ -552,6 +640,14 @@ returns `hidden` for it today) and uses only its bounds for
 `CompiledScene.cameraTargets`, keyed by the frame's `shapeId`, and then
 drops the shape. Resolving them is mandatory rather than an
 optimisation: nothing in `TimelineDoc` can carry a rectangle.
+
+A `slide` shape can nonetheless carry a `shapeAnimation` frame, and
+three in the corpus do. The live runtime animates a temporary copy that
+is itself a `slide` shape, so the visibility rule hides it too and
+nothing appears: the transition spends its `duration` and renders
+nothing. The compiled runtime must reproduce that timing rather than
+treat the frame as missing, since the step does not advance until it
+elapses.
 
 **Theme-image shapes must be adapted before each variant is baked.**
 This is the one place where per-theme baking is not just an export
@@ -591,10 +687,32 @@ component's `useEffect` and the compiler both call. Duplicating the
 key-selection logic in the compiler would drift silently the first time
 a per-theme prop is added.
 
-**Groups** are flattened. A group contributes no markup of its own; its
-transform is composed into each descendant layer's page-space
-`transform`. Eleven framed shapes in the corpus are nested inside
-groups, so this is required, not optional.
+**Groups** are flattened for rendering but survive as identity. A group
+contributes no markup of its own, and its transform is composed into
+each descendant layer's page-space `transform`. Eleven framed shapes in
+the corpus are nested inside groups, so the flattening is required, not
+optional.
+
+Flattening the identity away as well would be wrong, because a group
+can carry the frame itself, and in this corpus it usually does: **33
+framed shapes are groups**, the third most common framed type after
+`slide` (80) and `arrow` (44). `ControlPanel` treats a selected `group`
+as frame-attachable whenever no leaf under it has a frame, and
+`$getShapeVisibilitiesInPresentationMode` returns `inherit` rather than
+`visible` for an unframed shape whose parent is a group, precisely so
+the group's own frame drives its members. Drop the group and the
+frame's `shapeId` matches no layer: the batch animates nothing, and
+every member falls into the unframed-so-always-visible rule, painting
+the whole grouped diagram from step 0 in a deck where it was hidden
+until its step.
+
+So each layer records its ancestor `groupIds`, and both animation
+targeting and visibility resolve a frame's `shapeId` against a layer's
+own id or any of its ancestors. A transform animation on a group
+applies one delta to every member layer, which is what the live runtime
+produces when it animates the group shape. A Tier 3 morph on a group is
+not compilable, since a pre-baked still of a group is a still of the
+whole subtree, and it sends the deck to fallback.
 
 ### Why embeds get simpler, not harder
 
@@ -638,14 +756,29 @@ The runtime must reproduce three behaviours that
 `editor.zoomToBounds(bounds, { inset, duration, easing })`. Compiled, it
 is a CSS transform on the scene container computed from the target
 bounds, the viewport size, and `inset`. No shape rendering is involved.
-This covers 62 of 70 morph pairs.
+This covers 60 of the corpus's 73 transitions.
 
 **Tier 2: transform-only shape animation.** When consecutive keyframes
-differ only in `x`, `y`, `rotation` (and uniform scale), the runtime
-crossfades between the two baked layers while transforming, using the
-frame's `duration` and `easing`. Note that a non-uniform `w`/`h` change
-is **not** expressible as a CSS `scale()`, because that would scale
-stroke widths too.
+differ only in `x`, `y`, and `rotation`, the runtime moves **one** baked
+layer from the predecessor's transform to the successor's, using the
+frame's `duration` and `easing`, then swaps it for the successor's own
+layer at the end. The swap is invisible because a transform-only pair
+is geometrically identical at the endpoint.
+
+It must be one layer rather than a crossfade between two. `animation.ts`
+creates a single temporary shape from the predecessor and animates it to
+the successor's transform, so the moving object is fully opaque
+throughout. Two alpha-composited baked copies are not: at the midpoint
+of a crossfade each is half transparent, the composite is lighter than
+the object ever is, and it visibly ghosts against the slide. That is the
+same approximation this document rejects for Tier 3, and it would apply
+to the corpus's one pure `x`/`y` `image` move with no opt-in and no
+fallback.
+
+Any `w`/`h` change is Tier 3, including a uniform one. CSS `scale()`
+scales stroke widths, while tldraw re-renders the shape at the new size
+with the stroke width its `size` prop dictates, so a scaled baked layer
+is not what the author saw.
 
 **Tier 3: prop morphing.** When props other than the transform change
 (`w`/`h`, `fill`, `size`), CSS cannot express the tween, because tldraw
@@ -670,11 +803,11 @@ goal 3 is preserving authored behaviour exactly, and the fallback rules
 say a compile must never silently produce a lesser deck. A crossfade is
 not the authored animation. Where tldraw grows a rectangle by
 re-rendering it at interpolated `w`/`h`, a crossfade dissolves the small
-one into the large one, and the corpus already contains eight pairs that
+one into the large one, and the corpus already contains four pairs that
 would visibly change without the author ever being asked.
 
 Pre-baking is also the cheap option here, which is what makes the
-default defensible rather than merely principled: eight morph pairs
+default defensible rather than merely principled: four morph pairs
 across seventeen decks, at N intermediate bakes each, is a rounding
 error against the per-deck browser launch. The cost scales with morph
 count rather than deck size, and the artifact-size spike measures it.
@@ -683,12 +816,20 @@ So:
 
 - **Default**: pre-bake intermediate frames for every Tier 3 pair. N is
   chosen from the frame's `duration` and capped; the sequence plays as
-  the tween.
+  the tween. It is carried by `CompiledSceneVariant.morphs`, keyed by
+  the frame whose `shapeAnimation` plays it, because a `StaticLayer`
+  holds exactly one baked picture and has nowhere to put a tween.
 - **Opt-in** (`approximateMorphs: true`, per deck or per frame):
   crossfade instead, for authors who prefer a smaller artifact and
-  accept the difference.
+  accept the difference. Such a pair gets no `morphs` entry.
 - **If pre-baking a pair fails** (an unbakeable intermediate, say), the
   deck falls back rather than silently degrading to crossfade.
+- **A Tier 3 frame with neither a `morphs` entry nor the opt-in is a
+  build error.** Without that check the format itself readmits the
+  degradation the default exists to prevent: an emitter that skipped the
+  sequence would leave the runtime holding two stills and nothing to
+  play between them, and its only options would be a jump cut or the
+  crossfade this section rejects.
 
 Option (c), reimplementing tldraw's interpolator, remains rejected: it
 re-imports the complexity this design exists to delete, and pre-baking
@@ -696,12 +837,28 @@ gets exactness without it.
 
 ### Visibility
 
-Orthogonal to the tiers, and already specified by the derivation: only
-the last frame of a track's most recently played batch is visible;
-everything else on that track is hidden. The compiled runtime computes
-exactly this from `timeline`, which is a pure function of the step
-index. It is simpler than the current implementation because there is no
-`getShapeVisibility` callback to satisfy.
+Orthogonal to the tiers, and already specified by the derivation. The
+compiled runtime computes it from `timeline`, which is a pure function
+of the step index, and it is simpler than the current implementation
+because there is no `getShapeVisibility` callback to satisfy. But it
+must reproduce `$getShapeVisibilitiesInPresentationMode` in full, not
+just its track rule:
+
+1. A shape whose frame is in `doc.detachedFrames` is **hidden**. This
+   guard comes first, and it is not an edge case invented here:
+   `derive.ts` surfaces rule-3 orphans (a sub frame whose `cueFrameId`
+   dangles) and never drops them, and the build reports them as the
+   `detached-sub-frame` diagnostic. A detached frame belongs to no
+   track, so a runtime that knew only the track rule would classify the
+   shape as unframed, and therefore always visible, and paint content
+   from step 0 that the authored deck never shows.
+2. Otherwise, a shape with no interpretable frame is **visible**, except
+   that a member of a group inherits, so the group's frame decides.
+3. Otherwise, only the last frame of the track's most recently played
+   batch is visible; everything else on that track is hidden.
+
+The `slide` shape is absent from `layers` entirely, so its `hidden` case
+needs no runtime rule.
 
 ## The Runtime
 
@@ -716,13 +873,14 @@ bridge in production builds:
   text layer.
 - Selects the `CompiledSceneVariant` for the current colour scheme,
   watching Slidev's `useDarkMode()` and re-rendering layers on change.
-  If the requested theme was not compiled, it falls back to the one that
-  was, since a stale-but-correct scene beats a blank one; the manifest's
-  `themes` is what decides which exist.
+  **Both variants are always compiled**, because the scheme is ambient
+  deck state a viewer can toggle mid-presentation, so there is no
+  request to honour and no missing-variant case to degrade into. A
+  scene reaching the runtime with only one variant is a build error.
 - Maps Slidev's click index to a step index, exactly as
-  `SlidevAnipres.vue` does today via `calculateTotalSteps`. Since
-  `timeline.steps.length` is now a plain array length, `calculateTotalSteps`
-  stops needing to parse a tldraw snapshot at all.
+  `SlidevAnipres.vue` does today via `calculateTotalSteps`. The count is
+  `timeline.steps.length`, a plain array length, so no snapshot parsing
+  is involved.
 - On step change: applies the camera transform, plays Tier 2/3
   transitions, updates visibility, and notifies live layers (for example
   `player.playVideo()` on a YouTube layer whose step just became
@@ -774,6 +932,21 @@ snapshot, run the bake, and return `CompiledScene` as JSON. Only a real
 layout engine measures text the way the authoring editor did, which is
 also the only way the baked geometry can match what the author saw.
 
+**A real browser is necessary and not sufficient: the editor's
+container must be in the live document.** `loadHeadlessEditor` builds
+its container with `document.createElement("div")` and never appends it
+to `document.body`. Chromium gives a detached subtree no layout, so
+`getBoundingClientRect` and `offsetWidth` return 0 there and tldraw's
+text measurement collapses to the same roughly-one-character result
+happy-dom produced. Playwright alone would therefore reproduce the
+16 x 24 measurement it was chosen to fix, on all 214 text shapes. The
+compile page must attach the container to the document and load
+tldraw's stylesheet, which the class names `loadHeadlessEditor` already
+sets (`tl-container`, `tl-theme__light`) depend on. Since the function
+hardcodes a detached container today, this design requires it to accept
+one, and the spike's first measurement is what proves the attachment
+matters.
+
 Consequences to accept deliberately:
 
 - Playwright becomes a build-time dependency of the addon, with a
@@ -802,10 +975,11 @@ compiler slots in there, delegating the actual work to the browser:
    (see [The Compile Manifest](#the-compile-manifest)) and start one
    browser page for the deck. Entries marked `compile: false` are
    skipped and recorded as fallbacks.
-2. In the page, for each snapshot: load the manifest entry's fonts,
-   await `document.fonts.ready` so text measures against the real faces
-   rather than a fallback, boot the editor with `loadHeadlessEditor`,
-   and derive the timeline with
+2. In the page, for each snapshot: load the manifest entry's font faces
+   and tldraw's stylesheet, await `document.fonts.ready` so text
+   measures against the real faces rather than a fallback, boot the
+   editor with `loadHeadlessEditor` **into a container attached to the
+   document**, and derive the timeline with
    `deriveTimeline`. Any diagnostic is a build warning. Once PR #490
    lands, an unconverted deck surfaces as a `v1-frame` diagnostic, which
    should be a build error telling the author to convert the deck;
@@ -832,8 +1006,10 @@ rendered appearance also depends on component props that
 
 - `fontUrls` / `fontUrl`, which override tldraw's font assets.
 - `excalidrawLikeFont`, which swaps the draw font.
-- The light/dark colour scheme, read from `useDarkMode()`.
 - The proposed `compile: false` opt-out.
+
+(The light/dark colour scheme is ambient rather than a prop, and is
+handled by baking both variants; see below.)
 
 The Vite plugin currently knows only `snapshotId -> JSON file`. Handing
 that to the browser compiler would bake text measured against the wrong
@@ -847,33 +1023,65 @@ So the plugin emits a manifest alongside the snapshots:
 interface CompileManifestEntry {
   /**
    * Identifies a (snapshot, render-configuration) pair, NOT a snapshot.
-   * Two components may share `snapshotId` while differing in fonts,
-   * themes, or opt-out, and they then need different artifacts.
+   * Two components may share `snapshotId` while differing in fonts or
+   * opt-out, and they then need different artifacts.
    */
   sceneId: string;
   snapshotId: string;
   /** Hash over the compile-affecting props; disambiguates `sceneId`. */
   configHash: string;
   compile: boolean;
-  /** Resolved absolute URLs, so the compile page loads the same faces. */
-  fontUrls: Record<string, string>;
+  /**
+   * Every face the compile page must install before measuring, as
+   * `@font-face` descriptors rather than a `Record<name, url>`.
+   * `fontUrls` alone cannot express the addon's own draw fonts.
+   */
+  fontFaces: { family: string; src: string; weight?: string }[];
+  /** The resolved CSS font stack for tldraw's draw style. */
   drawFontFamily: string;
-  /** Which colour schemes to bake. */
-  themes: Theme[];
+  /**
+   * Step count, derived by the plugin from the snapshot. Present for
+   * every entry, INCLUDING `compile: false`, because a fallback slide
+   * needs it before its runtime loads.
+   */
+  stepCount: number;
 }
 ```
 
 **Scene identity is per component occurrence, not per snapshot.** The
 component looks its snapshot up by `props.id`, but fonts,
-`excalidrawLikeFont`, requested themes, and `compile` are per instance.
-Keying the manifest by `snapshotId` alone would leave four questions
-unanswered: which configuration wins, which artifact each occurrence
-loads, whether one `compile: false` forces every occurrence to fall
-back, and whether differing theme requests merge. So each occurrence
-gets a `sceneId` derived from its snapshot plus a `configHash` over the
-compile-affecting props, the virtual module maps occurrence to compiled
-scene, and identical configurations deduplicate to one artifact
-naturally because their hashes match.
+`excalidrawLikeFont`, and `compile` are per instance. Keying the
+manifest by `snapshotId` alone would leave three questions unanswered:
+which configuration wins, which artifact each occurrence loads, and
+whether one `compile: false` forces every occurrence to fall back. So
+each occurrence gets a `sceneId` derived from its snapshot plus a
+`configHash` over the compile-affecting props, the virtual module maps
+occurrence to compiled scene, and identical configurations deduplicate
+to one artifact naturally because their hashes match.
+
+**The colour scheme is deliberately not among them.** `SlidevAnipres`
+has no theme prop: it reads `const { isDark } = useDarkMode()`, a
+deck-global Slidev store, and passes `:colorScheme="isDark ? 'dark' :
+'light'"`. There is nothing per occurrence for the SFC parsing below to
+read, so a `themes` field would hash a value that does not exist, and
+resolving it by baking whatever the deck was authored in would leave a
+viewer's dark-mode toggle rendering the light bake (light asset, light
+`dimension` and `crop`) inside a dark slide. Both variants are compiled,
+always, and the cost folds into the artifact-size spike.
+
+**Font descriptors, not a URL map.** `fontUrls` mirrors tldraw's
+`assetUrls.fonts`, which is the wrong shape for the two faces the addon
+supplies itself. With `excalidrawLikeFont` set, `drawStyleFontFamily`
+resolves to a stack containing Excalifont, declared by a `@font-face`
+inside `SlidevAnipres.vue` pointing at `/Excalifont-Regular.woff2`, and
+`xiaolaiFont.css.family`, whose file arrives through the virtual id
+`/@xiaolai-font.ttf` that the addon's own Vite plugin rewrites to a
+subsetted asset. Neither has a slot in a `Record<string, string>` keyed
+by tldraw's font names. A compile page given only `drawFontFamily`
+would measure `autoSize` text against a fallback face, reintroducing
+exactly the mismatch that made a real browser necessary. The plugin
+owns that rewrite, so it is the plugin that can resolve the emitted
+URLs and hand them to the compile page as faces.
 
 The simpler alternative, which is worth taking if occurrence tracking
 proves awkward in the Slidev integration, is to reject a build in which
@@ -911,6 +1119,18 @@ Rules:
   must have no static import path to `anipres`'s main entry, React,
   veaury, or tldraw. `calculateTotalSteps` disappears from it entirely,
   since the step count is `timeline.steps.length`.
+- **A fallback slide must still know its step count synchronously.**
+  Removing the import cannot mean removing the count: the component
+  computes `totalStepsCount` before `onMounted` and feeds it to
+  `$clicksContext.calculateSince(at, size)`, while a fallback slide has
+  no `CompiledScene` and its runtime arrives only after an
+  `await import(...)` that resolves later than click registration. Such
+  a slide would register zero clicks, and Slidev would advance straight
+  past it with none of its steps reachable. The count comes from the
+  manifest's `stepCount` instead, which the plugin derives in Node:
+  `calculateTotalSteps` reads shape records out of the snapshot JSON and
+  needs no editor, so only its module's tldraw imports were ever the
+  problem.
 - The editor is reached exclusively through `await import(...)`, on two
   paths: the dev-only authoring path (already gated on
   `import.meta.hot`), and the fallback viewer.
@@ -937,9 +1157,10 @@ ways a compile can fail are not the same kind of event.
 compiler cannot preserve (see
 [Compilability](#compilability-is-a-runtime-semantics-question)), an
 unknown shape type, a `video` shape, a Tier 3 pair whose intermediate
-frames cannot be baked, or a static shape whose `toSvg` returns `null`
-fails the compile for that deck. The message names the shape, its type,
-and the capability that could not be preserved, and that deck loads the
+frames cannot be baked, a prop morph on a group, or a static shape whose
+`toSvg` returns `null` fails the compile for that deck. The message
+names the shape, its type, and the capability that could not be
+preserved, and that deck loads the
 tldraw runtime dynamically per the boundary rules above. An explicit
 `compile: false` behaves the same way. This is what makes adoption
 incremental, and it lets the compiled path ship before it covers every
@@ -959,6 +1180,14 @@ compileFailure: "error" | "fallback";
 
 Infrastructure failures stop a production build unless the author opts
 into `"fallback"` deliberately.
+
+**A malformed artifact is a build error, not a degradation.** A Tier 3
+frame with neither a `morphs` entry nor the `approximateMorphs` opt-in,
+and a scene carrying fewer than both theme variants, are emitter bugs.
+Neither may be resolved at playback time by picking the nearest
+available thing, because both nearest things (a crossfade, the other
+theme's bake) are precisely the silent degradations this section
+forbids. The runtime asserts instead.
 
 This distinction matters more than it looks, because installing the
 Playwright package does not install a browser: the binary download is a
@@ -1035,8 +1264,14 @@ produces a decision rather than code to keep.
    Playwright-driven Chromium reproduces the authoring browser's
    measurements. Bake `anipres-and-slidev/fig-webrtc.json` there and
    compare the text shape's measured bounds against its stored
-   `props.w` of 149.73. **Decision: does a real browser measure text
-   as the author's editor did?** Everything else depends on this.
+   `props.w` of 149.73. Measure it **both** with the editor's container
+   attached to the document and with the detached container
+   `loadHeadlessEditor` builds today, since the detached case is
+   expected to reproduce the happy-dom result in a real browser and
+   that expectation is the reason the pipeline attaches it.
+   **Decision: does a real browser measure text as the author's editor
+   did, and what does attachment cost?** Everything else depends on
+   this.
 1. **Text and font fidelity (highest risk).** Take
    `202502-oss-pycon-and-me/timeline.json` (33 frames, heavy text) and
    `anipres-and-slidev/fig-webrtc.json`. Bake every shape in the browser
@@ -1066,14 +1301,23 @@ produces a decision rather than code to keep.
    already-page-transformed contract hold when `rotation` is non-zero,
    and does id namespacing hold?** Tier 2 has no well-defined endpoints
    until the first does.
+   In the same deck, attach a cue frame to a **group** and leave its
+   members unframed, and include a shape whose sub frame is detached.
+   **Decision: do `groupIds` and the detached-frame rule reproduce
+   `$getShapeVisibilitiesInPresentationMode` step for step?** Both are
+   visibility rules a track-only runtime silently inverts, turning
+   hidden content visible, and 33 framed shapes in the corpus are
+   groups.
 4. **Theme-image variant correctness, and the capability rule.** Give a
    theme image deliberately different `dimensionLight`/`dimensionDark`
    **and** `cropLight`/`cropDark`, not just different assets, then bake
    both variants headlessly. In the same scratch deck, include a linked
-   `image`, a linked `theme-image`, an animated GIF `image`, and an
-   animated `theme-image`. **Decisions: does the theme adaptation
-   reproduce what the mounted component's `useEffect` produces, and does
-   every shape retain its click target and its motion?** The linked and
+   `image`, a linked `theme-image`, an animated GIF `image`, an animated
+   `theme-image`, and an **animated WebP**, whose mime type tldraw
+   classifies as static so that only the asset's `isAnimated` flag
+   catches it. **Decisions: does the theme adaptation reproduce what the
+   mounted component's `useEffect` produces, and does every shape retain
+   its click target and its motion?** The linked and
    animated cases must either survive as live layers or send the deck to
    fallback; compiling them into a still picture is the failure this
    step exists to catch.
@@ -1085,7 +1329,7 @@ produces a decision rather than code to keep.
    through the IFrame API. **Decision: is the embed story actually
    simpler, as this document claims?**
 7. **Tier 3.** Implement pre-baked intermediate frames and compare
-   against tldraw on the seven `geo` morphs and the one `image` move.
+   against tldraw on the corpus's four `geo` morphs.
    **Decisions: how many intermediate frames does exactness need, what
    do they cost in bytes, and is the opt-in crossfade close enough to be
    worth offering at all?**
