@@ -17,6 +17,20 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r5 (2026-08-06)**: Four findings from a fourth review, one of which
+  made r4's variants incorrect. Theme-image shapes must be **adapted**
+  per theme before measuring or baking: `toSvg` uses `ctx.isDarkMode`
+  only to pick the asset, then renders from the generic `w`/`h`/`crop`,
+  which are synchronised from the per-theme props inside a React
+  `useEffect` that a headless editor never mounts. Adds a fragment-ID
+  namespacing contract, since `SvgImage` emits a `useUniqueSafeId()`
+  `clipPath` and the pinned `TLSvgExportOptions` has no
+  identifier-prefix hook, so ids must be rewritten after export. `video`
+  is reclassified as not-yet-compiled and routes to fallback, rather
+  than shipping a descriptor that would reset `time`/`playing` and drop
+  `altText`. The compile manifest is keyed by a per-occurrence
+  `sceneId` plus `configHash`, because one snapshot can appear in
+  components with different fonts, themes, or opt-out.
 - **r4 (2026-08-06)**: Four findings from a third review. `CompiledScene`
   gains per-theme `variants`, because `ThemeImageShapeUtil.toSvg` reads
   `ctx.isDarkMode` and resolves a different `assetId`, `dimension`, and
@@ -298,15 +312,26 @@ interface EmbedLayer extends LayerBase {
   };
 }
 
+/**
+ * NOT COMPILED YET. `video` currently routes to the fallback runtime
+ * (see Fallback and Degradation): the corpus contains none, and an
+ * approximate descriptor would silently reset playback state. Recorded
+ * so the eventual contract matches `TLVideoShapeProps`, which is
+ * `{ w, h, time, playing, autoplay, url, assetId, altText }`: `time`
+ * and `playing` must survive compilation, and `altText` is an
+ * accessibility requirement, while `loop`/`muted` are runtime policy
+ * rather than authored state and do not belong here.
+ */
 interface VideoLayer extends LayerBase {
   kind: "video";
   source: {
     src: string;
     /** Baked frame-0 image, for first paint before the video loads. */
     posterDataUrl?: string;
+    time: number;
+    playing: boolean;
     autoplay: boolean;
-    loop: boolean;
-    muted: boolean;
+    altText: string;
   };
 }
 
@@ -380,6 +405,33 @@ Everything the runtime needs is in this one artifact. It replaces the
 `.slidev/anipres/snapshots/*.json` payload in production builds, while
 the snapshot remains the authoring source of truth.
 
+### Fragment-ID namespacing
+
+Independently exported layers are inlined into one document, so any
+fragment identifier an export defines becomes a document-wide name. This
+is not hypothetical in this repo: `SvgImage`, the component
+`ThemeImageShapeUtil.toSvg` returns, allocates `useUniqueSafeId()` and
+emits `<clipPath id={cropClipId}>` referenced as `url(#cropClipId)`.
+`useUniqueSafeId` is built on React's `useId`, which only guarantees
+uniqueness within one root; each shape export is its own root, so two
+cropped theme images can emit the same id. The second layer's clip path
+would then resolve against the first, and the same hazard applies to any
+mask, filter, gradient, or marker in a `<defs>` block.
+
+`TLSvgExportOptions` in the pinned 3.15.5 exposes `bounds`, `scale`,
+`pixelRatio`, `background`, `padding`, `darkMode`, `preserveAspectRatio`,
+and `html`. There is **no** identifier-prefix hook, so prefixing at
+export time is not available and the compiler must rewrite after the
+fact: for each layer, rename every `id` to a per-layer namespace and
+rewrite the matching `url(#...)`, `href="#..."`, `xlink:href`, and any
+ARIA id references. The rewrite has to be an allow-listed transformation
+over parsed markup rather than a blind string replace, since ids appear
+in several attribute grammars.
+
+An acceptance test covers this directly: a scene with two cropped
+theme-image shapes plus another `<defs>`-bearing shape, asserting that
+every fragment reference resolves within its own layer.
+
 ## Shape Tiers
 
 **Static shapes** bake through `editor.getSvgString([shape], opts)`,
@@ -394,9 +446,11 @@ runtime creates the element:
   the deployment-independent parameters that PR #172 currently injects
   at runtime (`enablejsapi=1`, `mute=1`). `origin` is deliberately left
   to the runtime; see below.
-- `video`: a `<video>` element, carrying its playback attributes plus
-  the poster frame baked for first paint (which is all
-  `VideoShapeUtil.toSvg` would have given us anyway).
+- `video`: **not compiled in the first version.** A `video` shape sends
+  its deck to the fallback runtime. The corpus contains none, and
+  compiling one against an approximate descriptor would quietly reset
+  `time` and `playing` and drop `altText`. The intended contract is
+  recorded on `VideoLayer` for when it is implemented.
 - `bookmark`: the link preview card. Its metadata lives in a
   `TLBookmarkAsset` record rather than on the shape, so the compiler
   copies the asset's fields into the layer.
@@ -408,6 +462,44 @@ returns `hidden` for it today) and uses only its bounds for
 `CompiledScene.cameraTargets`, keyed by the frame's `shapeId`, and then
 drops the shape. Resolving them is mandatory rather than an
 optimisation: nothing in `TimelineDoc` can carry a rectangle.
+
+**Theme-image shapes must be adapted before each variant is baked.**
+This is the one place where per-theme baking is not just an export
+option. `getSvgString` accepts `darkMode`, which sets `ctx.isDarkMode`,
+and `ThemeImageShapeUtil.toSvg` uses it to pick the per-theme
+`assetId`. But it then renders `<SvgImage shape={shape} />`, and
+`SvgImage` reads the **generic** `props.w`, `props.h`, and `props.crop`.
+Those generic props are synchronised from `dimensionLight`/`dimensionDark`
+and `cropLight`/`cropDark` inside a `useEffect` in the shape's React
+component, which a headless editor never mounts.
+
+Left alone, the dark variant would render the dark asset at whatever
+dimensions and crop the snapshot happens to carry, which is the last
+theme shown while authoring. `getShapePageBounds` reads the same generic
+props, so `exportBounds` and the variant's scene `bounds` would be wrong
+too. The r4 variants would be internally inconsistent before playback
+even starts.
+
+So, for each theme, the compiler adapts every `theme-image` shape before
+measuring or exporting:
+
+```ts
+props: {
+  ...shape.props,
+  w: themeProps.dimension.w,
+  h: themeProps.dimension.h,
+  crop: themeProps.crop,
+}
+```
+
+applied in a transaction that is rolled back between variants, so the
+two bakes do not contaminate each other. The mapping must come from the
+shape module rather than being restated in the compiler: `setThemeProps`
+is exported today but `getThemeProps` is not, so this design requires
+exporting a helper (`applyThemeToShape(shape, theme)`) that the
+component's `useEffect` and the compiler both call. Duplicating the
+key-selection logic in the compiler would drift silently the first time
+a per-theme prop is added.
 
 **Groups** are flattened. A group contributes no markup of its own; its
 transform is composed into each descendant layer's page-space
@@ -602,12 +694,15 @@ compiler slots in there, delegating the actual work to the browser:
    should be a build error telling the author to convert the deck;
    before then, 0.14.x still migrates v1 data on load and the case
    cannot arise.
-3. Partition shapes into static and live, flatten groups, resolve
-   `cameraTargets` from the `slide` shapes before dropping them, bake
-   static layers with `editor.getSvgString`, and assert that fonts were
-   embedded rather than silently skipped.
-4. Return `CompiledScene` to Node, emit it, and have the virtual module
-   serve it instead of the raw snapshot.
+3. Partition shapes into static and live, flatten groups, and resolve
+   `cameraTargets` from the `slide` shapes before dropping them.
+4. Per requested theme: adapt `theme-image` shapes to that theme's
+   dimensions and crop, measure bounds, bake static layers with
+   `editor.getSvgString({ darkMode })`, namespace each layer's fragment
+   ids, and assert that fonts were embedded rather than silently
+   skipped. Roll the adaptation back before the next theme.
+5. Return `CompiledScene` to Node, emit it, and have the virtual module
+   serve it to each component occurrence in place of the raw snapshot.
 
 Dev builds keep serving the snapshot, so authoring is unaffected, no
 browser is launched, and the compiler only runs where it pays off.
@@ -633,15 +728,40 @@ So the plugin emits a manifest alongside the snapshots:
 
 ```ts
 interface CompileManifestEntry {
+  /**
+   * Identifies a (snapshot, render-configuration) pair, NOT a snapshot.
+   * Two components may share `snapshotId` while differing in fonts,
+   * themes, or opt-out, and they then need different artifacts.
+   */
+  sceneId: string;
   snapshotId: string;
+  /** Hash over the compile-affecting props; disambiguates `sceneId`. */
+  configHash: string;
   compile: boolean;
   /** Resolved absolute URLs, so the compile page loads the same faces. */
   fontUrls: Record<string, string>;
   drawFontFamily: string;
-  /** Which colour schemes to bake; see the dark-mode risk. */
-  themes: ("light" | "dark")[];
+  /** Which colour schemes to bake. */
+  themes: Theme[];
 }
 ```
+
+**Scene identity is per component occurrence, not per snapshot.** The
+component looks its snapshot up by `props.id`, but fonts,
+`excalidrawLikeFont`, requested themes, and `compile` are per instance.
+Keying the manifest by `snapshotId` alone would leave four questions
+unanswered: which configuration wins, which artifact each occurrence
+loads, whether one `compile: false` forces every occurrence to fall
+back, and whether differing theme requests merge. So each occurrence
+gets a `sceneId` derived from its snapshot plus a `configHash` over the
+compile-affecting props, the virtual module maps occurrence to compiled
+scene, and identical configurations deduplicate to one artifact
+naturally because their hashes match.
+
+The simpler alternative, which is worth taking if occurrence tracking
+proves awkward in the Slidev integration, is to reject a build in which
+one `snapshotId` appears with differing compile-affecting configuration,
+and tell the author to split it.
 
 **How the manifest is produced** is the open part, and the answer
 depends on how the values are written:
@@ -696,10 +816,11 @@ import, which is precisely how the current static import arose.
 The compiler must never silently produce a lesser deck, and the two
 ways a compile can fail are not the same kind of event.
 
-**Unsupported content falls back.** An unknown shape type, or a static
-shape whose `toSvg` returns `null`, fails the compile for that deck with
-a message naming the shape and type, and that deck loads the tldraw
-runtime dynamically per the boundary rules above. An explicit
+**Unsupported content falls back.** An unknown shape type, a `video`
+shape (see Shape Tiers), or a static shape whose `toSvg` returns `null`
+fails the compile for that deck with a message naming the shape and
+type, and that deck loads the tldraw runtime dynamically per the
+boundary rules above. An explicit
 `compile: false` behaves the same way. This is what makes adoption
 incremental, and it lets the compiled path ship before it covers every
 shape tldraw offers.
@@ -807,25 +928,33 @@ produces a decision rather than code to keep.
    real, and must fonts be shared rather than embedded?** The likely
    answer is shared scene-level font CSS or emitted font assets, with
    layer SVGs referring to them, which would change `StaticLayer`.
-3. **The coordinate contract under rotation.** Author a scratch deck
-   with a rotated arrow, a thick-stroked shape, and a rotated child
-   inside a group, then verify that positioning each layer at
-   `exportBounds` reproduces the tldraw rendering pixel for pixel.
-   **Decision: does the already-page-transformed contract hold when
-   `rotation` is non-zero?** Tier 2 has no well-defined endpoints until
-   it does.
-4. **One deck end to end.** Compile `202602-oss-give-and-take`
+3. **The coordinate contract under rotation, and fragment ids.** Author
+   a scratch deck with a rotated arrow, a thick-stroked shape, a rotated
+   child inside a group, and two cropped theme images. Verify that
+   positioning each layer at `exportBounds` reproduces the tldraw
+   rendering pixel for pixel, and that both clip paths survive being
+   inlined into one document. **Decisions: does the
+   already-page-transformed contract hold when `rotation` is non-zero,
+   and does id namespacing hold?** Tier 2 has no well-defined endpoints
+   until the first does.
+4. **Theme-image variant correctness.** Give a theme image deliberately
+   different `dimensionLight`/`dimensionDark` **and**
+   `cropLight`/`cropDark`, not just different assets, then bake both
+   variants headlessly. **Decision: does the compiler's theme adaptation
+   reproduce what the mounted component's `useEffect` produces?** This
+   is the check that the r5 adaptation actually closes the gap.
+5. **One deck end to end.** Compile `202602-oss-give-and-take`
    (9 steps, no embeds, one morph) and play it in a throwaway runtime.
    **Decision: do camera and Tier 2 transitions look right against the
    tldraw original?**
-5. **A live layer.** Add an embed-bearing deck and wire YouTube autoplay
+6. **A live layer.** Add an embed-bearing deck and wire YouTube autoplay
    through the IFrame API. **Decision: is the embed story actually
    simpler, as this document claims?**
-6. **Tier 3.** Implement crossfade, compare against tldraw on the seven
+7. **Tier 3.** Implement crossfade, compare against tldraw on the seven
    `geo` morphs. **Decision: is crossfade good enough, or is option (b)
    needed?**
 
-Only after step 6 is there a case for building the real compiler.
+Only after step 7 is there a case for building the real compiler.
 
 ## Out of Scope
 
