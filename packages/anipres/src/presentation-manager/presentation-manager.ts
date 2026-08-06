@@ -48,6 +48,29 @@ export class PresentationManager {
     private $currentStepIndex: Atom<number>,
   ) {}
 
+  // A step run's frames execute across timer waits (frame `duration`s),
+  // so a run started earlier can wake up after a navigation and fire
+  // commands from a step that is no longer active. Each run carries the
+  // generation current at its start and bails once a newer one exists.
+  private runGeneration = 0;
+
+  /**
+   * Invalidates the in-flight step run (if any) without starting a new
+   * one — e.g. on presentation-mode exit, where pending media commands
+   * must not fire over the editor.
+   */
+  cancelActiveRun(): void {
+    this.runGeneration++;
+  }
+
+  private nextRunGeneration(): number {
+    return ++this.runGeneration;
+  }
+
+  isRunCurrent(generation: number): boolean {
+    return generation === this.runGeneration;
+  }
+
   private static instances: WeakMap<Editor, PresentationManager> =
     new WeakMap();
 
@@ -283,6 +306,7 @@ export class PresentationManager {
     }
 
     this.$currentStepIndex.set(stepIndex);
+    const generation = this.nextRunGeneration();
     if (stepIndex !== prevStepIndex + 1) {
       // Jump or backward move: media events of the skipped/rewound
       // range never fire, so force players to the state the event
@@ -298,7 +322,7 @@ export class PresentationManager {
         ),
       );
     }
-    runStep(this, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex, generation);
   }
 
   public rerunStep(): void {
@@ -307,7 +331,7 @@ export class PresentationManager {
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
-    runStep(this, orderedSteps, stepIndex);
+    runStep(this, orderedSteps, stepIndex, this.nextRunGeneration());
   }
 
   @computed $getShapeVisibilitiesInPresentationMode(): Record<

@@ -1,5 +1,6 @@
 import type { Editor } from "tldraw";
 import { deriveTimeline, type FrameAction } from "anipres/models";
+import { resolveMediaControlTarget } from "anipres/schema";
 import {
   FocusedEasingSchema,
   type FocusedEasing,
@@ -44,8 +45,20 @@ function summarise(editor: Editor): {
     index: zeroBased + 1,
     batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
-      shapeIds: batch.frames.map((frame) => frame.shapeId),
-      frameAction: toFocusedFrameAction(batch.frames[0].action),
+      frames: batch.frames.map((frame) => {
+        // A mediaControl frame's carrier is a marker shape; the video
+        // it controls is the marker's parent, which the agent can't
+        // resolve itself (markers aren't in its shape vocabulary).
+        const target =
+          frame.action.type === "mediaControl"
+            ? resolveMediaControlTarget(editor, frame.shapeId)
+            : null;
+        return {
+          shapeId: frame.shapeId,
+          ...(target != null ? { targetShapeId: target.id as string } : {}),
+          action: toFocusedFrameAction(frame.action),
+        };
+      }),
     })),
   }));
 

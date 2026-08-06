@@ -1,7 +1,8 @@
 /** @vitest-environment happy-dom */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { atom, createShapeId, getSnapshot, type Editor } from "tldraw";
 import { PresentationManager } from "./presentation-manager";
+import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import {
   calculateTotalSteps,
   loadHeadlessEditor,
@@ -10,6 +11,7 @@ import {
   frameToMetaJson,
   parseFrameMeta,
   type CueFrame,
+  type SubFrame,
 } from "../timeline-model";
 
 const CUE_FRAME: CueFrame = {
@@ -134,5 +136,87 @@ describe("attachMediaControlCueFrame", () => {
     } finally {
       dispose();
     }
+  });
+});
+
+describe("step run cancellation", () => {
+  function setupVideoWithPlayThenPause(editor: Editor) {
+    const videoId = createShapeId("video");
+    editor.createShape({
+      id: videoId,
+      type: "youtube-embed",
+      x: 0,
+      y: 0,
+      props: {
+        url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+        videoId: "M7lc1UVf-VE",
+      },
+    });
+    const cue: CueFrame = {
+      v: 2,
+      id: "mc-cue",
+      type: "cue",
+      trackId: "T-media",
+      stepId: "s1",
+      stepOrderKey: "a1",
+      // The duration is the wait before the batch's next frame.
+      action: { type: "mediaControl", command: "play", duration: 3000 },
+    };
+    const sub: SubFrame = {
+      v: 2,
+      id: "mc-sub",
+      type: "sub",
+      cueFrameId: "mc-cue",
+      orderKey: "a1",
+      action: { type: "mediaControl", command: "pause" },
+    };
+    editor.createShape({
+      id: createShapeId("marker-cue"),
+      type: "media-control",
+      parentId: videoId,
+      x: 0,
+      y: 300,
+      meta: { frame: frameToMetaJson(cue) },
+    });
+    editor.createShape({
+      id: createShapeId("marker-sub"),
+      type: "media-control",
+      parentId: videoId,
+      x: 40,
+      y: 300,
+      meta: { frame: frameToMetaJson(sub) },
+    });
+  }
+
+  async function runPlayThenPause(cancelDuringWait: boolean) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      setupVideoWithPlayThenPause(editor);
+      const commands = vi.spyOn(YouTubePlayerManager.get(editor), "command");
+
+      manager.moveTo(0);
+      expect(commands.mock.calls.map(([, a]) => a.command)).toEqual(["play"]);
+      if (cancelDuringWait) {
+        manager.cancelActiveRun();
+      }
+      await vi.advanceTimersByTimeAsync(3000);
+      return commands.mock.calls.map(([, action]) => action.command);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  }
+
+  it("fires the batch's chained command when left alone", async () => {
+    expect(await runPlayThenPause(false)).toEqual(["play", "pause"]);
+  });
+
+  it("does not fire remaining commands after the run is invalidated", async () => {
+    expect(await runPlayThenPause(true)).toEqual(["play"]);
   });
 });

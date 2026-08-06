@@ -30,5 +30,6 @@ export type {
 export {
   mediaControlShapeProps,
   MediaControlShapeType,
+  resolveMediaControlTarget,
 } from "./shapes/media-control/MediaControlShape.ts";
 export type { MediaControlShape } from "./shapes/media-control/MediaControlShape.ts";

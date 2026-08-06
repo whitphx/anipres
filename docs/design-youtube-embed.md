@@ -84,6 +84,24 @@ single-click editing, like tldraw embeds) is not overridden mid-flow.
 Leaving presentation mode pauses every player (positions are kept —
 kinder for editing than a full reset).
 
+Because a step run's frames execute across timer waits (frame
+`duration`s), every navigation, rerun, and presentation-mode exit bumps
+a run generation on the presentation manager; a run checks it between
+frames and bails once superseded, so a batch like "play, wait, pause"
+can never fire its tail commands over a state a later navigation
+already reconciled.
+
+Reconciliation covers playing/paused, mute, and volume — aspects the
+fold leaves untouched fall back to a per-player baseline captured at
+mount (the `muted` prop, the player's initial volume), so rewinding
+before an event undoes it. It deliberately does NOT cover timeline
+position: how far a video has played depends on wall-clock time between
+the user's advances, which no fold of the event history can
+reconstruct. The one position guarantee is the reset: a video rewound
+to before its first event is parked paused at its configured `start`
+(via `seekTo`; the API's `stopVideo()` is documented to leave the
+player in an arbitrary non-playing state).
+
 Autoplay policy: programmatic unmuted playback can be blocked by the
 browser without prior user interaction. The iframe sets
 `allow="autoplay"`, and the shape's `muted` prop starts the player

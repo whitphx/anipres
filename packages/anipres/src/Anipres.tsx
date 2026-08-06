@@ -534,7 +534,9 @@ const Inner = (props: InnerProps) => {
           editor.setCurrentTool("select");
         } else {
           // Don't let a video keep playing over the editor after the
-          // presentation ends.
+          // presentation ends — and don't let a step run still waiting
+          // between frames fire its remaining commands afterwards.
+          presentationManager.cancelActiveRun();
           YouTubePlayerManager.get(editor).pauseAll();
         }
       }),

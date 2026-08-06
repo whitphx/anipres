@@ -107,11 +107,11 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
       return;
     }
     const manager = YouTubePlayerManager.get(editor);
-    manager.register(shape.id, iframe, muted);
+    manager.register(shape.id, iframe, { muted, start });
     return () => {
       manager.unregister(shape.id);
     };
-  }, [editor, shape.id, embedUrl, muted]);
+  }, [editor, shape.id, embedUrl, muted, start]);
 
   if (embedUrl == null) {
     return (

@@ -40,8 +40,12 @@ describe("buildMessages", () => {
             batches: [
               {
                 trackId: "track-A",
-                shapeIds: ["shape:slide1"],
-                frameAction: { type: "cameraZoom", duration: 0 },
+                frames: [
+                  {
+                    shapeId: "shape:slide1",
+                    action: { type: "cameraZoom", duration: 0 },
+                  },
+                ],
               },
             ],
           },

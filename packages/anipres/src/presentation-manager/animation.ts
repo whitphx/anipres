@@ -12,9 +12,16 @@ async function runFrames(
   frames: RuntimeFrame[],
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
+  generation: number,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
+    // A newer navigation (or presentation-mode exit) supersedes this
+    // run while it waits between frames; its remaining commands and
+    // animations must not fire on top of the reconciled state.
+    if (!presentationManager.isRunCurrent(generation)) {
+      return;
+    }
     const shape = editor.getShape(frame.shapeId as TLShapeId);
     if (shape == null) {
       throw new Error(`Shape not found for frame ${frame.id}`);
@@ -138,6 +145,7 @@ export function runStep(
   presentationManager: PresentationManager,
   steps: RuntimeStep[],
   index: number,
+  generation: number,
 ): Promise<void> {
   const step = steps[index];
   if (step == null) {
@@ -188,6 +196,7 @@ export function runStep(
       frames,
       predecessorShape ?? null,
       markBeforeAnimation,
+      generation,
     ).finally(() => {
       editor.run(
         () => {

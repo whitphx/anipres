@@ -19,13 +19,14 @@ import {
 
 // Minimal typing of the pieces of the IFrame API we use.
 // https://developers.google.com/youtube/iframe_api_reference
-interface YTPlayer {
+export interface YTPlayer {
   playVideo(): void;
   pauseVideo(): void;
-  stopVideo(): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
   mute(): void;
   unMute(): void;
   setVolume(volume: number): void;
+  getVolume(): number;
   destroy(): void;
 }
 interface YTNamespace {
@@ -44,48 +45,77 @@ declare global {
 const YT_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
 
 let apiPromise: Promise<YTNamespace> | null = null;
-function loadYouTubeIframeApi(): Promise<YTNamespace> {
-  if (apiPromise == null) {
-    apiPromise = new Promise<YTNamespace>((resolve, reject) => {
-      if (window.YT?.Player != null) {
-        resolve(window.YT);
-        return;
-      }
-      const previous = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        previous?.();
-        if (window.YT != null) {
-          resolve(window.YT);
-        }
-      };
-      if (
-        document.querySelector(`script[src^="${YT_IFRAME_API_SRC}"]`) == null
-      ) {
-        const script = document.createElement("script");
-        script.src = YT_IFRAME_API_SRC;
-        script.onerror = () => {
-          // Drop the cached failure so a later mount retries the load
-          // (e.g. after the network recovers).
-          apiPromise = null;
-          reject(new Error("Failed to load the YouTube IFrame API script"));
-        };
-        document.head.appendChild(script);
-      }
-    });
+export function loadYouTubeIframeApi(): Promise<YTNamespace> {
+  if (apiPromise != null) {
+    return apiPromise;
   }
-  return apiPromise;
+  // Deferred shape (not a Promise executor): the script's error event
+  // can fire SYNCHRONOUSLY on append in some environments, and the
+  // failure cleanup below must see `apiPromise` already assigned or the
+  // assignment would re-cache the failed promise afterwards.
+  let resolve!: (yt: YTNamespace) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<YTNamespace>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  apiPromise = promise;
+
+  if (window.YT?.Player != null) {
+    resolve(window.YT);
+    return promise;
+  }
+  const previous = window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady = () => {
+    previous?.();
+    if (window.YT != null) {
+      resolve(window.YT);
+    }
+  };
+  if (document.querySelector(`script[src^="${YT_IFRAME_API_SRC}"]`) == null) {
+    const script = document.createElement("script");
+    script.src = YT_IFRAME_API_SRC;
+    script.onerror = () => {
+      // Drop both the cached failure AND the dead script element so a
+      // later mount retries the load (e.g. after the network recovers)
+      // — a leftover element would make the retry think a load is
+      // already in flight and hang forever.
+      script.remove();
+      if (apiPromise === promise) {
+        apiPromise = null;
+      }
+      reject(new Error("Failed to load the YouTube IFrame API script"));
+    };
+    document.head.appendChild(script);
+  }
+  return promise;
+}
+
+/**
+ * The known state a player mounted with — what reconciliation falls
+ * back to for aspects the folded event history leaves untouched. Without
+ * it, rewinding before e.g. a setVolume event would leave the later
+ * volume applied.
+ */
+export interface PlayerBaseline {
+  /** The `muted` shape prop at mount. */
+  muted: boolean;
+  /** The `start` shape prop at mount: where a reset parks the video. */
+  start: number;
+  /** The player's volume captured at ready; null until then. */
+  volume: number | null;
 }
 
 interface PlayerEntry {
   player: YTPlayer | null;
   disposed: boolean;
-  /** The muted state the player mounted with (`muted` shape prop). */
-  initialMuted: boolean;
+  baseline: PlayerBaseline;
 }
 
 function applyCommandToPlayer(
   player: YTPlayer,
   action: MediaControlFrameAction,
+  baseline: PlayerBaseline,
 ): void {
   switch (action.command) {
     case "play":
@@ -95,7 +125,11 @@ function applyCommandToPlayer(
       player.pauseVideo();
       return;
     case "stop":
-      player.stopVideo();
+      // Same deterministic reset the reconciler uses (see
+      // applyStateToPlayer), so a live stop and a jump-past-stop land in
+      // the same place.
+      player.seekTo(baseline.start, true);
+      player.pauseVideo();
       return;
     case "mute":
       player.mute();
@@ -109,20 +143,20 @@ function applyCommandToPlayer(
   }
 }
 
-function applyStateToPlayer(
+export function applyStateToPlayer(
   player: YTPlayer,
   state: MediaPlaybackState,
-  initialMuted: boolean,
+  baseline: PlayerBaseline,
 ): void {
-  // Audio first so a video never starts at the wrong loudness.
-  if (state.muted ?? initialMuted) {
+  // Audio first so a video never starts at the wrong loudness. Aspects
+  // the event history leaves untouched fall back to the baseline so
+  // rewinding past an event undoes it.
+  if (state.muted ?? baseline.muted) {
     player.mute();
   } else {
     player.unMute();
   }
-  if (state.volume != null) {
-    player.setVolume(state.volume);
-  }
+  player.setVolume(state.volume ?? baseline.volume ?? DEFAULT_MEDIA_VOLUME);
   switch (state.status) {
     case "playing":
       player.playVideo();
@@ -131,7 +165,11 @@ function applyStateToPlayer(
       player.pauseVideo();
       return;
     case "unstarted":
-      player.stopVideo();
+      // stopVideo() is documented to leave the player in "any
+      // non-playing state" — not a deterministic reset. Park the video
+      // paused at its configured start position instead.
+      player.seekTo(baseline.start, true);
+      player.pauseVideo();
       return;
   }
 }
@@ -153,10 +191,14 @@ export class YouTubePlayerManager {
   register(
     shapeId: string,
     iframe: HTMLIFrameElement,
-    initialMuted: boolean,
+    options: { muted: boolean; start: number },
   ): void {
     this.unregister(shapeId);
-    const entry: PlayerEntry = { player: null, disposed: false, initialMuted };
+    const entry: PlayerEntry = {
+      player: null,
+      disposed: false,
+      baseline: { muted: options.muted, start: options.start, volume: null },
+    };
     this.entries.set(shapeId, entry);
     loadYouTubeIframeApi()
       .then((YT) => {
@@ -169,10 +211,14 @@ export class YouTubePlayerManager {
               if (entry.disposed) {
                 return;
               }
+              const volume = player.getVolume();
+              if (Number.isFinite(volume)) {
+                entry.baseline.volume = volume;
+              }
               entry.player = player;
               const desired = this.desired.get(shapeId);
               if (desired != null) {
-                applyStateToPlayer(player, desired, entry.initialMuted);
+                applyStateToPlayer(player, desired, entry.baseline);
               }
             },
           },
@@ -211,9 +257,9 @@ export class YouTubePlayerManager {
         action,
       ),
     );
-    const player = this.entries.get(shapeId)?.player;
-    if (player != null) {
-      applyCommandToPlayer(player, action);
+    const entry = this.entries.get(shapeId);
+    if (entry?.player != null) {
+      applyCommandToPlayer(entry.player, action, entry.baseline);
     }
   }
 
@@ -232,7 +278,7 @@ export class YouTubePlayerManager {
       this.desired.set(shapeId, state);
       const entry = this.entries.get(shapeId);
       if (entry?.player != null) {
-        applyStateToPlayer(entry.player, state, entry.initialMuted);
+        applyStateToPlayer(entry.player, state, entry.baseline);
       }
     }
   }

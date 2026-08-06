@@ -65,8 +65,19 @@ export const PresentationStatePartSchema = z.object({
       batches: z.array(
         z.object({
           trackId: z.string(),
-          shapeIds: z.array(z.string()),
-          frameAction: PerceivedFrameActionSchema,
+          /** frames[0] is the cue; the rest chain after it in order. */
+          frames: z.array(
+            z.object({
+              shapeId: z.string(),
+              /**
+               * mediaControl frames only: the video shape the command
+               * controls (the carrying marker's parent). The carrier's
+               * own shapeId does not identify the video.
+               */
+              targetShapeId: z.string().optional(),
+              action: PerceivedFrameActionSchema,
+            }),
+          ),
         }),
       ),
     }),
