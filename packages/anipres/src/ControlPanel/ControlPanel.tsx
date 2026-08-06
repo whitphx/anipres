@@ -383,10 +383,18 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         <Timeline
           timelineDoc={doc}
           trackGroups={presentationManager.$getMediaTrackGroups()}
-          canExtendFrameSequence={(cueFrame) =>
-            editor.getShape(cueFrame.shapeId as TLShapeId)?.type !==
-            YouTubeEmbedShapeType
-          }
+          canExtendFrameSequence={(cueFrame) => {
+            const carrierType = editor.getShape(
+              cueFrame.shapeId as TLShapeId,
+            )?.type;
+            // Videos: a carrier clone would mount a second live player.
+            // Media events: "+ Media event" appends events, and merging
+            // one into an earlier step (chaining) is done by dragging.
+            return (
+              carrierType !== YouTubeEmbedShapeType &&
+              carrierType !== MediaControlShapeType
+            );
+          }}
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
@@ -419,10 +427,12 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               position == null ||
-              // A video copy would mount a second live player; its
-              // buttons are hidden via canExtendFrameSequence, this
-              // guards other callers.
-              prevShape.type === YouTubeEmbedShapeType
+              // Both types are hidden via canExtendFrameSequence; this
+              // guards other callers. A video copy would mount a second
+              // live player; media events are extended via "+ Media
+              // event" and drag-merge instead.
+              prevShape.type === YouTubeEmbedShapeType ||
+              prevShape.type === MediaControlShapeType
             ) {
               return;
             }
@@ -455,9 +465,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                     frame: frameToMetaJson(newCueFrame),
                   },
                 });
-                if (prevShape.type === MediaControlShapeType) {
-                  copyMediaControlBinding(editor, prevShape.id, newShapeId);
-                }
                 editor.select(newShapeId);
               },
               { history: "ignore" },
@@ -633,7 +640,8 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               plan == null ||
-              prevShape.type === YouTubeEmbedShapeType
+              prevShape.type === YouTubeEmbedShapeType ||
+              prevShape.type === MediaControlShapeType
             ) {
               return;
             }
@@ -675,9 +683,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   frame: frameToMetaJson(newSubFrame),
                 },
               });
-              if (prevShape.type === MediaControlShapeType) {
-                copyMediaControlBinding(editor, prevShape.id, newShapeId);
-              }
               editor.select(newShapeId);
             });
           }}

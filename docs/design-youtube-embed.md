@@ -170,8 +170,11 @@ muted for decks that must play a video on their very first step.
   appends a play event as a new final step (marker + cue frame); the
   user repositions it by dragging in the timeline.
 - The frame-edit popover edits the command (and volume for setVolume)
-  on media frames; the timeline's existing "+" buttons chain follow-up
-  events by cloning the marker.
+  on media frames. The timeline's per-batch "+" buttons are withheld on
+  media batches — "+ Media event" is the one way events are added, and
+  chaining ("play, wait, pause" in one step) is done by dragging an
+  event onto an earlier step, which merges same-track sequences into
+  one batch.
 - The `muted`, `controls`, and `altText` props have no editor UI yet
   (defaults only; settable programmatically). They are part of the
   persisted schema from the start because removing or adding props
