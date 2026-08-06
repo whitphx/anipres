@@ -1,5 +1,13 @@
 # @anipres/agent-mcp
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [[`00b743a`](https://github.com/whitphx/anipres/commit/00b743acec21adea7b6004889da3e6d97345067f)]:
+  - anipres@0.15.0
+  - @anipres/agent-core@0.0.4
+
 ## 0.0.3
 
 ### Patch Changes
