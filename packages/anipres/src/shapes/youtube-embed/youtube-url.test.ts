@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYouTubeEmbedUrl, parseYouTubeUrl } from "./youtube-url";
+import { parseYouTubeUrl } from "./youtube-url";
 
 describe("parseYouTubeUrl", () => {
   const accepted: [string, string, number | null][] = [
@@ -47,42 +47,5 @@ describe("parseYouTubeUrl", () => {
       videoId: "M7lc1UVf-VE",
       start: null,
     });
-  });
-});
-
-describe("buildYouTubeEmbedUrl", () => {
-  it("always enables the JS API on the privacy-enhanced host", () => {
-    const url = new URL(
-      buildYouTubeEmbedUrl({
-        videoId: "M7lc1UVf-VE",
-        start: 0,
-        muted: false,
-        controls: true,
-        origin: null,
-      }),
-    );
-    expect(url.hostname).toBe("www.youtube-nocookie.com");
-    expect(url.pathname).toBe("/embed/M7lc1UVf-VE");
-    expect(url.searchParams.get("enablejsapi")).toBe("1");
-    expect(url.searchParams.get("mute")).toBeNull();
-    expect(url.searchParams.get("start")).toBeNull();
-    expect(url.searchParams.get("controls")).toBeNull();
-    expect(url.searchParams.get("origin")).toBeNull();
-  });
-
-  it("carries start, mute, controls, and origin options", () => {
-    const url = new URL(
-      buildYouTubeEmbedUrl({
-        videoId: "M7lc1UVf-VE",
-        start: 90.9,
-        muted: true,
-        controls: false,
-        origin: "https://example.com",
-      }),
-    );
-    expect(url.searchParams.get("start")).toBe("90");
-    expect(url.searchParams.get("mute")).toBe("1");
-    expect(url.searchParams.get("controls")).toBe("0");
-    expect(url.searchParams.get("origin")).toBe("https://example.com");
   });
 });

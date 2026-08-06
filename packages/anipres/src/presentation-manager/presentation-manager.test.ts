@@ -220,3 +220,99 @@ describe("step run cancellation", () => {
     expect(await runPlayThenPause(true)).toEqual(["play"]);
   });
 });
+
+describe("shape-animation run cancellation", () => {
+  function setupAnimationTrack(editor: Editor) {
+    const a = createShapeId("animA");
+    const b = createShapeId("animB");
+    const cueA: CueFrame = {
+      v: 2,
+      id: "fa",
+      type: "cue",
+      trackId: "T-anim",
+      stepId: "s1",
+      stepOrderKey: "a1",
+      action: { type: "shapeAnimation" },
+    };
+    const cueB: CueFrame = {
+      v: 2,
+      id: "fb",
+      type: "cue",
+      trackId: "T-anim",
+      stepId: "s2",
+      stepOrderKey: "a2",
+      action: { type: "shapeAnimation", duration: 3000 },
+    };
+    editor.createShapes([
+      {
+        id: a,
+        type: "geo",
+        x: 0,
+        y: 0,
+        meta: { frame: frameToMetaJson(cueA) },
+      },
+      {
+        id: b,
+        type: "geo",
+        x: 300,
+        y: 0,
+        meta: { frame: frameToMetaJson(cueB) },
+      },
+    ]);
+    return { a, b };
+  }
+
+  async function runAnimationTo(
+    step1: (ctx: {
+      editor: Editor;
+      manager: PresentationManager;
+      a: ReturnType<typeof createShapeId>;
+      baseCount: number;
+    }) => Promise<void>,
+  ) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      const { a } = setupAnimationTrack(editor);
+      manager.moveTo(0);
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCount = editor.getCurrentPageShapes().length;
+
+      // Starts animating a temporary copy from A toward B over 3000ms.
+      manager.moveTo(1);
+      expect(editor.getCurrentPageShapes().length).toBe(baseCount + 1);
+
+      await step1({ editor, manager, a, baseCount });
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  }
+
+  it("disposes the temp shape and history-bail listener on cancellation", async () => {
+    await runAnimationTo(async ({ editor, manager, a, baseCount }) => {
+      manager.cancelActiveRun();
+      expect(editor.getCurrentPageShapes().length).toBe(baseCount);
+
+      // A post-cancel edit must survive: the cancelled run's tick
+      // listener would bail history back past it, and its pending
+      // timeout must not resurrect anything.
+      editor.updateShape({ id: a, type: "geo", x: 999 });
+      editor.emit("tick", 16);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(editor.getShape(a)?.x).toBe(999);
+      expect(editor.getCurrentPageShapes().length).toBe(baseCount);
+    });
+  });
+
+  it("cleans the temp shape up when the run completes undisturbed", async () => {
+    await runAnimationTo(async ({ editor, baseCount }) => {
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(editor.getCurrentPageShapes().length).toBe(baseCount);
+    });
+  });
+});

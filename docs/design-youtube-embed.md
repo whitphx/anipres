@@ -31,10 +31,15 @@ whole timeline machinery applies unchanged.
 
 - **`youtube-embed`** (`shapes/youtube-embed/`): the video. Props hold
   the pasted URL, extracted `videoId`, start offset, initial mute, and
-  whether YouTube's own controls show. The component renders the IFrame
-  Player (privacy-enhanced host, `enablejsapi=1`) and registers it with
-  the per-editor `YouTubePlayerManager`. Like any shape, it may carry a
-  regular cue frame (e.g. a `shapeAnimation` appearance step).
+  whether YouTube's own controls show. The component renders only a
+  container div; the IFrame API creates and owns the player iframe
+  inside it (privacy-enhanced host), registered with the per-editor
+  `YouTubePlayerManager`. The iframe deliberately stays out of React's
+  virtual DOM: a React-rendered iframe and the widget API both mutate
+  the element, and each re-render then resets the other side's changes,
+  reloading the embed in a loop (the same containment approach as
+  react-youtube). Like any shape, it may carry a regular cue frame
+  (e.g. a `shapeAnimation` appearance step).
 - **`media-control`** (`shapes/media-control/`): a small badge marker
   whose `meta.frame` carries one `mediaControl` frame — one marker per
   media event. Its target is its **parent shape**: markers are created
@@ -89,7 +94,11 @@ Because a step run's frames execute across timer waits (frame
 a run generation on the presentation manager; a run checks it between
 frames and bails once superseded, so a batch like "play, wait, pause"
 can never fire its tail commands over a state a later navigation
-already reconciled.
+already reconciled. The generation check only stops future frames, so
+effects a frame already started — the temporary animation shape, its
+history-bail tick listener and cleanup timer, a running camera
+animation — are registered with the manager as run effects and torn
+down at the moment of supersession or cancellation.
 
 Reconciliation covers playing/paused, mute, and volume — aspects the
 fold leaves untouched fall back to a per-player baseline captured at
@@ -103,9 +112,9 @@ to before its first event is parked paused at its configured `start`
 player in an arbitrary non-playing state).
 
 Autoplay policy: programmatic unmuted playback can be blocked by the
-browser without prior user interaction. The iframe sets
-`allow="autoplay"`, and the shape's `muted` prop starts the player
-muted for decks that must play a video on their very first step.
+browser without prior user interaction. The API-created iframe carries
+the autoplay allow attribute, and the shape's `muted` prop starts the
+player muted for decks that must play a video on their very first step.
 
 ### Editor UI
 

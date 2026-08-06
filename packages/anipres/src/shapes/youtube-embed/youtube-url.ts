@@ -71,36 +71,3 @@ export function parseYouTubeUrl(input: string): ParsedYouTubeUrl | null {
   const start = timeParam != null ? parseTimeDesignator(timeParam) : null;
   return { videoId, start };
 }
-
-/**
- * Builds the privacy-enhanced embed URL with the JS API enabled so the
- * player accepts commands from `YouTubePlayerManager`.
- */
-export function buildYouTubeEmbedUrl(options: {
-  videoId: string;
-  start: number;
-  muted: boolean;
-  controls: boolean;
-  origin: string | null;
-}): string {
-  const { videoId, start, muted, controls, origin } = options;
-  const url = new URL(
-    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`,
-  );
-  url.searchParams.set("enablejsapi", "1");
-  url.searchParams.set("playsinline", "1");
-  url.searchParams.set("rel", "0");
-  if (start > 0) {
-    url.searchParams.set("start", String(Math.floor(start)));
-  }
-  if (muted) {
-    url.searchParams.set("mute", "1");
-  }
-  if (!controls) {
-    url.searchParams.set("controls", "0");
-  }
-  if (origin != null) {
-    url.searchParams.set("origin", origin);
-  }
-  return url.toString();
-}

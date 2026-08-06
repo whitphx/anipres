@@ -110,6 +110,27 @@ async function runFrames(
       };
       editor.on("tick", onTick);
 
+      // The temp shape, the tick listener, and the timer are registered
+      // as a run effect so supersession/cancellation tears them down
+      // immediately: left alone, the listener's history bail would roll
+      // back changes made after this run was superseded.
+      // (`cleanupTimer` is initialized below in this same synchronous
+      // block, before any disposer can possibly run.)
+      const disposeAnimation = () => {
+        clearTimeout(cleanupTimer);
+        editor.off("tick", onTick);
+        editor.run(
+          () => {
+            if (editor.getShape(animeShapeId) != null) {
+              editor.deleteShape(animeShapeId);
+            }
+          },
+          { history: "ignore", ignoreShapeLock: true },
+        );
+      };
+      const unregisterRunEffect =
+        presentationManager.registerRunEffect(disposeAnimation);
+
       const { x, y, rotation } = shapePageTransform.decomposed();
       editor.animateShape(
         {
@@ -130,14 +151,9 @@ async function runFrames(
         },
       );
 
-      setTimeout(() => {
-        editor.run(
-          () => {
-            editor.deleteShape(animeShapeId);
-          },
-          { history: "ignore", ignoreShapeLock: true },
-        );
-        editor.off("tick", onTick);
+      const cleanupTimer = setTimeout(() => {
+        unregisterRunEffect();
+        disposeAnimation();
       }, duration);
     }
 

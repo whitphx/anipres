@@ -28,6 +28,7 @@ export interface YTPlayer {
   setVolume(volume: number): void;
   getVolume(): number;
   getPlayerState(): number;
+  getIframe(): HTMLIFrameElement;
   destroy(): void;
 }
 
@@ -37,8 +38,16 @@ const YT_PLAYER_STATE_UNSTARTED = -1;
 const YT_PLAYER_STATE_CUED = 5;
 interface YTNamespace {
   Player: new (
-    element: HTMLIFrameElement,
-    options: { events?: { onReady?: () => void } },
+    // The API REPLACES this element with an iframe it creates and owns.
+    element: HTMLElement,
+    options: {
+      videoId?: string;
+      width?: string | number;
+      height?: string | number;
+      host?: string;
+      playerVars?: Record<string, string | number>;
+      events?: { onReady?: () => void };
+    },
   ) => YTPlayer;
 }
 declare global {
@@ -210,10 +219,24 @@ export class YouTubePlayerManager {
     return inst;
   }
 
+  /**
+   * Creates a player inside `host` (which the IFrame API replaces with
+   * an iframe it creates and owns). The caller must keep that iframe
+   * OUT of React's virtual DOM — a React-rendered iframe and the widget
+   * API fight over the element's attributes, endlessly reloading the
+   * embed. Same containment approach as react-youtube:
+   * https://github.com/tjallingt/react-youtube
+   */
   register(
     shapeId: string,
-    iframe: HTMLIFrameElement,
-    options: { muted: boolean; start: number },
+    host: HTMLElement,
+    options: {
+      videoId: string;
+      muted: boolean;
+      start: number;
+      controls: boolean;
+      title: string;
+    },
   ): void {
     this.unregister(shapeId);
     const entry: PlayerEntry = {
@@ -224,10 +247,22 @@ export class YouTubePlayerManager {
     this.entries.set(shapeId, entry);
     loadYouTubeIframeApi()
       .then((YT) => {
-        if (entry.disposed || !iframe.isConnected) {
+        if (entry.disposed || !host.isConnected) {
           return;
         }
-        const player = new YT.Player(iframe, {
+        const player = new YT.Player(host, {
+          videoId: options.videoId,
+          width: "100%",
+          height: "100%",
+          // Privacy-enhanced host; the API adds enablejsapi/origin itself.
+          host: "https://www.youtube-nocookie.com",
+          playerVars: {
+            playsinline: 1,
+            rel: 0,
+            ...(options.start > 0 ? { start: Math.floor(options.start) } : {}),
+            ...(options.muted ? { mute: 1 } : {}),
+            ...(options.controls ? {} : { controls: 0 }),
+          },
           events: {
             onReady: () => {
               if (entry.disposed) {
@@ -236,6 +271,13 @@ export class YouTubePlayerManager {
               const volume = player.getVolume();
               if (Number.isFinite(volume)) {
                 entry.baseline.volume = volume;
+              }
+              if (options.title !== "") {
+                try {
+                  player.getIframe().title = options.title;
+                } catch {
+                  // ignore
+                }
               }
               entry.player = player;
               const desired = this.desired.get(shapeId);

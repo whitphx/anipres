@@ -14,7 +14,7 @@ import {
   YouTubeEmbedShapeType,
   youTubeEmbedShapeProps,
 } from "./YouTubeEmbedShape";
-import { buildYouTubeEmbedUrl, parseYouTubeUrl } from "./youtube-url";
+import { parseYouTubeUrl } from "./youtube-url";
 import { YouTubePlayerManager } from "../../media/youtube-player-manager";
 
 export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
@@ -89,31 +89,39 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
   const isEditing = useIsEditing(shape.id);
   const { w, h, videoId, start, muted, controls, altText } = shape.props;
 
-  const embedUrl =
-    videoId !== ""
-      ? buildYouTubeEmbedUrl({
-          videoId,
-          start,
-          muted,
-          controls,
-          origin: typeof window !== "undefined" ? window.location.origin : null,
-        })
-      : null;
-
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // The IFrame API creates and OWNS the player iframe inside this
+  // container. It must never be rendered through React: a React-owned
+  // iframe and the widget API both mutate the element (src, attributes),
+  // and every re-render then resets the other side's changes — the
+  // embed reloads in a loop and the player handshake never completes.
+  const containerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (iframe == null || embedUrl == null) {
+    const container = containerRef.current;
+    if (container == null || videoId === "") {
       return;
     }
+    const host = document.createElement("div");
+    container.appendChild(host);
     const manager = YouTubePlayerManager.get(editor);
-    manager.register(shape.id, iframe, { muted, start });
+    manager.register(shape.id, host, {
+      videoId,
+      muted,
+      start,
+      controls,
+      title: altText !== "" ? altText : "YouTube video player",
+    });
     return () => {
       manager.unregister(shape.id);
+      // destroy() removes the player iframe; this catches whatever is
+      // left (e.g. the untouched host when the API never loaded).
+      container.replaceChildren();
     };
-  }, [editor, shape.id, embedUrl, muted, start]);
+    // altText is applied only at player creation; retitling must not
+    // rebuild the player.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, shape.id, videoId, muted, start, controls]);
 
-  if (embedUrl == null) {
+  if (videoId === "") {
     return (
       <HTMLContainer
         id={shape.id}
@@ -147,22 +155,15 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
         pointerEvents: isEditing ? "all" : "none",
       }}
     >
-      <iframe
-        key={embedUrl}
-        ref={iframeRef}
-        src={embedUrl}
+      <div
+        ref={containerRef}
         style={{
           width: "100%",
           height: "100%",
-          border: "none",
           borderRadius: 8,
+          overflow: "hidden",
           backgroundColor: "#1f1f1f",
         }}
-        title={altText !== "" ? altText : "YouTube video player"}
-        allow="autoplay; encrypted-media; picture-in-picture"
-        allowFullScreen
-        referrerPolicy="strict-origin-when-cross-origin"
-        draggable={false}
       />
     </HTMLContainer>
   );

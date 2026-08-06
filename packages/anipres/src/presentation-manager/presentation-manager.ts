@@ -54,6 +54,34 @@ export class PresentationManager {
   // generation current at its start and bails once a newer one exists.
   private runGeneration = 0;
 
+  // Disposers for the CURRENT run's in-flight effects (temporary
+  // animation shapes, history-bail tick listeners, cleanup timers).
+  // The generation check only stops FUTURE frames; effects a frame
+  // already started must be torn down at the moment of supersession —
+  // most urgently the tick listener, whose unguarded history bail would
+  // otherwise roll back the successor's (or the user's) changes.
+  private activeRunEffectDisposers = new Set<() => void>();
+
+  /**
+   * Ties an in-flight effect to the current run. Returns an unregister
+   * function for the effect's own normal-completion path.
+   */
+  registerRunEffect(dispose: () => void): () => void {
+    this.activeRunEffectDisposers.add(dispose);
+    return () => this.activeRunEffectDisposers.delete(dispose);
+  }
+
+  private supersedeActiveRun(): number {
+    const generation = ++this.runGeneration;
+    const disposers = [...this.activeRunEffectDisposers];
+    this.activeRunEffectDisposers.clear();
+    for (const dispose of disposers) {
+      dispose();
+    }
+    this.editor.stopCameraAnimation();
+    return generation;
+  }
+
   /**
    * Invalidates the in-flight step run (if any) without starting a new
    * one — e.g. on presentation-mode exit, where pending media commands
@@ -62,12 +90,12 @@ export class PresentationManager {
    * here.
    */
   cancelActiveRun(): void {
-    this.runGeneration++;
+    this.supersedeActiveRun();
     clearHiddenDuringAnimationFlags(this.editor);
   }
 
   private nextRunGeneration(): number {
-    return ++this.runGeneration;
+    return this.supersedeActiveRun();
   }
 
   isRunCurrent(generation: number): boolean {
