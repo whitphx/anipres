@@ -42,7 +42,9 @@ export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
   override onDoubleClick(shape: MediaControlShape) {
     // A returned change makes the select tool stop here; without one,
     // double-clicking a non-editable shape falls through to the canvas
-    // handler, which creates a text shape on top of the marker.
+    // handler, which creates a text shape on top of the marker. See
+    // `case "shape"` in
+    // https://github.com/tldraw/tldraw/blob/v3.15.5/packages/tldraw/src/lib/tools/SelectTool/childStates/Idle.ts
     return { id: shape.id, type: shape.type };
   }
 
