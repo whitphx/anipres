@@ -17,6 +17,30 @@ stable `stepId`s) has shipped in `anipres` 0.14.0.
 
 ## Revision History
 
+- **r8 (2026-08-06)**: Five findings from a further review, one of
+  which corrects r7 itself. r7 claimed a transform animation on a group
+  applies its delta to every member layer, "which is what the live
+  runtime produces". It is not: `animation.ts` copies only the group
+  record, so the temporary shape is an **empty** group, and
+  `GroupShapeUtil.component` returns `null` while `onChildrenChange`
+  deletes childless groups. Together with `hiddenDuringAnimation` on
+  the successor and the `inherit` rule on its members, a group-carried
+  `shapeAnimation` draws nothing for its duration today, and the
+  compiled runtime reproduces that rather than improving on it, since
+  diverging would make a compiled deck differ from the same deck on the
+  fallback path. Pre-baked Tier 3 sequences are described honestly as
+  **sampled**: each still is exact but the sequence is a step function
+  over a continuous tween, so `MorphSequence` carries a `sampleRate`
+  and per-still `progress`, exceeding the cap falls back rather than
+  coarsening, and the spike asks for a rate rather than a frame count.
+  `AnimatedImageLayer` gains `crop`, `flipX`/`flipY`, and the intrinsic
+  size, without which a live `<img>` loses the cropping the baked path
+  gets from `SvgImage`. `cameraTargets` is collected from every
+  `cameraZoom` frame rather than from `slide` shapes, since the model
+  does not tie the action to that type. The runtime reconciles layers
+  across a theme switch by a stable key, so switching does not reload
+  every iframe. `HyperlinkOverlay` ships its own styles instead of
+  borrowing tldraw class names the bundle boundary removes.
 - **r7 (2026-08-06)**: Ten findings from a workflow-backed review, plus
   a re-measurement of the corpus that corrects this document's own
   numbers. Three of them would have shipped a visibly wrong deck. A
@@ -322,10 +346,18 @@ interface CompiledSceneVariant {
  * runtime shows exactly one still at a time and never blends two.
  * Each obeys the same coordinate contract as `StaticLayer.svg`, and
  * `exportBounds` is per still because interpolating `w`/`h` moves them.
+ *
+ * `progress` is the eased position each still was sampled at, in
+ * [0, 1]. The runtime shows the still whose `progress` most recently
+ * passed, so playback is a step function over a continuous tween
+ * rather than a re-derivation of it: the sampling rate, not the
+ * format, is what bounds the error.
  */
 interface MorphSequence {
-  frames: { svg: string; exportBounds: Bounds }[];
+  frames: { svg: string; exportBounds: Bounds; progress: number }[];
   padding: number;
+  /** Samples per second the sequence was baked at. */
+  sampleRate: number;
 }
 
 type CompiledLayer =
@@ -432,6 +464,22 @@ interface AnimatedImageLayer extends LayerBase {
     /** Frame zero, for first paint and for reduced-motion viewers. */
     posterDataUrl?: string;
     altText: string;
+    /**
+     * Crop and flip, which the baked path gets for free and this one
+     * does not. `toSvg` renders through `SvgImage`, which sizes the
+     * image from `getUncroppedSize(dimension, crop)` and clips it;
+     * `LayerBase.transform` carries only the visible box, so without
+     * these the live `<img>` shows the whole asset unflipped. The
+     * runtime reproduces the crop with a clipping wrapper and the flips
+     * with a CSS `scale(-1)`, which is exact for a bitmap.
+     *
+     * For a `theme-image` these come from the theme being baked, since
+     * `cropLight` and `cropDark` differ.
+     */
+    intrinsicSize: { w: number; h: number };
+    crop: TLShapeCrop | null;
+    flipX: boolean;
+    flipY: boolean;
   };
 }
 
@@ -441,8 +489,13 @@ interface AnimatedImageLayer extends LayerBase {
  * corner `<a class="tl-hyperlink-button" target="_blank">` carrying a
  * visible link icon, so a shape-sized region would both lose the icon
  * and swallow clicks anywhere on the shape that the author expected to
- * advance the slide. It reuses tldraw's own class names so the compiled
- * deck inherits the stylesheet rather than restating the geometry.
+ * advance the slide.
+ *
+ * The compiled runtime ships its own copy of the button's geometry and
+ * icon. It cannot borrow tldraw's class names, because the bundle
+ * boundary removes tldraw's stylesheet from production along with its
+ * code, and a class that styles nothing would leave an invisible
+ * anchor in an unpredictable place.
  */
 interface HyperlinkOverlay extends LayerBase {
   kind: "hyperlink";
@@ -708,11 +761,40 @@ until its step.
 
 So each layer records its ancestor `groupIds`, and both animation
 targeting and visibility resolve a frame's `shapeId` against a layer's
-own id or any of its ancestors. A transform animation on a group
-applies one delta to every member layer, which is what the live runtime
-produces when it animates the group shape. A Tier 3 morph on a group is
-not compilable, since a pre-baked still of a group is a still of the
-whole subtree, and it sends the deck to fallback.
+own id or any of its ancestors.
+
+**A `shapeAnimation` whose predecessor or successor is a group renders
+nothing while it runs, and the compiled runtime must reproduce that
+rather than improve on it.** The temptation is to apply the group's
+transform delta to every member layer, which is what the author
+presumably wanted. It is not what happens today. `animation.ts` builds
+its temporary shape with `createShape({ ...predecessorShape, parentId:
+currentPageId, id: animeShapeId })`, and the group's members keep their
+`parentId` pointing at the original group, so the copy is an **empty**
+group. `GroupShapeUtil.component` returns `null` except when the group
+is focused or being erased, and `onChildrenChange` deletes a group that
+has no children, so the copy draws nothing either way. Meanwhile
+`runStep` sets `hiddenDuringAnimation` on the batch's own shapes, which
+hides the successor group and, through the `inherit` rule, its whole
+subtree; the predecessor is already hidden by the track rule. The net
+effect is a blank gap for the frame's `duration`, after which the
+successor subtree appears.
+
+Compiling the delta instead would make a compiled deck play
+differently from the same deck on the fallback path, which is a worse
+outcome than reproducing an odd behaviour: fallback is supposed to be
+the same deck, more slowly. If the blank gap is a bug, it is a bug in
+the live runtime, and fixing it there is a separate change this design
+should follow rather than pre-empt.
+
+Group frames that only gate visibility are unaffected and compile
+normally, which is the common case: a cue frame with no predecessor on
+its track performs no animation at all, it just brings the subtree on
+at its step.
+
+A Tier 3 morph on a group is not compilable either, since a pre-baked
+still of a group is a still of the whole subtree, and it sends the deck
+to fallback.
 
 ### Why embeds get simpler, not harder
 
@@ -790,7 +872,8 @@ in increasing fidelity and cost:
   to indistinguishable.
 - **(b) Pre-baked intermediate frames.** At compile time, lerp the props
   in the editor and bake N intermediate SVGs, then play them as a
-  sprite sequence. Exact, at the cost of artifact size.
+  sprite sequence. Every still is exactly what tldraw would have drawn
+  at that instant, at the cost of artifact size.
 - **(c) Reimplement interpolation** in the runtime for the specific prop
   subset. Highest fidelity, highest maintenance, and it re-imports the
   complexity we are trying to delete.
@@ -812,13 +895,32 @@ across seventeen decks, at N intermediate bakes each, is a rounding
 error against the per-deck browser launch. The cost scales with morph
 count rather than deck size, and the artifact-size spike measures it.
 
+**Sampled, not continuous, and the document should not pretend
+otherwise.** `editor.animateShape` re-derives the shape from
+`getInterpolatedProps` on every tick, so the live tween is continuous
+at the display's refresh rate. A sprite sequence matches it only at the
+instants it was sampled and repeats a still in between. Each still is
+exact, the sequence is a step function over the tween, and the sampling
+rate is the whole of the error: at 60 samples per second the step is
+one display frame and no viewer can see it, while a coarse cap on a
+long morph visibly stutters. So the contract is a **rate**, not a
+count, and a cap that would be exceeded routes the pair to fallback
+rather than quietly coarsening it. This is the one place where option
+(c) would genuinely win, and the trade is deliberate: bytes, which the
+spike measures, against re-importing the interpolator.
+
 So:
 
-- **Default**: pre-bake intermediate frames for every Tier 3 pair. N is
-  chosen from the frame's `duration` and capped; the sequence plays as
-  the tween. It is carried by `CompiledSceneVariant.morphs`, keyed by
-  the frame whose `shapeAnimation` plays it, because a `StaticLayer`
-  holds exactly one baked picture and has nowhere to put a tween.
+- **Default**: pre-bake intermediate frames for every Tier 3 pair,
+  sampled at `sampleRate` across the frame's `duration` and recorded
+  with the eased `progress` of each still. It is carried by
+  `CompiledSceneVariant.morphs`, keyed by the frame whose
+  `shapeAnimation` plays it, because a `StaticLayer` holds exactly one
+  baked picture and has nowhere to put a tween.
+- **If the sample count would exceed the cap** (a long morph at a high
+  rate), the pair falls back. Dropping the rate instead would ship a
+  visibly stepping animation under a default that claims not to
+  approximate.
 - **Opt-in** (`approximateMorphs: true`, per deck or per frame):
   crossfade instead, for authors who prefer a smaller artifact and
   accept the difference. Such a pair gets no `morphs` entry.
@@ -832,8 +934,10 @@ So:
   crossfade this section rejects.
 
 Option (c), reimplementing tldraw's interpolator, remains rejected: it
-re-imports the complexity this design exists to delete, and pre-baking
-gets exactness without it.
+re-imports the complexity this design exists to delete, and sampling
+finely enough is cheap at four morph pairs. If the spike finds the
+byte cost unacceptable at a rate viewers cannot distinguish, (c) is the
+option to revisit, not a coarser sequence.
 
 ### Visibility
 
@@ -877,6 +981,21 @@ bridge in production builds:
   deck state a viewer can toggle mid-presentation, so there is no
   request to honour and no missing-variant case to degrade into. A
   scene reaching the runtime with only one variant is a build error.
+- **Reconciles layers across a variant switch by
+  `${kind}:${shapeId}`, and preserves any live element whose descriptor
+  is unchanged.** Both variants carry the whole `layers` array, so a
+  naive re-render would tear down every element, and live elements own
+  state the compiled artifact does not describe: recreating an
+  `EmbedLayer` reloads its iframe and loses the YouTube player's
+  position, and recreating an `AnimatedImageLayer` restarts the
+  animation. Most live layers are byte-identical between variants,
+  since the theme does not reach an iframe. The exception is a
+  `theme-image` whose asset is animated, whose `src`, crop, and
+  geometry genuinely differ per theme and which is therefore meant to
+  be updated. Hoisting theme-independent live layers out of the variant
+  would express this in the schema, but layers interleave with static
+  ones in z-order, so keeping one ordered array and reconciling it is
+  the simpler correct thing.
 - Maps Slidev's click index to a step index, exactly as
   `SlidevAnipres.vue` does today via `calculateTotalSteps`. The count is
   `timeline.steps.length`, a plain array length, so no snapshot parsing
@@ -986,7 +1105,15 @@ compiler slots in there, delegating the actual work to the browser:
    before then, 0.14.x still migrates v1 data on load and the case
    cannot arise.
 3. Partition shapes into static and live, flatten groups, and resolve
-   `cameraTargets` from the `slide` shapes before dropping them.
+   `cameraTargets` by walking every frame whose action is `cameraZoom`
+   and taking its carrying shape's page bounds, before any shape is
+   dropped or adapted. Walking the `slide` shapes instead would be
+   narrower than the model: `CameraZoomFrameAction` is not restricted
+   to `slide`, and the live runtime resolves the rectangle from
+   whichever shape holds the frame. The editor only ever attaches one
+   to a `slide` (`registerBeforeCreateHandler` in `Anipres.tsx`), and
+   all 77 in the corpus are on slides, but a frame that arrived by
+   another route would compile to a camera move with no target.
 4. Per requested theme: adapt `theme-image` shapes to that theme's
    dimensions and crop, measure bounds, bake static layers with
    `editor.getSvgString({ darkMode })`, namespace each layer's fragment
@@ -1307,7 +1434,12 @@ produces a decision rather than code to keep.
    `$getShapeVisibilitiesInPresentationMode` step for step?** Both are
    visibility rules a track-only runtime silently inverts, turning
    hidden content visible, and 33 framed shapes in the corpus are
-   groups.
+   groups. Add a second batch on the group's track so a group-to-group
+   `shapeAnimation` actually runs, and record on video what the live
+   runtime draws during it. **Decision: is the blank gap this document
+   predicts what actually happens?** The compiled behaviour is
+   specified from that answer, not from what the animation ought to
+   look like.
 4. **Theme-image variant correctness, and the capability rule.** Give a
    theme image deliberately different `dimensionLight`/`dimensionDark`
    **and** `cropLight`/`cropDark`, not just different assets, then bake
@@ -1315,9 +1447,13 @@ produces a decision rather than code to keep.
    `image`, a linked `theme-image`, an animated GIF `image`, an animated
    `theme-image`, and an **animated WebP**, whose mime type tldraw
    classifies as static so that only the asset's `isAnimated` flag
-   catches it. **Decisions: does the theme adaptation reproduce what the
-   mounted component's `useEffect` produces, and does every shape retain
-   its click target and its motion?** The linked and
+   catches it. Give one animated image a crop and a `flipX`, and toggle
+   dark mode mid-playback with an embed on screen. **Decisions: does
+   the theme adaptation reproduce what the mounted component's
+   `useEffect` produces, does every shape retain its click target and
+   its motion, does the live `<img>` reproduce the crop and flip the
+   baked path would have got for free, and does the iframe survive the
+   theme switch without reloading?** The linked and
    animated cases must either survive as live layers or send the deck to
    fallback; compiling them into a still picture is the failure this
    step exists to catch.
@@ -1329,10 +1465,16 @@ produces a decision rather than code to keep.
    through the IFrame API. **Decision: is the embed story actually
    simpler, as this document claims?**
 7. **Tier 3.** Implement pre-baked intermediate frames and compare
-   against tldraw on the corpus's four `geo` morphs.
-   **Decisions: how many intermediate frames does exactness need, what
-   do they cost in bytes, and is the opt-in crossfade close enough to be
-   worth offering at all?**
+   against tldraw on the corpus's four `geo` morphs, recording each
+   still's eased `progress` and playing the sequence as a step
+   function. Sweep the sample rate and find where the stepping stops
+   being visible against the live tween.
+   **Decisions: what sample rate is indistinguishable from
+   `getInterpolatedProps` at the display's refresh rate, what does that
+   rate cost in bytes, and is the opt-in crossfade close enough to be
+   worth offering at all?** Note this is a rate question, not a frame
+   count: a fixed count stutters on long morphs and wastes bytes on
+   short ones.
 
 Only after step 7 is there a case for building the real compiler.
 
