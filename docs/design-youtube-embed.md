@@ -171,7 +171,8 @@ muted for decks that must play a video on their very first step.
   user repositions it by dragging in the timeline.
 - The frame-edit popover edits the command (and volume for setVolume)
   on media frames. The timeline's per-batch "+" buttons are withheld on
-  media batches — "+ Media event" is the one way events are added, and
+  media batches — "+ Media event" is how events are added (a marker
+  inside a grouped selection is still cloned by the group "+"), and
   chaining ("play, wait, pause" in one step) is done by dragging an
   event onto an earlier step, which merges same-track sequences into
   one batch.

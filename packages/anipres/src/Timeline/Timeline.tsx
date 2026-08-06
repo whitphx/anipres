@@ -337,9 +337,8 @@ interface TimelineProps {
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
   /**
-   * Whether a batch's follow-up-frame buttons are offered at all —
-   * false for sequences that cannot be extended by cloning their
-   * carrier shape (a video shape copy would mount a second player).
+   * Whether a batch's follow-up-frame buttons are offered at all — the
+   * caller decides which sequences may not be extended this way.
    */
   canExtendFrameSequence: (cueFrame: FrameUIData) => boolean;
   showAttachCueFrameButton: boolean;

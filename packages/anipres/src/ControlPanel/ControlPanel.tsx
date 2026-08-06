@@ -41,6 +41,24 @@ import {
 
 const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
 
+/**
+ * Whether a frame sequence may grow via the timeline's per-batch "+"
+ * buttons, which clone the previous carrier shape. Media events are
+ * keyed by ACTION, not carrier type — markers are safe to clone (the
+ * group path does), but events are added via "+ Media event" and
+ * chained by dragging one onto an earlier step. Videos are keyed by
+ * carrier TYPE: a video copy would mount a second live player.
+ */
+function canExtendFrameSequenceFrom(
+  frame: FrameUIData,
+  carrierShapeType: string | undefined,
+): boolean {
+  return (
+    frame.action.type !== "mediaControl" &&
+    carrierShapeType !== YouTubeEmbedShapeType
+  );
+}
+
 export interface ControlPanelProps {
   editor: Editor;
   presentationManager: PresentationManager;
@@ -383,18 +401,12 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         <Timeline
           timelineDoc={doc}
           trackGroups={presentationManager.$getMediaTrackGroups()}
-          canExtendFrameSequence={(cueFrame) => {
-            const carrierType = editor.getShape(
-              cueFrame.shapeId as TLShapeId,
-            )?.type;
-            // Videos: a carrier clone would mount a second live player.
-            // Media events: "+ Media event" appends events, and merging
-            // one into an earlier step (chaining) is done by dragging.
-            return (
-              carrierType !== YouTubeEmbedShapeType &&
-              carrierType !== MediaControlShapeType
-            );
-          }}
+          canExtendFrameSequence={(cueFrame) =>
+            canExtendFrameSequenceFrom(
+              cueFrame,
+              editor.getShape(cueFrame.shapeId as TLShapeId)?.type,
+            )
+          }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
@@ -427,12 +439,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               position == null ||
-              // Both types are hidden via canExtendFrameSequence; this
-              // guards other callers. A video copy would mount a second
-              // live player; media events are extended via "+ Media
-              // event" and drag-merge instead.
-              prevShape.type === YouTubeEmbedShapeType ||
-              prevShape.type === MediaControlShapeType
+              // The buttons are hidden for these frames; the guard keeps
+              // the invariant local to the operation.
+              !canExtendFrameSequenceFrom(prevCueFrame, prevShape.type)
             ) {
               return;
             }
@@ -640,8 +649,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               plan == null ||
-              prevShape.type === YouTubeEmbedShapeType ||
-              prevShape.type === MediaControlShapeType
+              !canExtendFrameSequenceFrom(prevFrame, prevShape.type)
             ) {
               return;
             }
