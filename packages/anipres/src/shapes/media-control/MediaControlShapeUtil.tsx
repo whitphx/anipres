@@ -39,6 +39,13 @@ export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
     return false;
   }
 
+  override onDoubleClick(shape: MediaControlShape) {
+    // A returned change makes the select tool stop here; without one,
+    // double-clicking a non-editable shape falls through to the canvas
+    // handler, which creates a text shape on top of the marker.
+    return { id: shape.id, type: shape.type };
+  }
+
   override hideResizeHandles() {
     return true;
   }
