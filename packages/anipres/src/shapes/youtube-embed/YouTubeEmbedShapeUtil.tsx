@@ -108,7 +108,8 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
       muted,
       start,
       controls,
-      title: altText !== "" ? altText : "YouTube video player",
+      // "" keeps the API-created iframe's own default title.
+      title: altText,
     });
     return () => {
       manager.unregister(shape.id);
@@ -165,6 +166,21 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
           backgroundColor: "#1f1f1f",
         }}
       />
+      {/* Announceable label while (or in case) the player-owned iframe
+          is absent — the container itself must stay free of React
+          children. */}
+      <span
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+          clipPath: "inset(50%)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {altText !== "" ? altText : "YouTube video player"}
+      </span>
     </HTMLContainer>
   );
 }

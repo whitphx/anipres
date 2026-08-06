@@ -78,7 +78,6 @@ export class PresentationManager {
     for (const dispose of disposers) {
       dispose();
     }
-    this.editor.stopCameraAnimation();
     return generation;
   }
 
@@ -86,11 +85,13 @@ export class PresentationManager {
    * Invalidates the in-flight step run (if any) without starting a new
    * one — e.g. on presentation-mode exit, where pending media commands
    * must not fire over the editor. With no successor run to take over
-   * cleanup, the cancelled run's animation-hiding flags are cleared
-   * here.
+   * cleanup, the cancelled run's animation-hiding flags are cleared and
+   * any camera animation stopped here (a successor run manages the
+   * camera itself when it drives it).
    */
   cancelActiveRun(): void {
     this.supersedeActiveRun();
+    this.editor.stopCameraAnimation();
     clearHiddenDuringAnimationFlags(this.editor);
   }
 

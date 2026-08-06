@@ -110,12 +110,10 @@ async function runFrames(
       };
       editor.on("tick", onTick);
 
-      // The temp shape, the tick listener, and the timer are registered
-      // as a run effect so supersession/cancellation tears them down
-      // immediately: left alone, the listener's history bail would roll
-      // back changes made after this run was superseded.
-      // (`cleanupTimer` is initialized below in this same synchronous
-      // block, before any disposer can possibly run.)
+      // Bundled as a run effect so supersession/cancellation tears all
+      // three down at once (see PresentationManager.registerRunEffect
+      // for why supersession must not leave them running).
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined = undefined;
       const disposeAnimation = () => {
         clearTimeout(cleanupTimer);
         editor.off("tick", onTick);
@@ -151,7 +149,7 @@ async function runFrames(
         },
       );
 
-      const cleanupTimer = setTimeout(() => {
+      cleanupTimer = setTimeout(() => {
         unregisterRunEffect();
         disposeAnimation();
       }, duration);

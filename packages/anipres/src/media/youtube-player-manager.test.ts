@@ -25,9 +25,7 @@ function makeFakePlayer(
     setVolume: (volume) => calls.push(["setVolume", volume]),
     getVolume: () => 100,
     getPlayerState: () => playerState,
-    getIframe: () => {
-      throw new Error("not backed by a real iframe");
-    },
+    getIframe: () => document.createElement("iframe"),
     destroy: () => calls.push(["destroy"]),
   };
 }

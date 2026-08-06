@@ -37,8 +37,8 @@ whole timeline machinery applies unchanged.
   `YouTubePlayerManager`. The iframe deliberately stays out of React's
   virtual DOM: a React-rendered iframe and the widget API both mutate
   the element, and each re-render then resets the other side's changes,
-  reloading the embed in a loop (the same containment approach as
-  react-youtube). Like any shape, it may carry a regular cue frame
+  reloading the embed in a loop. The containment approach comes from
+  react-youtube. Like any shape, it may carry a regular cue frame
   (e.g. a `shapeAnimation` appearance step).
 - **`media-control`** (`shapes/media-control/`): a small badge marker
   whose `meta.frame` carries one `mediaControl` frame — one marker per
@@ -112,9 +112,11 @@ to before its first event is parked paused at its configured `start`
 player in an arbitrary non-playing state).
 
 Autoplay policy: programmatic unmuted playback can be blocked by the
-browser without prior user interaction. The API-created iframe carries
-the autoplay allow attribute, and the shape's `muted` prop starts the
-player muted for decks that must play a video on their very first step.
+browser without prior user interaction. The IFrame API stamps its
+generated iframe with the autoplay allow attribute (observed behavior
+of the current widget script, not a documented guarantee — re-verify if
+autoplay regresses), and the shape's `muted` prop starts the player
+muted for decks that must play a video on their very first step.
 
 ### Editor UI
 

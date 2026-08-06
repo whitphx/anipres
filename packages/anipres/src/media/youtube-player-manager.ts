@@ -124,7 +124,11 @@ export interface PlayerBaseline {
 }
 
 interface PlayerEntry {
+  /** Ready to receive commands (set in onReady). */
   player: YTPlayer | null;
+  /** Constructed but not yet ready — tracked so unregister can destroy
+   * it; commands keep gating on `player`. */
+  pendingPlayer: YTPlayer | null;
   disposed: boolean;
   baseline: PlayerBaseline;
 }
@@ -224,8 +228,11 @@ export class YouTubePlayerManager {
    * an iframe it creates and owns). The caller must keep that iframe
    * OUT of React's virtual DOM — a React-rendered iframe and the widget
    * API fight over the element's attributes, endlessly reloading the
-   * embed. Same containment approach as react-youtube:
-   * https://github.com/tjallingt/react-youtube
+   * embed. Constructing from a placeholder element is the API's
+   * documented usage (reference linked at the top of this file);
+   * keeping that element out of React's rendering entirely comes from
+   * react-youtube (MIT):
+   * https://github.com/tjallingt/react-youtube/blob/master/packages/react-youtube/src/YouTube.tsx
    */
   register(
     shapeId: string,
@@ -241,6 +248,7 @@ export class YouTubePlayerManager {
     this.unregister(shapeId);
     const entry: PlayerEntry = {
       player: null,
+      pendingPlayer: null,
       disposed: false,
       baseline: { muted: options.muted, start: options.start, volume: null },
     };
@@ -268,6 +276,7 @@ export class YouTubePlayerManager {
               if (entry.disposed) {
                 return;
               }
+              entry.pendingPlayer = null;
               const volume = player.getVolume();
               if (Number.isFinite(volume)) {
                 entry.baseline.volume = volume;
@@ -287,6 +296,7 @@ export class YouTubePlayerManager {
             },
           },
         });
+        entry.pendingPlayer = player;
       })
       .catch((error) => {
         console.warn("anipres: YouTube player unavailable:", error);
@@ -299,10 +309,13 @@ export class YouTubePlayerManager {
       return;
     }
     entry.disposed = true;
-    // React removes the iframe on unmount before this cleanup runs, and
-    // destroy() throws on a detached iframe in some browsers.
+    // On shape unmount the container (with the API's iframe inside) is
+    // already detached when this cleanup runs, and destroy() throws on
+    // a detached iframe in some browsers. A pending (not-yet-ready)
+    // player must be destroyed too, or its postMessage plumbing keeps
+    // running against the removed iframe.
     try {
-      entry.player?.destroy();
+      (entry.player ?? entry.pendingPlayer)?.destroy();
     } catch {
       // ignore
     }
