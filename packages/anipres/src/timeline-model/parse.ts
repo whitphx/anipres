@@ -9,13 +9,7 @@
 
 import { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
-import type {
-  CueFrame,
-  Frame,
-  FrameAction,
-  MediaControlCommand,
-  SubFrame,
-} from "./types";
+import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
 import { MEDIA_CONTROL_COMMANDS } from "./types";
 import { isReservedStepId } from "./ids";
 
@@ -87,7 +81,8 @@ function parseFrameAction(value: unknown): FrameAction | null {
       return null;
     }
     if (
-      !MEDIA_CONTROL_COMMANDS.includes(value.command as MediaControlCommand)
+      typeof value.command !== "string" ||
+      !(MEDIA_CONTROL_COMMANDS as readonly string[]).includes(value.command)
     ) {
       return null;
     }

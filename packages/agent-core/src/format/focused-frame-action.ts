@@ -1,8 +1,7 @@
 // Anipres-specific (the presentation timeline's per-frame action
-// vocabulary — `cameraZoom` and `shapeAnimation`). Upstream tldraw/
-// agent-template has no equivalent because their canvas is not
-// presentation-aware. Kept under `format/` for symmetry with the
-// other focused-* primitives.
+// vocabulary). Upstream tldraw/agent-template has no equivalent because
+// their canvas is not presentation-aware. Kept under `format/` for
+// symmetry with the other focused-* primitives.
 import * as z from "zod";
 import { FocusedEasingSchema } from "./focused-easing.js";
 
@@ -12,26 +11,6 @@ import { FocusedEasingSchema } from "./focused-easing.js";
  * `shapeAnimation` interpolates the shape's transform from its predecessor
  * (the previous frame in the same track) to its current state.
  */
-/**
- * Read-only perception entry for `mediaControl` frames (playback
- * commands on embedded videos). Not part of `FocusedFrameActionSchema`:
- * the agent can SEE these frames in the presentation state, but
- * authoring them requires the media-control marker machinery, which the
- * agent's action vocabulary does not cover.
- */
-export const PerceivedMediaControlActionSchema = z
-  .object({
-    type: z.literal("mediaControl"),
-    command: z.enum(["play", "pause", "stop", "mute", "unmute", "setVolume"]),
-    duration: z.number().optional(),
-    volume: z.number().optional(),
-  })
-  .meta({
-    title: "Media control",
-    description:
-      "Fire a playback command (play, pause, …) at the embedded video this frame's marker is attached to. Perception-only: the agent cannot author these frames.",
-  });
-
 export const FocusedFrameActionSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -58,6 +37,26 @@ export const FocusedFrameActionSchema = z.discriminatedUnion("type", [
     }),
 ]);
 export type FocusedFrameAction = z.infer<typeof FocusedFrameActionSchema>;
+
+/**
+ * Read-only perception entry for `mediaControl` frames (playback
+ * commands on embedded videos). Not part of `FocusedFrameActionSchema`:
+ * the agent can SEE these frames in the presentation state, but
+ * authoring them requires the media-control marker machinery, which the
+ * agent's action vocabulary does not cover.
+ */
+export const PerceivedMediaControlActionSchema = z
+  .object({
+    type: z.literal("mediaControl"),
+    command: z.enum(["play", "pause", "stop", "mute", "unmute", "setVolume"]),
+    duration: z.number().optional(),
+    volume: z.number().optional(),
+  })
+  .meta({
+    title: "Media control",
+    description:
+      "Fire a playback command (play, pause, …) at the embedded video this frame's marker is attached to. Perception-only: the agent cannot author these frames.",
+  });
 
 /** What the presentation-state perception may carry per frame batch. */
 export const PerceivedFrameActionSchema = z.union([

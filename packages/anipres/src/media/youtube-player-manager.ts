@@ -46,7 +46,7 @@ const YT_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
 let apiPromise: Promise<YTNamespace> | null = null;
 function loadYouTubeIframeApi(): Promise<YTNamespace> {
   if (apiPromise == null) {
-    apiPromise = new Promise<YTNamespace>((resolve) => {
+    apiPromise = new Promise<YTNamespace>((resolve, reject) => {
       if (window.YT?.Player != null) {
         resolve(window.YT);
         return;
@@ -63,6 +63,12 @@ function loadYouTubeIframeApi(): Promise<YTNamespace> {
       ) {
         const script = document.createElement("script");
         script.src = YT_IFRAME_API_SRC;
+        script.onerror = () => {
+          // Drop the cached failure so a later mount retries the load
+          // (e.g. after the network recovers).
+          apiPromise = null;
+          reject(new Error("Failed to load the YouTube IFrame API script"));
+        };
         document.head.appendChild(script);
       }
     });
@@ -70,15 +76,11 @@ function loadYouTubeIframeApi(): Promise<YTNamespace> {
   return apiPromise;
 }
 
-export interface MediaPlayerDefaults {
-  /** The muted state the player mounted with (`muted` shape prop). */
-  muted: boolean;
-}
-
 interface PlayerEntry {
   player: YTPlayer | null;
   disposed: boolean;
-  defaults: MediaPlayerDefaults;
+  /** The muted state the player mounted with (`muted` shape prop). */
+  initialMuted: boolean;
 }
 
 function applyCommandToPlayer(
@@ -110,10 +112,10 @@ function applyCommandToPlayer(
 function applyStateToPlayer(
   player: YTPlayer,
   state: MediaPlaybackState,
-  defaults: MediaPlayerDefaults,
+  initialMuted: boolean,
 ): void {
   // Audio first so a video never starts at the wrong loudness.
-  if (state.muted ?? defaults.muted) {
+  if (state.muted ?? initialMuted) {
     player.mute();
   } else {
     player.unMute();
@@ -151,30 +153,34 @@ export class YouTubePlayerManager {
   register(
     shapeId: string,
     iframe: HTMLIFrameElement,
-    defaults: MediaPlayerDefaults,
+    initialMuted: boolean,
   ): void {
     this.unregister(shapeId);
-    const entry: PlayerEntry = { player: null, disposed: false, defaults };
+    const entry: PlayerEntry = { player: null, disposed: false, initialMuted };
     this.entries.set(shapeId, entry);
-    loadYouTubeIframeApi().then((YT) => {
-      if (entry.disposed || !iframe.isConnected) {
-        return;
-      }
-      const player = new YT.Player(iframe, {
-        events: {
-          onReady: () => {
-            if (entry.disposed) {
-              return;
-            }
-            entry.player = player;
-            const desired = this.desired.get(shapeId);
-            if (desired != null) {
-              applyStateToPlayer(player, desired, entry.defaults);
-            }
+    loadYouTubeIframeApi()
+      .then((YT) => {
+        if (entry.disposed || !iframe.isConnected) {
+          return;
+        }
+        const player = new YT.Player(iframe, {
+          events: {
+            onReady: () => {
+              if (entry.disposed) {
+                return;
+              }
+              entry.player = player;
+              const desired = this.desired.get(shapeId);
+              if (desired != null) {
+                applyStateToPlayer(player, desired, entry.initialMuted);
+              }
+            },
           },
-        },
+        });
+      })
+      .catch((error) => {
+        console.warn("anipres: YouTube player unavailable:", error);
       });
-    });
   }
 
   unregister(shapeId: string): void {
@@ -226,8 +232,24 @@ export class YouTubePlayerManager {
       this.desired.set(shapeId, state);
       const entry = this.entries.get(shapeId);
       if (entry?.player != null) {
-        applyStateToPlayer(entry.player, state, entry.defaults);
+        applyStateToPlayer(entry.player, state, entry.initialMuted);
       }
+    }
+  }
+
+  /**
+   * Pauses every player (e.g. on leaving presentation mode) without
+   * resetting positions — kinder than a full reconcile when the user is
+   * dropping back into editing.
+   */
+  pauseAll(): void {
+    for (const [shapeId, state] of this.desired) {
+      if (state.status === "playing") {
+        this.desired.set(shapeId, { ...state, status: "paused" });
+      }
+    }
+    for (const entry of this.entries.values()) {
+      entry.player?.pauseVideo();
     }
   }
 }

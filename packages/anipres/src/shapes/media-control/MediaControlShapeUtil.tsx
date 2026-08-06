@@ -111,9 +111,14 @@ function MediaControlBadge({ shape }: { shape: MediaControlShape }) {
         boxShadow: "var(--shadow-1)",
       }}
       title={label}
+      // Announceable to screen readers: a bare div's aria-label is
+      // ignored without a role.
+      role="img"
       aria-label={label}
     >
-      {orphaned || action == null ? "⚠" : COMMAND_ICONS[action.command]}
+      <span aria-hidden="true">
+        {orphaned || action == null ? "⚠" : COMMAND_ICONS[action.command]}
+      </span>
     </HTMLContainer>
   );
 }

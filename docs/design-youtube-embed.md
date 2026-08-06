@@ -81,6 +81,8 @@ state; the target step's own events then fire live in `runStep`, the
 same as a normal advance. A plain forward advance does not reconcile,
 so manual interaction with a video (allowed in presentation mode via
 single-click editing, like tldraw embeds) is not overridden mid-flow.
+Leaving presentation mode pauses every player (positions are kept —
+kinder for editing than a full reset).
 
 Autoplay policy: programmatic unmuted playback can be blocked by the
 browser without prior user interaction. The iframe sets
@@ -98,3 +100,7 @@ muted for decks that must play a video on their very first step.
 - The frame-edit popover edits the command (and volume for setVolume)
   on media frames; the timeline's existing "+" buttons chain follow-up
   events by cloning the marker.
+- The `muted`, `controls`, and `altText` props have no editor UI yet
+  (defaults only; settable programmatically). They are part of the
+  persisted schema from the start because removing or adding props
+  later costs a shape-schema migration.

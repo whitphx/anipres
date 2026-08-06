@@ -16,7 +16,6 @@ import {
   parseFrameMeta,
   type CueFrame,
   type FrameAction,
-  type MediaControlFrameAction,
   type TimelineDoc,
 } from "../timeline-model";
 import {
@@ -140,10 +139,7 @@ export class PresentationManager {
    * the timeline shows them as a sequence and the step machinery keeps
    * them mutually exclusive within a step.
    */
-  attachMediaControlCueFrame(
-    videoShapeId: TLShapeId,
-    action: MediaControlFrameAction = { type: "mediaControl", command: "play" },
-  ) {
+  attachMediaControlCueFrame(videoShapeId: TLShapeId) {
     const video = this.editor.getShape(videoShapeId);
     if (video?.type !== YouTubeEmbedShapeType) {
       return;
@@ -173,7 +169,9 @@ export class PresentationManager {
       trackId: mediaTrackId ?? newTrackId(),
       stepId: uniqueId(),
       stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
-      action,
+      // Always starts as "play" (the most common event); the user picks
+      // another command in the frame-edit popover.
+      action: { type: "mediaControl", command: "play" },
     };
     const markerId = createShapeId();
     this.editor.run(() => {

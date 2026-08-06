@@ -4,10 +4,14 @@ import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
 import { getSyncAnimationDataVersionGateResponse } from "./animation-data-version-gate";
 import {
+  mediaControlShapeProps,
+  MediaControlShapeType,
   slideShapeProps,
   SlideShapeType,
   themeImageShapeProps,
   ThemeImageShapeType,
+  youTubeEmbedShapeProps,
+  YouTubeEmbedShapeType,
 } from "anipres/schema";
 import {
   finalizeDeletingDocument,
@@ -23,6 +27,8 @@ const schema = createTLSchema({
     ...defaultShapeSchemas,
     [SlideShapeType]: { props: slideShapeProps },
     [ThemeImageShapeType]: { props: themeImageShapeProps },
+    [YouTubeEmbedShapeType]: { props: youTubeEmbedShapeProps },
+    [MediaControlShapeType]: { props: mediaControlShapeProps },
   },
 });
 

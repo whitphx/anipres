@@ -6,7 +6,11 @@ import {
   calculateTotalSteps,
   loadHeadlessEditor,
 } from "../headless-editor-utils";
-import { frameToMetaJson, type CueFrame } from "../timeline-model";
+import {
+  frameToMetaJson,
+  parseFrameMeta,
+  type CueFrame,
+} from "../timeline-model";
 
 const CUE_FRAME: CueFrame = {
   v: 2,
@@ -80,5 +84,55 @@ describe("PresentationManager with grouped shapes", () => {
       const snapshot = getSnapshot(editor.store);
       expect(calculateTotalSteps(snapshot)).toBe(manager.$getTotalSteps());
     });
+  });
+});
+
+describe("attachMediaControlCueFrame", () => {
+  it("mints one media track and reuses it for later events of the same video", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const videoId = createShapeId("video");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlCueFrame(videoId);
+
+      const markerFrames = editor
+        .getSortedChildIdsForParent(videoId)
+        .map((id) => editor.getShape(id))
+        .filter((shape) => shape?.type === "media-control")
+        .map((shape) => parseFrameMeta(shape?.meta?.frame));
+      expect(markerFrames).toHaveLength(2);
+      const cues = markerFrames.map((parsed) => {
+        if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
+          throw new Error("expected a v2 cue frame on each marker");
+        }
+        return parsed.frame;
+      });
+      // One shared media track, but separate steps — the events form a
+      // sequence, never a simultaneous pair.
+      expect(cues[1].trackId).toBe(cues[0].trackId);
+      expect(cues[1].stepId).not.toBe(cues[0].stepId);
+      expect(cues.every((c) => c.action.type === "mediaControl")).toBe(true);
+
+      const doc = manager.$getTimelineDoc();
+      expect(doc.steps).toHaveLength(2);
+      expect(doc.diagnostics).toEqual([]);
+    } finally {
+      dispose();
+    }
   });
 });

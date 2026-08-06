@@ -9,6 +9,7 @@ import {
   type MediaControlCommand,
   type MediaControlFrameAction,
 } from "../../timeline-model";
+import { DEFAULT_MEDIA_VOLUME } from "../../media/media-state";
 import type { FrameUIData } from "../frame-ui-data";
 import { NumberField } from "./NumberField";
 import { SelectField } from "./SelectField";
@@ -36,7 +37,9 @@ function withCommand(
     type: "mediaControl",
     command,
     ...(action.duration !== undefined ? { duration: action.duration } : {}),
-    ...(command === "setVolume" ? { volume: action.volume ?? 100 } : {}),
+    ...(command === "setVolume"
+      ? { volume: action.volume ?? DEFAULT_MEDIA_VOLUME }
+      : {}),
   };
 }
 
@@ -91,7 +94,7 @@ export function FrameEditPopover({
               {frame.action.command === "setVolume" && (
                 <NumberField
                   label="Volume"
-                  value={frame.action.volume ?? 100}
+                  value={frame.action.volume ?? DEFAULT_MEDIA_VOLUME}
                   onChange={(newVolume) =>
                     onUpdate({
                       ...frame,

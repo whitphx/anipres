@@ -41,6 +41,7 @@ import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
 import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
+import { YouTubePlayerManager } from "./media/youtube-player-manager";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
@@ -531,6 +532,10 @@ const Inner = (props: InnerProps) => {
         if (presentationMode) {
           editor.selectNone();
           editor.setCurrentTool("select");
+        } else {
+          // Don't let a video keep playing over the editor after the
+          // presentation ends.
+          YouTubePlayerManager.get(editor).pauseAll();
         }
       }),
     );

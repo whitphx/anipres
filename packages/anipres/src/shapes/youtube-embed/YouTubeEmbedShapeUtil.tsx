@@ -107,7 +107,7 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
       return;
     }
     const manager = YouTubePlayerManager.get(editor);
-    manager.register(shape.id, iframe, { muted });
+    manager.register(shape.id, iframe, muted);
     return () => {
       manager.unregister(shape.id);
     };
@@ -175,9 +175,13 @@ function YouTubeUrlForm({ shape }: { shape: YouTubeEmbedShape }) {
   const [invalid, setInvalid] = useState(false);
 
   const inputId = `youtube-url-${shape.id}`;
+  const errorId = `youtube-url-error-${shape.id}`;
   return (
     <form
       onPointerDown={stopEventPropagation}
+      // Keep arrow keys etc. inside the input — otherwise they reach the
+      // editor and nudge the (selected, not editing) shape.
+      onKeyDown={stopEventPropagation}
       onSubmit={(e) => {
         e.preventDefault();
         const parsed = parseYouTubeUrl(value);
@@ -212,13 +216,15 @@ function YouTubeUrlForm({ shape }: { shape: YouTubeEmbedShape }) {
         type="text"
         value={value}
         placeholder="https://www.youtube.com/watch?v=..."
+        aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
         onChange={(e) => {
           setValue(e.target.value);
           setInvalid(false);
         }}
       />
       {invalid && (
-        <span role="alert" style={{ color: "var(--color-warn)" }}>
+        <span id={errorId} role="alert" style={{ color: "var(--color-warn)" }}>
           Not a recognized YouTube URL
         </span>
       )}

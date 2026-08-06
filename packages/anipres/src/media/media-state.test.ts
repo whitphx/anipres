@@ -57,7 +57,7 @@ describe("foldMediaPlaybackStates", () => {
   ];
   // m1/m2/m3 all target the same video via the resolver below.
   const resolveSame = (id: string) =>
-    id.startsWith("m") ? "video-a" : id.startsWith("orphan") ? null : "video-b";
+    id.startsWith("m") ? "video-a" : "video-b";
 
   it("folds only steps up to the given index", () => {
     expect(foldMediaPlaybackStates(steps, 0, resolveSame)).toEqual(
