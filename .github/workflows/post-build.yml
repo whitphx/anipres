@@ -337,8 +337,13 @@ jobs:
   # `PAGES_BRANCH` is namespaced by CI run ID, so the Pages alias isn't
   # guessable from the branch name either. Put the URLs on the PR
   # explicitly.
+  #
+  # Unlike the deploy jobs, this one runs whatever CI concluded: a
+  # failed run deploys nothing, and a comment still advertising the
+  # previous commit's previews would send reviewers to code that is no
+  # longer the PR's head.
   comment-preview-urls:
-    if: ${{ always() && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    if: ${{ always() && github.event.workflow_run.event == 'pull_request' }}
     needs:
       - deploy-app
       - deploy-slidev-addon-anipres-preview
@@ -367,6 +372,8 @@ jobs:
           SLIDEV_RESULT: ${{ needs.deploy-slidev-addon-anipres-preview.result }}
           WORKER_URL: ${{ needs.deploy-worker-preview.outputs.url }}
           WORKER_RESULT: ${{ needs.deploy-worker-preview.result }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.event.workflow_run.head_sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
@@ -399,39 +406,51 @@ jobs:
               return
             }
 
-            const targets = [
-              { name: 'App', url: process.env.APP_URL, result: process.env.APP_RESULT },
-              { name: 'Slidev addon demo', url: process.env.SLIDEV_URL, result: process.env.SLIDEV_RESULT },
-              { name: 'Worker (auth + sync)', url: process.env.WORKER_URL, result: process.env.WORKER_RESULT },
-            ]
-            // Bare URLs instead of `[text](url)` — nothing in the cell is
-            // then interpretable as markup.
-            const cell = ({ url, result }) =>
-              url
-                ? url
-                : result === 'skipped'
-                  ? '— _not deployed_'
-                  : `⚠️ deploy \`${result}\``
+            const commitLink = `[\`${headSha.slice(0, 7)}\`](${process.env.COMMIT_URL})`
 
-            // deploy-worker-preview also reports `skipped` when an earlier job
-            // in the chain fails, which is not the fork/Dependabot case — a
-            // deployed app is what distinguishes the two.
-            const workerNote = process.env.WORKER_URL
-              ? 'The preview worker is shared by every PR — last deploy wins.'
-              : process.env.WORKER_RESULT === 'skipped' && process.env.APP_URL
-                ? 'The preview worker is not deployed for fork or Dependabot PRs.'
-                : null
+            const summary = () => {
+              // Overwrite rather than leave the previous commit's URLs
+              // standing — they serve code that is no longer the PR's head.
+              if (process.env.CI_CONCLUSION !== 'success') {
+                return [
+                  `Nothing deployed for ${commitLink} — [CI](${process.env.CI_RUN_URL}) concluded \`${process.env.CI_CONCLUSION}\`.`,
+                ]
+              }
 
-            const body = [
-              '## 🚀 Preview deployments',
-              '',
-              '| Target | URL |',
-              '| --- | --- |',
-              ...targets.map((target) => `| ${target.name} | ${cell(target)} |`),
-              '',
-              `Built from [\`${headSha.slice(0, 7)}\`](${process.env.COMMIT_URL}) · [post-build run](${process.env.RUN_URL}).`,
-              ...(workerNote ? ['', `> ${workerNote}`] : []),
-            ].join('\n')
+              const targets = [
+                { name: 'App', url: process.env.APP_URL, result: process.env.APP_RESULT },
+                { name: 'Slidev addon demo', url: process.env.SLIDEV_URL, result: process.env.SLIDEV_RESULT },
+                { name: 'Worker (auth + sync)', url: process.env.WORKER_URL, result: process.env.WORKER_RESULT },
+              ]
+              // Bare URLs instead of `[text](url)` — nothing in the cell is
+              // then interpretable as markup.
+              const cell = ({ url, result }) =>
+                url
+                  ? url
+                  : result === 'skipped'
+                    ? '— _not deployed_'
+                    : `⚠️ deploy \`${result}\``
+
+              // deploy-worker-preview also reports `skipped` when an earlier job
+              // in the chain fails, which is not the fork/Dependabot case — a
+              // deployed app is what distinguishes the two.
+              const workerNote = process.env.WORKER_URL
+                ? 'The preview worker is shared by every PR — last deploy wins.'
+                : process.env.WORKER_RESULT === 'skipped' && process.env.APP_URL
+                  ? 'The preview worker is not deployed for fork or Dependabot PRs.'
+                  : null
+
+              return [
+                '| Target | URL |',
+                '| --- | --- |',
+                ...targets.map((target) => `| ${target.name} | ${cell(target)} |`),
+                '',
+                `Built from ${commitLink} · [post-build run](${process.env.RUN_URL}).`,
+                ...(workerNote ? ['', `> ${workerNote}`] : []),
+              ]
+            }
+
+            const body = ['## 🚀 Preview deployments', '', ...summary()].join('\n')
 
             const moduleUrl = pathToFileURL(
               path.join(process.env.GITHUB_WORKSPACE, '.github/scripts/sticky-comment.mjs'),
