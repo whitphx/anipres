@@ -338,10 +338,9 @@ jobs:
   # guessable from the branch name either. Put the URLs on the PR
   # explicitly.
   #
-  # Unlike the deploy jobs, this one runs whatever CI concluded: a
-  # failed run deploys nothing, and a comment still advertising the
+  # A failed run deploys nothing, and a comment still advertising the
   # previous commit's previews would send reviewers to code that is no
-  # longer the PR's head.
+  # longer the PR's head — so this job runs whatever CI concluded.
   comment-preview-urls:
     if: ${{ always() && github.event.workflow_run.event == 'pull_request' }}
     needs:
@@ -409,8 +408,6 @@ jobs:
             const commitLink = `[\`${headSha.slice(0, 7)}\`](${process.env.COMMIT_URL})`
 
             const summary = () => {
-              // Overwrite rather than leave the previous commit's URLs
-              // standing — they serve code that is no longer the PR's head.
               if (process.env.CI_CONCLUSION !== 'success') {
                 return [
                   `Nothing deployed for ${commitLink} — [CI](${process.env.CI_RUN_URL}) concluded \`${process.env.CI_CONCLUSION}\`.`,
