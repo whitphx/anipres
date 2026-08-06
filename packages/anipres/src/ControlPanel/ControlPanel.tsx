@@ -28,6 +28,7 @@ import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
+import { copyMediaControlBinding } from "../shapes/media-control/MediaControlBinding";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
@@ -381,6 +382,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       <div className={styles.scrollableContainer}>
         <Timeline
           timelineDoc={doc}
+          trackGroups={presentationManager.$getMediaTrackGroups()}
+          canExtendFrameSequence={(cueFrame) =>
+            editor.getShape(cueFrame.shapeId as TLShapeId)?.type !==
+            YouTubeEmbedShapeType
+          }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
           currentStepIndex={currentStepIndex}
@@ -410,7 +416,14 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             // Locate by SHAPE id: with duplicated stored frame ids, the
             // frame id could resolve to another frame's step/track.
             const position = findFramePosition(doc, prevCueFrame.shapeId);
-            if (prevShape == null || position == null) {
+            if (
+              prevShape == null ||
+              position == null ||
+              // A video copy would mount a second live player; its
+              // buttons are hidden via canExtendFrameSequence, this
+              // guards other callers.
+              prevShape.type === YouTubeEmbedShapeType
+            ) {
               return;
             }
 
@@ -442,6 +455,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                     frame: frameToMetaJson(newCueFrame),
                   },
                 });
+                if (prevShape.type === MediaControlShapeType) {
+                  copyMediaControlBinding(editor, prevShape.id, newShapeId);
+                }
                 editor.select(newShapeId);
               },
               { history: "ignore" },
@@ -487,7 +503,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 );
               const shouldCopyThisShape =
                 original.type === GroupShapeUtil.type ||
-                isShapeLastSelectedFrameInItsTrack;
+                // Never copy a video as a keyframe carrier: the copy
+                // would mount a second live player.
+                (isShapeLastSelectedFrameInItsTrack &&
+                  original.type !== YouTubeEmbedShapeType);
 
               if (shouldCopyThisShape) {
                 const newShapeId = createShapeId();
@@ -606,7 +625,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               getStoredFrame: getStoredFrameByShapeId,
               mintId: uniqueId,
             });
-            if (prevShape == null || plan == null) {
+            if (
+              prevShape == null ||
+              plan == null ||
+              prevShape.type === YouTubeEmbedShapeType
+            ) {
               return;
             }
 
@@ -647,6 +670,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   frame: frameToMetaJson(newSubFrame),
                 },
               });
+              if (prevShape.type === MediaControlShapeType) {
+                copyMediaControlBinding(editor, prevShape.id, newShapeId);
+              }
               editor.select(newShapeId);
             });
           }}

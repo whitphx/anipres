@@ -117,6 +117,7 @@ interface StepColumnProps {
   onFrameSelect: (frameShapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
+  canExtendFrameSequence: (cueFrame: FrameUIData) => boolean;
 }
 const StepColumn = React.memo(
   ({
@@ -132,6 +133,7 @@ const StepColumn = React.memo(
     onFrameSelect,
     requestSubFrameAddAfter,
     requestCueFrameAddAfter,
+    canExtendFrameSequence,
   }: StepColumnProps) => {
     return (
       <>
@@ -151,8 +153,10 @@ const StepColumn = React.memo(
           >
             {tracks.map((track) => {
               const trackFrameBatches = stepFrameBatches.filter(
-                // `trackFrameBatches.length` should always be 1, but we loop over it just in case.
-                (b) => b.trackId === track.id,
+                // One batch per source track; a row merging several
+                // tracks (one video's keyframes + media events) can hold
+                // one batch from each in the same step.
+                (b) => track.trackIds.includes(b.trackId),
               );
               return (
                 <div key={track.id} className={styles.frameBatchCell}>
@@ -167,7 +171,10 @@ const StepColumn = React.memo(
                       >
                         <DraggableFrameUI
                           id={trackFrameBatch.id}
-                          trackId={track.id}
+                          // The batch's real track id, not the row id:
+                          // drag & drop identifies frames by (trackId,
+                          // trackIndex) in the data model's terms.
+                          trackId={trackFrameBatch.trackId}
                           trackIndex={cueFrame.trackIndex}
                           globalIndex={trackFrameBatch.globalIndex}
                           frame={cueFrame}
@@ -193,7 +200,7 @@ const StepColumn = React.memo(
                             <DraggableFrameUI
                               key={subFrame.shapeId}
                               id={subFrame.shapeId}
-                              trackId={track.id}
+                              trackId={trackFrameBatch.trackId}
                               trackIndex={subFrame.trackIndex}
                               globalIndex={trackFrameBatch.globalIndex}
                               frame={subFrame}
@@ -215,25 +222,29 @@ const StepColumn = React.memo(
                             </DraggableFrameUI>
                           );
                         })}
-                        <div className={styles.frameAddButtonContainer}>
-                          <FrameIcon
-                            as="button"
-                            subFrame
-                            onClick={() =>
-                              requestSubFrameAddAfter(frames.at(-1)!)
-                            }
-                          >
-                            +
-                          </FrameIcon>
-                          <div className={styles.hoverExpandedPart}>
+                        {canExtendFrameSequence(cueFrame) && (
+                          <div className={styles.frameAddButtonContainer}>
                             <FrameIcon
                               as="button"
-                              onClick={() => requestCueFrameAddAfter(cueFrame)}
+                              subFrame
+                              onClick={() =>
+                                requestSubFrameAddAfter(frames.at(-1)!)
+                              }
                             >
                               +
                             </FrameIcon>
+                            <div className={styles.hoverExpandedPart}>
+                              <FrameIcon
+                                as="button"
+                                onClick={() =>
+                                  requestCueFrameAddAfter(cueFrame)
+                                }
+                              >
+                                +
+                              </FrameIcon>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
@@ -310,6 +321,12 @@ function describeDiagnostic(diagnostic: TimelineDiagnostic): string {
 
 interface TimelineProps {
   timelineDoc: TimelineDoc;
+  /**
+   * Track id → group key; tracks sharing a key render as one row (see
+   * `calcFrameBatchUIData`). Must be referentially stable while its
+   * content is unchanged, like `timelineDoc`.
+   */
+  trackGroups?: Record<string, string>;
   onFrameChange: (newFrame: FrameUIData) => void;
   onEditedStepsChange: (editedSteps: EditedStep[]) => void;
   currentStepIndex: number;
@@ -319,6 +336,12 @@ interface TimelineProps {
   requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
   requestCueFrameAddAfterGroup: (shapeSelection: ShapeSelection) => void;
+  /**
+   * Whether a batch's follow-up-frame buttons are offered at all —
+   * false for sequences that cannot be extended by cloning their
+   * carrier shape (a video shape copy would mount a second player).
+   */
+  canExtendFrameSequence?: (cueFrame: FrameUIData) => boolean;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
   onDiagnosticSelect: (diagnostic: TimelineDiagnostic) => void;
@@ -328,8 +351,11 @@ interface TimelineProps {
   ) => void;
   canReattachDetached: boolean;
 }
+const alwaysExtendable = () => true;
+
 export function Timeline({
   timelineDoc,
+  trackGroups,
   onFrameChange,
   onEditedStepsChange,
   currentStepIndex,
@@ -339,6 +365,7 @@ export function Timeline({
   requestCueFrameAddAfter,
   requestSubFrameAddAfter,
   requestCueFrameAddAfterGroup,
+  canExtendFrameSequence = alwaysExtendable,
   showAttachCueFrameButton,
   requestAttachCueFrame,
   onDiagnosticSelect,
@@ -347,8 +374,8 @@ export function Timeline({
   canReattachDetached,
 }: TimelineProps) {
   const { steps, stepSources, tracks } = useMemo(
-    () => calcFrameBatchUIData(timelineDoc),
-    [timelineDoc],
+    () => calcFrameBatchUIData(timelineDoc, trackGroups),
+    [timelineDoc, trackGroups],
   );
 
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -538,6 +565,7 @@ export function Timeline({
               onFrameSelect={onFrameSelect}
               requestSubFrameAddAfter={requestSubFrameAddAfter}
               requestCueFrameAddAfter={requestCueFrameAddAfter}
+              canExtendFrameSequence={canExtendFrameSequence}
             />
           );
         })}

@@ -22,13 +22,25 @@ export interface FrameBatchUIData {
   data: UIBatchedFrames;
 }
 
+/**
+ * One timeline ROW. Usually backed by a single data-model track, but
+ * tracks grouped by `trackGroups` (all tracks describing one video: its
+ * own keyframes plus its media events) share a row — the grouping is
+ * display-only, so a step may still hold one batch from each grouped
+ * track, and drag & drop keeps operating on the real per-batch track id.
+ */
 export interface Track {
   id: string;
   type: FrameAction["type"];
+  trackIds: string[];
   frameBatches: FrameBatchUIData[];
 }
 
-export function calcFrameBatchUIData(doc: TimelineDoc) {
+export function calcFrameBatchUIData(
+  doc: TimelineDoc,
+  /** Track id → group key; tracks with the same key merge into one row. */
+  trackGroups: Record<string, string> = {},
+) {
   const stepsUIData: FrameBatchUIData[][] = [];
   // Parallel to `steps`: the source doc step identity each column
   // displays, threaded through structural edits so reconciliation can
@@ -88,13 +100,23 @@ export function calcFrameBatchUIData(doc: TimelineDoc) {
     stepsUIData.push(frameBatchUIDatas);
   });
 
-  const tracks: Track[] = Object.entries(tracksMap).map(
-    ([trackId, { type, frameBatches }]) => ({
-      id: trackId,
-      type,
-      frameBatches,
-    }),
-  );
+  const trackById = new Map<string, Track>();
+  for (const [trackId, { type, frameBatches }] of Object.entries(tracksMap)) {
+    const rowId = trackGroups[trackId] ?? trackId;
+    let row = trackById.get(rowId);
+    if (row == null) {
+      row = { id: rowId, type, trackIds: [], frameBatches: [] };
+      trackById.set(rowId, row);
+    }
+    row.trackIds.push(trackId);
+    row.frameBatches.push(...frameBatches);
+  }
+  const tracks: Track[] = [...trackById.values()];
+  for (const track of tracks) {
+    // Merged rows collect batches per source track; re-order by step so
+    // the row reads left to right.
+    track.frameBatches.sort((a, b) => a.globalIndex - b.globalIndex);
+  }
   tracks.sort((a, b) => {
     // cameraZoom should be at the top
     if (a.type === "cameraZoom") {

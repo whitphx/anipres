@@ -42,13 +42,23 @@ whole timeline machinery applies unchanged.
   (e.g. a `shapeAnimation` appearance step).
 - **`media-control`** (`shapes/media-control/`): a small badge marker
   whose `meta.frame` carries one `mediaControl` frame — one marker per
-  media event. Its target is its **parent shape**: markers are created
-  as children of the video, so tldraw natively moves them with the
-  video, cascade-deletes them, and remaps the parent link on
-  copy/paste. Markers are editing chrome: hidden in presentation mode
-  (like slide shapes), while their frames still drive playback. A
-  marker whose parent is not a `youtube-embed` (e.g. pasted alone)
-  renders as a warning badge and its events no-op.
+  media event. Its target is recorded by a **`media-control` binding**
+  (marker → video). An earlier draft used `parentId` instead, but
+  arbitrary shapes are not containers in tldraw: the editor re-parents
+  children of a non-container shape back to the page on the next
+  interaction, silently severing the link (each new event then minted
+  its own track, deleting the video stranded its markers, and moving it
+  left them behind). The binding is the one canonical record of the
+  relationship, and its `BindingUtil` gives it behavior in one place:
+  markers follow the video (`onAfterChangeToShape` repositions them to
+  an anchor stored in the binding props — absolute, not delta-based, so
+  dragging video and markers together cannot apply the move twice; the
+  marker's `onTranslateEnd` re-anchors when it is moved alone) and are
+  deleted with it (`onBeforeDeleteToShape`); tldraw itself remaps
+  bindings on copy/paste when both ends are included. Markers are
+  editing chrome: hidden in presentation mode (like slide shapes),
+  while their frames still drive playback. An unbound marker (e.g.
+  pasted alone) renders as a warning badge and its events no-op.
 
 ### Data model
 
@@ -68,6 +78,38 @@ on first event, reused afterwards), so simultaneous conflicting
 commands on one video surface as the existing same-track-split
 diagnostic. `setVolume` is absolute rather than relative volume-up/down
 so that folding (below) and repeated runs stay deterministic.
+
+The video's own cue track and its media track stay **separate tracks
+in the data model** — a step may legally animate the video and fire a
+media event at once, which one shared track would turn into a
+same-track-split conflict. The timeline UI merges them instead: the
+presentation manager maps every track carried by a video or its bound
+markers to that video (`$getMediaTrackGroups`), and
+`calcFrameBatchUIData` renders tracks sharing a group as one row.
+Grouping is display-only; drag & drop keeps operating on each batch's
+real track id.
+
+#### Moving a video mid-presentation (designed, not yet displayed)
+
+The v2 model animates a shape by carrying later keyframes on copies of
+it — impossible for a video, where a copy would mount a second live
+player and playback state lives in the original iframe. The designed
+representation is a **marker-carried keyframe**: a marker bound to the
+video carrying a `shapeAnimation` cue frame on the video's own track,
+whose own transform (`x`, `y`, and the nullable `w`/`h` props) is the
+keyframe target. Playback will tween the video shape itself
+(`updateShape`, not a temp copy) toward the marker's transform.
+
+What exists today: the marker schema carries the nullable `w`/`h`
+target-size props (part of the persisted schema from the start — adding
+them later costs a migration), `runFrames` treats marker-carried
+`shapeAnimation` frames as timing-only no-ops, and a framed video stays
+visible from its appearance step on instead of following the
+latest-batch-only visibility rule (later batches on its track are
+marker keyframes, never copies to switch to). The editor UI does not
+offer creating these keyframes yet, and the follow-up-frame buttons are
+withheld for video-carried batches — the default "clone the carrier"
+behavior is exactly the second-player hazard.
 
 ### Playback runtime
 

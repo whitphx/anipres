@@ -9,7 +9,10 @@ import type {
   RuntimeFrame,
   RuntimeStep,
 } from "../timeline-model/runtime-steps";
-import { resolveMediaControlTarget } from "../shapes/media-control/MediaControlShape";
+import {
+  MediaControlShapeType,
+  resolveMediaControlTarget,
+} from "../shapes/media-control/MediaControlShape";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { PresentationManager } from "./presentation-manager";
 
@@ -39,7 +42,7 @@ async function runFrames(
     const immediate = duration === 0;
 
     if (action.type === "mediaControl") {
-      // The command targets the marker's parent video, not the marker
+      // The command targets the marker's bound video, not the marker
       // itself. `duration` still applies below as the wait before the
       // batch's next frame.
       const target = resolveMediaControlTarget(editor, shape.id);
@@ -60,6 +63,16 @@ async function runFrames(
         immediate,
         animation: { duration, easing: EASINGS[easing] },
       });
+    } else if (
+      action.type === "shapeAnimation" &&
+      shape.type === MediaControlShapeType
+    ) {
+      // A marker carrying a shapeAnimation frame is the designed
+      // movement-keyframe proxy for its bound video (see
+      // MediaControlShapeProps). Its playback — tweening the video shape
+      // itself, since a temp copy would mount a second player — is not
+      // implemented yet, so the frame only contributes its `duration`
+      // wait below.
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();

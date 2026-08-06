@@ -24,15 +24,17 @@ import {
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
-import {
-  YouTubeEmbedShapeType,
-  type YouTubeEmbedShape,
-} from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import {
   MediaControlShapeType,
   MEDIA_CONTROL_SHAPE_SIZE,
   resolveMediaControlTarget,
 } from "../shapes/media-control/MediaControlShape";
+import {
+  bindMediaControlMarker,
+  MediaControlBindingType,
+  type MediaControlBinding,
+} from "../shapes/media-control/MediaControlBinding";
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
@@ -188,11 +190,11 @@ export class PresentationManager {
   }
 
   /**
-   * Adds a media control event to a video shape: a marker child shape
-   * carrying a mediaControl cue frame, appended as a new step at the
-   * end. All events of one video share one track (its media track), so
-   * the timeline shows them as a sequence and the step machinery keeps
-   * them mutually exclusive within a step.
+   * Adds a media control event to a video shape: a marker shape bound
+   * to the video, carrying a mediaControl cue frame, appended as a new
+   * step at the end. All media events of one video share one track (its
+   * media track), so the timeline shows them as a sequence and the step
+   * machinery keeps them mutually exclusive within a step.
    */
   attachMediaControlCueFrame(videoShapeId: TLShapeId) {
     const video = this.editor.getShape(videoShapeId);
@@ -202,16 +204,24 @@ export class PresentationManager {
 
     let mediaTrackId: string | null = null;
     let markerCount = 0;
-    for (const childId of this.editor.getSortedChildIdsForParent(
+    for (const binding of this.editor.getBindingsToShape<MediaControlBinding>(
       videoShapeId,
+      MediaControlBindingType,
     )) {
-      const child = this.editor.getShape(childId);
-      if (child?.type !== MediaControlShapeType) {
+      const marker = this.editor.getShape(binding.fromId);
+      if (marker?.type !== MediaControlShapeType) {
         continue;
       }
       markerCount++;
-      const parsed = parseFrameMeta(child.meta?.frame);
-      if (parsed.kind === "v2" && parsed.frame.type === "cue") {
+      const parsed = parseFrameMeta(marker.meta?.frame);
+      if (
+        parsed.kind === "v2" &&
+        parsed.frame.type === "cue" &&
+        // Reuse only the MEDIA track: a marker may also carry a
+        // shapeAnimation frame on the video's own track (the designed
+        // movement-keyframe proxy, see MediaControlShapeProps).
+        parsed.frame.action.type === "mediaControl"
+      ) {
         mediaTrackId = parsed.frame.trackId;
       }
     }
@@ -229,21 +239,58 @@ export class PresentationManager {
       action: { type: "mediaControl", command: "play" },
     };
     const markerId = createShapeId();
+    const videoBounds = this.editor.getShapePageBounds(videoShapeId);
     this.editor.run(() => {
       this.editor.createShape({
         id: markerId,
         type: MediaControlShapeType,
-        parentId: videoShapeId,
-        // Below the video, stacked left-to-right in creation order (in
-        // the video's local space; purely cosmetic).
-        x: markerCount * (MEDIA_CONTROL_SHAPE_SIZE + 4),
-        y: (video as YouTubeEmbedShape).props.h + 8,
+        // Below the video, stacked left-to-right in creation order
+        // (purely cosmetic; the marker lives on the page and the binding
+        // keeps it following the video).
+        x: (videoBounds?.x ?? 0) + markerCount * (MEDIA_CONTROL_SHAPE_SIZE + 4),
+        y: (videoBounds?.maxY ?? 0) + 8,
         meta: {
           frame: frameToMetaJson(cueFrame),
         },
       });
+      bindMediaControlMarker(this.editor, markerId, videoShapeId);
       this.editor.select(markerId);
     });
+  }
+
+  /**
+   * Track id → bound video shape id, covering every track whose cue
+   * frames are carried by a video shape or by markers bound to one. The
+   * timeline UI merges these tracks into one row per video (see
+   * `calcFrameBatchUIData`): the video's appearance track and its media
+   * track are distinct tracks in the data model — a step may legally
+   * animate the video and fire a media event at once — but they describe
+   * one object, so they read as one row.
+   */
+  @computed $getMediaTrackGroups(): Record<string, string> {
+    const doc = this.$getTimelineDoc();
+    const groups: Record<string, string> = {};
+    for (const step of doc.steps) {
+      for (const batch of step.batches) {
+        const carrierId = batch.frames[0]?.shapeId;
+        const carrier =
+          carrierId != null
+            ? this.editor.getShape(carrierId as TLShapeId)
+            : null;
+        if (carrier == null) {
+          continue;
+        }
+        if (carrier.type === YouTubeEmbedShapeType) {
+          groups[batch.trackId] = carrier.id;
+        } else if (carrier.type === MediaControlShapeType) {
+          const target = resolveMediaControlTarget(this.editor, carrier.id);
+          if (target != null) {
+            groups[batch.trackId] = target.id;
+          }
+        }
+      }
+    }
+    return groups;
   }
 
   @computed $getCurrentPageDescendantShapes(): TLShape[] {
@@ -443,6 +490,14 @@ export class PresentationManager {
 
       if (frameInfo.stepIndex > currentStepIndex) {
         return [shapeId, "hidden"];
+      }
+
+      // A framed video stays visible from its appearance step on. Later
+      // batches on its track are marker-carried keyframes, never copies
+      // of the video (a copy would mount a second player iframe), so the
+      // latest-batch-only rule below must not hide the original.
+      if (shape.type === YouTubeEmbedShapeType) {
+        return [shapeId, "visible"];
       }
 
       // Only the last frame of the track's latest played batch is visible.

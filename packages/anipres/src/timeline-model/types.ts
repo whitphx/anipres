@@ -46,8 +46,8 @@ export const MEDIA_CONTROL_COMMANDS = [
 export type MediaControlCommand = (typeof MEDIA_CONTROL_COMMANDS)[number];
 
 /**
- * Fires a playback command against the media shape that carries the
- * frame's marker (the marker's parent shape). `duration` is the wait
+ * Fires a playback command against the media shape the frame's marker
+ * is bound to. `duration` is the wait
  * before the batch's next frame runs, not an animation length — the
  * command itself is instantaneous.
  */

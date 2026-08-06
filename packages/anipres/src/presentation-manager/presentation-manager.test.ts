@@ -1,6 +1,12 @@
 /** @vitest-environment happy-dom */
 import { describe, it, expect, vi } from "vitest";
-import { atom, createShapeId, getSnapshot, type Editor } from "tldraw";
+import {
+  atom,
+  createShapeId,
+  getSnapshot,
+  type Editor,
+  type TLShapeId,
+} from "tldraw";
 import { PresentationManager } from "./presentation-manager";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import {
@@ -13,6 +19,7 @@ import {
   type CueFrame,
   type SubFrame,
 } from "../timeline-model";
+import { updateMediaControlBindingAnchor } from "../shapes/media-control/MediaControlBinding";
 
 const CUE_FRAME: CueFrame = {
   v: 2,
@@ -89,8 +96,21 @@ describe("PresentationManager with grouped shapes", () => {
   });
 });
 
+function getBoundMarkers(editor: Editor, videoId: TLShapeId) {
+  return editor
+    .getBindingsToShape(videoId, "media-control")
+    .map((binding) => editor.getShape(binding.fromId))
+    .filter((shape) => shape?.type === "media-control");
+}
+
 describe("attachMediaControlCueFrame", () => {
-  it("mints one media track and reuses it for later events of the same video", () => {
+  function withVideoEditor<T>(
+    run: (ctx: {
+      manager: PresentationManager;
+      editor: Editor;
+      videoId: TLShapeId;
+    }) => T,
+  ): T {
     const [editor, dispose] = loadHeadlessEditor();
     try {
       const manager = PresentationManager.create(
@@ -108,15 +128,20 @@ describe("attachMediaControlCueFrame", () => {
           videoId: "M7lc1UVf-VE",
         },
       });
+      return run({ manager, editor, videoId });
+    } finally {
+      dispose();
+    }
+  }
 
+  it("mints one media track and reuses it for later events of the same video", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
       manager.attachMediaControlCueFrame(videoId);
 
-      const markerFrames = editor
-        .getSortedChildIdsForParent(videoId)
-        .map((id) => editor.getShape(id))
-        .filter((shape) => shape?.type === "media-control")
-        .map((shape) => parseFrameMeta(shape?.meta?.frame));
+      const markerFrames = getBoundMarkers(editor, videoId).map((shape) =>
+        parseFrameMeta(shape?.meta?.frame),
+      );
       expect(markerFrames).toHaveLength(2);
       const cues = markerFrames.map((parsed) => {
         if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
@@ -133,9 +158,86 @@ describe("attachMediaControlCueFrame", () => {
       const doc = manager.$getTimelineDoc();
       expect(doc.steps).toHaveLength(2);
       expect(doc.diagnostics).toEqual([]);
-    } finally {
-      dispose();
-    }
+    });
+  });
+
+  it("moves the markers along with the video (binding follow)", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = getBoundMarkers(editor, videoId);
+      const { x, y } = marker!;
+
+      editor.updateShape({ id: videoId, type: "youtube-embed", x: 50, y: 70 });
+
+      const moved = editor.getShape(marker!.id)!;
+      expect(moved.x).toBe(x + 50);
+      expect(moved.y).toBe(y + 70);
+    });
+  });
+
+  it("keeps a re-anchored marker offset across later video moves", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = getBoundMarkers(editor, videoId);
+
+      // The user drags the marker alone (onTranslateEnd re-anchors; the
+      // headless test calls the helper the hook delegates to).
+      editor.updateShape({ id: marker!.id, type: marker!.type, x: 500, y: 5 });
+      updateMediaControlBindingAnchor(editor, marker!.id);
+
+      editor.updateShape({ id: videoId, type: "youtube-embed", x: 30, y: 40 });
+
+      const moved = editor.getShape(marker!.id)!;
+      expect(moved.x).toBe(530);
+      expect(moved.y).toBe(45);
+    });
+  });
+
+  it("deletes the markers along with the video (binding cascade)", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
+      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlCueFrame(videoId);
+      const markerIds = getBoundMarkers(editor, videoId).map((s) => s!.id);
+      expect(markerIds).toHaveLength(2);
+
+      editor.deleteShape(videoId);
+
+      for (const markerId of markerIds) {
+        expect(editor.getShape(markerId)).toBeUndefined();
+      }
+      // The markers carried the only frames, so the timeline is empty.
+      expect(manager.$getTimelineDoc().steps).toHaveLength(0);
+    });
+  });
+
+  it("groups the video's own track and its media track for the timeline UI", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
+      const videoCue: CueFrame = {
+        v: 2,
+        id: "vf",
+        type: "cue",
+        trackId: "T-video",
+        stepId: "sv",
+        stepOrderKey: "a0",
+        action: { type: "shapeAnimation" },
+      };
+      const video = editor.getShape(videoId)!;
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: { ...video.meta, frame: frameToMetaJson(videoCue) },
+      });
+      manager.attachMediaControlCueFrame(videoId);
+
+      const groups = manager.$getMediaTrackGroups();
+      const [marker] = getBoundMarkers(editor, videoId);
+      const parsed = parseFrameMeta(marker?.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
+        throw new Error("expected a v2 cue frame on the marker");
+      }
+      expect(groups["T-video"]).toBe(videoId);
+      expect(groups[parsed.frame.trackId]).toBe(videoId);
+    });
   });
 });
 
@@ -170,22 +272,29 @@ describe("step run cancellation", () => {
       orderKey: "a1",
       action: { type: "mediaControl", command: "pause" },
     };
+    const markerCueId = createShapeId("marker-cue");
+    const markerSubId = createShapeId("marker-sub");
     editor.createShape({
-      id: createShapeId("marker-cue"),
+      id: markerCueId,
       type: "media-control",
-      parentId: videoId,
       x: 0,
       y: 300,
       meta: { frame: frameToMetaJson(cue) },
     });
     editor.createShape({
-      id: createShapeId("marker-sub"),
+      id: markerSubId,
       type: "media-control",
-      parentId: videoId,
       x: 40,
       y: 300,
       meta: { frame: frameToMetaJson(sub) },
     });
+    for (const markerId of [markerCueId, markerSubId]) {
+      editor.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
+      });
+    }
   }
 
   async function runPlayThenPause(cancelDuringWait: boolean) {

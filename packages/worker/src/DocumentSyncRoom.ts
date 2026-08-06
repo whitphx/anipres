@@ -1,9 +1,15 @@
 import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
-import { createTLSchema, defaultShapeSchemas } from "tldraw";
+import {
+  createTLSchema,
+  defaultBindingSchemas,
+  defaultShapeSchemas,
+} from "tldraw";
 import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
 import { getSyncAnimationDataVersionGateResponse } from "./animation-data-version-gate";
 import {
+  mediaControlBindingProps,
+  MediaControlBindingType,
   mediaControlShapeProps,
   MediaControlShapeType,
   slideShapeProps,
@@ -29,6 +35,10 @@ const schema = createTLSchema({
     [ThemeImageShapeType]: { props: themeImageShapeProps },
     [YouTubeEmbedShapeType]: { props: youTubeEmbedShapeProps },
     [MediaControlShapeType]: { props: mediaControlShapeProps },
+  },
+  bindings: {
+    ...defaultBindingSchemas,
+    [MediaControlBindingType]: { props: mediaControlBindingProps },
   },
 });
 

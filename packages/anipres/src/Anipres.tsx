@@ -72,7 +72,7 @@ import React, {
 
 import "./tldraw-overrides.css";
 
-import { customShapeUtils } from "./shape-utils";
+import { customShapeUtils, customBindingUtils } from "./shape-utils";
 const customTools = [
   SlideShapeTool,
   ThemeImageShapeTool,
@@ -750,6 +750,7 @@ const Inner = (props: InnerProps) => {
       }}
       overrides={makeUiOverrides(perInstanceAtoms)}
       shapeUtils={customShapeUtils}
+      bindingUtils={customBindingUtils}
       tools={customTools}
       getShapeVisibility={determineShapeVisibility}
       maxAssetSize={maxAssetSize}

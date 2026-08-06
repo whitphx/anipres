@@ -3,7 +3,7 @@ import type {
   EditedStep,
   EditedStepSource,
 } from "../timeline-model";
-import type { FrameBatchUIData, FrameUIData, Track } from "./frame-ui-data";
+import type { FrameBatchUIData, FrameUIData } from "./frame-ui-data";
 
 // The Timeline drag & drop semantics (pinned by frame-movement.test.ts):
 // moving a frame takes it — plus, within its batch, the frames on the far
@@ -69,7 +69,7 @@ function rebatch(pushedOut: RoleFrame[], trackId: string): EditedBatch[] {
 export function moveFrame(
   steps: FrameBatchUIData[][],
   stepSources: readonly EditedStepSource[],
-  trackId: Track["id"],
+  trackId: string,
   srcGlobalIndex: number,
   srcTrackIndex: number,
   dstGlobalIndex: number,

@@ -47,7 +47,7 @@ export function applyMediaCommand(
 /**
  * Folds every mediaControl frame in steps [0, uptoStepIndex] into the
  * per-target playback state. Targets are resolved through the injected
- * callback (the marker's parent shape in the live editor); frames whose
+ * callback (the marker's bound video in the live editor); frames whose
  * target cannot be resolved are skipped.
  */
 export function foldMediaPlaybackStates(

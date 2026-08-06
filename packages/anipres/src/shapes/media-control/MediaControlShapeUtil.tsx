@@ -13,6 +13,7 @@ import {
   MEDIA_CONTROL_SHAPE_SIZE,
   resolveMediaControlTarget,
 } from "./MediaControlShape";
+import { updateMediaControlBindingAnchor } from "./MediaControlBinding";
 import { parseFrameMeta } from "../../timeline-model";
 import type { MediaControlCommand } from "../../timeline-model";
 
@@ -30,7 +31,7 @@ export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
   static override readonly props = mediaControlShapeProps;
 
   override getDefaultProps(): MediaControlShape["props"] {
-    return {};
+    return { w: null, h: null };
   }
 
   override canResize() {
@@ -51,6 +52,16 @@ export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
       height: MEDIA_CONTROL_SHAPE_SIZE,
       isFilled: true,
     });
+  }
+
+  override onTranslateEnd(
+    _initial: MediaControlShape,
+    marker: MediaControlShape,
+  ): void {
+    // Moving the marker alone repositions it relative to its video; the
+    // binding's anchor must record that, or the next video change would
+    // snap the marker back.
+    updateMediaControlBindingAnchor(this.editor, marker.id);
   }
 
   component(shape: MediaControlShape) {
@@ -85,7 +96,7 @@ function MediaControlBadge({ shape }: { shape: MediaControlShape }) {
       : null;
 
   const label = orphaned
-    ? "Media control event without a video (place it back onto a video shape)"
+    ? "Media control event not attached to any video (pasted alone?) — it will do nothing"
     : action != null
       ? `Media control event: ${action.command}`
       : "Media control event without playback data";
