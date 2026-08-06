@@ -149,13 +149,21 @@ runs:
         COMMENT_PATH: ${{ runner.temp }}/bsr-comment.md
       with:
         script: |
-          const { pathToFileURL } = require("node:url");
+          const fs = require("node:fs");
           const path = require("node:path");
+          const { pathToFileURL } = require("node:url");
           const url = pathToFileURL(
             path.join(
               process.env.GITHUB_WORKSPACE,
-              ".github/scripts/bundle-size-report/update-sticky-comment.mjs",
+              ".github/scripts/sticky-comment.mjs",
             ),
           ).href;
-          const { default: run } = await import(url);
-          await run({ github, context, core });
+          const { default: updateStickyComment } = await import(url);
+          await updateStickyComment({
+            github,
+            context,
+            core,
+            marker: "<!-- bundle-size-report -->",
+            prNumber: parseInt(process.env.PR_NUMBER, 10),
+            body: fs.readFileSync(process.env.COMMENT_PATH, "utf8"),
+          });
