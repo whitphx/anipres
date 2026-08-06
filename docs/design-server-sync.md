@@ -425,7 +425,7 @@ export const anipresSchema = createTLSchema({
 });
 ```
 
-The `packages/anipres` library exports the shape schema descriptors via `anipres/schema` (a non-React entry point). The worker imports every custom shape's props and type-name constant from there and reconstructs `createTLSchema` locally — see `packages/worker/src/DocumentSyncRoom.ts`. Any new custom shape must be added to that `createTLSchema` call, or the sync server rejects documents containing it.
+The `packages/anipres` library exports the shape schema descriptors via `anipres/schema` (a non-React entry point). The worker imports every custom shape's props, migrations, and type-name constant from there and reconstructs `createTLSchema` locally — see `packages/worker/src/DocumentSyncRoom.ts`. Any new custom shape or binding — and any shape-props migration added to an existing one — must be added to that `createTLSchema` call, or the sync server rejects documents containing it.
 
 ---
 

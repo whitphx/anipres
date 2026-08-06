@@ -22,9 +22,9 @@ export interface MediaControlShapeProps {
    * video during the presentation", where the marker's own transform is
    * the keyframe target (the video shape itself cannot be copied per
    * keyframe: a copy would mount a second live player). Playback of such
-   * frames is not implemented yet; the props are part of the persisted
-   * schema from the start because adding them later costs a shape-schema
-   * migration. Null on ordinary media-event markers.
+   * frames is not implemented yet; the props are declared now so the
+   * marker's transform is already the full keyframe target when it
+   * lands. Null on ordinary media-event markers.
    */
   w: number | null;
   h: number | null;
