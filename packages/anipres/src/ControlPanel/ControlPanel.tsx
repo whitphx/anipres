@@ -26,9 +26,12 @@ import type { FrameUIData } from "../Timeline/frame-ui-data";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
+import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
+  followupActionFrom,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -87,9 +90,18 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     };
   });
 
+  const selectedYouTubeEmbedShapes = selectedShapes.filter(
+    (shape) => shape.type === YouTubeEmbedShapeType,
+  );
+
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {
-      if (shape.type === SlideShapeType) {
+      if (
+        shape.type === SlideShapeType ||
+        // Markers exist solely to carry a media frame; attaching a
+        // shapeAnimation cue to one makes no sense.
+        shape.type === MediaControlShapeType
+      ) {
         return null;
       }
 
@@ -341,7 +353,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       }}
       onPointerDown={(e) => stopEventPropagation(e)}
     >
-      <div>
+      <div className={styles.actionButtons}>
         <button
           className={styles.playButton}
           onClick={() => {
@@ -350,6 +362,20 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         >
           ▶️
         </button>
+        {selectedYouTubeEmbedShapes.length > 0 && (
+          <button
+            type="button"
+            className={styles.playButton}
+            title="Add a playback event (play, pause, …) for the selected video as a new step"
+            onClick={() => {
+              selectedYouTubeEmbedShapes.forEach((shape) => {
+                presentationManager.attachMediaControlCueFrame(shape.id);
+              });
+            }}
+          >
+            + Media event
+          </button>
+        )}
       </div>
 
       <div className={styles.scrollableContainer}>
@@ -400,10 +426,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               trackId: position.batch.trackId,
               stepId: uniqueId(),
               stepOrderKey: insertion.insertedKey,
-              action: {
-                type: prevCueFrame.action.type,
-                duration: 1000,
-              },
+              action: followupActionFrom(prevCueFrame.action),
             };
 
             editor.run(
@@ -545,10 +568,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 trackId: origPosition.batch.trackId,
                 stepId: sharedStepId,
                 stepOrderKey: insertion.insertedKey,
-                action: {
-                  type: origFrame ? origFrame.action.type : "shapeAnimation",
-                  duration: 1000,
-                },
+                action: origFrame
+                  ? followupActionFrom(origFrame.action)
+                  : { type: "shapeAnimation", duration: 1000 },
               };
               shapesToCreate.push({
                 ...copied,
@@ -594,10 +616,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               type: "sub",
               cueFrameId: plan.cueFrameId,
               orderKey: plan.orderKey,
-              action: {
-                type: prevFrame.action.type,
-                duration: 1000,
-              },
+              action: followupActionFrom(prevFrame.action),
             };
 
             editor.run(() => {

@@ -1,9 +1,11 @@
-export { TIMELINE_FORMAT_VERSION } from "./types";
+export { TIMELINE_FORMAT_VERSION, MEDIA_CONTROL_COMMANDS } from "./types";
 export type {
   FrameAction,
   FrameActionBase,
   ShapeAnimationFrameAction,
   CameraZoomFrameAction,
+  MediaControlFrameAction,
+  MediaControlCommand,
   CueFrame,
   SubFrame,
   Frame,

@@ -39,6 +39,8 @@ import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
+import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
+import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
@@ -70,7 +72,16 @@ import React, {
 import "./tldraw-overrides.css";
 
 import { customShapeUtils } from "./shape-utils";
-const customTools = [SlideShapeTool, ThemeImageShapeTool];
+const customTools = [
+  SlideShapeTool,
+  ThemeImageShapeTool,
+  YouTubeEmbedShapeTool,
+];
+
+// Shape types whose embedded content the user can interact with — a
+// single click enters editing state on them in presentation mode.
+const isInteractiveEmbedShapeType = (type: string) =>
+  type === "embed" || type === YouTubeEmbedShapeType;
 
 // We use atoms as it's Tldraw's design,
 // but we also need to manage these states per instance of Anipres component
@@ -182,6 +193,12 @@ const makeUiOverrides = ({
         label: "Theme Image",
         onSelect: () => editor.setCurrentTool(ThemeImageShapeTool.id),
       };
+      tools[YouTubeEmbedShapeTool.id] = {
+        id: YouTubeEmbedShapeTool.id,
+        icon: "tool-embed",
+        label: "YouTube",
+        onSelect: () => editor.setCurrentTool(YouTubeEmbedShapeTool.id),
+      };
       return tools;
     },
     translations: {
@@ -235,6 +252,9 @@ const createComponents = (signals: {
       const isThemeImageToolSelected = useIsToolSelected(
         tools[ThemeImageShapeTool.id],
       );
+      const isYouTubeToolSelected = useIsToolSelected(
+        tools[YouTubeEmbedShapeTool.id],
+      );
       return (
         !presentationMode && (
           <DefaultToolbar {...props}>
@@ -245,6 +265,10 @@ const createComponents = (signals: {
             <TldrawUiMenuItem
               {...tools[ThemeImageShapeTool.id]}
               isSelected={isThemeImageToolSelected}
+            />
+            <TldrawUiMenuItem
+              {...tools[YouTubeEmbedShapeTool.id]}
+              isSelected={isYouTubeToolSelected}
             />
             <DefaultToolbarContent />
           </DefaultToolbar>
@@ -257,6 +281,7 @@ const createComponents = (signals: {
         <DefaultKeyboardShortcutsDialog {...props}>
           <TldrawUiMenuItem {...tools[SlideShapeTool.id]} />
           <TldrawUiMenuItem {...tools[ThemeImageShapeTool.id]} />
+          <TldrawUiMenuItem {...tools[YouTubeEmbedShapeTool.id]} />
           <DefaultKeyboardShortcutsDialogContent />
         </DefaultKeyboardShortcutsDialog>
       );
@@ -435,7 +460,7 @@ const Inner = (props: InnerProps) => {
           if (perInstanceAtoms.$presentationMode.get()) {
             next.selectedShapeIds.forEach((id) => {
               const shape = editor.getShape(id);
-              if (shape?.type === "embed") {
+              if (shape != null && isInteractiveEmbedShapeType(shape.type)) {
                 // In presentation mode, editing state is enabled by a single click on an embed shape.
                 // Editing state is needed because it's where the user can interact with the embed shape, e.g. controlling a YouTube video.
                 if (next.editingShapeId !== id) {
@@ -482,7 +507,7 @@ const Inner = (props: InnerProps) => {
         return;
       }
 
-      if (editingShape.type === "embed") {
+      if (isInteractiveEmbedShapeType(editingShape.type)) {
         // Editing an embed shape is allowed so that the user can manipulate the content inside the embed.
         return;
       }

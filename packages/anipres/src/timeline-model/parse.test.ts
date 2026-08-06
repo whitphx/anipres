@@ -24,6 +24,40 @@ describe("parseFrameMeta — total validation", () => {
     ["non-string easing", v1Cue(0, { ...ACTION, easing: 3 })],
     ["invalid inset", v1Cue(0, { type: "cameraZoom", inset: Number.NaN })],
     ["inset on shapeAnimation", v1Cue(0, { type: "shapeAnimation", inset: 5 })],
+    ["mediaControl without command", v1Cue(0, { type: "mediaControl" })],
+    [
+      "mediaControl with unknown command",
+      v1Cue(0, { type: "mediaControl", command: "rewind" }),
+    ],
+    [
+      "mediaControl with easing",
+      v1Cue(0, {
+        type: "mediaControl",
+        command: "play",
+        easing: "easeInCubic",
+      }),
+    ],
+    [
+      "mediaControl with inset",
+      v1Cue(0, { type: "mediaControl", command: "play", inset: 5 }),
+    ],
+    [
+      "volume on a non-setVolume command",
+      v1Cue(0, { type: "mediaControl", command: "play", volume: 50 }),
+    ],
+    [
+      "out-of-range volume",
+      v1Cue(0, { type: "mediaControl", command: "setVolume", volume: 101 }),
+    ],
+    [
+      "NaN volume",
+      v1Cue(0, { type: "mediaControl", command: "setVolume", volume: NaN }),
+    ],
+    [
+      "command on shapeAnimation",
+      v1Cue(0, { type: "shapeAnimation", command: "play" }),
+    ],
+    ["volume on cameraZoom", v1Cue(0, { type: "cameraZoom", volume: 50 })],
   ];
 
   it.each(malformedCues)("classifies %s as invalid", (_label, meta) => {
@@ -54,6 +88,35 @@ describe("parseFrameMeta — total validation", () => {
       }).kind,
     ).toBe("v2");
     expect(parseFrameMeta(v1Cue(3)).kind).toBe("v1");
+  });
+
+  it("accepts valid mediaControl actions", () => {
+    const cue = (action: unknown) => ({
+      v: 2,
+      id: "f1",
+      type: "cue",
+      trackId: "T",
+      stepId: "s1",
+      stepOrderKey: "a1",
+      action,
+    });
+    expect(
+      parseFrameMeta(cue({ type: "mediaControl", command: "play" })).kind,
+    ).toBe("v2");
+    expect(
+      parseFrameMeta(
+        cue({ type: "mediaControl", command: "pause", duration: 500 }),
+      ).kind,
+    ).toBe("v2");
+    expect(
+      parseFrameMeta(
+        cue({ type: "mediaControl", command: "setVolume", volume: 0 }),
+      ).kind,
+    ).toBe("v2");
+    // setVolume's volume is optional (the runtime defaults it).
+    expect(
+      parseFrameMeta(cue({ type: "mediaControl", command: "setVolume" })).kind,
+    ).toBe("v2");
   });
 
   it("applies strict action validation to v2 frames too", () => {

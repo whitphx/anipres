@@ -1,5 +1,6 @@
 import {
   computed,
+  createShapeId,
   uniqueId,
   type Editor,
   type Atom,
@@ -12,8 +13,10 @@ import {
   deriveTimeline,
   frameToMetaJson,
   orderKeyBetween,
+  parseFrameMeta,
   type CueFrame,
   type FrameAction,
+  type MediaControlFrameAction,
   type TimelineDoc,
 } from "../timeline-model";
 import {
@@ -22,6 +25,17 @@ import {
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
+import {
+  YouTubeEmbedShapeType,
+  type YouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  MediaControlShapeType,
+  MEDIA_CONTROL_SHAPE_SIZE,
+  resolveMediaControlTarget,
+} from "../shapes/media-control/MediaControlShape";
+import { foldMediaPlaybackStates } from "../media/media-state";
+import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
@@ -119,6 +133,66 @@ export class PresentationManager {
     });
   }
 
+  /**
+   * Adds a media control event to a video shape: a marker child shape
+   * carrying a mediaControl cue frame, appended as a new step at the
+   * end. All events of one video share one track (its media track), so
+   * the timeline shows them as a sequence and the step machinery keeps
+   * them mutually exclusive within a step.
+   */
+  attachMediaControlCueFrame(
+    videoShapeId: TLShapeId,
+    action: MediaControlFrameAction = { type: "mediaControl", command: "play" },
+  ) {
+    const video = this.editor.getShape(videoShapeId);
+    if (video?.type !== YouTubeEmbedShapeType) {
+      return;
+    }
+
+    let mediaTrackId: string | null = null;
+    let markerCount = 0;
+    for (const childId of this.editor.getSortedChildIdsForParent(
+      videoShapeId,
+    )) {
+      const child = this.editor.getShape(childId);
+      if (child?.type !== MediaControlShapeType) {
+        continue;
+      }
+      markerCount++;
+      const parsed = parseFrameMeta(child.meta?.frame);
+      if (parsed.kind === "v2" && parsed.frame.type === "cue") {
+        mediaTrackId = parsed.frame.trackId;
+      }
+    }
+
+    const doc = this.$getTimelineDoc();
+    const cueFrame: CueFrame = {
+      v: 2,
+      id: uniqueId(),
+      type: "cue",
+      trackId: mediaTrackId ?? newTrackId(),
+      stepId: uniqueId(),
+      stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
+      action,
+    };
+    const markerId = createShapeId();
+    this.editor.run(() => {
+      this.editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        parentId: videoShapeId,
+        // Below the video, stacked left-to-right in creation order (in
+        // the video's local space; purely cosmetic).
+        x: markerCount * (MEDIA_CONTROL_SHAPE_SIZE + 4),
+        y: (video as YouTubeEmbedShape).props.h + 8,
+        meta: {
+          frame: frameToMetaJson(cueFrame),
+        },
+      });
+      this.editor.select(markerId);
+    });
+  }
+
   @computed $getCurrentPageDescendantShapes(): TLShape[] {
     // tldraw's getCurrentPageShapes() already includes group CHILDREN
     // (it returns every shape whose ancestor chain reaches the page), so
@@ -205,11 +279,27 @@ export class PresentationManager {
       stepIndex = orderedSteps.length - 1;
     }
 
-    if (stepIndex === this.$currentStepIndex.get()) {
+    const prevStepIndex = this.$currentStepIndex.get();
+    if (stepIndex === prevStepIndex) {
       return;
     }
 
     this.$currentStepIndex.set(stepIndex);
+    if (stepIndex !== prevStepIndex + 1) {
+      // Jump or backward move: media events of the skipped/rewound
+      // range never fire, so force players to the state the event
+      // history up to the PREVIOUS step implies. The target step's own
+      // events then fire live in runStep below, same as a normal
+      // advance.
+      YouTubePlayerManager.get(this.editor).reconcile(
+        foldMediaPlaybackStates(
+          orderedSteps,
+          stepIndex - 1,
+          (markerShapeId) =>
+            resolveMediaControlTarget(this.editor, markerShapeId)?.id ?? null,
+        ),
+      );
+    }
     runStep(this, orderedSteps, stepIndex);
   }
 
@@ -269,6 +359,11 @@ export class PresentationManager {
       const shapeId = shape.id;
 
       if (shape.type === SlideShapeType) {
+        return [shapeId, "hidden"];
+      }
+
+      // Editing chrome, like slides — their frames still drive playback.
+      if (shape.type === MediaControlShapeType) {
         return [shapeId, "hidden"];
       }
 

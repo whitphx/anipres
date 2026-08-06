@@ -9,7 +9,14 @@
 
 import { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
-import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
+import type {
+  CueFrame,
+  Frame,
+  FrameAction,
+  MediaControlCommand,
+  SubFrame,
+} from "./types";
+import { MEDIA_CONTROL_COMMANDS } from "./types";
 import { isReservedStepId } from "./ids";
 
 // --- Legacy (v1) frame shapes, kept here so this module tree stays
@@ -55,19 +62,48 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
- * Strict action validation: only the two known action types; numeric
- * fields must be finite numbers; `easing` must be a recognized tldraw
- * easing; `inset` is cameraZoom-only. Anything else is malformed.
+ * Strict action validation: only the known action types; numeric fields
+ * must be finite numbers; `easing` must be a recognized tldraw easing;
+ * `inset` is cameraZoom-only; `command`/`volume` are mediaControl-only
+ * (`volume` further restricted to the setVolume command, 0–100).
+ * Anything else is malformed.
  */
 function parseFrameAction(value: unknown): FrameAction | null {
   if (!isRecord(value)) {
     return null;
   }
-  if (value.type !== "shapeAnimation" && value.type !== "cameraZoom") {
+  if (
+    value.type !== "shapeAnimation" &&
+    value.type !== "cameraZoom" &&
+    value.type !== "mediaControl"
+  ) {
     return null;
   }
   if (value.duration !== undefined && !isFiniteNumber(value.duration)) {
     return null;
+  }
+  if (value.type === "mediaControl") {
+    if (value.easing !== undefined || value.inset !== undefined) {
+      return null;
+    }
+    if (
+      !MEDIA_CONTROL_COMMANDS.includes(value.command as MediaControlCommand)
+    ) {
+      return null;
+    }
+    if (value.command === "setVolume") {
+      if (
+        value.volume !== undefined &&
+        (!isFiniteNumber(value.volume) ||
+          value.volume < 0 ||
+          value.volume > 100)
+      ) {
+        return null;
+      }
+    } else if (value.volume !== undefined) {
+      return null;
+    }
+    return value as FrameAction;
   }
   if (
     value.easing !== undefined &&
@@ -80,6 +116,9 @@ function parseFrameAction(value: unknown): FrameAction | null {
       return null;
     }
   } else if (value.inset !== undefined) {
+    return null;
+  }
+  if (value.command !== undefined || value.volume !== undefined) {
     return null;
   }
   return value as FrameAction;

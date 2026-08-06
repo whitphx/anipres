@@ -13,7 +13,7 @@
 // same reason). Worker callers don't need to know — they import a
 // typed helper (`parseAgentPrompt` below), not `z` itself.
 import * as z from "zod";
-import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
+import { PerceivedFrameActionSchema } from "../format/focused-frame-action.js";
 import { FocusedShapeSchema } from "../format/focused-shape.js";
 
 /**
@@ -66,7 +66,7 @@ export const PresentationStatePartSchema = z.object({
         z.object({
           trackId: z.string(),
           shapeIds: z.array(z.string()),
-          frameAction: FocusedFrameActionSchema,
+          frameAction: PerceivedFrameActionSchema,
         }),
       ),
     }),

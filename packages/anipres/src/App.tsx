@@ -304,6 +304,20 @@ function setupDevMock(editor: Editor) {
   editor.groupShapes([groupId1, groupId2], {
     groupId: parentGroupId,
   });
+
+  const youtubeId = createShapeId("youtube0");
+  editor.createShape({
+    id: youtubeId,
+    type: "youtube-embed",
+    x: 100,
+    y: 300,
+    props: {
+      // The YouTube IFrame API demo video.
+      url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      videoId: "M7lc1UVf-VE",
+      muted: true,
+    },
+  });
 }
 
 function App() {

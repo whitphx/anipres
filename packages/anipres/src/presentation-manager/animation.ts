@@ -3,6 +3,8 @@ import type {
   RuntimeFrame,
   RuntimeStep,
 } from "../timeline-model/runtime-steps";
+import { resolveMediaControlTarget } from "../shapes/media-control/MediaControlShape";
+import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
@@ -20,11 +22,19 @@ async function runFrames(
 
     const action = frame.action;
 
-    const { duration = 0, easing = "easeInCubic" } = action;
+    const { duration = 0 } = action;
     const immediate = duration === 0;
 
-    if (action.type === "cameraZoom") {
-      const { inset = 0 } = action;
+    if (action.type === "mediaControl") {
+      // The command targets the marker's parent video, not the marker
+      // itself. `duration` still applies below as the wait before the
+      // batch's next frame.
+      const target = resolveMediaControlTarget(editor, shape.id);
+      if (target != null) {
+        YouTubePlayerManager.get(editor).command(target.id, action);
+      }
+    } else if (action.type === "cameraZoom") {
+      const { inset = 0, easing = "easeInCubic" } = action;
 
       editor.stopCameraAnimation();
       const bounds = editor.getShapePageBounds(shape);
@@ -38,6 +48,7 @@ async function runFrames(
         animation: { duration, easing: EASINGS[easing] },
       });
     } else if (action.type === "shapeAnimation") {
+      const { easing = "easeInCubic" } = action;
       editor.selectNone();
 
       if (predecessorShape == null) {

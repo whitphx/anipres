@@ -35,7 +35,34 @@ export interface CameraZoomFrameAction extends FrameActionBase {
   duration?: number;
   easing?: keyof typeof EASINGS;
 }
-export type FrameAction = ShapeAnimationFrameAction | CameraZoomFrameAction;
+export const MEDIA_CONTROL_COMMANDS = [
+  "play",
+  "pause",
+  "stop",
+  "mute",
+  "unmute",
+  "setVolume",
+] as const;
+export type MediaControlCommand = (typeof MEDIA_CONTROL_COMMANDS)[number];
+
+/**
+ * Fires a playback command against the media shape that carries the
+ * frame's marker (the marker's parent shape). `duration` is the wait
+ * before the batch's next frame runs, not an animation length — the
+ * command itself is instantaneous.
+ */
+export interface MediaControlFrameAction extends FrameActionBase {
+  type: "mediaControl";
+  command: MediaControlCommand;
+  duration?: number;
+  /** setVolume only: absolute volume, 0–100. */
+  volume?: number;
+}
+
+export type FrameAction =
+  | ShapeAnimationFrameAction
+  | CameraZoomFrameAction
+  | MediaControlFrameAction;
 
 /**
  * v2 cue frame — triggered by the user's "next" action.

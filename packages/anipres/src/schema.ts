@@ -19,3 +19,16 @@ export type {
   ThemeImageShape,
   ThemeImageShapeProps,
 } from "./shapes/theme-image/ThemeImageShape.ts";
+export {
+  youTubeEmbedShapeProps,
+  YouTubeEmbedShapeType,
+} from "./shapes/youtube-embed/YouTubeEmbedShape.ts";
+export type {
+  YouTubeEmbedShape,
+  YouTubeEmbedShapeProps,
+} from "./shapes/youtube-embed/YouTubeEmbedShape.ts";
+export {
+  mediaControlShapeProps,
+  MediaControlShapeType,
+} from "./shapes/media-control/MediaControlShape.ts";
+export type { MediaControlShape } from "./shapes/media-control/MediaControlShape.ts";

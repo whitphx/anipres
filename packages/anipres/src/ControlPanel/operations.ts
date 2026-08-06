@@ -11,8 +11,28 @@ import {
   type BatchData,
   type CueFrame,
   type Frame,
+  type FrameAction,
   type TimelineDoc,
 } from "../timeline-model";
+
+/**
+ * The action for a frame added "after" an existing one (the timeline's
+ * + buttons). Media commands are instantaneous, so unlike animations
+ * they get no default duration — and the command must be carried over
+ * for the new frame to stay valid.
+ */
+export function followupActionFrom(prevAction: FrameAction): FrameAction {
+  if (prevAction.type === "mediaControl") {
+    return {
+      type: "mediaControl",
+      command: prevAction.command,
+      ...(prevAction.command === "setVolume" && prevAction.volume !== undefined
+        ? { volume: prevAction.volume }
+        : {}),
+    };
+  }
+  return { type: prevAction.type, duration: 1000 };
+}
 
 export interface FramePosition {
   stepIndex: number;
