@@ -1,9 +1,13 @@
 import { useCallback } from "react";
 import { Editor, createShapeId, uniqueId } from "tldraw";
-import { CueFrame, SubFrame } from "./models";
+import { CueFrame, SubFrame } from "./timeline-model";
 import { Anipres } from "./Anipres.tsx";
 
 function setupDevMock(editor: Editor) {
+  // Demo steps: rect0 alone; rect1 + arrow0 fire simultaneously (one
+  // shared step); then three arrow-only steps.
+  const stepIds = [uniqueId(), uniqueId(), uniqueId(), uniqueId(), uniqueId()];
+  const stepKeys = ["a0", "a1", "a2", "a3", "a4"];
   const rect0Id = createShapeId("rect0");
   const rectTrackId = uniqueId();
   editor.createShape({
@@ -17,10 +21,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: uniqueId(),
         type: "cue",
-        globalIndex: 0,
         trackId: rectTrackId,
+        stepId: stepIds[0],
+        stepOrderKey: stepKeys[0],
         action: {
           type: "shapeAnimation",
         },
@@ -41,10 +47,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: rect1FrameId,
         type: "cue",
-        globalIndex: 1,
         trackId: rectTrackId,
+        stepId: stepIds[1],
+        stepOrderKey: stepKeys[1],
         action: {
           type: "shapeAnimation",
           duration: 1000,
@@ -66,9 +74,11 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: rect2FrameId,
         type: "sub",
-        prevFrameId: rect1FrameId,
+        cueFrameId: rect1FrameId,
+        orderKey: "a0",
         action: {
           type: "shapeAnimation",
           duration: 2000,
@@ -90,9 +100,11 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: rect3FrameId,
         type: "sub",
-        prevFrameId: rect2FrameId,
+        cueFrameId: rect1FrameId,
+        orderKey: "a1",
         action: {
           type: "shapeAnimation",
           duration: 3000,
@@ -120,10 +132,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: uniqueId(),
         type: "cue",
-        globalIndex: 1,
         trackId: arrowTrackId,
+        stepId: stepIds[1],
+        stepOrderKey: stepKeys[1],
         action: {
           type: "shapeAnimation",
         },
@@ -149,10 +163,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: uniqueId(),
         type: "cue",
-        globalIndex: 2,
         trackId: arrowTrackId,
+        stepId: stepIds[2],
+        stepOrderKey: stepKeys[2],
         action: {
           type: "shapeAnimation",
           duration: 1000,
@@ -179,10 +195,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: uniqueId(),
         type: "cue",
-        globalIndex: 3,
         trackId: arrowTrackId,
+        stepId: stepIds[3],
+        stepOrderKey: stepKeys[3],
         action: {
           type: "shapeAnimation",
         },
@@ -208,10 +226,12 @@ function setupDevMock(editor: Editor) {
     },
     meta: {
       frame: {
+        v: 2,
         id: uniqueId(),
         type: "cue",
-        globalIndex: 4,
         trackId: arrowTrackId,
+        stepId: stepIds[4],
+        stepOrderKey: stepKeys[4],
         action: {
           type: "shapeAnimation",
           duration: 1000,

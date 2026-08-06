@@ -4,13 +4,13 @@ import { TIMELINE_FORMAT_VERSION } from "anipres/models";
  * The server-enforced animation-data version gate
  * (docs/design-animation-data-model.md, Risk 6).
  *
- * Mixed-format tolerance in the anipres library covers migration and
- * crash recovery only — it is NOT bidirectional editing compatibility. A
- * v1-era client writing to a v2-edited document converges
- * deterministically but can silently revert newer ordering, so stale
- * clients must be excluded from sync writes entirely. tldraw's store
- * schema versioning does not cover `meta` contents, hence this explicit
- * gate.
+ * A v1-era client writing to a v2 document would silently revert newer
+ * ordering, and the library no longer converts v1 output — it only
+ * recognizes it, as a diagnostic — so stale clients must be excluded
+ * from sync writes entirely.
+ * tldraw's store schema versioning does not cover `meta` contents,
+ * hence this explicit gate (rationale: TIMELINE_FORMAT_VERSION's
+ * docstring in anipres).
  *
  * Single source of truth: derived from the library's
  * TIMELINE_FORMAT_VERSION (the format this build reads and writes).

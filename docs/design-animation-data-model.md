@@ -10,7 +10,8 @@
 
 Implemented. PR #486 carries both this document and the implementation:
 the `timeline-model` core (`packages/anipres/src/timeline-model/`), the
-runtime integration, the deterministic v1 → v2 migration, the
+runtime integration, the deterministic v1 → v2 migration (removed again
+in r9 after its one-time run), the
 server-enforced version gate (Risk 6;
 `packages/worker/src/animation-data-version.ts` +
 `animation-data-version-gate.ts`), and the
@@ -44,6 +45,21 @@ user-triggered); the compiled Slidev viewer and the other items under
 
 ## Revision History
 
+- **r9 (2026-08-03)**: Migration machinery removed after its one-time
+  run. The deployment is sole-user (no live app users, no other tools;
+  usage only through the Slidev addon), so all known v1 documents were
+  batch-converted locally in one verified pass — per-deck structural
+  equivalence against the v1 ordering, deterministic output,
+  idempotent re-run — making the concurrent-migration machinery
+  (determinism, `v1step:` parse contract, group reconstruction,
+  sub-chain resume, mixed-document read conversion, mount-time
+  migration) dead weight. Deleted: `migrate.ts` and its tests, the
+  migration key section of `order-key.ts`, the `v1step:` contract in
+  `ids.ts`, `deriveTimeline`'s v1 conversion (and its now-unused
+  `pageId` input), the mount migration in `Anipres.tsx`, and the v1
+  model surface in `models.ts`. v1 parsing survives as recognition
+  only: derivation surfaces a `v1-frame` diagnostic. Persisted
+  `v1step:`-prefixed step ids remain valid opaque `stepId`s.
 - **r8 (2026-08-02)**: Key implementation switched from
   `fractional-indexing-jittered` to Rocicorp's `fractional-indexing`,
   wrapped behind the internal `OrderKey` module. Jitter dropped: the
@@ -318,8 +334,8 @@ Semantics:
 
 - **Step grouping** = cue frames sharing a `stepId`. Grouping is explicit
   intent: joining a step means copying its `stepId` (and `stepOrderKey`);
-  creating a step means minting a fresh `stepId` (via `uniqueId()`;
-  migration-minted ids are deterministic — see
+  creating a step means minting a fresh `stepId` (via `uniqueId()`; the
+  removed migration minted deterministic ids — see
   [Migration](#migration-from-v1)). Fractional-key coincidence has **no**
   grouping meaning — two concurrently inserted steps may legitimately
   receive identical `stepOrderKey`s (the key-between algorithm is
@@ -623,8 +639,8 @@ warning so bypassing paths get promoted into the preprocessing layer.
 
 ## Deletion, Orphans, and Reconciliation
 
-`reconcileShapeDeletion` (the `afterDelete` side effect) shrinks
-dramatically:
+Deletion reconciliation shrinks dramatically (so far that the
+`afterDelete` side effect went away entirely):
 
 - **Sub-frame shape deleted**: nothing to do. No chain to heal; remaining
   sub-frames keep their `cueFrameId` and keys.
@@ -777,6 +793,16 @@ Because nothing edits a `TimelineDoc`, the orphan/drift concerns that ruled
 out a stored timeline record do not apply to it.
 
 ## Migration from v1
+
+> **Removed in r9.** The machinery specified below was implemented in
+> PR #486, validated and executed once against every known v1 document
+> (the sole user's Slidev decks — 17 snapshots, 204 frames, structural
+> equivalence with the v1 ordering verified per deck), and then deleted
+> in the follow-up PR. The machinery shipped in `anipres` 0.14.0, so
+> that release line remains the recovery path: v1 records encountered
+> under later versions surface as a `v1-frame` diagnostic instead of
+> converting; opening the document once under 0.14.x converts it. The
+> section is kept as the record of the migration's semantics.
 
 One-time, mechanical, order-preserving — and **deterministic**, so that any
 number of clients migrating the same document concurrently write
@@ -955,19 +981,20 @@ legacy parsing fall under the soft-fail rule: shape treated as unframed,
 | File                                               | Impact                                                                                                                                                                                                                                           |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/ordered-track-item.ts` + tests                | **deleted** (type, `getGlobalOrder`, `insertOrderedTrackItem`, `reassignGlobalIndexInplace`)                                                                                                                                                     |
-| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration                     |
+| `src/models.ts`                                    | v2 frame types, soft-fail parsers + `invalid-frame` diagnostics, new derivation (`deriveTimeline(frames): TimelineDoc`), canonicalization, `makeInsertionSpace`, legacy v1 module (tolerant variant) split out for migration (removed in r9)     |
 | `src/models-and-tracks.ts`                         | re-export surface updated (consumed by external tools — coordinate the break)                                                                                                                                                                    |
-| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` shrinks to the detached-sub policy; `$getNextGlobalIndex` deleted                        |
+| `src/presentation-manager/presentation-manager.ts` | `$getOrderedSteps` calls the shared derivation; `attachCueFrame` mints `stepId` + an `orderKeyBetween(lastStepKey, null)` key; `reconcileShapeDeletion` and `$getNextGlobalIndex` deleted                                                        |
 | `src/presentation-manager/animation.ts`            | unchanged semantics (predecessor-in-track lookup now reads `TimelineDoc`)                                                                                                                                                                        |
 | `src/Timeline/frame-movement.ts`                   | `moveFrame` keeps the v1 push/sweep semantics and emits structural `EditedStep[]`; the ~40-line "key assignment" estimate was traded off for behavior preservation (see Background & Goals note) — write-back is where the simplification landed |
 | `src/Timeline/frame-ui-data.ts`                    | consumes `TimelineDoc`; drops `globalIndex` recomputation; keys rows/columns by stable `stepId`/`trackId`; renders detached frames + diagnostics with resolve affordances                                                                        |
 | `src/ControlPanel/ControlPanel.tsx`                | `requestCueFrameAddAfter` / `requestSubFrameAddAfter` / batch-change handlers lose sentinels and full-rewrite paths                                                                                                                              |
-| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount                                                          |
+| `src/Anipres.tsx`                                  | content-level paste/duplicate preprocessing (primary) + scoped `beforeCreate` safety net per [Duplication & Paste Policy](#duplication--paste-policy); deterministic migration on mount (removed in r9)                                          |
 | `src/headless-editor-utils.ts`                     | `calculateTotalSteps` reads snapshot JSON directly (no headless Editor)                                                                                                                                                                          |
-| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily                                                                                                                                                              |
+| `packages/slidev-addon-anipres`                    | no structural change; benefits from cheaper step counting; snapshots migrate lazily (removed in r9: decks were batch-converted)                                                                                                                  |
 
-Testing: the derivation, canonicalization, `makeInsertionSpace`, and
-migration are pure functions over JSON — they get direct unit tests,
+Testing (the migration-specific tests listed here were removed with the
+machinery in r9): the derivation, canonicalization, `makeInsertionSpace`,
+and migration are pure functions over JSON — they get direct unit tests,
 including: all four totality rules (with synthetic-step ids verified
 deterministic and stable across repeated derivations and input iteration
 orders, `StepData.synthetic` populated with the source `stepId`,
@@ -1087,14 +1114,14 @@ could happen, contradicting the design's own detached-frames principle
    proposed default.
 4. **External consumers of `anipres/models`.** The `./models` entry point is
    consumed outside this repo (agent CLI, worker). The v2 types are a
-   breaking change to that surface — needs a coordinated major bump and the
-   legacy module exported during the transition.
+   breaking change to that surface — shipped as a coordinated minor
+   bump, anipres being pre-1.0. (The transitional legacy module was
+   removed in r9 together with the migration machinery.)
 5. **Key implementation choice.** Resolved (r8): key generation uses
    Rocicorp's `fractional-indexing` behind the `OrderKey` module,
-   independent of tldraw's index-key API. The **migration key sequence
-   is pinned to that implementation** — changing it later would break
-   migration determinism across app versions (mitigated by the version
-   gate below, but avoid churn here).
+   independent of tldraw's index-key API. (r8 also pinned the migration
+   key sequence to that implementation; moot since r9 removed the
+   migration machinery after its one-time run.)
 6. **Rollout requires a server-enforced version gate.** Two-phase deploy
    (reader support first, writer flip second) is necessary but not
    sufficient: before v2 writes are enabled on a synced document, sync must

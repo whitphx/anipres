@@ -226,6 +226,15 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       case "detached-sub-frame":
         clearFrame(diagnostic.shapeId as TLShapeId);
         return;
+      case "v1-frame":
+        // Destructive by design: this version cannot convert v1 data,
+        // so the only resolution is deleting it (labeled accordingly).
+        editor.run(() => {
+          for (const shapeId of diagnostic.shapeIds) {
+            clearFrame(shapeId as TLShapeId);
+          }
+        });
+        return;
       case "step-key-divergence": {
         // Explicit "align step keys" repair — the only path that
         // persists this convergence.

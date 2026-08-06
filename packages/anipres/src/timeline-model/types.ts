@@ -10,17 +10,14 @@ import type { JsonObject } from "tldraw";
 import type { OrderKey } from "./order-key";
 
 /**
- * The animation-metadata format this build reads AND writes.
+ * The animation-metadata format this build reads AND writes. v1 input
+ * is recognized but never converted (surfaced as a `v1-frame`
+ * diagnostic; design doc r9).
  *
- * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6): for
- * synced documents, mixed-format tolerance covers migration and crash
- * recovery only — it is NOT bidirectional editing compatibility. Before
- * v2 writers are enabled against a shared document, the sync layer must
- * enforce a minimum client version (tldraw's store schema versioning does
- * not cover `meta` contents, so the gate must be explicit — e.g. a
- * sync-handshake check or a document-level version record comparing
- * against this constant). A v1-era client writing to a v2-edited document
- * converges deterministically but can silently revert newer ordering.
+ * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6):
+ * tldraw's store schema versioning does not cover `meta` contents, so
+ * the sync layer enforces a minimum client version against this
+ * constant — a v1-era writer would silently revert newer ordering.
  */
 export const TIMELINE_FORMAT_VERSION = 2;
 
@@ -126,7 +123,15 @@ export type TimelineDiagnostic =
     }
   | { type: "detached-sub-frame"; shapeId: string; cueFrameId: string }
   | { type: "duplicate-frame-id"; frameId: string; shapeIds: string[] }
-  | { type: "invalid-frame"; shapeId: string };
+  | { type: "invalid-frame"; shapeId: string }
+  /**
+   * The listed shapes carry v1 animation data. Read-time conversion was
+   * removed after the one-time batch migration of all known documents
+   * (design doc r9); the records are surfaced, not animated. One
+   * diagnostic per document — an unconverted v1 deck has many such
+   * shapes, and a per-shape entry would flood the panel.
+   */
+  | { type: "v1-frame"; shapeIds: string[] };
 
 export interface TimelineDoc {
   version: 1;

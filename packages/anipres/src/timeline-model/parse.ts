@@ -1,8 +1,8 @@
 // Soft-fail parsing of `shape.meta.frame`.
 //
 // Parsing NEVER throws — and it is the single place malformed data is
-// rejected, so nothing downstream (derivation, migration) can throw on
-// reachable input. A malformed frame is reported as `invalid` (with a
+// rejected, so the derivation downstream cannot throw on reachable
+// input. A malformed frame is reported as `invalid` (with a
 // structured diagnostic downstream) instead of taking down rendering —
 // without a diagnostic, a shape with corrupted animation metadata would be
 // indistinguishable from a never-animated shape.
@@ -10,7 +10,7 @@
 import { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
 import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
-import { MAX_MIGRATION_COORDINATE, isReservedStepId } from "./ids";
+import { isReservedStepId } from "./ids";
 
 // --- Legacy (v1) frame shapes, kept here so this module tree stays
 // --- self-contained (no import from ../models).
@@ -162,15 +162,11 @@ export function parseFrameMeta(
   if (
     raw.type === "cue" &&
     isNonEmptyString(raw.id) &&
-    // v1 never produced non-integer or negative indexes; anything else is
-    // corruption and must not reach migration key generation (which
-    // requires non-negative safe integers).
+    // v1 never produced non-integer or negative indexes; anything else
+    // is corruption.
     typeof raw.globalIndex === "number" &&
     Number.isSafeInteger(raw.globalIndex) &&
     raw.globalIndex >= 0 &&
-    // Bounded: the migration key chain iterates once per index, so an
-    // absurd persisted value must classify as invalid, not hang the load.
-    raw.globalIndex <= MAX_MIGRATION_COORDINATE &&
     isNonEmptyString(raw.trackId)
   ) {
     const action = parseFrameAction(raw.action);

@@ -13,7 +13,6 @@ function makeSteps(
       shapeId,
       frameMeta: frame,
     })),
-    pageId: "page:page",
   });
   const { steps, stepSources } = calcFrameBatchUIData(doc);
   return { steps, stepSources };
@@ -178,7 +177,6 @@ describe("moveFrame → reconcile → derive round trip (before-first keys)", ()
         shapeId,
         frameMeta: frame,
       })),
-      pageId: "page:page",
     });
     expect(doc.steps.map((s) => s.id)).toEqual(["s2", "s1"]);
   });

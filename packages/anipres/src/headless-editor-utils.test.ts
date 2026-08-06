@@ -38,12 +38,14 @@ function makeSnapshot(shapes: Record<string, unknown>[]): TLStoreSnapshot {
   return { store, schema: {} } as unknown as TLStoreSnapshot;
 }
 
-function cueFrame(id: string, globalIndex: number, trackId: string) {
+function cueFrame(id: string, stepId: string, key: string, trackId: string) {
   return {
+    v: 2,
     id,
     type: "cue",
-    globalIndex,
     trackId,
+    stepId,
+    stepOrderKey: key,
     action: { type: "shapeAnimation" },
   };
 }
@@ -54,33 +56,48 @@ describe("calculateTotalSteps (snapshot JSON, no headless editor)", () => {
     expect(calculateTotalSteps(snapshot)).toBe(0);
   });
 
-  it("counts distinct globalIndex groups as steps", () => {
+  it("counts distinct steps, grouping simultaneous batches by stepId", () => {
     const snapshot = makeSnapshot([
-      makeShapeRecord("s1", cueFrame("f1", 0, "A")),
-      makeShapeRecord("s2", cueFrame("f2", 1, "A")),
-      makeShapeRecord("s3", cueFrame("f3", 1, "B")), // simultaneous with f2
+      makeShapeRecord("s1", cueFrame("f1", "step1", "a1", "A")),
+      makeShapeRecord("s2", cueFrame("f2", "step2", "a2", "A")),
+      makeShapeRecord("s3", cueFrame("f3", "step2", "a2", "B")), // simultaneous
     ]);
     expect(calculateTotalSteps(snapshot)).toBe(2);
   });
 
   it("accepts a TLEditorSnapshot-shaped input ({ document })", () => {
     const storeSnapshot = makeSnapshot([
-      makeShapeRecord("s1", cueFrame("f1", 0, "A")),
+      makeShapeRecord("s1", cueFrame("f1", "step1", "a1", "A")),
     ]);
     expect(calculateTotalSteps({ document: storeSnapshot })).toBe(1);
   });
 
-  it("chains sub-frames into their cue's batch without affecting the count", () => {
+  it("attaches sub frames to their cue's batch without affecting the count", () => {
     const snapshot = makeSnapshot([
-      makeShapeRecord("s1", cueFrame("f1", 0, "A")),
+      makeShapeRecord("s1", cueFrame("f1", "step1", "a1", "A")),
       makeShapeRecord("s2", {
+        v: 2,
         id: "f2",
         type: "sub",
-        prevFrameId: "f1",
+        cueFrameId: "f1",
+        orderKey: "a0",
         action: { type: "shapeAnimation" },
       }),
     ]);
     expect(calculateTotalSteps(snapshot)).toBe(1);
+  });
+
+  it("does not count v1 frames (surfaced as diagnostics, not converted)", () => {
+    const snapshot = makeSnapshot([
+      makeShapeRecord("s1", {
+        id: "f1",
+        type: "cue",
+        globalIndex: 0,
+        trackId: "A",
+        action: { type: "shapeAnimation" },
+      }),
+    ]);
+    expect(calculateTotalSteps(snapshot)).toBe(0);
   });
 });
 

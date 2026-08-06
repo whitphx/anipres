@@ -46,7 +46,6 @@ function derive(entries: Entry[]) {
       shapeId,
       frameMeta: frame,
     })),
-    pageId: "page:page",
   });
 }
 

@@ -4,8 +4,6 @@ import { orderKeysBetween } from "./order-key";
 import { makeSyntheticStepId, SYNTHETIC_STEP_PREFIX } from "./ids";
 import type { CueFrame, SubFrame } from "./types";
 
-const PAGE_ID = "page:page";
-
 function cueMeta(
   id: string,
   stepId: string,
@@ -35,7 +33,7 @@ function subMeta(id: string, cueFrameId: string, orderKey: string): SubFrame {
 }
 
 function derive(shapes: { shapeId: string; frameMeta: unknown }[]) {
-  return deriveTimeline({ shapes, pageId: PAGE_ID });
+  return deriveTimeline({ shapes });
 }
 
 describe("deriveTimeline", () => {
@@ -222,7 +220,9 @@ describe("deriveTimeline", () => {
     });
   });
 
-  it("derives mixed v1/v2 documents by converting v1 records in memory", () => {
+  it("surfaces v1 records as diagnostics instead of animating them", () => {
+    // Read-time v1 conversion was removed after the one-time batch
+    // migration of all known documents (design doc r9).
     const doc = derive([
       {
         shapeId: "shape:a",
@@ -236,9 +236,29 @@ describe("deriveTimeline", () => {
       },
       { shapeId: "shape:b", frameMeta: cueMeta("f2", "s2", "a9", "U") },
     ]);
-    expect(doc.steps).toHaveLength(2);
-    // The migrated v1 step id follows the v1step: contract.
-    expect(doc.steps.some((s) => s.id.startsWith("v1step:"))).toBe(true);
+    // Only the v2 record derives; the v1 record is surfaced, not lost.
+    expect(doc.steps).toHaveLength(1);
+    expect(doc.steps[0].id).toBe("s2");
+    expect(doc.diagnostics).toEqual([
+      { type: "v1-frame", shapeIds: ["shape:a"] },
+    ]);
+  });
+
+  it("aggregates every v1 record into one diagnostic, sorted and input-order independent", () => {
+    const v1 = (shapeId: string, frameId: string, globalIndex: number) => ({
+      shapeId,
+      frameMeta: {
+        id: frameId,
+        type: "cue",
+        globalIndex,
+        trackId: "T",
+        action: { type: "shapeAnimation" },
+      },
+    });
+    const entries = [v1("shape:c", "f3", 2), v1("shape:a", "f1", 0)];
+    const expected = [{ type: "v1-frame", shapeIds: ["shape:a", "shape:c"] }];
+    expect(derive(entries).diagnostics).toEqual(expected);
+    expect(derive([...entries].reverse()).diagnostics).toEqual(expected);
   });
 });
 

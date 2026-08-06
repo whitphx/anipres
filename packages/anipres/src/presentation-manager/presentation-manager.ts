@@ -62,7 +62,6 @@ export class PresentationManager {
         shapeId: shape.id,
         frameMeta: shape.meta?.frame,
       })),
-      pageId: this.editor.getCurrentPageId(),
     });
   }
 
