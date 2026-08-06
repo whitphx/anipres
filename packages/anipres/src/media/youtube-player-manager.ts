@@ -27,8 +27,14 @@ export interface YTPlayer {
   unMute(): void;
   setVolume(volume: number): void;
   getVolume(): number;
+  getPlayerState(): number;
   destroy(): void;
 }
+
+// YT.PlayerState values (numeric; the enum object lives on the loaded
+// namespace, which pure helpers below don't have).
+const YT_PLAYER_STATE_UNSTARTED = -1;
+const YT_PLAYER_STATE_CUED = 5;
 interface YTNamespace {
   Player: new (
     element: HTMLIFrameElement,
@@ -79,8 +85,10 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
       // Drop both the cached failure AND the dead script element so a
       // later mount retries the load (e.g. after the network recovers)
       // — a leftover element would make the retry think a load is
-      // already in flight and hang forever.
+      // already in flight and hang forever. Restoring the previous
+      // ready-callback keeps repeated failures from stacking wrappers.
       script.remove();
+      window.onYouTubeIframeAPIReady = previous;
       if (apiPromise === promise) {
         apiPromise = null;
       }
@@ -125,11 +133,9 @@ function applyCommandToPlayer(
       player.pauseVideo();
       return;
     case "stop":
-      // Same deterministic reset the reconciler uses (see
-      // applyStateToPlayer), so a live stop and a jump-past-stop land in
-      // the same place.
-      player.seekTo(baseline.start, true);
-      player.pauseVideo();
+      // Same deterministic reset the reconciler uses, so a live stop
+      // and a jump-past-stop land in the same place.
+      resetPlayerToStart(player, baseline);
       return;
     case "mute":
       player.mute();
@@ -141,6 +147,26 @@ function applyCommandToPlayer(
       player.setVolume(action.volume ?? DEFAULT_MEDIA_VOLUME);
       return;
   }
+}
+
+/**
+ * Parks the player paused at its configured start. stopVideo() is
+ * documented to leave the player in "any non-playing state" — not a
+ * deterministic reset — hence seek + pause instead.
+ */
+function resetPlayerToStart(player: YTPlayer, baseline: PlayerBaseline): void {
+  const playerState = player.getPlayerState();
+  if (
+    playerState === YT_PLAYER_STATE_UNSTARTED ||
+    playerState === YT_PLAYER_STATE_CUED
+  ) {
+    // Already parked — and seekTo on a cued/unstarted player is
+    // documented to START playback, so touching it would blip audio and
+    // eagerly load the stream.
+    return;
+  }
+  player.seekTo(baseline.start, true);
+  player.pauseVideo();
 }
 
 export function applyStateToPlayer(
@@ -165,11 +191,7 @@ export function applyStateToPlayer(
       player.pauseVideo();
       return;
     case "unstarted":
-      // stopVideo() is documented to leave the player in "any
-      // non-playing state" — not a deterministic reset. Park the video
-      // paused at its configured start position instead.
-      player.seekTo(baseline.start, true);
-      player.pauseVideo();
+      resetPlayerToStart(player, baseline);
       return;
   }
 }

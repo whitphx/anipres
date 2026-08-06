@@ -35,7 +35,7 @@ import {
 } from "../shapes/media-control/MediaControlShape";
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
-import { runStep } from "./animation";
+import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
@@ -57,10 +57,13 @@ export class PresentationManager {
   /**
    * Invalidates the in-flight step run (if any) without starting a new
    * one — e.g. on presentation-mode exit, where pending media commands
-   * must not fire over the editor.
+   * must not fire over the editor. With no successor run to take over
+   * cleanup, the cancelled run's animation-hiding flags are cleared
+   * here.
    */
   cancelActiveRun(): void {
     this.runGeneration++;
+    clearHiddenDuringAnimationFlags(this.editor);
   }
 
   private nextRunGeneration(): number {

@@ -7,7 +7,12 @@ import {
 } from "./youtube-player-manager";
 import { INITIAL_MEDIA_PLAYBACK_STATE } from "./media-state";
 
-function makeFakePlayer(): YTPlayer & { calls: [string, ...unknown[]][] } {
+const YT_STATE_PLAYING = 1;
+const YT_STATE_CUED = 5;
+
+function makeFakePlayer(
+  playerState = YT_STATE_PLAYING,
+): YTPlayer & { calls: [string, ...unknown[]][] } {
   const calls: [string, ...unknown[]][] = [];
   return {
     calls,
@@ -19,6 +24,7 @@ function makeFakePlayer(): YTPlayer & { calls: [string, ...unknown[]][] } {
     unMute: () => calls.push(["unMute"]),
     setVolume: (volume) => calls.push(["setVolume", volume]),
     getVolume: () => 100,
+    getPlayerState: () => playerState,
     destroy: () => calls.push(["destroy"]),
   };
 }
@@ -39,6 +45,16 @@ describe("applyStateToPlayer", () => {
       ["seekTo", 7, true],
       ["pauseVideo"],
     ]);
+  });
+
+  it("does not seek a cued player (seekTo would start playback)", () => {
+    const player = makeFakePlayer(YT_STATE_CUED);
+    applyStateToPlayer(player, INITIAL_MEDIA_PLAYBACK_STATE, {
+      muted: false,
+      start: 7,
+      volume: 40,
+    });
+    expect(player.calls).toEqual([["unMute"], ["setVolume", 40]]);
   });
 
   it("prefers the folded state over the baseline", () => {
@@ -100,8 +116,11 @@ describe("loadYouTubeIframeApi", () => {
     expect(
       createdScripts.mock.calls.filter(([tag]) => tag === "script"),
     ).toHaveLength(2);
+    createdScripts.mockRestore();
 
     // Once the API is reachable (here: already present), loading works.
+    // NOTE: this leaves the module-level cache resolved, so this must
+    // stay the file's last loader interaction.
     const yt = { Player: class {} } as unknown as NonNullable<typeof window.YT>;
     window.YT = yt;
     await expect(loadYouTubeIframeApi()).resolves.toBe(yt);

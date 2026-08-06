@@ -52,8 +52,8 @@ export type SelectedShapesPart = z.infer<typeof SelectedShapesPartSchema>;
 
 /**
  * The Anipres presentation timeline projected for the agent: total step
- * count plus, for each step, the parallel frame batches with their shape
- * ids and frame actions. This is what lets the agent reason about ordering
+ * count plus, for each step, the parallel frame batches with their
+ * per-frame actions. This is what lets the agent reason about ordering
  * (e.g. "add a step after step 2").
  */
 export const PresentationStatePartSchema = z.object({

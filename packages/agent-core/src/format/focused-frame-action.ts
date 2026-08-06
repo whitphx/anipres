@@ -58,7 +58,7 @@ export const PerceivedMediaControlActionSchema = z
       "Fire a playback command (play, pause, …) at the embedded video this frame's marker is attached to. Perception-only: the agent cannot author these frames.",
   });
 
-/** What the presentation-state perception may carry per frame batch. */
+/** What the presentation-state perception may carry per frame. */
 export const PerceivedFrameActionSchema = z.union([
   FocusedFrameActionSchema,
   PerceivedMediaControlActionSchema,

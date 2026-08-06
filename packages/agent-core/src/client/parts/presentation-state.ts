@@ -11,9 +11,10 @@ import { registerPartUtil } from "../part-util.js";
 
 /**
  * Lifts the Anipres presentation timeline out of the editor for the agent
- * to perceive. Each step lists its frame batches; each batch lists the
- * shapes (in track order) and their frame actions. Stable shape ids let the
- * agent reference exactly the shapes it sees.
+ * to perceive. Each step lists its frame batches; each batch lists its
+ * frames (in track order) with their actions. Media frames additionally
+ * carry the controlled video's shape id — their own carrier is a marker
+ * shape outside the agent's vocabulary.
  */
 export const PresentationStatePartUtil =
   registerPartUtil<PresentationStatePart>({

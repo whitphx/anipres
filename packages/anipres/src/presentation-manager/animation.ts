@@ -1,4 +1,10 @@
-import { type TLShape, type TLShapeId, EASINGS, createShapeId } from "tldraw";
+import {
+  type Editor,
+  type TLShape,
+  type TLShapeId,
+  EASINGS,
+  createShapeId,
+} from "tldraw";
 import type {
   RuntimeFrame,
   RuntimeStep,
@@ -141,6 +147,34 @@ async function runFrames(
   }
 }
 
+/**
+ * Clears every `hiddenDuringAnimation` flag on the page. Owned by
+ * whatever supersedes a run — the next run at its start, or
+ * `cancelActiveRun` when there is no successor. A superseded run must
+ * not clear flags itself: on a same-step rerun it would un-hide the
+ * shapes mid-way through the successor's animation.
+ */
+export function clearHiddenDuringAnimationFlags(editor: Editor): void {
+  const staleShapes = editor
+    .getCurrentPageShapes()
+    .filter((shape) => shape.meta?.hiddenDuringAnimation);
+  if (staleShapes.length === 0) {
+    return;
+  }
+  editor.run(
+    () => {
+      editor.updateShapes(
+        staleShapes.map((shape) => ({
+          id: shape.id,
+          type: shape.type,
+          meta: { ...shape.meta, hiddenDuringAnimation: null },
+        })),
+      );
+    },
+    { history: "ignore", ignoreShapeLock: true },
+  );
+}
+
 export function runStep(
   presentationManager: PresentationManager,
   steps: RuntimeStep[],
@@ -154,6 +188,10 @@ export function runStep(
   }
 
   const editor = presentationManager.editor;
+
+  // Flags a superseded run left behind (its cleanup is skipped, see the
+  // finally below).
+  clearHiddenDuringAnimationFlags(editor);
 
   const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
@@ -198,6 +236,13 @@ export function runStep(
       markBeforeAnimation,
       generation,
     ).finally(() => {
+      // A superseded run leaves cleanup to its successor (which already
+      // cleared the flags at its start) or to cancelActiveRun: clearing
+      // here would un-hide shapes mid-successor, and bailing to this
+      // run's older mark would roll the successor's changes back.
+      if (!presentationManager.isRunCurrent(generation)) {
+        return;
+      }
       editor.run(
         () => {
           editor.updateShapes(

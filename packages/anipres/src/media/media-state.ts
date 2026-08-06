@@ -10,9 +10,9 @@ import type { RuntimeStep } from "../timeline-model/runtime-steps";
 
 export interface MediaPlaybackState {
   status: "unstarted" | "playing" | "paused";
-  /** null = untouched by any event; the player's own default applies. */
+  /** null = untouched by any event; reconciliation applies the player's baseline. */
   muted: boolean | null;
-  /** null = untouched by any event; the player's volume is left as-is. */
+  /** null = untouched by any event; reconciliation applies the player's baseline. */
   volume: number | null;
 }
 
