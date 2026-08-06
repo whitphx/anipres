@@ -52,9 +52,10 @@ whole timeline machinery applies unchanged.
   relationship, and its `BindingUtil` gives it behavior in one place:
   markers follow the video (`onAfterChangeToShape` repositions them to
   an anchor stored in the binding props — absolute, not delta-based, so
-  dragging video and markers together cannot apply the move twice; the
-  marker's `onTranslateEnd` re-anchors when it is moved alone) and are
-  deleted with it (`onBeforeDeleteToShape`); tldraw itself remaps
+  dragging video and markers together cannot apply the move twice;
+  `onAfterChangeFromShape` re-anchors whenever the marker itself moves,
+  covering drags, nudges, and align/distribute alike) and are deleted
+  with it (`onBeforeDeleteToShape`); tldraw itself remaps
   bindings on copy/paste when both ends are included. Markers are
   editing chrome: hidden in presentation mode (like slide shapes),
   while their frames still drive playback. An unbound marker (e.g.

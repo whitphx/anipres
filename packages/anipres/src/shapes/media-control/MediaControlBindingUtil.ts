@@ -4,6 +4,7 @@ import type {
   BindingOnShapeDeleteOptions,
 } from "tldraw";
 import {
+  getMediaControlMarkerAnchor,
   MediaControlBindingType,
   mediaControlBindingProps,
   type MediaControlBinding,
@@ -25,12 +26,43 @@ export class MediaControlBindingUtil extends BindingUtil<MediaControlBinding> {
     if (marker == null || videoBounds == null) {
       return;
     }
-    // Markers are page children, so page space is their parent space.
-    const x = videoBounds.x + binding.props.anchorX;
-    const y = videoBounds.y + binding.props.anchorY;
-    if (marker.x !== x || marker.y !== y) {
-      this.editor.updateShape({ id: marker.id, type: marker.type, x, y });
+    // The anchor is page-space; the marker's x/y are parent-space and
+    // the marker may not be a page child (e.g. grouped by the user).
+    const point = this.editor.getPointInParentSpace(marker, {
+      x: videoBounds.x + binding.props.anchorX,
+      y: videoBounds.y + binding.props.anchorY,
+    });
+    if (marker.x !== point.x || marker.y !== point.y) {
+      this.editor.updateShape({
+        id: marker.id,
+        type: marker.type,
+        x: point.x,
+        y: point.y,
+      });
     }
+  }
+
+  override onAfterChangeFromShape({
+    binding,
+  }: BindingOnShapeChangeOptions<MediaControlBinding>): void {
+    // The marker moved — dragged, nudged, aligned, or repositioned by
+    // the hook above. Record its current offset so the next video
+    // change keeps it; when the offset is unchanged (as after a
+    // reposition), this is a no-op, which is what terminates the
+    // reposition → re-anchor cycle.
+    const props = getMediaControlMarkerAnchor(
+      this.editor,
+      binding.fromId,
+      binding.toId,
+    );
+    if (
+      props == null ||
+      (props.anchorX === binding.props.anchorX &&
+        props.anchorY === binding.props.anchorY)
+    ) {
+      return;
+    }
+    this.editor.updateBinding<MediaControlBinding>({ ...binding, props });
   }
 
   override onBeforeDeleteToShape({

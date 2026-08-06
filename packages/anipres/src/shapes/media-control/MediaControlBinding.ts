@@ -9,8 +9,10 @@ export interface MediaControlBindingProps {
    * top-left. The BindingUtil repositions the marker to this anchor
    * whenever the video changes — absolute repositioning rather than
    * delta translation, so dragging the video and its markers together
-   * cannot apply the move twice (the pattern of tldraw's sticker
-   * bindings example).
+   * cannot apply the move twice. The anchored-repositioning approach is
+   * adapted from tldraw's sticker-bindings example
+   * (https://tldraw.dev/examples/sticker-bindings; part of the tldraw
+   * SDK this project is built on and licensed under).
    */
   anchorX: number;
   anchorY: number;
@@ -51,6 +53,28 @@ export function getMediaControlBindingTargetId(
 }
 
 /**
+ * The marker's current page-space offset from the video, or null when
+ * either shape is gone. Page bounds on both sides — the marker's own
+ * x/y are parent-space and the marker is not guaranteed to stay a page
+ * child (the user can group it).
+ */
+export function getMediaControlMarkerAnchor(
+  editor: Editor,
+  markerShapeId: TLShapeId,
+  videoShapeId: TLShapeId,
+): MediaControlBindingProps | null {
+  const markerBounds = editor.getShapePageBounds(markerShapeId);
+  const videoBounds = editor.getShapePageBounds(videoShapeId);
+  if (markerBounds == null || videoBounds == null) {
+    return null;
+  }
+  return {
+    anchorX: markerBounds.x - videoBounds.x,
+    anchorY: markerBounds.y - videoBounds.y,
+  };
+}
+
+/**
  * Binds a marker to a video, anchored at the marker's current position
  * relative to the video.
  */
@@ -59,16 +83,19 @@ export function bindMediaControlMarker(
   markerShapeId: TLShapeId,
   videoShapeId: TLShapeId,
 ): void {
-  const marker = editor.getShape(markerShapeId);
-  const videoBounds = editor.getShapePageBounds(videoShapeId);
+  const props = getMediaControlMarkerAnchor(
+    editor,
+    markerShapeId,
+    videoShapeId,
+  );
+  if (props == null) {
+    return;
+  }
   editor.createBinding<MediaControlBinding>({
     type: MediaControlBindingType,
     fromId: markerShapeId,
     toId: videoShapeId,
-    props: {
-      anchorX: (marker?.x ?? 0) - (videoBounds?.x ?? 0),
-      anchorY: (marker?.y ?? 0) - (videoBounds?.y ?? 0),
-    },
+    props,
   });
 }
 
@@ -88,34 +115,4 @@ export function copyMediaControlBinding(
     return;
   }
   bindMediaControlMarker(editor, newMarkerShapeId, targetId);
-}
-
-/**
- * Re-anchors a marker's binding at the marker's current position — the
- * counterpart of the BindingUtil's absolute repositioning, called when
- * the marker alone has been moved.
- */
-export function updateMediaControlBindingAnchor(
-  editor: Editor,
-  markerShapeId: TLShapeId,
-): void {
-  const [binding] = editor.getBindingsFromShape<MediaControlBinding>(
-    markerShapeId,
-    MediaControlBindingType,
-  );
-  if (binding == null) {
-    return;
-  }
-  const marker = editor.getShape(markerShapeId);
-  const videoBounds = editor.getShapePageBounds(binding.toId);
-  if (marker == null || videoBounds == null) {
-    return;
-  }
-  editor.updateBinding<MediaControlBinding>({
-    ...binding,
-    props: {
-      anchorX: marker.x - videoBounds.x,
-      anchorY: marker.y - videoBounds.y,
-    },
-  });
 }

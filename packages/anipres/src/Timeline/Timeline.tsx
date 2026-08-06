@@ -326,7 +326,7 @@ interface TimelineProps {
    * `calcFrameBatchUIData`). Must be referentially stable while its
    * content is unchanged, like `timelineDoc`.
    */
-  trackGroups?: Record<string, string>;
+  trackGroups: Record<string, string>;
   onFrameChange: (newFrame: FrameUIData) => void;
   onEditedStepsChange: (editedSteps: EditedStep[]) => void;
   currentStepIndex: number;
@@ -341,7 +341,7 @@ interface TimelineProps {
    * false for sequences that cannot be extended by cloning their
    * carrier shape (a video shape copy would mount a second player).
    */
-  canExtendFrameSequence?: (cueFrame: FrameUIData) => boolean;
+  canExtendFrameSequence: (cueFrame: FrameUIData) => boolean;
   showAttachCueFrameButton: boolean;
   requestAttachCueFrame: () => void;
   onDiagnosticSelect: (diagnostic: TimelineDiagnostic) => void;
@@ -351,8 +351,6 @@ interface TimelineProps {
   ) => void;
   canReattachDetached: boolean;
 }
-const alwaysExtendable = () => true;
-
 export function Timeline({
   timelineDoc,
   trackGroups,
@@ -365,7 +363,7 @@ export function Timeline({
   requestCueFrameAddAfter,
   requestSubFrameAddAfter,
   requestCueFrameAddAfterGroup,
-  canExtendFrameSequence = alwaysExtendable,
+  canExtendFrameSequence,
   showAttachCueFrameButton,
   requestAttachCueFrame,
   onDiagnosticSelect,

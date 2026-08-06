@@ -604,6 +604,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               () => {
                 applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
+                for (const { original, copied } of clonedShapes) {
+                  if (original.type === MediaControlShapeType) {
+                    copyMediaControlBinding(editor, original.id, copied.id);
+                  }
+                }
 
                 const rootCreatedShape = shapesToCreate.find(
                   (s) => s.parentId === editor.getCurrentPageId(),

@@ -48,8 +48,8 @@ function summarise(editor: Editor): {
       trackId: batch.trackId,
       frames: batch.frames.map((frame) => {
         // A mediaControl frame's carrier is a marker shape; the video
-        // it controls is bound to the marker, which the agent can't
-        // resolve itself (markers aren't in its shape vocabulary).
+        // it controls is the marker's binding target, which the agent
+        // can't resolve itself (markers aren't in its shape vocabulary).
         const target =
           frame.action.type === "mediaControl"
             ? resolveMediaControlTarget(editor, frame.shapeId)

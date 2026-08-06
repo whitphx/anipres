@@ -43,6 +43,20 @@ type ShapeVisibility = NonNullable<
   ReturnType<NonNullable<TldrawBaseProps["getShapeVisibility"]>>
 >;
 
+function recordsShallowEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  const aKeys = Object.keys(a);
+  return (
+    aKeys.length === Object.keys(b).length &&
+    aKeys.every((key) => a[key] === b[key])
+  );
+}
+
 // Functions that depends on `editor` and should be cached by `computed` go here.
 export class PresentationManager {
   private constructor(
@@ -244,9 +258,13 @@ export class PresentationManager {
       this.editor.createShape({
         id: markerId,
         type: MediaControlShapeType,
+        // Explicit page parent: without it, createShape hit-tests for a
+        // receiving parent (a tldraw frame, a focused group) and would
+        // rewrite the page coordinates below into that parent's space.
+        parentId: this.editor.getCurrentPageId(),
         // Below the video, stacked left-to-right in creation order
-        // (purely cosmetic; the marker lives on the page and the binding
-        // keeps it following the video).
+        // (purely cosmetic; the binding keeps the marker following the
+        // video).
         x: (videoBounds?.x ?? 0) + markerCount * (MEDIA_CONTROL_SHAPE_SIZE + 4),
         y: (videoBounds?.maxY ?? 0) + 8,
         meta: {
@@ -266,8 +284,14 @@ export class PresentationManager {
    * track are distinct tracks in the data model — a step may legally
    * animate the video and fire a media event at once — but they describe
    * one object, so they read as one row.
+   *
+   * Shallow-equal caching keeps the returned identity stable while the
+   * grouping is unchanged — the computation reads whole shape records,
+   * so without it every shape move would hand the timeline a fresh
+   * object and re-derive the UI data on each pointer move.
    */
-  @computed $getMediaTrackGroups(): Record<string, string> {
+  @computed({ isEqual: recordsShallowEqual })
+  $getMediaTrackGroups(): Record<string, string> {
     const doc = this.$getTimelineDoc();
     const groups: Record<string, string> = {};
     for (const step of doc.steps) {

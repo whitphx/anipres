@@ -71,7 +71,8 @@ export const PresentationStatePartSchema = z.object({
               shapeId: z.string(),
               /**
                * mediaControl frames only: the video shape the command
-               * controls (bound to the carrying marker). The carrier's
+               * controls (the carrying marker's binding target). The
+               * carrier's
                * own shapeId does not identify the video.
                */
               targetShapeId: z.string().optional(),

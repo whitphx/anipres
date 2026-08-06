@@ -13,7 +13,6 @@ import {
   MEDIA_CONTROL_SHAPE_SIZE,
   resolveMediaControlTarget,
 } from "./MediaControlShape";
-import { updateMediaControlBindingAnchor } from "./MediaControlBinding";
 import { parseFrameMeta } from "../../timeline-model";
 import type { MediaControlCommand } from "../../timeline-model";
 
@@ -52,16 +51,6 @@ export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
       height: MEDIA_CONTROL_SHAPE_SIZE,
       isFilled: true,
     });
-  }
-
-  override onTranslateEnd(
-    _initial: MediaControlShape,
-    marker: MediaControlShape,
-  ): void {
-    // Moving the marker alone repositions it relative to its video; the
-    // binding's anchor must record that, or the next video change would
-    // snap the marker back.
-    updateMediaControlBindingAnchor(this.editor, marker.id);
   }
 
   component(shape: MediaControlShape) {

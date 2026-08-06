@@ -19,7 +19,6 @@ import {
   type CueFrame,
   type SubFrame,
 } from "../timeline-model";
-import { updateMediaControlBindingAnchor } from "../shapes/media-control/MediaControlBinding";
 
 const CUE_FRAME: CueFrame = {
   v: 2,
@@ -175,15 +174,14 @@ describe("attachMediaControlCueFrame", () => {
     });
   });
 
-  it("keeps a re-anchored marker offset across later video moves", () => {
+  it("keeps a marker moved on its own re-anchored across later video moves", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
       const [marker] = getBoundMarkers(editor, videoId);
 
-      // The user drags the marker alone (onTranslateEnd re-anchors; the
-      // headless test calls the helper the hook delegates to).
+      // The user moves the marker alone (drag, nudge, align — any shape
+      // change re-anchors via the binding's onAfterChangeFromShape).
       editor.updateShape({ id: marker!.id, type: marker!.type, x: 500, y: 5 });
-      updateMediaControlBindingAnchor(editor, marker!.id);
 
       editor.updateShape({ id: videoId, type: "youtube-embed", x: 30, y: 40 });
 
