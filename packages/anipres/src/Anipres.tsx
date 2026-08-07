@@ -717,11 +717,14 @@ const Inner = (props: InnerProps) => {
 
   // Identity-stable across re-renders: `getShapeVisibility` is one of
   // the props tldraw DISPOSES AND RECREATES the whole Editor over (it
-  // sits in TldrawEditor's editor-creation dependency list, unwrapped).
+  // sits unwrapped in the editor-creation `useLayoutEffect` dep list —
+  // see
+  // https://github.com/tldraw/tldraw/blob/v3.15.5/packages/editor/src/lib/TldrawEditor.tsx).
   // A fresh closure per render turns any re-render of this component —
   // e.g. `useSync` handing over a new store-status wrapper on every
-  // WebSocket reconnect — into a full editor remount that drops camera,
-  // selection, undo history, and every mounted video player.
+  // WebSocket reconnect — into a full editor remount that clears undo
+  // history and tears down every mounted video player with the canvas
+  // DOM.
   const determineShapeVisibility = useCallback<
     NonNullable<TldrawProps["getShapeVisibility"]>
   >(

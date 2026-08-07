@@ -132,13 +132,12 @@ export function SyncedAnipresContainer({
   useEffect(() => {
     console.info(
       "[anipres-app] sync status:",
-      storeWithStatus.status,
       // The socket-level status is what actually flips on reconnects
       // while `status` stays "synced-remote".
       storeWithStatus.status === "synced-remote"
-        ? storeWithStatus.connectionStatus
-        : "",
-      storeWithStatus.status === "error" ? storeWithStatus.error : "",
+        ? `synced-remote (${storeWithStatus.connectionStatus})`
+        : storeWithStatus.status,
+      ...(storeWithStatus.status === "error" ? [storeWithStatus.error] : []),
     );
   }, [storeWithStatus]);
   const syncedStore =

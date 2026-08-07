@@ -413,6 +413,7 @@ export function OfflineAwareSyncedContainer({
   }, [handleOnline, mode.type]);
 
   const handleOfflineMount = useCallback((editor: Editor) => {
+    console.info("[anipres-app] editor mounted (offline)");
     offlineEditorRef.current = editor;
     setOfflineEditor(editor);
   }, []);
