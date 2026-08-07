@@ -11,8 +11,8 @@ import type {
   DocumentSource,
 } from "./types";
 
-// The hook's only runtime import from tldraw is `getSnapshot`; the fake
-// editors below expose `store.getStoreSnapshot` for it to read.
+// The real getSnapshot needs a real TLStore; the fake editors below
+// expose `store.getStoreSnapshot` for this stub to read instead.
 vi.mock("tldraw", () => ({
   getSnapshot: (store: { getStoreSnapshot: () => TLStoreSnapshot }) => ({
     document: store.getStoreSnapshot(),
@@ -134,6 +134,7 @@ describe("useDocumentManager", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("merges synced and local documents on initial load with synced first", async () => {
@@ -802,7 +803,7 @@ describe("useDocumentManager", () => {
     expect(result.current.documents[0].source).toBe("local");
   });
 
-  it("persists the active local doc when the debounced save fires", async () => {
+  it("persists the active local doc when the debounced save fires, without a second write on unregister", async () => {
     const editedSnapshot = {
       store: { edited: true },
       schema: {},
@@ -822,21 +823,30 @@ describe("useDocumentManager", () => {
     });
     localRepo.save.mockClear();
 
+    // Fake timers only around the debounce window; the load above and
+    // the settling below rely on real timers.
+    vi.useFakeTimers();
     act(() => {
       emitUserChange();
     });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    vi.useRealTimers();
 
-    await waitFor(
-      () => expect(localRepo.save).toHaveBeenCalledTimes(1),
-      // The debounce window is 500ms of real time.
-      { timeout: 2000 },
-    );
+    expect(localRepo.save).toHaveBeenCalledTimes(1);
     expect(localRepo.save.mock.calls[0][0].meta.id).toBe("L1");
     expect(localRepo.save.mock.calls[0][0].snapshot).toBe(editedSnapshot);
 
+    // The fired save cleared the pending state, so teardown has nothing
+    // left to flush.
     act(() => {
       unregister();
     });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(localRepo.save).toHaveBeenCalledTimes(1);
   });
 
   it("flushes a pending debounced save when the editor unregisters before it fires", async () => {
@@ -873,7 +883,7 @@ describe("useDocumentManager", () => {
     expect(localRepo.save.mock.calls[0][0].snapshot).toBe(editedSnapshot);
   });
 
-  it("does not flush the outgoing editor's content onto a newly selected doc", async () => {
+  it("skips the flush when a doc switch has already detached the editor", async () => {
     const editedSnapshot = {
       store: { edited: true },
       schema: {},
@@ -907,8 +917,9 @@ describe("useDocumentManager", () => {
     ).toBe(true);
     localRepo.save.mockClear();
 
-    // The old editor's debounced save is still pending, but the active
-    // doc is now L2 — flushing it would overwrite L2 with L1's content.
+    // The old editor's debounced save is still pending, but the switch
+    // detached the editor after saving L1 itself; teardown must not
+    // write again.
     act(() => {
       unregister();
     });

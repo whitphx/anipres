@@ -669,26 +669,32 @@ export function useDocumentManager(params: {
         // 500ms; the clearTimeout above would silently drop them. That
         // matters when teardown is an app-level unmount — e.g. auth
         // resolving mid-editing-session swaps in the synced workspace —
-        // so flush the save instead. The snapshot is captured
-        // synchronously because the editor may be disposed as soon as
-        // this cleanup returns. The doc-id/source guard skips the flush
-        // when the active doc has already moved on (doc switches save
-        // through selectDocument first; flushing here would write this
-        // editor's content onto the newly active doc).
+        // so flush the save instead. The editor-identity check limits
+        // the flush to teardowns where this editor still belongs to the
+        // active doc: every path that moves the active doc (select,
+        // create, delete, convert) persists the outgoing doc itself and
+        // detaches the editor by nulling editorRef, and a flush fired
+        // during that hand-off could attribute this editor's content to
+        // the newly active doc through a late `pendingDocId` update.
         if (
           pendingDocId !== null &&
-          pendingDocId === activeDocumentIdRef.current &&
+          editorRef.current === nextEditor &&
           activeDocumentSourceRef.current === "local"
         ) {
+          // Captured synchronously: the editor may be disposed as soon
+          // as this cleanup returns.
           const { document } = getSnapshot(nextEditor.store);
-          void persistLocalSnapshot(pendingDocId, document);
+          void persistLocalSnapshot(pendingDocId, document).catch((error) =>
+            console.error("Failed to flush the pending local save", error),
+          );
         }
-        // The store-listen above debounces saveCurrentEditor by 500ms,
-        // and saveCurrentEditor reads `editorRef.current` directly.
-        // Without nulling the ref here, a save scheduled just before
-        // unregister can still fire and persist against a stale
-        // editor — the same teardown pattern used everywhere else in
-        // this file (see `editorRef.current = null` on doc switches).
+        // saveCurrentEditor reads `editorRef.current` directly, and
+        // callers outside this listener (the visibility/pagehide
+        // handlers, the doc actions) can still invoke it after this
+        // editor is gone. Nulling the ref keeps them from snapshotting
+        // a torn-down editor — the same teardown pattern used
+        // everywhere else in this file (see `editorRef.current = null`
+        // on doc switches).
         if (editorRef.current === nextEditor) {
           editorRef.current = null;
         }
