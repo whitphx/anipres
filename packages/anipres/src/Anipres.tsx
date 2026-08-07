@@ -715,28 +715,37 @@ const Inner = (props: InnerProps) => {
     };
   };
 
-  const determineShapeVisibility: TldrawProps["getShapeVisibility"] = (
-    shape,
-    editor,
-  ) => {
-    const presentationMode = perInstanceAtoms.$presentationMode.get();
-    if (!presentationMode) {
-      return "visible";
-    }
+  // Identity-stable across re-renders: `getShapeVisibility` is one of
+  // the props tldraw DISPOSES AND RECREATES the whole Editor over (it
+  // sits in TldrawEditor's editor-creation dependency list, unwrapped).
+  // A fresh closure per render turns any re-render of this component —
+  // e.g. `useSync` handing over a new store-status wrapper on every
+  // WebSocket reconnect — into a full editor remount that drops camera,
+  // selection, undo history, and every mounted video player.
+  const determineShapeVisibility = useCallback<
+    NonNullable<TldrawProps["getShapeVisibility"]>
+  >(
+    (shape, editor) => {
+      const presentationMode = perInstanceAtoms.$presentationMode.get();
+      if (!presentationMode) {
+        return "visible";
+      }
 
-    // This callback can be called before `onMount` is called and the refs are set.
-    // So we need to get presentationManager here using the editor object passed to this callback
-    // instead of relying on the refs that are set in `onMount`.
-    // `presentationManager.create` ensures that the same instance is returned for the same editor.
-    const presentationManager = PresentationManager.create(
-      editor,
-      $currentStepIndex,
-    );
+      // This callback can be called before `onMount` is called and the refs are set.
+      // So we need to get presentationManager here using the editor object passed to this callback
+      // instead of relying on the refs that are set in `onMount`.
+      // `presentationManager.create` ensures that the same instance is returned for the same editor.
+      const presentationManager = PresentationManager.create(
+        editor,
+        $currentStepIndex,
+      );
 
-    const shapeVisibilities =
-      presentationManager.$getShapeVisibilitiesInPresentationMode();
-    return shapeVisibilities[shape.id] ?? "hidden";
-  };
+      const shapeVisibilities =
+        presentationManager.$getShapeVisibilitiesInPresentationMode();
+      return shapeVisibilities[shape.id] ?? "hidden";
+    },
+    [perInstanceAtoms, $currentStepIndex],
+  );
 
   return (
     <Tldraw

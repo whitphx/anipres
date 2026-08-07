@@ -97,6 +97,14 @@ async function fetchSnapshotStatus(documentId: string): Promise<{
   };
 }
 
+// Module scope: `onMount` identity feeds memoization inside Anipres, so
+// an inline closure would re-render the editor tree on every render of
+// this component. Fires once per Editor instance — repeats mean tldraw
+// recreated the editor, the "state refresh" a user experiences.
+function logSyncedEditorMount() {
+  console.info("[anipres-app] editor mounted (synced)");
+}
+
 export function SyncedAnipresContainer({
   documentId,
   colorScheme,
@@ -125,6 +133,11 @@ export function SyncedAnipresContainer({
     console.info(
       "[anipres-app] sync status:",
       storeWithStatus.status,
+      // The socket-level status is what actually flips on reconnects
+      // while `status` stays "synced-remote".
+      storeWithStatus.status === "synced-remote"
+        ? storeWithStatus.connectionStatus
+        : "",
       storeWithStatus.status === "error" ? storeWithStatus.error : "",
     );
   }, [storeWithStatus]);
@@ -132,7 +145,7 @@ export function SyncedAnipresContainer({
     storeWithStatus.status === "synced-remote" ? storeWithStatus.store : null;
   useEffect(() => {
     if (syncedStore != null) {
-      console.info("[anipres-app] sync store instance changed");
+      console.info("[anipres-app] sync store instance (re)created");
     }
   }, [syncedStore]);
 
@@ -419,12 +432,7 @@ export function SyncedAnipresContainer({
       store={storeWithStatus}
       colorScheme={colorScheme}
       maxAssetSize={MAX_ASSET_SIZE}
-      onMount={() => {
-        // Fires once per Editor instance: repeats mean tldraw is
-        // recreating the editor (store identity or remount), the
-        // "state refresh" a user experiences.
-        console.info("[anipres-app] editor mounted (synced)");
-      }}
+      onMount={logSyncedEditorMount}
     />
   );
 }
