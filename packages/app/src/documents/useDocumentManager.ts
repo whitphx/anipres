@@ -179,6 +179,18 @@ export function useDocumentManager(params: {
     return [...syncedList, ...localList];
   }, [localRepository, syncedRepository]);
 
+  const persistLocalSnapshot = useCallback(
+    async (docId: string, snapshot: TLStoreSnapshot) => {
+      const existing = await localRepository.get(docId);
+      if (!existing) return;
+      await localRepository.save({
+        ...existing,
+        snapshot,
+      });
+    },
+    [localRepository],
+  );
+
   const saveCurrentEditor = useCallback(async () => {
     // Only local-source documents are persisted via this hook — synced
     // documents are persisted by useSync over WebSocket.
@@ -188,15 +200,9 @@ export function useDocumentManager(params: {
     const docId = activeDocumentIdRef.current;
     if (!editor || !docId) return;
 
-    const existing = await localRepository.get(docId);
-    if (!existing) return;
-
     const { document } = getSnapshot(editor.store);
-    await localRepository.save({
-      ...existing,
-      snapshot: document,
-    });
-  }, [localRepository]);
+    await persistLocalSnapshot(docId, document);
+  }, [persistLocalSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -640,11 +646,16 @@ export function useDocumentManager(params: {
       // store event below so switching the active doc takes effect without
       // re-registering.
       let timer: ReturnType<typeof setTimeout> | undefined;
+      // The doc a scheduled-but-unfired save belongs to; read on teardown
+      // to flush that save instead of dropping it.
+      let pendingDocId: string | null = null;
       const stopListening = nextEditor.store.listen(
         () => {
           if (activeDocumentSourceRef.current !== "local") return;
           clearTimeout(timer);
+          pendingDocId = activeDocumentIdRef.current;
           timer = setTimeout(() => {
+            pendingDocId = null;
             saveCurrentEditor();
           }, 500);
         },
@@ -654,6 +665,24 @@ export function useDocumentManager(params: {
       return () => {
         clearTimeout(timer);
         stopListening();
+        // A save still pending here holds the edits made in the last
+        // 500ms; the clearTimeout above would silently drop them. That
+        // matters when teardown is an app-level unmount — e.g. auth
+        // resolving mid-editing-session swaps in the synced workspace —
+        // so flush the save instead. The snapshot is captured
+        // synchronously because the editor may be disposed as soon as
+        // this cleanup returns. The doc-id/source guard skips the flush
+        // when the active doc has already moved on (doc switches save
+        // through selectDocument first; flushing here would write this
+        // editor's content onto the newly active doc).
+        if (
+          pendingDocId !== null &&
+          pendingDocId === activeDocumentIdRef.current &&
+          activeDocumentSourceRef.current === "local"
+        ) {
+          const { document } = getSnapshot(nextEditor.store);
+          void persistLocalSnapshot(pendingDocId, document);
+        }
         // The store-listen above debounces saveCurrentEditor by 500ms,
         // and saveCurrentEditor reads `editorRef.current` directly.
         // Without nulling the ref here, a save scheduled just before
@@ -666,7 +695,7 @@ export function useDocumentManager(params: {
         setEditor((current) => (current === nextEditor ? null : current));
       };
     },
-    [saveCurrentEditor],
+    [persistLocalSnapshot, saveCurrentEditor],
   );
 
   // Best-effort save when the user leaves the page.
