@@ -117,6 +117,25 @@ export function SyncedAnipresContainer({
     assets: remoteAssetStore,
   });
 
+  // Sync lifecycle breadcrumbs: an editor "refresh" a user reports can
+  // originate from several layers (socket status, store recreation,
+  // editor remount, offline-mode switch); these logs tell them apart in
+  // a plain console dump without a debugger attached.
+  useEffect(() => {
+    console.info(
+      "[anipres-app] sync status:",
+      storeWithStatus.status,
+      storeWithStatus.status === "error" ? storeWithStatus.error : "",
+    );
+  }, [storeWithStatus]);
+  const syncedStore =
+    storeWithStatus.status === "synced-remote" ? storeWithStatus.store : null;
+  useEffect(() => {
+    if (syncedStore != null) {
+      console.info("[anipres-app] sync store instance changed");
+    }
+  }, [syncedStore]);
+
   // Cache the synced store to IDB so it's available for offline fallback.
   const snapshotVersionRef = useRef(0);
   const confirmedSnapshotRef = useRef<TLStoreSnapshot | null>(null);
@@ -400,6 +419,12 @@ export function SyncedAnipresContainer({
       store={storeWithStatus}
       colorScheme={colorScheme}
       maxAssetSize={MAX_ASSET_SIZE}
+      onMount={() => {
+        // Fires once per Editor instance: repeats mean tldraw is
+        // recreating the editor (store identity or remount), the
+        // "state refresh" a user experiences.
+        console.info("[anipres-app] editor mounted (synced)");
+      }}
     />
   );
 }

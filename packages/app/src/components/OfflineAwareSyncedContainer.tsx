@@ -52,6 +52,10 @@ export function OfflineAwareSyncedContainer({
   colorScheme,
 }: OfflineAwareSyncedContainerProps) {
   const [mode, setMode] = useState<Mode>({ type: "loading" });
+  // Sync lifecycle breadcrumb — see SyncedAnipresContainer for the set.
+  useEffect(() => {
+    console.info("[anipres-app] sync container mode:", mode.type);
+  }, [mode.type]);
   // Sticky per-mount: set when a reconnect push came back HTTP 426
   // (client-too-old). Only a reload can clear it — the bundle version
   // cannot change within this page's lifetime.
