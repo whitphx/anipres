@@ -43,6 +43,11 @@ opportunistic persistence of semantic repairs (repairs are strictly
 user-triggered); the compiled Slidev viewer and the other items under
 [Out of Scope](#out-of-scope--related-future-work).
 
+The gate now keys on the library's `SYNC_CLIENT_VERSION` rather than
+`TIMELINE_FORMAT_VERSION`: it also moves when a build starts persisting
+record types an older build cannot handle, not only when the frame
+format changes.
+
 ## Revision History
 
 - **r9 (2026-08-03)**: Migration machinery removed after its one-time

@@ -4,4 +4,5 @@
 
 export * from "./timeline-model";
 
+export { SYNC_CLIENT_VERSION } from "./sync-client-version";
 export { newTrackId } from "./models";

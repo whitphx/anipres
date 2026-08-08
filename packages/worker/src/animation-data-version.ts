@@ -1,22 +1,21 @@
-import { TIMELINE_FORMAT_VERSION } from "anipres/models";
+import { SYNC_CLIENT_VERSION } from "anipres/models";
 
 /**
- * The server-enforced animation-data version gate
+ * The server-enforced client version gate
  * (docs/design-animation-data-model.md, Risk 6).
  *
- * A v1-era client writing to a v2 document would silently revert newer
- * ordering, and the library no longer converts v1 output — it only
- * recognizes it, as a diagnostic — so stale clients must be excluded
- * from sync writes entirely.
- * tldraw's store schema versioning does not cover `meta` contents,
- * hence this explicit gate (rationale: TIMELINE_FORMAT_VERSION's
- * docstring in anipres).
+ * Stale clients must be excluded from sync writes entirely: a v1-era
+ * client would silently revert newer ordering (the library only
+ * recognizes v1 output, as a diagnostic), and a client predating a
+ * record-vocabulary expansion fails the store load on the unknown
+ * shape or binding, or parses the unknown frame action as an
+ * `invalid-frame` whose offered repair clears it. tldraw's store schema
+ * versioning covers neither, hence this explicit gate.
  *
- * Single source of truth: derived from the library's
- * TIMELINE_FORMAT_VERSION (the format this build reads and writes).
+ * Single source of truth: the library's SYNC_CLIENT_VERSION, whose
+ * docstring carries the per-version history.
  */
-export const MINIMUM_SYNC_ANIMATION_DATA_VERSION: number =
-  TIMELINE_FORMAT_VERSION;
+export const MINIMUM_SYNC_ANIMATION_DATA_VERSION: number = SYNC_CLIENT_VERSION;
 
 /**
  * Whether the request declares a sufficient animation-data version (via

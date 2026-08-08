@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TIMELINE_FORMAT_VERSION } from "anipres/models";
+import { SYNC_CLIENT_VERSION } from "anipres/models";
 import {
   TLSyncErrorCloseEventCode,
   TLSyncErrorCloseEventReason,
@@ -14,13 +14,20 @@ import { documentsRoutes } from "./routes/documents";
 const documentId = "00000000-0000-4000-8000-000000000000";
 
 describe("sync animation data version gate", () => {
-  it("gates on the library's timeline format version (single source of truth)", () => {
-    expect(MINIMUM_SYNC_ANIMATION_DATA_VERSION).toBe(TIMELINE_FORMAT_VERSION);
+  it("gates on the library's sync client version (single source of truth)", () => {
+    expect(MINIMUM_SYNC_ANIMATION_DATA_VERSION).toBe(SYNC_CLIENT_VERSION);
   });
 
-
-  it("rejects v1 clients and clients without a version", async () => {
-    for (const suffix of ["", "?animationDataVersion=1"]) {
+  it("rejects clients predating the media record vocabulary", async () => {
+    // A build from before the youtube-embed/media-control records
+    // declares 2: it would fail the store load on the unknown shape and
+    // binding types, and offer to clear the mediaControl frames it
+    // cannot parse.
+    for (const suffix of [
+      "",
+      "?animationDataVersion=1",
+      "?animationDataVersion=2",
+    ]) {
       const response = getAnimationDataVersionGateResponse(
         new Request(`https://example.test/api/connect/document${suffix}`),
       );
@@ -32,25 +39,27 @@ describe("sync animation data version gate", () => {
     }
   });
 
-  it("allows v2 and later clients through to the sync handshake", () => {
+  it("allows current and later clients through to the sync handshake", () => {
     expect(
       getAnimationDataVersionGateResponse(
         new Request(
-          "https://example.test/api/connect/document?animationDataVersion=2",
+          `https://example.test/api/connect/document?animationDataVersion=${SYNC_CLIENT_VERSION}`,
         ),
       ),
     ).toBeUndefined();
     expect(
       getAnimationDataVersionGateResponse(
         new Request(
-          "https://example.test/api/connect/document?animationDataVersion=3",
+          `https://example.test/api/connect/document?animationDataVersion=${SYNC_CLIENT_VERSION + 1}`,
         ),
       ),
     ).toBeUndefined();
     expect(
       getAnimationDataVersionGateResponse(
         new Request("https://example.test/api/documents/document/snapshot", {
-          headers: { "x-anipres-animation-data-version": "2" },
+          headers: {
+            "x-anipres-animation-data-version": String(SYNC_CLIENT_VERSION),
+          },
         }),
       ),
     ).toBeUndefined();

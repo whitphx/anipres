@@ -29,6 +29,7 @@
 //   unavoidable, the split members follow it to the same key — an
 //   ordinary drag can neither repair nor fabricate a divergence.
 
+import { TIMELINE_FORMAT_VERSION } from "./types";
 import type { CueFrame, EditedStep, Frame, SubFrame } from "./types";
 import { isReservedStepId } from "./ids";
 import { compareOrderKeys, orderKeysBetween } from "./order-key";
@@ -351,7 +352,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         cueEntry.frame.type === "cue" &&
         cueEntry.frame.stepId === stepId;
       const cueFrame: CueFrame = {
-        v: 2,
+        v: TIMELINE_FORMAT_VERSION,
         // The stored frame id is relationship data and is never changed by
         // structural edits — sub frames reference the batch through it.
         id: cueEntry.frame.id,
@@ -389,7 +390,7 @@ export function reconcileEditedSteps(input: ReconcileInput): ReconcileResult {
         const entry = currentByShapeId.get(ref.shapeId);
         if (entry == null) return;
         const subFrame: SubFrame = {
-          v: 2,
+          v: TIMELINE_FORMAT_VERSION,
           id: entry.frame.id,
           type: "sub",
           cueFrameId: cueEntry.frame.id,

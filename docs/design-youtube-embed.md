@@ -96,6 +96,14 @@ commands on one video surface as the existing same-track-split
 diagnostic. `setVolume` is absolute rather than relative volume-up/down
 so that folding (below) and repeated runs stay deterministic.
 
+The `mediaControl` action and the new shape/binding types expand what a
+document persists, so `SYNC_CLIENT_VERSION` is bumped to 3 and the sync
+gate rejects clients below it. A client from before this feature would
+otherwise fail its store load on the unknown `youtube-embed` /
+`media-control` records, and parse a `mediaControl` frame as an
+`invalid-frame` whose offered repair clears it — losing the event.
+Rollout order is client-before-server, as for the v1 → v2 gate.
+
 The video's own cue track and its media track stay **separate tracks
 in the data model** — a step may legally animate the video and fire a
 media event at once, which one shared track would turn into a

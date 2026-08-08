@@ -10,14 +10,13 @@ import type { JsonObject } from "tldraw";
 import type { OrderKey } from "./order-key";
 
 /**
- * The animation-metadata format this build reads AND writes. v1 input
+ * The animation-metadata format this build reads AND writes: the shape
+ * of a frame record, which a new action type does not change. v1 input
  * is recognized but never converted (surfaced as a `v1-frame`
  * diagnostic; design doc r9).
  *
- * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6):
- * tldraw's store schema versioning does not cover `meta` contents, so
- * the sync layer enforces a minimum client version against this
- * constant — a v1-era writer would silently revert newer ordering.
+ * The sync rollout gate keys on `SYNC_CLIENT_VERSION` instead, which
+ * also moves when the persisted record vocabulary expands.
  */
 export const TIMELINE_FORMAT_VERSION = 2;
 
@@ -71,7 +70,7 @@ export type FrameAction =
  * key coincidence has NO grouping meaning.
  */
 export interface CueFrame<T extends FrameAction = FrameAction> {
-  v: 2;
+  v: typeof TIMELINE_FORMAT_VERSION;
   id: string;
   type: "cue";
   trackId: string;
@@ -86,7 +85,7 @@ export interface CueFrame<T extends FrameAction = FrameAction> {
  * not chain position; `orderKey` orders sub frames within the batch.
  */
 export interface SubFrame<T extends FrameAction = FrameAction> {
-  v: 2;
+  v: typeof TIMELINE_FORMAT_VERSION;
   id: string;
   type: "sub";
   cueFrameId: string;

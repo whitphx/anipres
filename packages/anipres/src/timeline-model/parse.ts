@@ -9,6 +9,7 @@
 
 import { EASINGS } from "tldraw";
 import type { JsonObject } from "tldraw";
+import { TIMELINE_FORMAT_VERSION } from "./types";
 import type { CueFrame, Frame, FrameAction, SubFrame } from "./types";
 import { MEDIA_CONTROL_COMMANDS } from "./types";
 import { isReservedStepId } from "./ids";
@@ -156,7 +157,7 @@ export function parseFrameMeta(
         return { kind: "invalid" };
       }
       const frame: CueFrame = {
-        v: 2,
+        v: TIMELINE_FORMAT_VERSION,
         id: raw.id,
         type: "cue",
         trackId: raw.trackId,
@@ -177,7 +178,7 @@ export function parseFrameMeta(
         return { kind: "invalid" };
       }
       const frame: SubFrame = {
-        v: 2,
+        v: TIMELINE_FORMAT_VERSION,
         id: raw.id,
         type: "sub",
         cueFrameId: raw.cueFrameId,
