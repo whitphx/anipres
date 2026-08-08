@@ -14,8 +14,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // without needing a cross-tab broadcast. The BroadcastChannel
   // listener wired up below makes that propagation immediate so
   // tabs don't sit on stale auth state until the user clicks them.
-  const { data, isLoading: loading } = useSWR(ME_KEY, fetchMe);
+  const { data, error, isLoading } = useSWR(ME_KEY, fetchMe);
   const user = data ?? null;
+
+  // SWR's `isLoading` is true for every in-flight request with no data
+  // loaded, including each attempt of its error-retry loop. Consumers
+  // unmount their subtree while loading, so reporting that directly
+  // would remount the whole app on every retry against a down server.
+  // This reports only the never-yet-settled first attempt.
+  const loading = isLoading && error === undefined;
 
   // Pull the global mutate so logout can wipe every SWR cache key,
   // not just `/auth/me`. The server-side cookie clearing already

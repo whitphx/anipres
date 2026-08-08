@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { v7 as uuidv7 } from "uuid";
-import type { DocumentRepository } from "./repository";
+import type { DocumentRepository, LocalDocumentRepository } from "./repository";
 import type {
   DocumentData,
   DocumentInput,
@@ -71,7 +71,7 @@ export type MigrationOverrides = Pick<
 >;
 
 export function useDocumentManager(params: {
-  localRepository: DocumentRepository;
+  localRepository: LocalDocumentRepository;
   syncedRepository?: DocumentRepository;
   /**
    * Optional test/dev injection point for the HTTP calls that
@@ -188,14 +188,8 @@ export function useDocumentManager(params: {
     const docId = activeDocumentIdRef.current;
     if (!editor || !docId) return;
 
-    const existing = await localRepository.get(docId);
-    if (!existing) return;
-
     const { document } = getSnapshot(editor.store);
-    await localRepository.save({
-      ...existing,
-      snapshot: document,
-    });
+    await localRepository.updateSnapshot(docId, document);
   }, [localRepository]);
 
   useEffect(() => {
@@ -640,11 +634,16 @@ export function useDocumentManager(params: {
       // store event below so switching the active doc takes effect without
       // re-registering.
       let timer: ReturnType<typeof setTimeout> | undefined;
+      // The doc a scheduled-but-unfired save belongs to; read on teardown
+      // to flush that save instead of dropping it.
+      let pendingDocId: string | null = null;
       const stopListening = nextEditor.store.listen(
         () => {
           if (activeDocumentSourceRef.current !== "local") return;
           clearTimeout(timer);
+          pendingDocId = activeDocumentIdRef.current;
           timer = setTimeout(() => {
+            pendingDocId = null;
             saveCurrentEditor();
           }, 500);
         },
@@ -654,19 +653,52 @@ export function useDocumentManager(params: {
       return () => {
         clearTimeout(timer);
         stopListening();
-        // The store-listen above debounces saveCurrentEditor by 500ms,
-        // and saveCurrentEditor reads `editorRef.current` directly.
-        // Without nulling the ref here, a save scheduled just before
-        // unregister can still fire and persist against a stale
-        // editor — the same teardown pattern used everywhere else in
-        // this file (see `editorRef.current = null` on doc switches).
+        // A save still pending here holds the edits made in the last
+        // 500ms; the clearTimeout above would silently drop them. That
+        // matters when teardown is an app-level unmount — e.g. auth
+        // resolving mid-editing-session swaps in the synced workspace —
+        // so flush the save instead. The editor-identity check limits
+        // the flush to teardowns where this editor still belongs to the
+        // active doc: every path that moves the active doc (select,
+        // create, delete, convert) persists the outgoing doc itself and
+        // detaches the editor by nulling editorRef, and a flush fired
+        // during that hand-off could attribute this editor's content to
+        // the newly active doc through a late `pendingDocId` update.
+        if (
+          pendingDocId !== null &&
+          editorRef.current === nextEditor &&
+          activeDocumentSourceRef.current === "local"
+        ) {
+          // Captured synchronously: the editor may be disposed as soon
+          // as this cleanup returns. updateSnapshot is atomic, so a
+          // manager remounting after this cleanup reads the flushed
+          // snapshot (see LocalDocumentRepository). The try keeps a
+          // failed capture from skipping the ref-nulling below.
+          try {
+            const { document } = getSnapshot(nextEditor.store);
+            void localRepository
+              .updateSnapshot(pendingDocId, document)
+              .catch((error) =>
+                console.error("Failed to flush the pending local save", error),
+              );
+          } catch (error) {
+            console.error("Failed to flush the pending local save", error);
+          }
+        }
+        // saveCurrentEditor reads `editorRef.current` directly, and
+        // callers outside this listener (the visibility/pagehide
+        // handlers, the doc actions) can still invoke it after this
+        // editor is gone. Nulling the ref keeps them from snapshotting
+        // a torn-down editor — the same teardown pattern used
+        // everywhere else in this file (see `editorRef.current = null`
+        // on doc switches).
         if (editorRef.current === nextEditor) {
           editorRef.current = null;
         }
         setEditor((current) => (current === nextEditor ? null : current));
       };
     },
-    [saveCurrentEditor],
+    [localRepository, saveCurrentEditor],
   );
 
   // Best-effort save when the user leaves the page.

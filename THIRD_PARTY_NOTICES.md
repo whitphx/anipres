@@ -1,11 +1,12 @@
 # Third-party notices
 
-Anipres is MIT-licensed (see `LICENSE`). The agent feature draws
-significant inspiration from the third-party project listed below —
+Anipres is MIT-licensed (see `LICENSE`). The projects listed below
+contributed designs and code that Anipres adapts — the agent feature
+in particular draws significant inspiration from tldraw/agent-template
 in design, structure, naming, and several specific patterns. We owe
-that work a real intellectual debt; this notice exists both to thank
-the upstream authors and to satisfy the attribution requirements of
-their license.
+these works a real intellectual debt; this notice exists both to
+thank the upstream authors and to satisfy the attribution
+requirements of their licenses.
 
 ---
 
@@ -177,3 +178,39 @@ to minimise the upstream contribution.
 
 For the design rationale and how these pieces fit together in the
 context of Anipres' presentation model, see `docs/design-agent.md`.
+
+---
+
+## idb-keyval
+
+Source: https://github.com/jakearchibald/idb-keyval
+License: Apache-2.0
+
+The package's `LICENCE` file, reproduced verbatim: this is the whole
+of the license file upstream distributes, in both its repository and
+its npm tarball, and it is the notice form the Apache-2.0 appendix
+prescribes. The full license text lives at the URL the notice names.
+
+```
+Copyright 2016, Jake Archibald
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+- **`IdbDocumentRepository.updateSnapshot`** — `packages/app/src/documents/idb-repository.ts`
+  **closely follows** [`update`](https://github.com/jakearchibald/idb-keyval/blob/main/src/index.ts):
+  the same single-readwrite-transaction get-then-put structure and
+  the same `resolve(promisifyRequest(store.transaction))` completion
+  handshake. Modified here to write conditionally (a missing document
+  must stay missing, where `update` always writes) and to reject on a
+  failed `get`.
