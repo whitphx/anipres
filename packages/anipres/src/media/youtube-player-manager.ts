@@ -59,6 +59,11 @@ declare global {
 
 const YT_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
 
+// Generous because a false timeout is expensive: register() gives up on
+// a rejected load until the shape remounts, while a true-positive only
+// waits this long before allowing a retry.
+const API_READY_TIMEOUT_MS = 30_000;
+
 let apiPromise: Promise<YTNamespace> | null = null;
 export function loadYouTubeIframeApi(): Promise<YTNamespace> {
   if (apiPromise != null) {
@@ -81,28 +86,68 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
     return promise;
   }
   const previous = window.onYouTubeIframeAPIReady;
+  const existingScript = document.querySelector<HTMLScriptElement>(
+    `script[src^="${YT_IFRAME_API_SRC}"]`,
+  );
+  const ownScript = existingScript == null;
+  const script = existingScript ?? document.createElement("script");
+
+  // The watch covers both failure modes a ready-callback alone misses:
+  // the script erroring (possibly BEFORE this call for a tag the host
+  // page inserted, which nothing can detect after the fact — hence the
+  // timeout), and the host page overwriting onYouTubeIframeAPIReady
+  // after us, in which case our callback never fires even though the
+  // script loaded.
+  const onError = () => {
+    // A fired error event proves the tag is dead; removing it lets the
+    // retry create a fresh one instead of finding the corpse.
+    fail("Failed to load the YouTube IFrame API script", true);
+  };
+  // Closure-forward reference to `timer`: the watch is only cancelled
+  // after it is armed below.
+  const cancelWatch = () => {
+    clearTimeout(timer);
+    script.removeEventListener("error", onError);
+  };
+  // Restoring the previous ready-callback keeps repeated failures from
+  // stacking wrappers; clearing the cached promise lets a later mount
+  // retry (e.g. after the network recovers).
+  const fail = (message: string, removeScript: boolean) => {
+    cancelWatch();
+    if (removeScript) {
+      script.remove();
+    }
+    window.onYouTubeIframeAPIReady = previous;
+    if (apiPromise === promise) {
+      apiPromise = null;
+    }
+    reject(new Error(message));
+  };
+
   window.onYouTubeIframeAPIReady = () => {
-    previous?.();
-    if (window.YT != null) {
-      resolve(window.YT);
+    try {
+      previous?.();
+    } finally {
+      if (window.YT != null) {
+        cancelWatch();
+        resolve(window.YT);
+      }
     }
   };
-  if (document.querySelector(`script[src^="${YT_IFRAME_API_SRC}"]`) == null) {
-    const script = document.createElement("script");
+  script.addEventListener("error", onError);
+  const timer = setTimeout(() => {
+    // A timeout does not prove the tag is dead (it may just be slow),
+    // so a tag the host page owns is left in place — the retry re-arms
+    // this watch on it rather than hanging. Our own tag is removed: if
+    // its load does complete later, the restored ready-callback still
+    // runs, and the fresh promise starts clean either way.
+    fail(
+      "Timed out waiting for the YouTube IFrame API to become ready",
+      ownScript,
+    );
+  }, API_READY_TIMEOUT_MS);
+  if (ownScript) {
     script.src = YT_IFRAME_API_SRC;
-    script.onerror = () => {
-      // Drop both the cached failure AND the dead script element so a
-      // later mount retries the load (e.g. after the network recovers)
-      // — a leftover element would make the retry think a load is
-      // already in flight and hang forever. Restoring the previous
-      // ready-callback keeps repeated failures from stacking wrappers.
-      script.remove();
-      window.onYouTubeIframeAPIReady = previous;
-      if (apiPromise === promise) {
-        apiPromise = null;
-      }
-      reject(new Error("Failed to load the YouTube IFrame API script"));
-    };
     document.head.appendChild(script);
   }
   return promise;

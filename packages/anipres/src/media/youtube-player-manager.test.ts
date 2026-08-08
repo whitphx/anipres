@@ -120,10 +120,98 @@ describe("loadYouTubeIframeApi", () => {
     createdScripts.mockRestore();
 
     // Once the API is reachable (here: already present), loading works.
-    // NOTE: this leaves the module-level cache resolved, so this must
-    // stay the file's last loader interaction.
+    // NOTE: this leaves the module-level cache resolved, so nothing
+    // below may use the statically imported loader — the tests that
+    // follow import fresh module instances.
     const yt = { Player: class {} } as unknown as NonNullable<typeof window.YT>;
     window.YT = yt;
     await expect(loadYouTubeIframeApi()).resolves.toBe(yt);
+  });
+
+  // The tests below exercise the pre-existing-script-tag path (a tag
+  // the host page inserted before us). Each imports a fresh module so
+  // the cached promise cannot leak between them or into the test above.
+  async function freshLoader() {
+    vi.resetModules();
+    const mod = await import("./youtube-player-manager");
+    return mod.loadYouTubeIframeApi;
+  }
+
+  function insertForeignApiScript() {
+    const script = document.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(script);
+    return script;
+  }
+
+  it("recovers when a pre-existing script tag errors after the call", async () => {
+    const load = await freshLoader();
+    const script = insertForeignApiScript();
+
+    const first = load();
+    script.dispatchEvent(new Event("error"));
+    await expect(first).rejects.toThrow(
+      "Failed to load the YouTube IFrame API script",
+    );
+    // The dead tag is gone, so a retry creates a fresh one instead of
+    // waiting forever on the corpse. (In happy-dom the fresh tag may
+    // error synchronously on append, so the rejection expectation is
+    // attached before poking it.)
+    expect(document.querySelector(SCRIPT_SELECTOR)).toBeNull();
+    const second = load();
+    const secondRejection = expect(second).rejects.toThrow();
+    expect(second).not.toBe(first);
+    document.querySelector(SCRIPT_SELECTOR)?.dispatchEvent(new Event("error"));
+    await secondRejection;
+  });
+
+  it("times out on a pre-existing script tag that never becomes ready", async () => {
+    // A tag whose error event fired BEFORE the call is undetectable
+    // after the fact; the readiness timeout is the only way out.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const load = await freshLoader();
+      const script = insertForeignApiScript();
+
+      const promise = load();
+      const rejection = expect(promise).rejects.toThrow(
+        "Timed out waiting for the YouTube IFrame API to become ready",
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejection;
+      // The host page owns this tag and a timeout does not prove it
+      // dead (it may just be slow), so it is left in place; a retry
+      // re-arms the watch on it instead of hanging.
+      expect(document.querySelector(SCRIPT_SELECTOR)).toBe(script);
+      const second = load();
+      expect(second).not.toBe(promise);
+      const secondRejection = expect(second).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await secondRejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves through a pre-existing script tag's ready callback", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const load = await freshLoader();
+      const script = insertForeignApiScript();
+
+      const promise = load();
+      const yt = {
+        Player: class {},
+      } as unknown as NonNullable<typeof window.YT>;
+      window.YT = yt;
+      window.onYouTubeIframeAPIReady?.();
+      await expect(promise).resolves.toBe(yt);
+      // The readiness watch is torn down: the timeout must not fire
+      // later and remove the live tag.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(document.querySelector(SCRIPT_SELECTOR)).toBe(script);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
