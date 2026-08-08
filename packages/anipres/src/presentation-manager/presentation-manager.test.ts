@@ -414,6 +414,87 @@ describe("step run cancellation", () => {
     }
   });
 
+  it("reconciles presentation entry through the current step inclusive", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // Index 0 is the component's real initial value: entering
+      // presentation mode is not a navigation, so nothing else applies
+      // step 0's media state.
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const { videoId } = setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const reconcile = vi.spyOn(playerManager, "reconcile");
+
+      manager.reconcileMediaToCurrentStep();
+
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      // Step 0's whole batch (play, then chained pause) is folded in:
+      // the canvas shows the step's completed state, so playback does
+      // too.
+      expect(reconcile.mock.calls[0][0].get(videoId)?.status).toBe("paused");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("reconciles presentation entry at a later selected step", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      const { videoId } = setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const reconcile = vi.spyOn(playerManager, "reconcile");
+
+      manager.reconcileMediaToCurrentStep();
+
+      const folded = reconcile.mock.calls[0][0].get(videoId);
+      expect(folded?.status).toBe("paused");
+      expect(folded?.muted).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("presentation entry supersedes a run left in flight by edit mode", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const commands = vi.spyOn(playerManager, "command");
+
+      manager.moveTo(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      manager.reconcileMediaToCurrentStep();
+      await vi.advanceTimersByTimeAsync(3000);
+
+      // The interrupted run's chained pause must not fire over the
+      // state the entry just asserted.
+      expect(commands.mock.calls.map(([, a]) => a.command)).toEqual(["play"]);
+      // Superseding with no successor run owns the flag cleanup: the
+      // interrupted run's shapes must not stay hidden into the
+      // presentation.
+      expect(
+        editor
+          .getCurrentPageShapes()
+          .filter((shape) => shape.meta?.hiddenDuringAnimation),
+      ).toEqual([]);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reconcile an advance after cancelActiveRun", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const [editor, dispose] = loadHeadlessEditor();

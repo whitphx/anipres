@@ -555,6 +555,26 @@ const Inner = (props: InnerProps) => {
         if (presentationMode) {
           editor.selectNone();
           editor.setCurrentTool("select");
+          // The canvas shows the current step's completed state on
+          // entry; playback must match it (see the method's doc). The
+          // microtask escapes this react() callback's signal capture:
+          // the reconcile reads step/timeline signals, and tracking
+          // them here would re-fire this watcher on every navigation
+          // while presenting, superseding the live run it just started.
+          // The generation guard covers the deferral's other hazard: a
+          // run started in the same tick as the entry (e.g. the slidev
+          // addon's onMount calling moveTo) has already applied its own
+          // fold and fired its step's events live — the entry reconcile
+          // must not supersede it.
+          const generationAtEntry = presentationManager.currentRunGeneration();
+          queueMicrotask(() => {
+            if (
+              perInstanceAtoms.$presentationMode.get() &&
+              presentationManager.isRunCurrent(generationAtEntry)
+            ) {
+              presentationManager.reconcileMediaToCurrentStep();
+            }
+          });
         } else {
           // Don't let a video keep playing over the editor after the
           // presentation ends — and don't let a step run still waiting

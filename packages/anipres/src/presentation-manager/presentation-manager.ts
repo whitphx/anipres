@@ -478,6 +478,42 @@ export class PresentationManager {
     this.startRun(orderedSteps, stepIndex, this.nextRunGeneration());
   }
 
+  /** The generation of the most recently started run; see isRunCurrent. */
+  public currentRunGeneration(): number {
+    return this.runGeneration;
+  }
+
+  /**
+   * Forces players to the state the event history through the CURRENT
+   * step implies. Presentation entry: the canvas shows the current
+   * step's completed state without replaying its animations, and
+   * playback must match — without this, entering at any step (including
+   * the initial one, which `moveTo` treats as a no-op move) would leave
+   * every player wherever editing left it. Folds through the current
+   * step INCLUSIVE, unlike navigation's fold-through-previous, because
+   * no run fires the step's events live here.
+   */
+  public reconcileMediaToCurrentStep(): void {
+    // Supersede any run still in flight from edit mode (e.g. a frame
+    // edit's rerun); see cancelActiveRun for the flag and cleanup
+    // obligations of superseding with no successor run. Unlike there,
+    // the camera animation is deliberately left running: a cameraZoom
+    // is not a registered run effect, and letting it finish lands the
+    // camera on the entered step's target.
+    this.supersedeActiveRun();
+    this.runInFlight = false;
+    clearHiddenDuringAnimationFlags(this.editor);
+    const orderedSteps = this.$getOrderedSteps();
+    YouTubePlayerManager.get(this.editor).reconcile(
+      foldMediaPlaybackStates(
+        orderedSteps,
+        this.$currentStepIndex.get(),
+        (markerShapeId) =>
+          resolveMediaControlTarget(this.editor, markerShapeId)?.id ?? null,
+      ),
+    );
+  }
+
   @computed $getShapeVisibilitiesInPresentationMode(): Record<
     TLShapeId,
     ShapeVisibility

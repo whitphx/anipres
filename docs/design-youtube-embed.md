@@ -152,12 +152,19 @@ media-free run does not reconcile, so manual interaction with a video
 (allowed in presentation mode via single-click editing, like tldraw
 embeds) is not overridden mid-flow — not even by advancing during a
 timed camera zoom.
-Leaving presentation mode pauses every player (positions are kept —
-kinder for editing than a full reset).
+Entering presentation mode reconciles players to the fold through the
+CURRENT step inclusive (`reconcileMediaToCurrentStep`): entry is not a
+navigation, so no run fires the step's events live, and the canvas
+shows the step's completed state without replaying animations — the
+fold-inclusive reconcile makes playback match it. This is the one
+point where playback overrides manual interaction: a video the user
+started by hand, including one with no events at all, is reset to what
+the history implies. Leaving presentation mode pauses every player
+(positions are kept — kinder for editing than a full reset).
 
 Because a step run's frames execute across timer waits (frame
-`duration`s), every navigation, rerun, and presentation-mode exit bumps
-a run generation on the presentation manager; a run checks it between
+`duration`s), every navigation, rerun, and presentation-mode entry or
+exit bumps a run generation on the presentation manager; a run checks it between
 frames and bails once superseded, so a batch like "play, wait, pause"
 can never fire its tail commands over a state a later navigation
 already reconciled. The generation check only stops future frames, so
