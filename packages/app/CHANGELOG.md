@@ -1,5 +1,14 @@
 # app
 
+## 0.0.46
+
+### Patch Changes
+
+- Updated dependencies [[`30d6150`](https://github.com/whitphx/anipres/commit/30d6150e93887677d0126a7c3cf9a9b922f0d0bc)]:
+  - anipres@0.15.1
+  - @anipres/agent-core@0.0.5
+  - anipres-worker@0.1.2
+
 ## 0.0.45
 
 ### Patch Changes
