@@ -7,7 +7,7 @@ import {
 import { getSnapshot, type TLAssetStore, type TLStoreSnapshot } from "tldraw";
 import { Anipres, allShapeUtils, allBindingUtils } from "anipres";
 import { MAX_ASSET_SIZE } from "anipres-worker/tldraw-asset-policy";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
+import { REQUIRED_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { apiClient } from "../lib/api-client";
 import {
   deleteSyncRecovery,
@@ -111,7 +111,7 @@ export function SyncedAnipresContainer({
     [documentId],
   );
   const storeWithStatus = useSync({
-    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}?animationDataVersion=${MINIMUM_SYNC_ANIMATION_DATA_VERSION}`,
+    uri: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/connect/${encodeURIComponent(documentId)}?animationDataVersion=${REQUIRED_SYNC_ANIMATION_DATA_VERSION}`,
     shapeUtils: allShapeUtils,
     bindingUtils: allBindingUtils,
     assets: remoteAssetStore,
@@ -368,6 +368,12 @@ export function SyncedAnipresContainer({
     switch (reason) {
       case TLSyncErrorCloseEventReason.CLIENT_TOO_OLD:
         message = CLIENT_TOO_OLD_MESSAGE;
+        break;
+      case TLSyncErrorCloseEventReason.SERVER_TOO_OLD:
+        // Reloading serves the same bundle the server just rejected.
+        message =
+          "This document's server is running an older version. Try again shortly.";
+        canReload = false;
         break;
       case TLSyncErrorCloseEventReason.NOT_FOUND:
         message = "This document could not be found. It may have been deleted.";

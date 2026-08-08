@@ -1,5 +1,5 @@
 import type { TLStoreSnapshot } from "tldraw";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
+import { REQUIRED_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { apiClient } from "../lib/api-client";
 
 // The single client for `PUT /api/documents/:id/snapshot`. Every
@@ -58,7 +58,7 @@ export async function putSnapshot(
       // then rejects the body with 400) and the client-id header.
       headers: {
         "x-anipres-animation-data-version": String(
-          MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+          REQUIRED_SYNC_ANIMATION_DATA_VERSION,
         ),
       },
       init: { signal },

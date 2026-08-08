@@ -1,6 +1,6 @@
 /**
- * The version a client declares to the sync server, and the minimum the
- * server accepts (see `MINIMUM_SYNC_ANIMATION_DATA_VERSION` in the
+ * The version a client declares to the sync server, and the one the
+ * server requires (see `REQUIRED_SYNC_ANIMATION_DATA_VERSION` in the
  * worker). Distinct from `TIMELINE_FORMAT_VERSION`
  * (`timeline-model/types.ts`), which describes the shape of a frame's
  * `meta` and is unchanged by a new action type.
@@ -20,8 +20,10 @@
  * - 3: the `mediaControl` frame action plus the `youtube-embed` and
  *   `media-control` shapes and the `media-control` binding.
  *
- * Rollout order is client-before-server: deploying the server first
- * locks out every client still running the previous bundle until it
- * reloads (which the app surfaces as the client-too-old state).
+ * The server gate matches this value exactly, so a bump locks out both
+ * directions until both sides ship it. Deploy order follows whichever
+ * side gains capability: a bump that only adds `meta` vocabulary can
+ * lead with the client, while one that adds record types must lead
+ * with the server, which has to be able to store them.
  */
 export const SYNC_CLIENT_VERSION = 3;

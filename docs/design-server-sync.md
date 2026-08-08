@@ -427,7 +427,7 @@ export const anipresSchema = createTLSchema({
 
 The `packages/anipres` library exports the shape schema descriptors via `anipres/schema` (a non-React entry point). The worker imports every custom shape's props, migrations, and type-name constant from there and reconstructs `createTLSchema` locally — see `packages/worker/src/DocumentSyncRoom.ts`. Any new custom shape or binding — and any shape-props migration added to an existing one — must be added to that `createTLSchema` call, or the sync server rejects documents containing it.
 
-Registering a record type is therefore a one-way step for the deployment: the moment a document holds one, a worker built without that registration can no longer load the room. Releases that add record types roll forward only, and every later release must keep the registration. The client-side counterpart is `SYNC_CLIENT_VERSION` (see [`design-animation-data-model.md`](./design-animation-data-model.md) § Risk 6), which keeps clients too old to understand a record out of the document in the first place.
+Registering a record type is therefore a one-way step for the deployment: the moment a document holds one, a worker built without that registration can no longer load the room. Releases that add record types roll forward only, and every later release must keep the registration. The client-side counterpart is `SYNC_CLIENT_VERSION` (see [`design-animation-data-model.md`](./design-animation-data-model.md) § Risk 6), which keeps clients whose vocabulary doesn't match this build out of the document in the first place — in both directions, since a client ahead of the worker would write records it has no registration for.
 
 ---
 

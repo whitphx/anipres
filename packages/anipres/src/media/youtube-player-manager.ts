@@ -108,22 +108,7 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
     clearTimeout(timer);
     script.removeEventListener("error", onError);
   };
-  // Restoring the previous ready-callback keeps repeated failures from
-  // stacking wrappers; clearing the cached promise lets a later mount
-  // retry (e.g. after the network recovers).
-  const fail = (message: string, removeScript: boolean) => {
-    cancelWatch();
-    if (removeScript) {
-      script.remove();
-    }
-    window.onYouTubeIframeAPIReady = previous;
-    if (apiPromise === promise) {
-      apiPromise = null;
-    }
-    reject(new Error(message));
-  };
-
-  window.onYouTubeIframeAPIReady = () => {
+  const onApiReady = () => {
     try {
       previous?.();
     } finally {
@@ -133,6 +118,27 @@ export function loadYouTubeIframeApi(): Promise<YTNamespace> {
       }
     }
   };
+  // Restoring the previous ready-callback keeps repeated failures from
+  // stacking wrappers; clearing the cached promise lets a later mount
+  // retry (e.g. after the network recovers). Restore ONLY while the
+  // global is still ours: another integration that installed its own
+  // handler after us owns it now, and assigning over it would leave its
+  // embeds waiting on a readiness callback that no longer exists.
+  const fail = (message: string, removeScript: boolean) => {
+    cancelWatch();
+    if (removeScript) {
+      script.remove();
+    }
+    if (window.onYouTubeIframeAPIReady === onApiReady) {
+      window.onYouTubeIframeAPIReady = previous;
+    }
+    if (apiPromise === promise) {
+      apiPromise = null;
+    }
+    reject(new Error(message));
+  };
+
+  window.onYouTubeIframeAPIReady = onApiReady;
   script.addEventListener("error", onError);
   const timer = setTimeout(() => {
     // A timeout does not prove the tag is dead (it may just be slow),

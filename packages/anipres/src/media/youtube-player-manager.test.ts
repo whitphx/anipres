@@ -215,6 +215,28 @@ describe("loadYouTubeIframeApi", () => {
     }
   });
 
+  it("leaves a ready callback another integration installed after us alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const load = await freshLoader();
+      insertForeignApiScript();
+
+      const promise = load();
+      const rejection = expect(promise).rejects.toThrow();
+      // A second YouTube integration takes over the global.
+      const otherHandler = () => {};
+      window.onYouTubeIframeAPIReady = otherHandler;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejection;
+      // Restoring our captured `previous` here would delete the other
+      // integration's handler, leaving its embeds waiting forever.
+      expect(window.onYouTubeIframeAPIReady).toBe(otherHandler);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Nested here for the describe's afterEach cleanup (window.YT, the
   // script tag): these exercise register()'s retry loop, which drives
   // the loader through the same fresh-module discipline.

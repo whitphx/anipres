@@ -4,7 +4,7 @@ import {
 } from "@tldraw/sync-core";
 import {
   getAnimationDataVersionGateResponse,
-  isAnimationDataVersionAllowed,
+  getAnimationDataVersionRejection,
 } from "./animation-data-version";
 
 // Worker-only (uses WebSocketPair); the app imports the shared constants
@@ -26,7 +26,8 @@ import {
 export function getSyncAnimationDataVersionGateResponse(
   request: Request,
 ): Response | undefined {
-  if (isAnimationDataVersionAllowed(request)) {
+  const rejection = getAnimationDataVersionRejection(request);
+  if (rejection === null) {
     return undefined;
   }
   if (request.headers.get("Upgrade") !== "websocket") {
@@ -36,7 +37,12 @@ export function getSyncAnimationDataVersionGateResponse(
   serverWebSocket.accept();
   serverWebSocket.close(
     TLSyncErrorCloseEventCode,
-    TLSyncErrorCloseEventReason.CLIENT_TOO_OLD,
+    // A client ahead of this build gets tldraw's own signal for the
+    // direction, which the app's sync-error screen renders instead of
+    // telling the user to reload into the bundle they already run.
+    rejection === "client-too-old"
+      ? TLSyncErrorCloseEventReason.CLIENT_TOO_OLD
+      : TLSyncErrorCloseEventReason.SERVER_TOO_OLD,
   );
   return new Response(null, { status: 101, webSocket: clientWebSocket });
 }

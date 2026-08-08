@@ -12,25 +12,47 @@ import { SYNC_CLIENT_VERSION } from "anipres/models";
  * `invalid-frame` whose offered repair clears it. tldraw's store schema
  * versioning covers neither, hence this explicit gate.
  *
+ * A client AHEAD of this build is excluded by the same constant: it
+ * would write records this build has no registration for. See
+ * `getAnimationDataVersionRejection`.
+ *
  * Single source of truth: the library's SYNC_CLIENT_VERSION, whose
  * docstring carries the per-version history.
  */
-export const MINIMUM_SYNC_ANIMATION_DATA_VERSION: number = SYNC_CLIENT_VERSION;
+export const REQUIRED_SYNC_ANIMATION_DATA_VERSION: number = SYNC_CLIENT_VERSION;
+
+/** Why a request failed the gate, or null when it passed. */
+export type AnimationDataVersionRejection = "client-too-old" | "server-too-old";
 
 /**
- * Whether the request declares a sufficient animation-data version (via
- * the `animationDataVersion` query param or the
- * `x-anipres-animation-data-version` header). v1 clients send neither.
+ * The declared version (via the `animationDataVersion` query param or
+ * the `x-anipres-animation-data-version` header; v1 clients send
+ * neither) checked against the one vocabulary this build knows.
+ *
+ * Both directions are fatal, which is why this is an equality check
+ * rather than a floor. A client below it cannot read the records the
+ * document may already hold. A client ABOVE it writes records this
+ * build has no schema registration for, so the room would reject them
+ * on save — the failure mode the deploy order exists to avoid, and one
+ * the client cannot detect for itself.
  */
-export function isAnimationDataVersionAllowed(request: Request): boolean {
+export function getAnimationDataVersionRejection(
+  request: Request,
+): AnimationDataVersionRejection | null {
   const rawVersion =
     new URL(request.url).searchParams.get("animationDataVersion") ??
     request.headers.get("x-anipres-animation-data-version");
   const version = rawVersion === null ? NaN : Number(rawVersion);
-  return (
-    Number.isSafeInteger(version) &&
-    version >= MINIMUM_SYNC_ANIMATION_DATA_VERSION
-  );
+  if (!Number.isSafeInteger(version)) {
+    return "client-too-old";
+  }
+  if (version < REQUIRED_SYNC_ANIMATION_DATA_VERSION) {
+    return "client-too-old";
+  }
+  if (version > REQUIRED_SYNC_ANIMATION_DATA_VERSION) {
+    return "server-too-old";
+  }
+  return null;
 }
 
 /**
@@ -44,13 +66,19 @@ export function isAnimationDataVersionAllowed(request: Request): boolean {
 export function getAnimationDataVersionGateResponse(
   request: Request,
 ): Response | undefined {
-  if (isAnimationDataVersionAllowed(request)) {
+  const rejection = getAnimationDataVersionRejection(request);
+  if (rejection === null) {
     return undefined;
   }
   return Response.json(
     {
-      error: "Animation data upgrade required",
-      minimumVersion: MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+      error:
+        rejection === "client-too-old"
+          ? "Animation data upgrade required"
+          : "Server animation data upgrade required",
+      // `minimumVersion` since the gate shipped with that name; both
+      // bounds are this one value.
+      minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,
     },
     { status: 426 },
   );

@@ -102,7 +102,14 @@ gate rejects clients below it. A client from before this feature would
 otherwise fail its store load on the unknown `youtube-embed` /
 `media-control` records, and parse a `mediaControl` frame as an
 `invalid-frame` whose offered repair clears it — losing the event.
-Rollout order is client-before-server, as for the v1 → v2 gate.
+
+Rollout order is **server-before-client** here, inverting the v1 → v2
+gate: that gate only had to stop stale writers, while this release also
+adds record types the worker must be able to store, so an app deployed
+first would have nowhere to put a video. The gate matches the version
+exactly for the same reason — a client ahead of the worker is rejected
+(with tldraw's `SERVER_TOO_OLD`) instead of writing records the room
+would refuse on save.
 
 The video's own cue track and its media track stay **separate tracks
 in the data model** — a step may legally animate the video and fire a
