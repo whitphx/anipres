@@ -224,6 +224,40 @@ jobs:
       - name: Format check
         run: pnpm format --check
 
+  # Lint, format, and typecheck for this package run in lint-app and build-app.
+  test-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/app
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: latest
+          run_install: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Vitest loads vite.config.ts, whose Font.vite() plugin needs the
+      # cn-font-split native library at module load even though no test
+      # imports a font.
+      # https://github.com/KonghaYao/cn-font-split/issues/149
+      - run: pnpm cn-font-split i default
+
+      - name: Test
+        run: pnpm test
+
   test-worker:
     needs: [test-agent-core]
 
@@ -257,7 +291,7 @@ jobs:
         run: pnpm test
 
   build-app:
-    needs: [test-agent-core, lint-app]
+    needs: [test-agent-core, lint-app, test-app]
 
     runs-on: ubuntu-latest
     permissions:
