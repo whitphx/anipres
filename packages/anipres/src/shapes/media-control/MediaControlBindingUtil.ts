@@ -1,5 +1,6 @@
 import { BindingUtil } from "tldraw";
 import type {
+  BindingOnCreateOptions,
   BindingOnShapeChangeOptions,
   BindingOnShapeDeleteOptions,
 } from "tldraw";
@@ -15,6 +16,16 @@ export class MediaControlBindingUtil extends BindingUtil<MediaControlBinding> {
 
   override getDefaultProps(): MediaControlBinding["props"] {
     return {};
+  }
+
+  override onAfterCreate({
+    binding,
+  }: BindingOnCreateOptions<MediaControlBinding>): void {
+    // A marker bound after being positioned elsewhere (the timeline's
+    // group-clone path copies a marker at the clone offset, then binds
+    // it) would otherwise keep that position until its video next
+    // moves.
+    this.parkMarker(binding);
   }
 
   override onAfterChangeToShape({

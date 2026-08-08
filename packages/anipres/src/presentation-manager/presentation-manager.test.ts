@@ -177,6 +177,32 @@ describe("attachMediaControlCueFrame", () => {
     });
   });
 
+  it("parks a marker bound after being positioned elsewhere", () => {
+    withVideoEditor(({ editor, videoId }) => {
+      // Away from the origin, so parking at the VIDEO is what the
+      // assertion below proves — not a reset to (0, 0).
+      editor.updateShape({ id: videoId, type: "youtube-embed", x: 120, y: 90 });
+      // The timeline's group-clone path copies a marker at the clone
+      // offset and binds it afterwards.
+      const clonedMarkerId = createShapeId("cloned-marker");
+      editor.createShape({
+        id: clonedMarkerId,
+        type: "media-control",
+        x: 400,
+        y: 250,
+      });
+      editor.createBinding({
+        type: "media-control",
+        fromId: clonedMarkerId,
+        toId: videoId,
+      });
+
+      const parked = editor.getShape(clonedMarkerId)!;
+      expect(parked.x).toBe(120);
+      expect(parked.y).toBe(90);
+    });
+  });
+
   it("re-parks a marker that was moved on its own", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
