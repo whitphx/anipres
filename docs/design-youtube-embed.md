@@ -142,9 +142,16 @@ state is a fold of the mediaControl event history. On a non-adjacent
 `moveTo` (jump or backward), the presentation manager folds all events
 up to the _previous_ step and reconciles every known player to that
 state; the target step's own events then fire live in `runStep`, the
-same as a normal advance. A plain forward advance does not reconcile,
-so manual interaction with a video (allowed in presentation mode via
-single-click editing, like tldraw embeds) is not overridden mid-flow.
+same as a normal advance. The same reconciliation runs on a forward
+advance that interrupts an unfinished media-carrying run (the manager
+tracks whether the last started run with media frames settled): the
+cancelled run's remaining commands never fire (e.g. the chained pause
+of "play, wait, pause"), so playback would otherwise diverge from what
+the event history implies. A forward advance after a settled or
+media-free run does not reconcile, so manual interaction with a video
+(allowed in presentation mode via single-click editing, like tldraw
+embeds) is not overridden mid-flow — not even by advancing during a
+timed camera zoom.
 Leaving presentation mode pauses every player (positions are kept —
 kinder for editing than a full reset).
 

@@ -70,6 +70,31 @@ export class PresentationManager {
   // generation current at its start and bails once a newer one exists.
   private runGeneration = 0;
 
+  // True from a media-carrying run's start until it settles; see the
+  // reconcile branch in _moveTo.
+  private runInFlight = false;
+
+  private startRun(
+    orderedSteps: RuntimeStep[],
+    stepIndex: number,
+    generation: number,
+  ): void {
+    // Only a run with media frames can leave playback diverging from
+    // the event history when superseded; flagging a media-free run
+    // would make an advance during e.g. a timed camera zoom reconcile,
+    // resetting videos the user started by hand.
+    this.runInFlight = orderedSteps[stepIndex].some((batch) =>
+      batch.data.some((frame) => frame.action.type === "mediaControl"),
+    );
+    void runStep(this, orderedSteps, stepIndex, generation).finally(() => {
+      // A superseded run's promise also settles (its frames bail on the
+      // generation check); only the current run's completion counts.
+      if (this.isRunCurrent(generation)) {
+        this.runInFlight = false;
+      }
+    });
+  }
+
   // Disposers for the CURRENT run's in-flight effects (temporary
   // animation shapes, history-bail tick listeners, cleanup timers).
   // The generation check only stops FUTURE frames; effects a frame
@@ -107,6 +132,11 @@ export class PresentationManager {
    */
   cancelActiveRun(): void {
     this.supersedeActiveRun();
+    // No successor run inherits a reconcile obligation; the caller
+    // asserts the post-cancel state itself (pauseAll on mode exit). A
+    // stale flag would make the next consecutive advance reconcile and
+    // restart playback over the editor.
+    this.runInFlight = false;
     this.editor.stopCameraAnimation();
     clearHiddenDuringAnimationFlags(this.editor);
   }
@@ -414,13 +444,19 @@ export class PresentationManager {
     }
 
     this.$currentStepIndex.set(stepIndex);
+    const interruptedRun = this.runInFlight;
     const generation = this.nextRunGeneration();
-    if (stepIndex !== prevStepIndex + 1) {
-      // Jump or backward move: media events of the skipped/rewound
-      // range never fire, so force players to the state the event
-      // history up to the PREVIOUS step implies. The target step's own
-      // events then fire live in runStep below, same as a normal
-      // advance.
+    if (stepIndex !== prevStepIndex + 1 || interruptedRun) {
+      // On a jump or backward move, media events of the skipped/rewound
+      // range never fire; on an advance that interrupts an unfinished
+      // run, the cancelled run's remaining commands never fire either
+      // (e.g. the chained pause of "play, wait, pause"). Both cases
+      // force players to the state the event history up to the PREVIOUS
+      // step implies. The target step's own events then fire live in
+      // runStep below, same as a normal advance. A completed-run
+      // consecutive advance deliberately skips this: reconciling resets
+      // videos the user started by hand (click-to-interact), which no
+      // event history accounts for.
       YouTubePlayerManager.get(this.editor).reconcile(
         foldMediaPlaybackStates(
           orderedSteps,
@@ -430,7 +466,7 @@ export class PresentationManager {
         ),
       );
     }
-    runStep(this, orderedSteps, stepIndex, generation);
+    this.startRun(orderedSteps, stepIndex, generation);
   }
 
   public rerunStep(): void {
@@ -439,7 +475,7 @@ export class PresentationManager {
     if (stepIndex < 0 || stepIndex >= orderedSteps.length) {
       return;
     }
-    runStep(this, orderedSteps, stepIndex, this.nextRunGeneration());
+    this.startRun(orderedSteps, stepIndex, this.nextRunGeneration());
   }
 
   @computed $getShapeVisibilitiesInPresentationMode(): Record<

@@ -272,8 +272,19 @@ describe("step run cancellation", () => {
       orderKey: "a1",
       action: { type: "mediaControl", command: "pause" },
     };
+    // A second step so tests can advance past the play/pause batch.
+    const followUpCue: CueFrame = {
+      v: 2,
+      id: "mc-cue-2",
+      type: "cue",
+      trackId: "T-media",
+      stepId: "s2",
+      stepOrderKey: "a2",
+      action: { type: "mediaControl", command: "mute" },
+    };
     const markerCueId = createShapeId("marker-cue");
     const markerSubId = createShapeId("marker-sub");
+    const markerFollowUpId = createShapeId("marker-follow-up");
     editor.createShape({
       id: markerCueId,
       type: "media-control",
@@ -288,13 +299,21 @@ describe("step run cancellation", () => {
       y: 300,
       meta: { frame: frameToMetaJson(sub) },
     });
-    for (const markerId of [markerCueId, markerSubId]) {
+    editor.createShape({
+      id: markerFollowUpId,
+      type: "media-control",
+      x: 80,
+      y: 300,
+      meta: { frame: frameToMetaJson(followUpCue) },
+    });
+    for (const markerId of [markerCueId, markerSubId, markerFollowUpId]) {
       editor.createBinding({
         type: "media-control",
         fromId: markerId,
         toId: videoId,
       });
     }
+    return { videoId };
   }
 
   async function runPlayThenPause(cancelDuringWait: boolean) {
@@ -327,6 +346,99 @@ describe("step run cancellation", () => {
 
   it("does not fire remaining commands after the run is invalidated", async () => {
     expect(await runPlayThenPause(true)).toEqual(["play"]);
+  });
+
+  it("reconciles a consecutive advance that interrupts an unfinished run", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      const { videoId } = setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const commands = vi.spyOn(playerManager, "command");
+      const reconcile = vi.spyOn(playerManager, "reconcile");
+
+      manager.moveTo(0);
+      // Advance mid-wait: the chained pause has not fired yet.
+      await vi.advanceTimersByTimeAsync(1000);
+      manager.moveTo(1);
+
+      // The cancelled pause never fires as a command; reconciliation
+      // must force the state the event history through step 0 implies.
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      const folded = reconcile.mock.calls[0][0];
+      expect(folded.get(videoId)?.status).toBe("paused");
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(commands.mock.calls.map(([, a]) => a.command)).toEqual([
+        "play",
+        "mute",
+      ]);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reconcile a consecutive advance after the run settled", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const commands = vi.spyOn(playerManager, "command");
+      const reconcile = vi.spyOn(playerManager, "reconcile");
+
+      manager.moveTo(0);
+      await vi.runAllTimersAsync();
+      manager.moveTo(1);
+
+      // A settled run left playback exactly where the event history
+      // says; forcing state here would also reset videos the user
+      // started by hand.
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(commands.mock.calls.map(([, a]) => a.command)).toEqual([
+        "play",
+        "pause",
+        "mute",
+      ]);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reconcile an advance after cancelActiveRun", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+      setupVideoWithPlayThenPause(editor);
+      const playerManager = YouTubePlayerManager.get(editor);
+      const reconcile = vi.spyOn(playerManager, "reconcile");
+
+      manager.moveTo(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      // Presentation-mode exit: the caller asserts the post-cancel
+      // state itself (pauseAll), so the next advance must not force the
+      // folded state back over it.
+      manager.cancelActiveRun();
+      manager.moveTo(1);
+
+      expect(reconcile).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
   });
 });
 
