@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSnapshot, type Editor, type TLStoreSnapshot } from "tldraw";
 import { v7 as uuidv7 } from "uuid";
-import type { DocumentRepository } from "./repository";
+import type { DocumentRepository, LocalDocumentRepository } from "./repository";
 import type {
   DocumentData,
   DocumentInput,
@@ -71,7 +71,7 @@ export type MigrationOverrides = Pick<
 >;
 
 export function useDocumentManager(params: {
-  localRepository: DocumentRepository;
+  localRepository: LocalDocumentRepository;
   syncedRepository?: DocumentRepository;
   /**
    * Optional test/dev injection point for the HTTP calls that
@@ -179,18 +179,6 @@ export function useDocumentManager(params: {
     return [...syncedList, ...localList];
   }, [localRepository, syncedRepository]);
 
-  const persistLocalSnapshot = useCallback(
-    async (docId: string, snapshot: TLStoreSnapshot) => {
-      const existing = await localRepository.get(docId);
-      if (!existing) return;
-      await localRepository.save({
-        ...existing,
-        snapshot,
-      });
-    },
-    [localRepository],
-  );
-
   const saveCurrentEditor = useCallback(async () => {
     // Only local-source documents are persisted via this hook — synced
     // documents are persisted by useSync over WebSocket.
@@ -201,8 +189,8 @@ export function useDocumentManager(params: {
     if (!editor || !docId) return;
 
     const { document } = getSnapshot(editor.store);
-    await persistLocalSnapshot(docId, document);
-  }, [persistLocalSnapshot]);
+    await localRepository.updateSnapshot(docId, document);
+  }, [localRepository]);
 
   useEffect(() => {
     let cancelled = false;
@@ -682,11 +670,17 @@ export function useDocumentManager(params: {
           activeDocumentSourceRef.current === "local"
         ) {
           // Captured synchronously: the editor may be disposed as soon
-          // as this cleanup returns.
+          // as this cleanup returns. updateSnapshot is a single
+          // readwrite transaction, so reads issued after this cleanup —
+          // e.g. by a document manager remounting once workspace
+          // discovery settles — are ordered behind it and observe the
+          // flushed snapshot (see LocalDocumentRepository).
           const { document } = getSnapshot(nextEditor.store);
-          void persistLocalSnapshot(pendingDocId, document).catch((error) =>
-            console.error("Failed to flush the pending local save", error),
-          );
+          void localRepository
+            .updateSnapshot(pendingDocId, document)
+            .catch((error) =>
+              console.error("Failed to flush the pending local save", error),
+            );
         }
         // saveCurrentEditor reads `editorRef.current` directly, and
         // callers outside this listener (the visibility/pagehide
@@ -701,7 +695,7 @@ export function useDocumentManager(params: {
         setEditor((current) => (current === nextEditor ? null : current));
       };
     },
-    [persistLocalSnapshot, saveCurrentEditor],
+    [localRepository, saveCurrentEditor],
   );
 
   // Best-effort save when the user leaves the page.

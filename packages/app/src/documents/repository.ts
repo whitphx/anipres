@@ -1,3 +1,4 @@
+import type { TLStoreSnapshot } from "tldraw";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
 export interface DocumentRepository {
@@ -20,4 +21,21 @@ export interface DocumentRepository {
    */
   save(input: DocumentInput): Promise<DocumentData>;
   delete(id: string): Promise<void>;
+}
+
+export interface LocalDocumentRepository extends DocumentRepository {
+  /**
+   * Replace an existing document's snapshot without touching its meta;
+   * a no-op when the document no longer exists (it may have been
+   * deleted while an editor for it was still mounted).
+   *
+   * Must be atomic — read and write in one storage transaction. The
+   * editor-teardown flush depends on this: IndexedDB starts a
+   * transaction only after every earlier-created readwrite transaction
+   * with overlapping scope commits, so a single-transaction update
+   * guarantees that reads issued after teardown (e.g. by a remounted
+   * document manager) observe the flushed snapshot. A get-then-save
+   * pair has no such guarantee — a read can land between the two.
+   */
+  updateSnapshot(id: string, snapshot: TLStoreSnapshot): Promise<void>;
 }
