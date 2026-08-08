@@ -59,9 +59,8 @@ declare global {
 
 const YT_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
 
-// Generous because a false timeout is expensive: register() gives up on
-// a rejected load until the shape remounts, while a true-positive only
-// waits this long before allowing a retry.
+// A false timeout costs a wasted load cycle before register()'s retry
+// re-arms it; a true positive only waits this long before the retry.
 const API_READY_TIMEOUT_MS = 30_000;
 
 let apiPromise: Promise<YTNamespace> | null = null;
@@ -174,9 +173,17 @@ interface PlayerEntry {
   /** Constructed but not yet ready — tracked so unregister can destroy
    * it; commands keep gating on `player`. */
   pendingPlayer: YTPlayer | null;
+  /** Armed after an API load failure; cleared by unregister. */
+  retryTimer: ReturnType<typeof setTimeout> | null;
   disposed: boolean;
   baseline: PlayerBaseline;
 }
+
+// Capped backoff for retrying the API load while a video stays
+// mounted: without it a transient failure (offline at first mount)
+// leaves the embed blank until the shape happens to remount. Attempts
+// continue at the cap indefinitely — one timer per mounted video.
+const PLAYER_MOUNT_RETRY_DELAYS_MS = [5_000, 15_000, 60_000];
 
 function applyCommandToPlayer(
   player: YTPlayer,
@@ -294,58 +301,86 @@ export class YouTubePlayerManager {
     const entry: PlayerEntry = {
       player: null,
       pendingPlayer: null,
+      retryTimer: null,
       disposed: false,
       baseline: { muted: options.muted, start: options.start, volume: null },
     };
     this.entries.set(shapeId, entry);
-    loadYouTubeIframeApi()
-      .then((YT) => {
-        if (entry.disposed || !host.isConnected) {
-          return;
-        }
-        const player = new YT.Player(host, {
-          videoId: options.videoId,
-          width: "100%",
-          height: "100%",
-          // Privacy-enhanced host; the API adds enablejsapi/origin itself.
-          host: "https://www.youtube-nocookie.com",
-          playerVars: {
-            playsinline: 1,
-            rel: 0,
-            ...(options.start > 0 ? { start: Math.floor(options.start) } : {}),
-            ...(options.muted ? { mute: 1 } : {}),
-            ...(options.controls ? {} : { controls: 0 }),
-          },
-          events: {
-            onReady: () => {
-              if (entry.disposed) {
-                return;
-              }
-              entry.pendingPlayer = null;
-              const volume = player.getVolume();
-              if (Number.isFinite(volume)) {
-                entry.baseline.volume = volume;
-              }
-              if (options.title !== "") {
-                try {
-                  player.getIframe().title = options.title;
-                } catch {
-                  // ignore
-                }
-              }
-              entry.player = player;
-              const desired = this.desired.get(shapeId);
-              if (desired != null) {
-                applyStateToPlayer(player, desired, entry.baseline);
-              }
+    const attemptMount = (attempt: number) => {
+      loadYouTubeIframeApi()
+        .then((YT) => {
+          if (entry.disposed || !host.isConnected) {
+            return;
+          }
+          const player = new YT.Player(host, {
+            videoId: options.videoId,
+            width: "100%",
+            height: "100%",
+            // Privacy-enhanced host; the API adds enablejsapi/origin
+            // itself.
+            host: "https://www.youtube-nocookie.com",
+            playerVars: {
+              playsinline: 1,
+              rel: 0,
+              ...(options.start > 0
+                ? { start: Math.floor(options.start) }
+                : {}),
+              ...(options.muted ? { mute: 1 } : {}),
+              ...(options.controls ? {} : { controls: 0 }),
             },
-          },
+            events: {
+              onReady: () => {
+                if (entry.disposed) {
+                  return;
+                }
+                entry.pendingPlayer = null;
+                const volume = player.getVolume();
+                if (Number.isFinite(volume)) {
+                  entry.baseline.volume = volume;
+                }
+                if (options.title !== "") {
+                  try {
+                    player.getIframe().title = options.title;
+                  } catch {
+                    // ignore
+                  }
+                }
+                entry.player = player;
+                const desired = this.desired.get(shapeId);
+                if (desired != null) {
+                  applyStateToPlayer(player, desired, entry.baseline);
+                }
+              },
+            },
+          });
+          entry.pendingPlayer = player;
+        })
+        .catch((error) => {
+          // Once, not per attempt: at the capped delay a permanently
+          // blocked API (ad blocker, CSP) would otherwise warn forever.
+          if (attempt === 0) {
+            console.warn(
+              "anipres: YouTube player unavailable, retrying while mounted:",
+              error,
+            );
+          }
+          if (entry.disposed || !host.isConnected) {
+            return;
+          }
+          const delay =
+            PLAYER_MOUNT_RETRY_DELAYS_MS[
+              Math.min(attempt, PLAYER_MOUNT_RETRY_DELAYS_MS.length - 1)
+            ];
+          entry.retryTimer = setTimeout(() => {
+            entry.retryTimer = null;
+            if (entry.disposed || !host.isConnected) {
+              return;
+            }
+            attemptMount(attempt + 1);
+          }, delay);
         });
-        entry.pendingPlayer = player;
-      })
-      .catch((error) => {
-        console.warn("anipres: YouTube player unavailable:", error);
-      });
+    };
+    attemptMount(0);
   }
 
   unregister(shapeId: string): void {
@@ -354,6 +389,10 @@ export class YouTubePlayerManager {
       return;
     }
     entry.disposed = true;
+    if (entry.retryTimer != null) {
+      clearTimeout(entry.retryTimer);
+      entry.retryTimer = null;
+    }
     // On shape unmount the container (with the API's iframe inside) is
     // already detached when this cleanup runs, and destroy() throws on
     // a detached iframe in some browsers. A pending (not-yet-ready)

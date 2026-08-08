@@ -214,4 +214,90 @@ describe("loadYouTubeIframeApi", () => {
       vi.useRealTimers();
     }
   });
+
+  // Nested here for the describe's afterEach cleanup (window.YT, the
+  // script tag): these exercise register()'s retry loop, which drives
+  // the loader through the same fresh-module discipline.
+  describe("register retry", () => {
+    async function freshManager() {
+      vi.resetModules();
+      const mod = await import("./youtube-player-manager");
+      return new mod.YouTubePlayerManager();
+    }
+
+    function mountHost() {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      return host;
+    }
+
+    const REGISTER_OPTIONS = {
+      videoId: "M7lc1UVf-VE",
+      muted: false,
+      start: 0,
+      controls: true,
+      title: "",
+    };
+
+    it("retries mounting a registered player after a transient API failure", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = mountHost();
+      try {
+        const manager = await freshManager();
+        const constructions: unknown[] = [];
+        class StubPlayer {
+          constructor(el: unknown) {
+            constructions.push(el);
+          }
+          destroy() {}
+        }
+
+        // First attempt fails: no API, and happy-dom errors the
+        // loader's script synchronously on append.
+        manager.register("shape:v", host, REGISTER_OPTIONS);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(constructions).toHaveLength(0);
+
+        // The network recovers before the retry fires.
+        window.YT = { Player: StubPlayer } as unknown as NonNullable<
+          typeof window.YT
+        >;
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(constructions).toEqual([host]);
+
+        manager.unregister("shape:v");
+      } finally {
+        host.remove();
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops retrying a failed mount once the shape unregisters", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = mountHost();
+      try {
+        const manager = await freshManager();
+        const constructions: unknown[] = [];
+        class StubPlayer {
+          constructor(el: unknown) {
+            constructions.push(el);
+          }
+          destroy() {}
+        }
+
+        manager.register("shape:v", host, REGISTER_OPTIONS);
+        await vi.advanceTimersByTimeAsync(0);
+        manager.unregister("shape:v");
+
+        window.YT = { Player: StubPlayer } as unknown as NonNullable<
+          typeof window.YT
+        >;
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(constructions).toHaveLength(0);
+      } finally {
+        host.remove();
+        vi.useRealTimers();
+      }
+    });
+  });
 });
