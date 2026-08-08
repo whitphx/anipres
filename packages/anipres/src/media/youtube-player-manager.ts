@@ -175,15 +175,24 @@ interface PlayerEntry {
   pendingPlayer: YTPlayer | null;
   /** Armed after an API load failure; cleared by unregister. */
   retryTimer: ReturnType<typeof setTimeout> | null;
+  /** Armed while a constructed player has not reported ready. */
+  readyTimer: ReturnType<typeof setTimeout> | null;
   disposed: boolean;
   baseline: PlayerBaseline;
 }
 
-// Capped backoff for retrying the API load while a video stays
+// Capped backoff for retrying a failed mount while a video stays
 // mounted: without it a transient failure (offline at first mount)
 // leaves the embed blank until the shape happens to remount. Attempts
 // continue at the cap indefinitely — one timer per mounted video.
 const PLAYER_MOUNT_RETRY_DELAYS_MS = [5_000, 15_000, 60_000];
+
+// A constructed player reports ready over an iframe handshake that
+// nothing rejects if it stalls (blocked frame navigation, a connection
+// that dies mid-load), so the construction needs its own deadline to
+// reach the retry path. Generous: a false expiry costs a rebuilt
+// iframe, so the deadline sits far above any plausible handshake.
+const PLAYER_READY_TIMEOUT_MS = 30_000;
 
 function applyCommandToPlayer(
   player: YTPlayer,
@@ -302,17 +311,59 @@ export class YouTubePlayerManager {
       player: null,
       pendingPlayer: null,
       retryTimer: null,
+      readyTimer: null,
       disposed: false,
       baseline: { muted: options.muted, start: options.start, volume: null },
     };
     this.entries.set(shapeId, entry);
+    // The API REPLACES its host element with the player iframe, so a
+    // retry after destroying a stalled player has to mount into a fresh
+    // one; the caller's host tells us where to put it.
+    const container = host.parentElement;
+    let mountHost: HTMLElement = host;
+
+    const scheduleRetry = (attempt: number) => {
+      const delay =
+        PLAYER_MOUNT_RETRY_DELAYS_MS[
+          Math.min(attempt, PLAYER_MOUNT_RETRY_DELAYS_MS.length - 1)
+        ];
+      entry.retryTimer = setTimeout(() => {
+        entry.retryTimer = null;
+        attemptMount(attempt + 1);
+      }, delay);
+    };
+
     const attemptMount = (attempt: number) => {
+      if (entry.disposed) {
+        return;
+      }
+      if (!mountHost.isConnected) {
+        if (container == null || !container.isConnected) {
+          // The shape's DOM is gone; nothing to mount into.
+          return;
+        }
+        mountHost = document.createElement("div");
+        container.appendChild(mountHost);
+      }
+      const currentHost = mountHost;
       loadYouTubeIframeApi()
         .then((YT) => {
-          if (entry.disposed || !host.isConnected) {
+          if (entry.disposed) {
             return;
           }
-          const player = new YT.Player(host, {
+          if (!currentHost.isConnected) {
+            // Recoverable the same way a lost host is at the top of
+            // attemptMount: the retry rebuilds one.
+            scheduleRetry(attempt);
+            return;
+          }
+          // A player abandoned by the stall path below can still fire
+          // onReady afterwards; without this its handler would disarm
+          // the successor's stall timer, orphan the successor from
+          // unregister, and route every later command to a destroyed
+          // player.
+          let stale = false;
+          const player = new YT.Player(currentHost, {
             videoId: options.videoId,
             width: "100%",
             height: "100%",
@@ -330,8 +381,12 @@ export class YouTubePlayerManager {
             },
             events: {
               onReady: () => {
-                if (entry.disposed) {
+                if (stale || entry.disposed) {
                   return;
+                }
+                if (entry.readyTimer != null) {
+                  clearTimeout(entry.readyTimer);
+                  entry.readyTimer = null;
                 }
                 entry.pendingPlayer = null;
                 const volume = player.getVolume();
@@ -354,6 +409,25 @@ export class YouTubePlayerManager {
             },
           });
           entry.pendingPlayer = player;
+          entry.readyTimer = setTimeout(() => {
+            stale = true;
+            entry.readyTimer = null;
+            if (entry.disposed) {
+              return;
+            }
+            // The handshake stalled: no promise rejects here, so
+            // without this the entry would sit player-less forever with
+            // every timeline command queued behind it.
+            try {
+              player.destroy();
+            } catch {
+              // ignore
+            }
+            if (entry.pendingPlayer === player) {
+              entry.pendingPlayer = null;
+            }
+            scheduleRetry(attempt);
+          }, PLAYER_READY_TIMEOUT_MS);
         })
         .catch((error) => {
           // Once, not per attempt: at the capped delay a permanently
@@ -364,20 +438,10 @@ export class YouTubePlayerManager {
               error,
             );
           }
-          if (entry.disposed || !host.isConnected) {
+          if (entry.disposed) {
             return;
           }
-          const delay =
-            PLAYER_MOUNT_RETRY_DELAYS_MS[
-              Math.min(attempt, PLAYER_MOUNT_RETRY_DELAYS_MS.length - 1)
-            ];
-          entry.retryTimer = setTimeout(() => {
-            entry.retryTimer = null;
-            if (entry.disposed || !host.isConnected) {
-              return;
-            }
-            attemptMount(attempt + 1);
-          }, delay);
+          scheduleRetry(attempt);
         });
     };
     attemptMount(0);
@@ -392,6 +456,10 @@ export class YouTubePlayerManager {
     if (entry.retryTimer != null) {
       clearTimeout(entry.retryTimer);
       entry.retryTimer = null;
+    }
+    if (entry.readyTimer != null) {
+      clearTimeout(entry.readyTimer);
+      entry.readyTimer = null;
     }
     // On shape unmount the container (with the API's iframe inside) is
     // already detached when this cleanup runs, and destroy() throws on

@@ -272,6 +272,61 @@ describe("loadYouTubeIframeApi", () => {
       }
     });
 
+    it("rebuilds a player whose ready handshake never completes", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const container = mountHost();
+      const host = document.createElement("div");
+      container.appendChild(host);
+      try {
+        const manager = await freshManager();
+        const destroyed: unknown[] = [];
+        const constructedOn: unknown[] = [];
+        const constructedUnder: unknown[] = [];
+        // Never calls onReady, and replaces its host element the way
+        // the real API does — so a retry has nowhere to mount unless a
+        // fresh host is created.
+        class StallingPlayer {
+          private el: HTMLElement;
+          constructor(el: HTMLElement) {
+            this.el = el;
+            constructedOn.push(el);
+            constructedUnder.push(el.parentElement);
+            const iframe = document.createElement("iframe");
+            el.replaceWith(iframe);
+            this.el = iframe;
+          }
+          destroy() {
+            destroyed.push(this.el);
+            this.el.remove();
+          }
+        }
+        window.YT = { Player: StallingPlayer } as unknown as NonNullable<
+          typeof window.YT
+        >;
+
+        manager.register("shape:v", host, REGISTER_OPTIONS);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(constructedOn).toEqual([host]);
+
+        // The handshake deadline expires, then the retry backoff.
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(destroyed).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(constructedOn).toHaveLength(2);
+        expect(constructedOn[1]).not.toBe(host);
+        // The fresh host lands where the caller's host was.
+        expect(constructedUnder[1]).toBe(container);
+
+        manager.unregister("shape:v");
+        // Unregister clears both timers: no further rebuilds.
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(constructedOn).toHaveLength(2);
+      } finally {
+        container.remove();
+        vi.useRealTimers();
+      }
+    });
+
     it("stops retrying a failed mount once the shape unregisters", async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const host = mountHost();
