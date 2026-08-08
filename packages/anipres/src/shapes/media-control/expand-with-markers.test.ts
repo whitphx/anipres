@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { loadHeadlessEditor } from "../../headless-editor-utils";
-import { bindMediaControlMarker } from "./MediaControlBinding";
+import { createDuplicateShapesRemap } from "../../duplicate-shapes-remap";
+import {
+  bindMediaControlMarker,
+  getMediaControlBindingTargetId,
+} from "./MediaControlBinding";
 import { expandShapeIdsWithMediaControlMarkers } from "./expand-with-markers";
 
 function createVideoWithMarker(editor: Editor): {
@@ -54,7 +58,7 @@ describe("expandShapeIdsWithMediaControlMarkers", () => {
     }
   });
 
-  it("covers a video nested inside an included group", () => {
+  it("covers a video nested inside an included group without adding descendants", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
       const { videoId, markerId } = createVideoWithMarker(editor);
@@ -74,8 +78,76 @@ describe("expandShapeIdsWithMediaControlMarkers", () => {
       expect(editor.getSortedChildIdsForParent(groupId)).toHaveLength(2);
 
       const result = expandShapeIdsWithMediaControlMarkers(editor, [groupId]);
-      expect(result).toContain(videoId);
-      expect(result).toContain(markerId);
+      // Only the marker joins the caller's set: duplicateShapes applies
+      // its offset to every explicitly supplied id, so returning the
+      // group's children too would displace them twice.
+      expect(result.sort()).toEqual([groupId, markerId].sort());
+
+      // Same rule for the marker itself: once swept into the group it
+      // is a descendant, and supplying it explicitly would double its
+      // offset too.
+      editor.reparentShapes([markerId], groupId);
+      expect(expandShapeIdsWithMediaControlMarkers(editor, [groupId])).toEqual([
+        groupId,
+      ]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("preserves child layout and carries markers when duplicating a group with an offset", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const { videoId, markerId } = createVideoWithMarker(editor);
+      const otherId = createShapeId("other");
+      editor.createShape({
+        id: otherId,
+        type: "geo",
+        x: 600,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      const groupId = createShapeId("group");
+      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([videoId, otherId], groupId);
+      const originalVideoBounds = editor.getShapePageBounds(videoId)!;
+      const originalOtherBounds = editor.getShapePageBounds(otherId)!;
+
+      // The wrapper installed by Anipres performs the expansion, so
+      // this exercises the production call chain of tldraw's Duplicate
+      // action.
+      createDuplicateShapesRemap(editor, () => ({
+        version: 1,
+        steps: [],
+        detachedFrames: [],
+        diagnostics: [],
+      })).install();
+      editor.duplicateShapes([groupId], { x: 100, y: 50 });
+
+      const copies = editor
+        .getCurrentPageShapes()
+        .filter(
+          (shape) =>
+            shape.id !== groupId &&
+            shape.id !== markerId &&
+            !editor.getSortedChildIdsForParent(groupId).includes(shape.id),
+        );
+      const videoCopy = copies.find((s) => s.type === "youtube-embed")!;
+      const otherCopy = copies.find((s) => s.type === "geo")!;
+      const markerCopy = copies.find((s) => s.type === "media-control")!;
+
+      // Every child is displaced by the offset exactly once.
+      const videoCopyBounds = editor.getShapePageBounds(videoCopy.id)!;
+      const otherCopyBounds = editor.getShapePageBounds(otherCopy.id)!;
+      expect(videoCopyBounds.x).toBe(originalVideoBounds.x + 100);
+      expect(videoCopyBounds.y).toBe(originalVideoBounds.y + 50);
+      expect(otherCopyBounds.x).toBe(originalOtherBounds.x + 100);
+      expect(otherCopyBounds.y).toBe(originalOtherBounds.y + 50);
+
+      // The marker copy is bound to the video copy, not the original.
+      expect(getMediaControlBindingTargetId(editor, markerCopy.id)).toBe(
+        videoCopy.id,
+      );
     } finally {
       dispose();
     }
