@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { DocumentRepository } from "./repository";
+import type { DocumentRepository, LocalDocumentRepository } from "./repository";
 import { useDocumentManager } from "./useDocumentManager";
 import { DocumentManagerContext } from "./useDocumentManagerContext";
 import { useWorkspaceFeed } from "./useWorkspaceFeed";
@@ -10,7 +10,7 @@ export function DocumentManagerProvider({
   workspaceId,
   children,
 }: {
-  localRepository: DocumentRepository;
+  localRepository: LocalDocumentRepository;
   syncedRepository?: DocumentRepository;
   workspaceId: string | null;
   children: ReactNode;

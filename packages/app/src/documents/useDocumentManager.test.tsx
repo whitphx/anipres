@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { compareOrderKeys } from "anipres/models";
-import type { TLStoreSnapshot } from "tldraw";
+import type { Editor, TLStoreSnapshot } from "tldraw";
 import { useDocumentManager } from "./useDocumentManager";
-import type { DocumentRepository } from "./repository";
+import type { DocumentRepository, LocalDocumentRepository } from "./repository";
 import type {
   DocumentData,
   DocumentInput,
@@ -11,7 +11,32 @@ import type {
   DocumentSource,
 } from "./types";
 
+// The real getSnapshot needs a real TLStore; the fake editors below
+// expose `store.getStoreSnapshot` for this stub to read instead.
+vi.mock("tldraw", () => ({
+  getSnapshot: (store: { getStoreSnapshot: () => TLStoreSnapshot }) => ({
+    document: store.getStoreSnapshot(),
+  }),
+}));
+
 const emptySnapshot = { store: {}, schema: {} } as unknown as TLStoreSnapshot;
+
+function makeFakeEditor(snapshot: TLStoreSnapshot) {
+  const listeners: Array<() => void> = [];
+  const editor = {
+    store: {
+      listen: (cb: () => void) => {
+        listeners.push(cb);
+        return () => {};
+      },
+      getStoreSnapshot: () => snapshot,
+    },
+  } as unknown as Editor;
+  return {
+    editor,
+    emitUserChange: () => listeners.forEach((cb) => cb()),
+  };
+}
 
 function makeLocalDocWithSnapshot(id: string): DocumentData {
   return {
@@ -77,14 +102,26 @@ function makeFakeRepo(source: DocumentSource, initial: DocumentData[] = []) {
   const del = vi.fn(async (id: string): Promise<void> => {
     store.delete(id);
   });
+  const updateSnapshot = vi.fn(
+    async (id: string, snapshot: TLStoreSnapshot): Promise<void> => {
+      const existing = store.get(id);
+      if (!existing) return;
+      store.set(id, {
+        ...existing,
+        snapshot,
+        meta: { ...existing.meta, updatedAt: Date.now() },
+      });
+    },
+  );
 
-  const repo: DocumentRepository = {
+  const repo: LocalDocumentRepository = {
     list,
     get,
     save,
     delete: del,
+    updateSnapshot,
   };
-  return { repo, store, list, get, save, delete: del };
+  return { repo, store, list, get, save, delete: del, updateSnapshot };
 }
 
 describe("useDocumentManager", () => {
@@ -109,6 +146,7 @@ describe("useDocumentManager", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("merges synced and local documents on initial load with synced first", async () => {
@@ -775,6 +813,136 @@ describe("useDocumentManager", () => {
 
     expect(localRepo.delete).not.toHaveBeenCalled();
     expect(result.current.documents[0].source).toBe("local");
+  });
+
+  it("persists the active local doc when the debounced save fires, without a second write on unregister", async () => {
+    const editedSnapshot = {
+      store: { edited: true },
+      schema: {},
+    } as unknown as TLStoreSnapshot;
+    const localRepo = makeFakeRepo("local", [makeLocalDocWithSnapshot("L1")]);
+
+    const { result } = renderHook(() =>
+      useDocumentManager({ localRepository: localRepo.repo }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.activeDocument?.id).toBe("L1");
+
+    const { editor, emitUserChange } = makeFakeEditor(editedSnapshot);
+    let unregister!: () => void;
+    act(() => {
+      unregister = result.current.registerEditor(editor);
+    });
+
+    // Fake timers only around the debounce window; the load above and
+    // the settling below rely on real timers.
+    vi.useFakeTimers();
+    act(() => {
+      emitUserChange();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    vi.useRealTimers();
+
+    expect(localRepo.updateSnapshot).toHaveBeenCalledTimes(1);
+    expect(localRepo.updateSnapshot).toHaveBeenCalledWith("L1", editedSnapshot);
+
+    // The fired save cleared the pending state, so teardown has nothing
+    // left to flush.
+    act(() => {
+      unregister();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(localRepo.updateSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes a pending debounced save when the editor unregisters before it fires", async () => {
+    const editedSnapshot = {
+      store: { edited: true },
+      schema: {},
+    } as unknown as TLStoreSnapshot;
+    const localRepo = makeFakeRepo("local", [makeLocalDocWithSnapshot("L1")]);
+
+    const { result } = renderHook(() =>
+      useDocumentManager({ localRepository: localRepo.repo }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.activeDocument?.id).toBe("L1");
+
+    const { editor, emitUserChange } = makeFakeEditor(editedSnapshot);
+    let unregister!: () => void;
+    act(() => {
+      unregister = result.current.registerEditor(editor);
+    });
+    localRepo.get.mockClear();
+    localRepo.save.mockClear();
+
+    // An edit schedules the debounced save; the editor tears down before
+    // the 500ms window elapses — the app-level unmount that happens when
+    // auth resolves mid-editing-session. The scheduled save must be
+    // flushed, not dropped.
+    act(() => {
+      emitUserChange();
+      unregister();
+    });
+
+    await waitFor(() =>
+      expect(localRepo.updateSnapshot).toHaveBeenCalledTimes(1),
+    );
+    expect(localRepo.updateSnapshot).toHaveBeenCalledWith("L1", editedSnapshot);
+    // The flush must stay a single atomic repository operation. A
+    // get-then-save pair spans two storage transactions, and a document
+    // manager remounting after the teardown could read the stale
+    // snapshot between them.
+    expect(localRepo.get).not.toHaveBeenCalled();
+    expect(localRepo.save).not.toHaveBeenCalled();
+  });
+
+  it("skips the flush when a doc switch has already detached the editor", async () => {
+    const editedSnapshot = {
+      store: { edited: true },
+      schema: {},
+    } as unknown as TLStoreSnapshot;
+    const localRepo = makeFakeRepo("local", [
+      makeLocalDocWithSnapshot("L1"),
+      makeLocalDocWithSnapshot("L2"),
+    ]);
+
+    const { result } = renderHook(() =>
+      useDocumentManager({ localRepository: localRepo.repo }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.activeDocument?.id).toBe("L1");
+
+    const { editor, emitUserChange } = makeFakeEditor(editedSnapshot);
+    let unregister!: () => void;
+    act(() => {
+      unregister = result.current.registerEditor(editor);
+    });
+
+    act(() => {
+      emitUserChange();
+    });
+    // selectDocument saves L1 through saveCurrentEditor before switching.
+    await act(async () => {
+      await result.current.selectDocument("L2");
+    });
+    expect(localRepo.updateSnapshot).toHaveBeenCalledWith("L1", editedSnapshot);
+    localRepo.updateSnapshot.mockClear();
+
+    // The old editor's debounced save is still pending, but the switch
+    // detached the editor after saving L1 itself; teardown must not
+    // write again.
+    act(() => {
+      unregister();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(localRepo.updateSnapshot).not.toHaveBeenCalled();
   });
 
   it("treats createDocument({source: 'synced'}) as a no-op when no synced repository is configured", async () => {

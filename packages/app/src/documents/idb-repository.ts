@@ -1,6 +1,14 @@
-import { createStore, get, set, del, entries } from "idb-keyval";
+import {
+  createStore,
+  get,
+  set,
+  del,
+  entries,
+  promisifyRequest,
+} from "idb-keyval";
 import { compareOrderKeys } from "anipres/models";
-import type { DocumentRepository } from "./repository";
+import type { TLStoreSnapshot } from "tldraw";
+import type { LocalDocumentRepository } from "./repository";
 import type { DocumentData, DocumentInput, DocumentMeta } from "./types";
 
 const store = createStore("anipres-documents", "documents");
@@ -9,7 +17,7 @@ function stampLocal(meta: DocumentMeta): DocumentMeta {
   return { ...meta, source: "local" };
 }
 
-export class IdbDocumentRepository implements DocumentRepository {
+export class IdbDocumentRepository implements LocalDocumentRepository {
   async list(): Promise<DocumentMeta[]> {
     const all = await entries<string, DocumentData>(store);
     return all
@@ -48,5 +56,42 @@ export class IdbDocumentRepository implements DocumentRepository {
 
   async delete(id: string): Promise<void> {
     await del(id, store);
+  }
+
+  // Closely follows idb-keyval's `update` (Apache-2.0, © 2016 Jake
+  // Archibald; https://github.com/jakearchibald/idb-keyval/blob/main/src/index.ts
+  // — see THIRD_PARTY_NOTICES.md): the get and the conditional put
+  // share one readwrite transaction. `update` itself cannot express
+  // this operation because it unconditionally writes the updater's
+  // return value, and a missing document must stay missing here.
+  async updateSnapshot(id: string, snapshot: TLStoreSnapshot): Promise<void> {
+    await store(
+      "readwrite",
+      (s) =>
+        new Promise<void>((resolve, reject) => {
+          const request = s.get(id);
+          request.onsuccess = () => {
+            try {
+              const existing = request.result as DocumentData | undefined;
+              if (existing === undefined) {
+                resolve();
+                return;
+              }
+              s.put(
+                {
+                  ...existing,
+                  snapshot,
+                  meta: { ...existing.meta, updatedAt: Date.now() },
+                },
+                id,
+              );
+              resolve(promisifyRequest(s.transaction));
+            } catch (error) {
+              reject(error);
+            }
+          };
+          request.onerror = () => reject(request.error);
+        }),
+    );
   }
 }
