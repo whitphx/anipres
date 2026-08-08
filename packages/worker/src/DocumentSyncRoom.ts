@@ -1,24 +1,8 @@
 import { type RoomSnapshot, TLSocketRoom } from "@tldraw/sync-core";
-import {
-  createTLSchema,
-  defaultBindingSchemas,
-  defaultShapeSchemas,
-} from "tldraw";
 import type { TLRecord, TLStoreSnapshot } from "tldraw";
 import { DurableObject } from "cloudflare:workers";
 import { getSyncAnimationDataVersionGateResponse } from "./animation-data-version-gate";
-import {
-  mediaControlBindingProps,
-  MediaControlBindingType,
-  mediaControlShapeProps,
-  MediaControlShapeType,
-  slideShapeProps,
-  SlideShapeType,
-  themeImageShapeProps,
-  ThemeImageShapeType,
-  youTubeEmbedShapeProps,
-  YouTubeEmbedShapeType,
-} from "anipres/schema";
+import { documentSchema } from "./document-schema";
 import {
   finalizeDeletingDocument,
   getReferencedDocumentAssetNames,
@@ -27,20 +11,6 @@ import {
   runDocumentAssetGc,
 } from "./tldraw-assets";
 import type { Env as WorkerEnv } from "./types";
-
-const schema = createTLSchema({
-  shapes: {
-    ...defaultShapeSchemas,
-    [SlideShapeType]: { props: slideShapeProps },
-    [ThemeImageShapeType]: { props: themeImageShapeProps },
-    [YouTubeEmbedShapeType]: { props: youTubeEmbedShapeProps },
-    [MediaControlShapeType]: { props: mediaControlShapeProps },
-  },
-  bindings: {
-    ...defaultBindingSchemas,
-    [MediaControlBindingType]: { props: mediaControlBindingProps },
-  },
-});
 
 const DOCUMENT_DELETE_RETRY_MS = 30_000;
 const DOCUMENT_DELETE_CURSOR_STORAGE_KEY = "documentDeleteCursor";
@@ -52,7 +22,7 @@ function roomSnapshotToStoreSnapshot(snapshot: RoomSnapshot): TLStoreSnapshot {
     store: Object.fromEntries(
       snapshot.documents.map(({ state }) => [state.id, state as TLRecord]),
     ) as TLStoreSnapshot["store"],
-    schema: snapshot.schema ?? schema.serialize(),
+    schema: snapshot.schema ?? documentSchema.serialize(),
   };
 }
 
@@ -145,7 +115,7 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
 
   private createRoom(initialSnapshot?: RoomSnapshot) {
     return new TLSocketRoom<TLRecord, void>({
-      schema,
+      schema: documentSchema,
       initialSnapshot,
       onDataChange: () => {
         this.scheduleAssetSync();
@@ -620,7 +590,8 @@ export class DocumentSyncRoom extends DurableObject<WorkerEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
-    const versionGateResponse = getSyncAnimationDataVersionGateResponse(request);
+    const versionGateResponse =
+      getSyncAnimationDataVersionGateResponse(request);
     if (versionGateResponse) return versionGateResponse;
     const url = new URL(request.url);
     const documentId = this.getDocumentIdFromRequest(request);
