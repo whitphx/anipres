@@ -10,20 +10,11 @@ afterEach(() => {
 
 // Node's built-in BroadcastChannel (happy-dom provides none) delivers
 // across instances asynchronously, with no guarantee the message lands
-// within any fixed number of event-loop turns. A control channel that
-// takes every message unfiltered gives the negative assertions
-// something real to wait on; the extra turn awaited after it covers the
-// case where the control's port is served before the subject's.
-function nextBroadcast(): Promise<void> {
-  return new Promise((resolve) => {
-    const control = new BroadcastChannel("anipres:auth");
-    cleanups.push(() => control.close());
-    control.onmessage = () => {
-      resolve();
-    };
-  });
-}
-
+// within any fixed number of event-loop turns, so the negative
+// assertions can't just sleep and check. They synchronize on delivery
+// instead: messages are delivered to each receiving channel in posting
+// order, so once a later message has provably arrived, the earlier one
+// had its chance.
 describe("auth broadcast", () => {
   it("delivers a logout message from another sender", async () => {
     const handler = vi.fn();
@@ -41,26 +32,32 @@ describe("auth broadcast", () => {
     const handler = vi.fn();
     cleanups.push(subscribeToAuthBroadcasts(handler));
 
-    const delivered = nextBroadcast();
     broadcastLogout();
-    await delivered;
-    await new Promise((r) => setTimeout(r, 0));
+    // Posted after the same-tab broadcast. Delivery to a channel is
+    // FIFO, so the first call the handler ever receives is fixed: if
+    // the filter were broken it would be the own-tab message, and the
+    // payload assertion below would fail no matter when polling lands.
+    const externalChannel = new BroadcastChannel("anipres:auth");
+    externalChannel.postMessage({ type: "logout", senderId: "other-tab" });
+    externalChannel.close();
 
-    expect(handler).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(handler).toHaveBeenCalled());
+    expect(handler.mock.calls[0][0]).toMatchObject({ senderId: "other-tab" });
   });
 
   it("removes the listener on unsubscribe", async () => {
     const handler = vi.fn();
     const unsubscribe = subscribeToAuthBroadcasts(handler);
     unsubscribe();
+    // A second, still-open subscriber proves the message went out.
+    const witness = vi.fn();
+    cleanups.push(subscribeToAuthBroadcasts(witness));
 
-    const delivered = nextBroadcast();
     const externalChannel = new BroadcastChannel("anipres:auth");
     externalChannel.postMessage({ type: "logout", senderId: "other-tab" });
     externalChannel.close();
-    await delivered;
-    await new Promise((r) => setTimeout(r, 0));
 
+    await vi.waitFor(() => expect(witness).toHaveBeenCalledTimes(1));
     expect(handler).not.toHaveBeenCalled();
   });
 });
