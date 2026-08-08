@@ -224,8 +224,7 @@ jobs:
       - name: Format check
         run: pnpm format --check
 
-  # Lint/format live in lint-app and typecheck in build-app (tsc -b),
-  # so this job only runs the unit tests.
+  # Lint, format, and typecheck for this package run in lint-app and build-app.
   test-app:
     runs-on: ubuntu-latest
     defaults:
@@ -249,6 +248,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      # Vitest loads vite.config.ts, whose Font.vite() plugin needs the
+      # cn-font-split native library at module load even though no test
+      # imports a font.
+      # https://github.com/KonghaYao/cn-font-split/issues/149
+      - run: pnpm cn-font-split i default
 
       - name: Test
         run: pnpm test
@@ -286,7 +291,7 @@ jobs:
         run: pnpm test
 
   build-app:
-    needs: [test-agent-core, lint-app]
+    needs: [test-agent-core, lint-app, test-app]
 
     runs-on: ubuntu-latest
     permissions:
