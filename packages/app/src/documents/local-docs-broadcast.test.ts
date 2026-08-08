@@ -1,17 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   broadcastLocalDocsChanged,
   subscribeToLocalDocsChanges,
 } from "./local-docs-broadcast";
 
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  while (cleanups.length) {
+    cleanups.pop()!();
+  }
+});
+
 // Same-realm BroadcastChannel cross-instance behavior is what's
 // being exercised: a message posted on a fresh "anipres:local-docs"
 // channel should reach a subscriber on a separate channel of the
-// same name, except when the sender id matches.
+// same name, except when the sender id matches. See
+// auth-broadcast.test.ts for why the waits synchronize on delivery
+// instead of sleeping: Node's BroadcastChannel has no same-turn
+// delivery guarantee.
 describe("local-docs broadcast", () => {
   it("delivers to a subscriber when the broadcast comes from another sender", async () => {
     const handler = vi.fn();
-    const unsubscribe = subscribeToLocalDocsChanges(handler);
+    cleanups.push(subscribeToLocalDocsChanges(handler));
 
     // Simulate "another tab" by posting raw on the same channel name
     // — that channel has a different sender id by construction.
@@ -19,34 +29,48 @@ describe("local-docs broadcast", () => {
     externalChannel.postMessage({ senderId: "other-tab" });
     externalChannel.close();
 
-    // BroadcastChannel delivery is asynchronous; yield once.
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    unsubscribe();
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
   });
 
   it("ignores broadcasts originated by the same tab", async () => {
     const handler = vi.fn();
-    const unsubscribe = subscribeToLocalDocsChanges(handler);
+    cleanups.push(subscribeToLocalDocsChanges(handler));
+    // Created after the subject, so the fan-out serves it after the
+    // subject for every message; once it has the external message the
+    // subject has processed both and its count is final. Unfiltered on
+    // purpose: the filter is what's under test here.
+    const externalArrived = new Promise<void>((resolve) => {
+      const barrier = new BroadcastChannel("anipres:local-docs");
+      cleanups.push(() => barrier.close());
+      barrier.onmessage = (e: MessageEvent<{ senderId?: string }>) => {
+        if (e.data?.senderId === "other-tab") {
+          resolve();
+        }
+      };
+    });
 
     broadcastLocalDocsChanged();
-    await new Promise((r) => setTimeout(r, 0));
+    const externalChannel = new BroadcastChannel("anipres:local-docs");
+    externalChannel.postMessage({ senderId: "other-tab" });
+    externalChannel.close();
 
-    expect(handler).not.toHaveBeenCalled();
-    unsubscribe();
+    await externalArrived;
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("removes the listener on unsubscribe", async () => {
     const handler = vi.fn();
     const unsubscribe = subscribeToLocalDocsChanges(handler);
     unsubscribe();
+    // A second, still-open subscriber proves the message went out.
+    const witness = vi.fn();
+    cleanups.push(subscribeToLocalDocsChanges(witness));
 
     const externalChannel = new BroadcastChannel("anipres:local-docs");
     externalChannel.postMessage({ senderId: "other-tab" });
     externalChannel.close();
-    await new Promise((r) => setTimeout(r, 0));
 
+    await vi.waitFor(() => expect(witness).toHaveBeenCalledTimes(1));
     expect(handler).not.toHaveBeenCalled();
   });
 });
