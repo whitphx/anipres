@@ -58,12 +58,12 @@ export class IdbDocumentRepository implements LocalDocumentRepository {
     await del(id, store);
   }
 
-  // Patterned after idb-keyval's `update` (Apache-2.0, © Jake Archibald;
-  // https://github.com/jakearchibald/idb-keyval/blob/main/src/index.ts):
-  // the get and the conditional put share one readwrite transaction.
-  // `update` itself cannot express this operation because it
-  // unconditionally writes the updater's return value, and a missing
-  // document must stay missing here.
+  // Closely follows idb-keyval's `update` (Apache-2.0, © 2016 Jake
+  // Archibald; https://github.com/jakearchibald/idb-keyval/blob/main/src/index.ts
+  // — see THIRD_PARTY_NOTICES.md): the get and the conditional put
+  // share one readwrite transaction. `update` itself cannot express
+  // this operation because it unconditionally writes the updater's
+  // return value, and a missing document must stay missing here.
   async updateSnapshot(id: string, snapshot: TLStoreSnapshot): Promise<void> {
     await store(
       "readwrite",
@@ -85,7 +85,7 @@ export class IdbDocumentRepository implements LocalDocumentRepository {
                 },
                 id,
               );
-              resolve(promisifyRequest(s.transaction).then(() => undefined));
+              resolve(promisifyRequest(s.transaction));
             } catch (error) {
               reject(error);
             }

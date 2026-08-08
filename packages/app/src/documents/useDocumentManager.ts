@@ -670,17 +670,20 @@ export function useDocumentManager(params: {
           activeDocumentSourceRef.current === "local"
         ) {
           // Captured synchronously: the editor may be disposed as soon
-          // as this cleanup returns. updateSnapshot is a single
-          // readwrite transaction, so reads issued after this cleanup —
-          // e.g. by a document manager remounting once workspace
-          // discovery settles — are ordered behind it and observe the
-          // flushed snapshot (see LocalDocumentRepository).
-          const { document } = getSnapshot(nextEditor.store);
-          void localRepository
-            .updateSnapshot(pendingDocId, document)
-            .catch((error) =>
-              console.error("Failed to flush the pending local save", error),
-            );
+          // as this cleanup returns. updateSnapshot is atomic, so a
+          // manager remounting after this cleanup reads the flushed
+          // snapshot (see LocalDocumentRepository). The try keeps a
+          // failed capture from skipping the ref-nulling below.
+          try {
+            const { document } = getSnapshot(nextEditor.store);
+            void localRepository
+              .updateSnapshot(pendingDocId, document)
+              .catch((error) =>
+                console.error("Failed to flush the pending local save", error),
+              );
+          } catch (error) {
+            console.error("Failed to flush the pending local save", error);
+          }
         }
         // saveCurrentEditor reads `editorRef.current` directly, and
         // callers outside this listener (the visibility/pagehide

@@ -1,11 +1,12 @@
 # Third-party notices
 
-Anipres is MIT-licensed (see `LICENSE`). The agent feature draws
-significant inspiration from the third-party project listed below —
+Anipres is MIT-licensed (see `LICENSE`). The projects listed below
+contributed designs and code that Anipres adapts — the agent feature
+in particular draws significant inspiration from tldraw/agent-template
 in design, structure, naming, and several specific patterns. We owe
-that work a real intellectual debt; this notice exists both to thank
-the upstream authors and to satisfy the attribution requirements of
-their license.
+these works a real intellectual debt; this notice exists both to
+thank the upstream authors and to satisfy the attribution
+requirements of their licenses.
 
 ---
 
@@ -177,3 +178,19 @@ to minimise the upstream contribution.
 
 For the design rationale and how these pieces fit together in the
 context of Anipres' presentation model, see `docs/design-agent.md`.
+
+---
+
+## idb-keyval
+
+Source: https://github.com/jakearchibald/idb-keyval
+License: Apache-2.0 — Copyright 2016, Jake Archibald
+(full text: https://github.com/jakearchibald/idb-keyval/blob/main/LICENCE)
+
+- **`IdbDocumentRepository.updateSnapshot`** — `packages/app/src/documents/idb-repository.ts`
+  **closely follows** [`update`](https://github.com/jakearchibald/idb-keyval/blob/main/src/index.ts):
+  the same single-readwrite-transaction get-then-put structure and
+  the same `resolve(promisifyRequest(store.transaction))` completion
+  handshake. Modified here to write conditionally (a missing document
+  must stay missing, where `update` always writes) and to reject on a
+  failed `get`.
