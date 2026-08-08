@@ -9,7 +9,6 @@ import type { Geometry2d } from "tldraw";
 import {
   MediaControlShape,
   MediaControlShapeType,
-  mediaControlShapeMigrations,
   mediaControlShapeProps,
   MEDIA_CONTROL_SHAPE_SIZE,
   resolveMediaControlTarget,
@@ -29,7 +28,6 @@ const COMMAND_ICONS: Record<MediaControlCommand, string> = {
 export class MediaControlShapeUtil extends ShapeUtil<MediaControlShape> {
   static override readonly type = MediaControlShapeType;
   static override readonly props = mediaControlShapeProps;
-  static override readonly migrations = mediaControlShapeMigrations;
 
   override getDefaultProps(): MediaControlShape["props"] {
     return { w: null, h: null };

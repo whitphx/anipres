@@ -10,7 +10,6 @@ import { getSyncAnimationDataVersionGateResponse } from "./animation-data-versio
 import {
   mediaControlBindingProps,
   MediaControlBindingType,
-  mediaControlShapeMigrations,
   mediaControlShapeProps,
   MediaControlShapeType,
   slideShapeProps,
@@ -35,10 +34,7 @@ const schema = createTLSchema({
     [SlideShapeType]: { props: slideShapeProps },
     [ThemeImageShapeType]: { props: themeImageShapeProps },
     [YouTubeEmbedShapeType]: { props: youTubeEmbedShapeProps },
-    [MediaControlShapeType]: {
-      props: mediaControlShapeProps,
-      migrations: mediaControlShapeMigrations,
-    },
+    [MediaControlShapeType]: { props: mediaControlShapeProps },
   },
   bindings: {
     ...defaultBindingSchemas,

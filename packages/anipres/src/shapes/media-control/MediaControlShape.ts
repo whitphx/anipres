@@ -1,8 +1,4 @@
-import {
-  createShapePropsMigrationIds,
-  createShapePropsMigrationSequence,
-  T,
-} from "tldraw";
+import { T } from "tldraw";
 import type {
   Editor,
   RecordProps,
@@ -50,29 +46,6 @@ export const mediaControlShapeProps: RecordProps<MediaControlShape> = {
   w: T.nonZeroNumber.nullable(),
   h: T.nonZeroNumber.nullable(),
 };
-
-const mediaControlShapeVersions = createShapePropsMigrationIds(
-  MediaControlShapeType,
-  {
-    AddTargetSize: 1,
-  },
-);
-
-export const mediaControlShapeMigrations = createShapePropsMigrationSequence({
-  sequence: [
-    {
-      id: mediaControlShapeVersions.AddTargetSize,
-      up: (props) => {
-        props.w ??= null;
-        props.h ??= null;
-      },
-      down: (props) => {
-        delete props.w;
-        delete props.h;
-      },
-    },
-  ],
-});
 
 /** Rendered size of the marker badge. */
 export const MEDIA_CONTROL_SHAPE_SIZE = 28;

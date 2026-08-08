@@ -28,7 +28,6 @@ export type {
   YouTubeEmbedShapeProps,
 } from "./shapes/youtube-embed/YouTubeEmbedShape.ts";
 export {
-  mediaControlShapeMigrations,
   mediaControlShapeProps,
   MediaControlShapeType,
   resolveMediaControlTarget,
