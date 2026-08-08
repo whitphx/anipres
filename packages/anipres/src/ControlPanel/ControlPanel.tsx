@@ -218,6 +218,17 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     }
   };
 
+  // Deleting a media event means deleting its (invisible) marker shape;
+  // the frame disappears from the timeline with it. The type check is
+  // the invariant that only marker shapes may be deleted through this
+  // path — for any other carrier it would destroy a user's drawing.
+  const handleFrameDelete = (frame: FrameUIData) => {
+    const targetShape = editor.getShape(frame.shapeId as TLShapeId);
+    if (targetShape?.type === MediaControlShapeType) {
+      editor.deleteShape(targetShape.id);
+    }
+  };
+
   // --- Diagnostic resolution (design Risk 7). All repairs are
   // --- user-triggered semantic repairs — never auto-persisted.
 
@@ -409,6 +420,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
+          onFrameDelete={handleFrameDelete}
           currentStepIndex={currentStepIndex}
           onStepSelect={onCurrentStepIndexChange}
           shapeSelections={shapeSelections}

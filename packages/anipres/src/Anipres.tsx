@@ -36,6 +36,10 @@ import type {
 import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./shapes/slide/SlideShape";
+import { MediaControlShapeType } from "./shapes/media-control/MediaControlShape";
+import { getMediaControlBindingTargetId } from "./shapes/media-control/MediaControlBinding";
+import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
+import { PresentationModeContext } from "./presentation-mode-context";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
@@ -210,6 +214,10 @@ const makeUiOverrides = ({
         "tool.theme-image-download": "Download Image",
         "tool.theme-image-download-dark": "Download Dark Theme Image",
         "tool.theme-image-sync": "Sync theme edits",
+        // Screen readers announce a selected shape via `tool.<type>`;
+        // without these the raw key is read out.
+        "tool.youtube-embed": "YouTube video",
+        "tool.media-control": "Media event",
       },
     },
   };
@@ -327,6 +335,21 @@ const Inner = (props: InnerProps) => {
       editor,
       $currentStepIndex,
     );
+
+    // Markers whose binding is gone (legacy documents, external
+    // content) are invisible and their events silently no-op; delete
+    // them instead of letting them accumulate.
+    const orphanedMarkerIds = editor
+      .getCurrentPageShapes()
+      .filter(
+        (shape) =>
+          shape.type === MediaControlShapeType &&
+          getMediaControlBindingTargetId(editor, shape.id) == null,
+      )
+      .map((shape) => shape.id);
+    if (orphanedMarkerIds.length > 0) {
+      editor.deleteShapes(orphanedMarkerIds);
+    }
 
     const stopHandlers: (() => void)[] = [];
 
@@ -599,6 +622,27 @@ const Inner = (props: InnerProps) => {
       );
     }
 
+    // Copying a video must carry its media events; see
+    // expandShapeIdsWithMediaControlMarkers.
+    const editorWithGet = editor as Editor & {
+      getContentFromCurrentPage?: (
+        shapes: TLShapeId[] | TLShape[],
+      ) => TLContent | undefined;
+    };
+    if (typeof editorWithGet.getContentFromCurrentPage === "function") {
+      const originalGetContent =
+        editorWithGet.getContentFromCurrentPage.bind(editor);
+      editorWithGet.getContentFromCurrentPage = (shapes) =>
+        originalGetContent(
+          expandShapeIdsWithMediaControlMarkers(editor, shapes),
+        );
+    } else {
+      console.warn(
+        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
+          "Copying a video will not carry its media events.",
+      );
+    }
+
     // Content-level paste preprocessing — the PRIMARY duplication/paste
     // mechanism: an order-independent transform over the complete copied
     // content, with operation-scoped identity maps (frame ids keyed by
@@ -728,6 +772,14 @@ const Inner = (props: InnerProps) => {
     NonNullable<TldrawProps["getShapeVisibility"]>
   >(
     (shape, editor) => {
+      // Media-control markers are metadata carriers, never canvas
+      // objects: excluding them here removes them from rendering and
+      // hit-testing in every mode. Their visual surface is the
+      // media-event strip drawn by the YouTube embed shape's component.
+      if (shape.type === MediaControlShapeType) {
+        return "hidden";
+      }
+
       const presentationMode = perInstanceAtoms.$presentationMode.get();
       if (!presentationMode) {
         return "visible";
@@ -750,29 +802,35 @@ const Inner = (props: InnerProps) => {
   );
 
   return (
-    <Tldraw
-      onMount={handleMount}
-      components={{
-        ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents({
-          $currentStepIndex,
-          $presentationMode: perInstanceAtoms.$presentationMode,
-        }),
-      }}
-      overrides={makeUiOverrides(perInstanceAtoms)}
-      shapeUtils={customShapeUtils}
-      bindingUtils={customBindingUtils}
-      tools={customTools}
-      getShapeVisibility={determineShapeVisibility}
-      maxAssetSize={maxAssetSize}
-      options={{
-        maxPages: 1,
-      }}
-      store={store}
-      snapshot={snapshot}
-      assetUrls={assetUrls}
-      user={user}
-    />
+    <PresentationModeContext.Provider
+      value={perInstanceAtoms.$presentationMode}
+    >
+      <Tldraw
+        onMount={handleMount}
+        components={{
+          ...createModeAwareDefaultComponents(
+            perInstanceAtoms.$presentationMode,
+          ),
+          ...createComponents({
+            $currentStepIndex,
+            $presentationMode: perInstanceAtoms.$presentationMode,
+          }),
+        }}
+        overrides={makeUiOverrides(perInstanceAtoms)}
+        shapeUtils={customShapeUtils}
+        bindingUtils={customBindingUtils}
+        tools={customTools}
+        getShapeVisibility={determineShapeVisibility}
+        maxAssetSize={maxAssetSize}
+        options={{
+          maxPages: 1,
+        }}
+        store={store}
+        snapshot={snapshot}
+        assetUrls={assetUrls}
+        user={user}
+      />
+    </PresentationModeContext.Provider>
   );
 };
 

@@ -160,34 +160,36 @@ describe("attachMediaControlCueFrame", () => {
     });
   });
 
-  it("moves the markers along with the video (binding follow)", () => {
+  it("keeps the marker parked at the video's origin across video moves", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
       const [marker] = getBoundMarkers(editor, videoId);
-      const { x, y } = marker!;
+      expect(marker!.x).toBe(0);
+      expect(marker!.y).toBe(0);
 
       editor.updateShape({ id: videoId, type: "youtube-embed", x: 50, y: 70 });
 
+      // Markers are never rendered, but hidden shapes still count toward
+      // page bounds (zoomToFit), so a stale position must not linger.
       const moved = editor.getShape(marker!.id)!;
-      expect(moved.x).toBe(x + 50);
-      expect(moved.y).toBe(y + 70);
+      expect(moved.x).toBe(50);
+      expect(moved.y).toBe(70);
     });
   });
 
-  it("keeps a marker moved on its own re-anchored across later video moves", () => {
+  it("re-parks a marker that was moved on its own", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
       const [marker] = getBoundMarkers(editor, videoId);
 
-      // The user moves the marker alone (drag, nudge, align — any shape
-      // change re-anchors via the binding's onAfterChangeFromShape).
+      // The strip badge selects the marker, and selection-wide
+      // operations (arrow-key nudge, align) do not filter hidden
+      // shapes — any such move must snap back.
       editor.updateShape({ id: marker!.id, type: marker!.type, x: 500, y: 5 });
 
-      editor.updateShape({ id: videoId, type: "youtube-embed", x: 30, y: 40 });
-
-      const moved = editor.getShape(marker!.id)!;
-      expect(moved.x).toBe(530);
-      expect(moved.y).toBe(45);
+      const parked = editor.getShape(marker!.id)!;
+      expect(parked.x).toBe(0);
+      expect(parked.y).toBe(0);
     });
   });
 

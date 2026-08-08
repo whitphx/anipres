@@ -114,6 +114,7 @@ interface StepColumnProps {
   ) => React.RefCallback<HTMLElement>;
   draggedFrame: FrameUIData | null;
   onFrameChange: (newFrame: FrameUIData) => void;
+  onFrameDelete: (frame: FrameUIData) => void;
   onFrameSelect: (frameShapeId: string) => void;
   requestCueFrameAddAfter: (prevCueFrame: FrameUIData) => void;
   requestSubFrameAddAfter: (prevFrame: FrameUIData) => void;
@@ -130,6 +131,7 @@ const StepColumn = React.memo(
     frameEditorRefCallback,
     draggedFrame,
     onFrameChange,
+    onFrameDelete,
     onFrameSelect,
     requestSubFrameAddAfter,
     requestCueFrameAddAfter,
@@ -185,6 +187,7 @@ const StepColumn = React.memo(
                               draggedFrame?.shapeId === cueFrame.shapeId
                             }
                             onUpdate={onFrameChange}
+                            onDelete={() => onFrameDelete(cueFrame)}
                             isSelected={selectedFrameShapeIds.includes(
                               cueFrame.shapeId,
                             )}
@@ -211,6 +214,7 @@ const StepColumn = React.memo(
                                   draggedFrame?.shapeId === subFrame.shapeId
                                 }
                                 onUpdate={onFrameChange}
+                                onDelete={() => onFrameDelete(subFrame)}
                                 isSelected={selectedFrameShapeIds.includes(
                                   subFrame.shapeId,
                                 )}
@@ -328,6 +332,8 @@ interface TimelineProps {
    */
   trackGroups: Record<string, string>;
   onFrameChange: (newFrame: FrameUIData) => void;
+  /** Deletes the event a frame represents; see FrameEditPopover's onDelete. */
+  onFrameDelete: (frame: FrameUIData) => void;
   onEditedStepsChange: (editedSteps: EditedStep[]) => void;
   currentStepIndex: number;
   onStepSelect: (stepIndex: number) => void;
@@ -354,6 +360,7 @@ export function Timeline({
   timelineDoc,
   trackGroups,
   onFrameChange,
+  onFrameDelete,
   onEditedStepsChange,
   currentStepIndex,
   onStepSelect,
@@ -559,6 +566,7 @@ export function Timeline({
               frameEditorRefCallback={frameEditorRefCallback}
               draggedFrame={draggedFrame}
               onFrameChange={onFrameChange}
+              onFrameDelete={onFrameDelete}
               onFrameSelect={onFrameSelect}
               requestSubFrameAddAfter={requestSubFrameAddAfter}
               requestCueFrameAddAfter={requestCueFrameAddAfter}
@@ -605,6 +613,7 @@ export function Timeline({
                 frame={draggedFrame}
                 isPlaceholder={false}
                 onUpdate={() => {}}
+                onDelete={() => {}}
                 isSelected={selectedFrameShapeIds.includes(
                   draggedFrame.shapeId,
                 )}

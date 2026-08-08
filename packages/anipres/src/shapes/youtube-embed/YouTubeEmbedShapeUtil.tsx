@@ -6,9 +6,10 @@ import {
   toDomPrecision,
   useEditor,
   useIsEditing,
+  useValue,
 } from "tldraw";
-import type { Geometry2d } from "tldraw";
-import { useEffect, useRef, useState } from "react";
+import type { Geometry2d, TLShapeId } from "tldraw";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   YouTubeEmbedShape,
   YouTubeEmbedShapeType,
@@ -16,6 +17,10 @@ import {
 } from "./YouTubeEmbedShape";
 import { parseYouTubeUrl } from "./youtube-url";
 import { YouTubePlayerManager } from "../../media/youtube-player-manager";
+import { PresentationModeContext } from "../../presentation-mode-context";
+import { PresentationManager } from "../../presentation-manager";
+import { MediaControlBindingType } from "../media-control/MediaControlBinding";
+import { MEDIA_COMMAND_ICONS, listMediaEvents } from "./media-events";
 
 export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
   static override readonly type = YouTubeEmbedShapeType;
@@ -181,7 +186,100 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
       >
         {altText !== "" ? altText : "YouTube video player"}
       </span>
+      <MediaEventStrip shape={shape} />
     </HTMLContainer>
+  );
+}
+
+// The visual surface for this video's media events: their marker shapes
+// are invisible records (see MediaControlShape), so the video draws
+// them itself. Navigation-only — clicking a badge selects the marker,
+// which highlights its frame in the timeline where editing lives.
+// eslint-disable-next-line react-refresh/only-export-components
+function MediaEventStrip({ shape }: { shape: YouTubeEmbedShape }) {
+  const editor = useEditor();
+  const $presentationMode = useContext(PresentationModeContext);
+  const presentationMode = useValue(
+    "presentation mode",
+    () => $presentationMode?.get() ?? false,
+    [$presentationMode],
+  );
+  const events = useValue(
+    "media events",
+    () => {
+      const manager = PresentationManager.get(editor);
+      if (manager == null) {
+        return [];
+      }
+      const markerIds = new Set(
+        editor
+          .getBindingsToShape(shape.id, MediaControlBindingType)
+          .map((binding) => binding.fromId as string),
+      );
+      return listMediaEvents(manager.$getTimelineDoc(), markerIds);
+    },
+    [editor, shape.id],
+  );
+  const selectedShapeIds = useValue(
+    "selected shape ids",
+    () => editor.getSelectedShapeIds() as string[],
+    [editor],
+  );
+
+  if (presentationMode || events.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      onPointerDown={stopEventPropagation}
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: 8,
+        display: "flex",
+        gap: 4,
+        pointerEvents: "all",
+      }}
+    >
+      {events.map((event) => {
+        const selected = selectedShapeIds.includes(event.markerShapeId);
+        return (
+          <button
+            key={event.markerShapeId}
+            type="button"
+            aria-label={`Media event: ${event.command} (step ${event.stepIndex + 1})`}
+            aria-current={selected ? "true" : undefined}
+            onClick={() => {
+              editor.select(event.markerShapeId as TLShapeId);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              height: 24,
+              padding: "0 8px",
+              borderRadius: 12,
+              fontSize: 12,
+              lineHeight: 1,
+              cursor: "pointer",
+              backgroundColor: selected
+                ? "var(--color-selected)"
+                : "var(--color-panel)",
+              color: selected
+                ? "var(--color-selected-contrast)"
+                : "var(--color-text-1)",
+              border: "1px solid var(--color-text-3)",
+              boxShadow: "var(--shadow-1)",
+            }}
+          >
+            <span aria-hidden="true">{MEDIA_COMMAND_ICONS[event.command]}</span>
+            {event.stepIndex + 1}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

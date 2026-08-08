@@ -1,4 +1,5 @@
 import {
+  atom,
   computed,
   createShapeId,
   uniqueId,
@@ -27,7 +28,6 @@ import { SlideShapeType } from "../shapes/slide/SlideShape";
 import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import {
   MediaControlShapeType,
-  MEDIA_CONTROL_SHAPE_SIZE,
   resolveMediaControlTarget,
 } from "../shapes/media-control/MediaControlShape";
 import {
@@ -121,6 +121,12 @@ export class PresentationManager {
 
   private static instances: WeakMap<Editor, PresentationManager> =
     new WeakMap();
+  // Reactive companion to the WeakMap: shape components can render
+  // before `handleMount` creates the manager, and a `get` inside a
+  // computed that returns undefined without reading any signal would
+  // cache that result forever. Reading the epoch gives the computed a
+  // parent that `create` invalidates.
+  private static $instancesEpoch = atom("PresentationManager epoch", 0);
 
   static create(
     editor: Editor,
@@ -130,11 +136,13 @@ export class PresentationManager {
     if (!inst) {
       inst = new PresentationManager(editor, $currentStepIndex);
       this.instances.set(editor, inst);
+      this.$instancesEpoch.set(this.$instancesEpoch.get() + 1);
     }
     return inst;
   }
 
   static get(editor: Editor): PresentationManager | undefined {
+    this.$instancesEpoch.get();
     return this.instances.get(editor);
   }
 
@@ -217,7 +225,6 @@ export class PresentationManager {
     }
 
     let mediaTrackId: string | null = null;
-    let markerCount = 0;
     for (const binding of this.editor.getBindingsToShape<MediaControlBinding>(
       videoShapeId,
       MediaControlBindingType,
@@ -226,14 +233,13 @@ export class PresentationManager {
       if (marker?.type !== MediaControlShapeType) {
         continue;
       }
-      markerCount++;
       const parsed = parseFrameMeta(marker.meta?.frame);
       if (
         parsed.kind === "v2" &&
         parsed.frame.type === "cue" &&
         // Reuse only the MEDIA track: a marker may also carry a
         // shapeAnimation frame on the video's own track (the designed
-        // movement-keyframe proxy, see MediaControlShapeProps).
+        // movement-keyframe representation).
         parsed.frame.action.type === "mediaControl"
       ) {
         mediaTrackId = parsed.frame.trackId;
@@ -262,11 +268,10 @@ export class PresentationManager {
         // receiving parent (a tldraw frame, a focused group) and would
         // rewrite the page coordinates below into that parent's space.
         parentId: this.editor.getCurrentPageId(),
-        // Below the video, stacked left-to-right in creation order
-        // (purely cosmetic; the binding keeps the marker following the
-        // video).
-        x: (videoBounds?.x ?? 0) + markerCount * (MEDIA_CONTROL_SHAPE_SIZE + 4),
-        y: (videoBounds?.maxY ?? 0) + 8,
+        // Never rendered; parked at the video's origin only so the
+        // record's coordinates are not misleading in raw-store reads.
+        x: videoBounds?.x ?? 0,
+        y: videoBounds?.y ?? 0,
         meta: {
           frame: frameToMetaJson(cueFrame),
         },

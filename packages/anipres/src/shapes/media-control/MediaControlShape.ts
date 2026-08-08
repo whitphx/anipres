@@ -1,4 +1,3 @@
-import { T } from "tldraw";
 import type {
   Editor,
   RecordProps,
@@ -11,44 +10,26 @@ import { getMediaControlBindingTargetId } from "./MediaControlBinding";
 
 export const MediaControlShapeType = "media-control" as const;
 
-export interface MediaControlShapeProps {
-  /**
-   * Target size for a marker that carries a `shapeAnimation` frame on
-   * its video's track — the designed representation of "move/resize the
-   * video during the presentation", where the marker's own transform is
-   * the keyframe target (the video shape itself cannot be copied per
-   * keyframe: a copy would mount a second live player). Playback of such
-   * frames is not implemented yet; the props are declared now so the
-   * marker's transform is already the full keyframe target when it
-   * lands. Null on ordinary media-event markers.
-   */
-  w: number | null;
-  h: number | null;
-}
+export type MediaControlShapeProps = Record<string, never>;
 
 /**
- * A marker that carries one animation frame in its `meta.frame` for a
- * video it is bound to (see {@link MediaControlBinding}), exactly like
- * any other framed shape — which is what lets media events reuse the
- * whole timeline machinery (steps, sub frames, drag & drop,
- * reconciliation) without changing the one-frame-per-shape data model.
- * Markers are editing chrome: hidden in presentation mode (like slide
- * shapes), while their frames still drive playback. An unbound marker
- * (e.g. pasted without its video) renders as a warning badge and its
- * events no-op.
+ * An invisible record that carries one animation frame in its
+ * `meta.frame` for a video it is bound to (see
+ * {@link MediaControlBinding}), exactly like any other framed shape —
+ * which is what lets media events reuse the whole timeline machinery
+ * (steps, sub frames, drag & drop, reconciliation) without changing the
+ * one-frame-per-shape data model. It is a shape only because shapes and
+ * bindings are tldraw's extension points for synced records: it never
+ * renders, exposes no hit area, and `getShapeVisibility` excludes it
+ * from the canvas entirely. Its visual representation is the media-event
+ * strip drawn by the YouTube embed shape's own component.
  */
 export type MediaControlShape = TLBaseShape<
   typeof MediaControlShapeType,
   MediaControlShapeProps
 >;
 
-export const mediaControlShapeProps: RecordProps<MediaControlShape> = {
-  w: T.nonZeroNumber.nullable(),
-  h: T.nonZeroNumber.nullable(),
-};
-
-/** Rendered size of the marker badge. */
-export const MEDIA_CONTROL_SHAPE_SIZE = 28;
+export const mediaControlShapeProps: RecordProps<MediaControlShape> = {};
 
 /**
  * Resolves the media shape a marker controls, or null for an orphaned

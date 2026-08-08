@@ -4,7 +4,6 @@ import type {
   BindingOnShapeDeleteOptions,
 } from "tldraw";
 import {
-  getMediaControlMarkerAnchor,
   MediaControlBindingType,
   mediaControlBindingProps,
   type MediaControlBinding,
@@ -15,22 +14,40 @@ export class MediaControlBindingUtil extends BindingUtil<MediaControlBinding> {
   static override readonly props = mediaControlBindingProps;
 
   override getDefaultProps(): MediaControlBinding["props"] {
-    return { anchorX: 0, anchorY: 0 };
+    return {};
   }
 
   override onAfterChangeToShape({
     binding,
   }: BindingOnShapeChangeOptions<MediaControlBinding>): void {
+    this.parkMarker(binding);
+  }
+
+  override onAfterChangeFromShape({
+    binding,
+  }: BindingOnShapeChangeOptions<MediaControlBinding>): void {
+    // The marker itself can still be moved without being visible: the
+    // event-strip badge selects it, and selection-wide operations
+    // (arrow-key nudge, align) do not filter hidden shapes.
+    this.parkMarker(binding);
+  }
+
+  // The marker is never rendered, but hidden shapes still count toward
+  // page bounds (`zoomToFit` does not filter them), so a marker with a
+  // stale position would skew camera fitting. Keep it parked at the
+  // video's page origin. Parent-space conversion because the marker is
+  // not guaranteed to be a page child (select-all can sweep it into a
+  // group); the no-op-when-equal check terminates the change→park
+  // cycle.
+  private parkMarker(binding: MediaControlBinding): void {
     const marker = this.editor.getShape(binding.fromId);
     const videoBounds = this.editor.getShapePageBounds(binding.toId);
     if (marker == null || videoBounds == null) {
       return;
     }
-    // The anchor is page-space; the marker's x/y are parent-space and
-    // the marker may not be a page child (e.g. grouped by the user).
     const point = this.editor.getPointInParentSpace(marker, {
-      x: videoBounds.x + binding.props.anchorX,
-      y: videoBounds.y + binding.props.anchorY,
+      x: videoBounds.x,
+      y: videoBounds.y,
     });
     if (marker.x !== point.x || marker.y !== point.y) {
       this.editor.updateShape({
@@ -40,29 +57,6 @@ export class MediaControlBindingUtil extends BindingUtil<MediaControlBinding> {
         y: point.y,
       });
     }
-  }
-
-  override onAfterChangeFromShape({
-    binding,
-  }: BindingOnShapeChangeOptions<MediaControlBinding>): void {
-    // The marker moved — dragged, nudged, aligned, or repositioned by
-    // the hook above. Record its current offset so the next video
-    // change keeps it; when the offset is unchanged (as after a
-    // reposition), this is a no-op, which is what terminates the
-    // reposition → re-anchor cycle.
-    const props = getMediaControlMarkerAnchor(
-      this.editor,
-      binding.fromId,
-      binding.toId,
-    );
-    if (
-      props == null ||
-      (props.anchorX === binding.props.anchorX &&
-        props.anchorY === binding.props.anchorY)
-    ) {
-      return;
-    }
-    this.editor.updateBinding<MediaControlBinding>({ ...binding, props });
   }
 
   override onBeforeDeleteToShape({

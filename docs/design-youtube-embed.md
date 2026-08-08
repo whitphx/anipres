@@ -40,26 +40,42 @@ whole timeline machinery applies unchanged.
   reloading the embed in a loop. The containment approach comes from
   react-youtube. Like any shape, it may carry a regular cue frame
   (e.g. a `shapeAnimation` appearance step).
-- **`media-control`** (`shapes/media-control/`): a small badge marker
-  whose `meta.frame` carries one `mediaControl` frame — one marker per
-  media event. Its target is recorded by a **`media-control` binding**
+- **`media-control`** (`shapes/media-control/`): an **invisible
+  record** whose `meta.frame` carries one `mediaControl` frame — one
+  marker per media event. It is a shape only because shapes and
+  bindings are tldraw's extension points for synced records: it never
+  renders (`component`/`indicator` return null, zero-size geometry) and
+  `getShapeVisibility` in `Anipres` returns `"hidden"` for it in every
+  mode, which excludes it from rendering and hit-testing wholesale.
+  Interaction paths tldraw does NOT filter by hidden-ness (select-all,
+  bounds/zoomToFit, copy) are each handled: the marker parks at its
+  video's page origin (`onAfterChangeToShape`), so it can never inflate
+  page bounds with a stale position; copy is covered by the
+  `getContentFromCurrentPage` wrapper below; select-all sweeping in an
+  invisible zero-size marker is harmless. Its visual surface is the
+  **media-event strip** the YouTube embed shape's component draws below
+  the video (edit mode only): one badge per event with its command icon
+  and step number, navigation-only — clicking a badge selects the
+  marker, which highlights its frame in the timeline, where editing and
+  deletion live (the frame-edit popover carries the "Delete event"
+  action, since there is no canvas object to delete).
+
+  The marker's target is recorded by a **`media-control` binding**
   (marker → video). An earlier draft used `parentId` instead, but
   arbitrary shapes are not containers in tldraw: the editor re-parents
   children of a non-container shape back to the page on the next
   interaction, silently severing the link (each new event then minted
-  its own track, deleting the video stranded its markers, and moving it
-  left them behind). The binding is the one canonical record of the
-  relationship, and its `BindingUtil` gives it behavior in one place:
-  markers follow the video (`onAfterChangeToShape` repositions them to
-  an anchor stored in the binding props — absolute, not delta-based, so
-  dragging video and markers together cannot apply the move twice;
-  `onAfterChangeFromShape` re-anchors whenever the marker itself moves,
-  covering drags, nudges, and align/distribute alike) and are deleted
-  with it (`onBeforeDeleteToShape`); tldraw itself remaps
-  bindings on copy/paste when both ends are included. Markers are
-  editing chrome: hidden in presentation mode (like slide shapes),
-  while their frames still drive playback. An unbound marker (e.g.
-  pasted alone) renders as a warning badge and its events no-op.
+  its own track, deleting the video stranded its markers). The binding
+  is the one canonical record of the relationship: markers are deleted
+  with their video (`onBeforeDeleteToShape`), and tldraw remaps
+  bindings on copy/paste when both ends are included. Because markers
+  are unselectable, copying a video could never bring them along
+  through selection — `Anipres` wraps `editor.getContentFromCurrentPage`
+  (next to the existing `putContentOntoCurrentPage` wrapper) to expand
+  any included video with its bound markers, which also carries the
+  bindings. An unbound marker (legacy documents, external content) is
+  deleted at mount: it is invisible and its events would silently
+  no-op.
 
 ### Data model
 
@@ -97,20 +113,20 @@ it — impossible for a video, where a copy would mount a second live
 player and playback state lives in the original iframe. The designed
 representation is a **marker-carried keyframe**: a marker bound to the
 video carrying a `shapeAnimation` cue frame on the video's own track,
-whose own transform (`x`, `y`, and the nullable `w`/`h` props) is the
-keyframe target. Playback will tween the video shape itself
-(`updateShape`, not a temp copy) toward the marker's transform.
+with the target geometry stored in the frame's action metadata (the
+marker is an invisible record, so its own transform cannot serve as an
+editable keyframe target). Playback will tween the video shape itself
+(`updateShape`, not a temp copy) toward that target.
 
-What exists today: the marker schema carries the nullable `w`/`h`
-target-size props (part of the persisted schema from the start — adding
-them later costs a migration), `runFrames` treats marker-carried
-`shapeAnimation` frames as timing-only no-ops, and a framed video stays
-visible from its appearance step on instead of following the
-latest-batch-only visibility rule (later batches on its track are
-marker keyframes, never copies to switch to). The editor UI does not
-offer creating these keyframes yet, and the follow-up-frame buttons are
-withheld for video-carried batches — the default "clone the carrier"
-behavior is exactly the second-player hazard.
+What exists today: `runFrames` treats marker-carried `shapeAnimation`
+frames as timing-only no-ops, and a framed video stays visible from its
+appearance step on instead of following the latest-batch-only
+visibility rule (later batches on its track are marker keyframes, never
+copies to switch to). The editor UI does not offer creating these
+keyframes yet, the target-geometry metadata shape is undecided, and the
+follow-up-frame buttons are withheld for video-carried batches — the
+default "clone the carrier" behavior is exactly the second-player
+hazard.
 
 ### Playback runtime
 

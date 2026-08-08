@@ -68,11 +68,10 @@ async function runFrames(
       shape.type === MediaControlShapeType
     ) {
       // A marker carrying a shapeAnimation frame is the designed
-      // movement-keyframe proxy for its bound video (see
-      // MediaControlShapeProps). Its playback — tweening the video shape
-      // itself, since a temp copy would mount a second player — is not
-      // implemented yet, so the frame only contributes its `duration`
-      // wait below.
+      // movement-keyframe representation for its bound video. Its
+      // playback — tweening the video shape itself, since a temp copy
+      // would mount a second player — is not implemented yet, so the
+      // frame only contributes its `duration` wait below.
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();

@@ -46,11 +46,19 @@ function withCommand(
 export interface FrameEditPopoverProps {
   frame: FrameUIData;
   onUpdate: (newFrame: FrameUIData) => void;
+  /**
+   * Deletes the event this frame represents. Offered only for media
+   * events: their carrier shapes are invisible, so this popover is the
+   * one place a user can remove one (other frames are removed by
+   * deleting their shape on the canvas).
+   */
+  onDelete: () => void;
   children: React.ReactNode;
 }
 export function FrameEditPopover({
   frame,
   onUpdate,
+  onDelete,
   children,
 }: FrameEditPopoverProps) {
   return (
@@ -141,6 +149,15 @@ export function FrameEditPopover({
                 }
               }}
             />
+          )}
+          {frame.action.type === "mediaControl" && (
+            <button
+              type="button"
+              className={styles.deleteButton}
+              onClick={onDelete}
+            >
+              Delete event
+            </button>
           )}
         </div>
       </TldrawUiPopoverContent>

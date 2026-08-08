@@ -1,0 +1,102 @@
+/** @vitest-environment happy-dom */
+import { describe, expect, it } from "vitest";
+import { createShapeId } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
+import { loadHeadlessEditor } from "../../headless-editor-utils";
+import { bindMediaControlMarker } from "./MediaControlBinding";
+import { expandShapeIdsWithMediaControlMarkers } from "./expand-with-markers";
+
+function createVideoWithMarker(editor: Editor): {
+  videoId: TLShapeId;
+  markerId: TLShapeId;
+} {
+  const videoId = createShapeId("video");
+  editor.createShape({
+    id: videoId,
+    type: "youtube-embed",
+    x: 0,
+    y: 0,
+    props: {
+      url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      videoId: "M7lc1UVf-VE",
+    },
+  });
+  const markerId = createShapeId("marker");
+  editor.createShape({ id: markerId, type: "media-control", x: 0, y: 0 });
+  bindMediaControlMarker(editor, markerId, videoId);
+  return { videoId, markerId };
+}
+
+describe("expandShapeIdsWithMediaControlMarkers", () => {
+  it("adds a video's bound markers, given ids", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const { videoId, markerId } = createVideoWithMarker(editor);
+      const result = expandShapeIdsWithMediaControlMarkers(editor, [videoId]);
+      expect(result).toContain(videoId);
+      expect(result).toContain(markerId);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("adds a video's bound markers, given shape objects", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const { videoId, markerId } = createVideoWithMarker(editor);
+      const result = expandShapeIdsWithMediaControlMarkers(editor, [
+        editor.getShape(videoId)!,
+      ]);
+      expect(result).toContain(videoId);
+      expect(result).toContain(markerId);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("covers a video nested inside an included group", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const { videoId, markerId } = createVideoWithMarker(editor);
+      const otherId = createShapeId("other");
+      editor.createShape({
+        id: otherId,
+        type: "geo",
+        x: 600,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      // groupShapes silently no-ops in the headless test harness;
+      // assemble the group the way it does internally.
+      const groupId = createShapeId("group");
+      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([videoId, otherId], groupId);
+      expect(editor.getSortedChildIdsForParent(groupId)).toHaveLength(2);
+
+      const result = expandShapeIdsWithMediaControlMarkers(editor, [groupId]);
+      expect(result).toContain(videoId);
+      expect(result).toContain(markerId);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("passes a selection with no video through unchanged", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      createVideoWithMarker(editor);
+      const rectId = createShapeId("rect");
+      editor.createShape({
+        id: rectId,
+        type: "geo",
+        x: 600,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      const result = expandShapeIdsWithMediaControlMarkers(editor, [rectId]);
+      expect(result).toEqual([rectId]);
+    } finally {
+      dispose();
+    }
+  });
+});
