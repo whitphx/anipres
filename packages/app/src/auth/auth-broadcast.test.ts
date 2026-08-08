@@ -9,12 +9,11 @@ afterEach(() => {
 });
 
 // Node's built-in BroadcastChannel (happy-dom provides none) delivers
-// across instances asynchronously, with no guarantee the message lands
-// within any fixed number of event-loop turns, so the negative
-// assertions can't just sleep and check. They synchronize on delivery
-// instead: messages are delivered to each receiving channel in posting
-// order, so once a later message has provably arrived, the earlier one
-// had its chance.
+// across instances asynchronously, with no bound on how many event-loop
+// turns it takes, so no sleep makes "was not called" meaningful. The
+// tests wait on a delivery that must come after the one in question
+// instead: a receiving channel gets messages in posting order, and a
+// single message is fanned out to channels in creation order.
 describe("auth broadcast", () => {
   it("delivers a logout message from another sender", async () => {
     const handler = vi.fn();

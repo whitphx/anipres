@@ -35,21 +35,26 @@ describe("local-docs broadcast", () => {
   it("ignores broadcasts originated by the same tab", async () => {
     const handler = vi.fn();
     cleanups.push(subscribeToLocalDocsChanges(handler));
-    // The subject handler takes no payload, so a bare call count can't
-    // distinguish "filtered the own-tab message" from "the external
-    // message hasn't arrived yet". The witness closes that gap: created
-    // after the subject, it is served each message after the subject
-    // is, so once it has seen the external message the subject has
-    // fully processed both messages and its count is final.
-    const witness = vi.fn();
-    cleanups.push(subscribeToLocalDocsChanges(witness));
+    // Created after the subject, so the fan-out serves it after the
+    // subject for every message; once it has the external message the
+    // subject has processed both and its count is final. Unfiltered on
+    // purpose: the filter is what's under test here.
+    const externalArrived = new Promise<void>((resolve) => {
+      const barrier = new BroadcastChannel("anipres:local-docs");
+      cleanups.push(() => barrier.close());
+      barrier.onmessage = (e: MessageEvent<{ senderId?: string }>) => {
+        if (e.data?.senderId === "other-tab") {
+          resolve();
+        }
+      };
+    });
 
     broadcastLocalDocsChanged();
     const externalChannel = new BroadcastChannel("anipres:local-docs");
     externalChannel.postMessage({ senderId: "other-tab" });
     externalChannel.close();
 
-    await vi.waitFor(() => expect(witness).toHaveBeenCalledTimes(1));
+    await externalArrived;
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
