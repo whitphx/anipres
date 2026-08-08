@@ -380,10 +380,12 @@ const Inner = (props: InnerProps) => {
       return existingFrameIdCache;
     };
 
-    // Relationship-preserving remap for editor.duplicateShapes — the path
-    // tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes, which
-    // bypasses putContentOntoCurrentPage. Installed BEFORE the safety net
-    // so the net can hand captured copies over during a wrapped call.
+    // Relationship-preserving remap for editor.duplicateShapes — the
+    // path tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes,
+    // and alt-drag cloning with it (the select tool's Translating state
+    // calls duplicateShapes to start a clone). None of them go through
+    // putContentOntoCurrentPage. Installed BEFORE the safety net so the
+    // net can hand captured copies over during a wrapped call.
     const duplicateShapesRemap = createDuplicateShapesRemap(editor, () =>
       presentationManager.$getTimelineDoc(),
     );

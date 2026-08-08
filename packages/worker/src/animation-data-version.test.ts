@@ -34,6 +34,7 @@ describe("sync animation data version gate", () => {
       expect(response?.status).toBe(426);
       expect(await response?.json()).toEqual({
         error: "Animation data upgrade required",
+        reason: "client-too-old",
         minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,
       });
     }
@@ -69,6 +70,7 @@ describe("sync animation data version gate", () => {
     expect(response?.status).toBe(426);
     expect(await response?.json()).toEqual({
       error: "Server animation data upgrade required",
+      reason: "server-too-old",
       minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,
     });
   });

@@ -76,6 +76,9 @@ export function getAnimationDataVersionGateResponse(
         rejection === "client-too-old"
           ? "Animation data upgrade required"
           : "Server animation data upgrade required",
+      // The direction, for a caller that has to choose between telling
+      // the user to reload and telling them to wait.
+      reason: rejection,
       // `minimumVersion` since the gate shipped with that name; both
       // bounds are this one value.
       minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,

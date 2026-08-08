@@ -29,8 +29,14 @@ export type PutSnapshotResult =
       status: 409;
       reason: "active-session" | "version-conflict" | null;
     }
-  /** HTTP 426: the animation-data version gate rejected this bundle. */
+  /**
+   * HTTP 426: the animation-data version gate rejected the request.
+   * `server-too-old` is the reverse direction (a bundle ahead of the
+   * worker, e.g. mid-deploy or after a worker rollback); it must not be
+   * reported as a stale bundle, since reloading serves the same one.
+   */
   | { outcome: "client-too-old"; status: 426 }
+  | { outcome: "server-too-old"; status: 426 }
   | { outcome: "failed"; status: number };
 
 export async function putSnapshot(
@@ -70,7 +76,14 @@ export async function putSnapshot(
   // The gate responds outside the route's typed status set, so widen.
   const status: number = res.status;
   if (status === 426) {
-    return { outcome: "client-too-old", status };
+    const body = (await res.json().catch(() => null)) as {
+      reason?: "client-too-old" | "server-too-old";
+    } | null;
+    // A gate response without the field predates it; the stale-bundle
+    // direction is the one that shipped first.
+    return body?.reason === "server-too-old"
+      ? { outcome: "server-too-old", status: 426 }
+      : { outcome: "client-too-old", status: 426 };
   }
   if (status === 409) {
     const body = (await res.json().catch(() => null)) as {

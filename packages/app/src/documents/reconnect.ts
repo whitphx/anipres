@@ -8,7 +8,10 @@ import {
   type ReconnectSnapshotState,
 } from "./offline-recovery";
 import { nextTailSortOrder } from "./sort-order";
-import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import {
+  CLIENT_TOO_OLD_MESSAGE,
+  SERVER_TOO_OLD_MESSAGE,
+} from "../lib/client-version";
 import { putSnapshot } from "./snapshot-push";
 
 export type ReconnectResult =
@@ -22,14 +25,26 @@ export type ReconnectResult =
        * `client-too-old` = the worker's animation-data version gate
        * rejected the push (HTTP 426): retrying from this bundle can
        * never succeed — the caller must offer a reload instead.
+       * `server-too-old` is the same gate's other direction, where a
+       * reload cannot help either: the worker is the stale side.
        */
-      reasonCode?: "active-session" | "client-too-old" | "other";
+      reasonCode?:
+        | "active-session"
+        | "client-too-old"
+        | "server-too-old"
+        | "other";
     };
 
 const CLIENT_TOO_OLD_RESULT: ReconnectResult = {
   action: "error",
   reason: CLIENT_TOO_OLD_MESSAGE,
   reasonCode: "client-too-old",
+};
+
+const SERVER_TOO_OLD_RESULT: ReconnectResult = {
+  action: "error",
+  reason: SERVER_TOO_OLD_MESSAGE,
+  reasonCode: "server-too-old",
 };
 
 async function fetchOfflineCache(documentId: string): Promise<{
@@ -91,6 +106,10 @@ export async function reconcileOfflineEdits(params: {
     return CLIENT_TOO_OLD_RESULT;
   }
 
+  if (push.outcome === "server-too-old") {
+    return SERVER_TOO_OLD_RESULT;
+  }
+
   if (push.outcome === "failed") {
     return {
       action: "error",
@@ -135,6 +154,10 @@ export async function reconcileOfflineEdits(params: {
 
       if (retryPush.outcome === "client-too-old") {
         return CLIENT_TOO_OLD_RESULT;
+      }
+
+      if (retryPush.outcome === "server-too-old") {
+        return SERVER_TOO_OLD_RESULT;
       }
 
       if (retryPush.outcome === "conflict") {

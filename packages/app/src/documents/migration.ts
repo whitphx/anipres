@@ -1,6 +1,9 @@
 import type { TLStoreSnapshot } from "tldraw";
 import { broadcastLocalDocsChanged } from "./local-docs-broadcast";
-import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import {
+  CLIENT_TOO_OLD_MESSAGE,
+  SERVER_TOO_OLD_MESSAGE,
+} from "../lib/client-version";
 import { putSnapshot } from "./snapshot-push";
 import type { DocumentRepository } from "./repository";
 import { nextTailSortOrder } from "./sort-order";
@@ -213,6 +216,9 @@ async function defaultPushSnapshot(
   });
   if (result.outcome === "client-too-old") {
     throw new Error(CLIENT_TOO_OLD_MESSAGE);
+  }
+  if (result.outcome === "server-too-old") {
+    throw new Error(SERVER_TOO_OLD_MESSAGE);
   }
   if (result.outcome !== "success") {
     throw new Error(`Snapshot push failed: ${result.status}`);
