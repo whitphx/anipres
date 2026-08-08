@@ -1,5 +1,11 @@
 # anipres
 
+## 0.15.1
+
+### Patch Changes
+
+- [#503](https://github.com/whitphx/anipres/pull/503) [`30d6150`](https://github.com/whitphx/anipres/commit/30d6150e93887677d0126a7c3cf9a9b922f0d0bc) Thanks [@whitphx](https://github.com/whitphx)! - Keep the editor alive across re-renders: `getShapeVisibility` is part of tldraw's editor-creation dependency list, so the previously inline callback made every re-render of `Anipres` dispose and recreate the `Editor` — on a synced store, every WebSocket reconnect did this, clearing undo history and remounting the canvas mid-presentation.
+
 ## 0.15.0
 
 ### Minor Changes
