@@ -572,6 +572,16 @@ live in the room to do their job. When in-room stubs exceed a size
 threshold, the room automatically spills the oldest ones' exact keys
 to cold storage outside it — the worker platform has cheap durable
 stores for exactly this — where capacity is effectively unbounded.
+The spill is a small idempotent state machine, because it touches
+three stores that cannot commit together: the exact keys are written
+to cold storage and confirmed first, then the in-room filter is
+republished — a pure, replayable function of the cold set — and only
+then is the local stub deleted, with a durable spill-intent record
+letting a restart resume an incomplete spill from the last confirmed
+step. At every point of every interleaving a key lives in the local
+stubs or the confirmed cold set, so a crash can duplicate work but
+never open a false-negative window; fault-injection tests kill the
+process at each cross-store boundary and then revive a spilled key.
 No terminal "deletions refused" state exists anywhere in the
 lifecycle: no volume of authenticated churn can take a core editing
 operation away from legitimate users, and the per-principal rate
@@ -768,7 +778,8 @@ server refuses clients newer than itself as well as older. One number
 per release keeps each client's vocabulary matched to the assets that
 serve it; the server side needs no such split, because every release
 in the sequence ships the same forked room server — arbitration,
-tombstones, stamps and all. What must survive the forced reload is
+tombstones, stamps and all, write-gated below protocol version 4 as
+stage A describes. What must survive the forced reload is
 client-side intent: an unacknowledged cascade claim is durable state
 in the same ordered intent store as explicit-deletion prunes, keyed
 to the document, and the pre-release client replays or cancels
@@ -836,10 +847,16 @@ itself deployable with a floor beneath it:
   writes nothing new, changes no behavior, and — like every release
   in this sequence — adds no schema migrations: none exist, because
   materialization is normalization, so no snapshot is ever stranded
-  behind unknown migration versions. Documents stage A opens are
-  byte-identical afterwards, which makes rolling it back to the
-  current release trivially safe; a persisted-document round-trip
-  test proves it before anything later ships.
+  behind unknown migration versions. The forked room server ships
+  here too, but write-gated by the protocol version it serves: a
+  server serving version 3 accepts the new vocabulary and
+  materializes none of it — normalization, stamping, arbitration and
+  tombstones all activate at version 4 and above. Documents stage A
+  opens are therefore byte-identical afterwards by gate, not by
+  convention, which makes rolling it back to the current release
+  trivially safe; a round-trip test opens, persists, and rolls a
+  shared room back against the actual current release before
+  anything later ships.
 - **Stage B, the pre-release.** The main release's rollback floor,
   described next. Rolling it back means rolling back to stage A,
   whose validators accept everything stage B writes.
