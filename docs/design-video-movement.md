@@ -145,52 +145,57 @@ Viewport culling is deliberately not mirrored — hiding a live player
 because its carrier scrolled away is the remount hazard again — but
 culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
-mounting is governed by a hard budget: at most N live players — N a
+mounting is governed by a budget: at most N live players — N a
 host-configurable prop, defaulting to 4 — granted in priority order:
-playing, then selected, then nearest the viewport, with ties and
-evictions resolved LRU by last playback or interaction time.
+effectively playing, then selected, then near the viewport.
 Everything over budget shows its poster.
 
-The budget suppresses players; it never rewrites desired state.
-Desired playback is folded from events and is the same on every
-client, so an over-budget playing video stays logically playing — its
-player is simply not mounted, and it is silent. The mounted set is a
-pure function of the folded states and the priority order, so it
-changes only when they do; suppression cannot oscillate on its own.
-Manual interaction joins as a client-local overlay: the runtime
-already hears the player's state-change events, and a manual pause or
-play recorded there combines with the folded status into an
-_effective_ status, cleared by the next media command or by
-navigation reconciliation — the moments the fold deliberately retakes
-control. The budget's priority order and the playback clock read the
-effective status, so a video paused by hand does not advance while
-suppressed and does not resume on remount.
+An effectively playing player is **never unmounted**. Eviction and
+reconstruction cannot preserve what an iframe holds — buffers,
+captions, a live stream's position — and uninterrupted playback is
+the guarantee this whole design exists for, so the budget is simply
+never spent there. The playback limit is enforced ahead of that
+moment instead: authoring warns when a step would drive more than N
+simultaneous playing videos, presentation start surfaces the same
+check, and if a race still produces an (N+1)th play at runtime, the
+least recently started playing video is paused *in place* — a pause
+preserves the iframe and all of its state, where an unmount destroys
+it. Non-playing residency is sticky: eviction by viewport distance
+uses a margin and a minimum residency time, so panning the camera
+reorders candidates without thrashing mounts.
+
+The budget suppresses mounting; it never rewrites desired state.
+Desired playback folds from events identically on every client, and
+the mounted set is a pure function of the folded states, the overlay
+below, and the priority order, so it changes only when they do and
+cannot oscillate on its own. Manual interaction joins as a
+client-local overlay: the runtime already hears the player's
+state-change events, and a manual pause or play recorded there
+combines with the folded status into an _effective_ status, cleared
+by the next media command or by navigation reconciliation — the
+moments the fold deliberately retakes control. A budget pause lands
+in the same overlay, cleared additionally by a freed slot, which
+resumes playback from the held position. Priority and the playback
+clock read the effective status, so a video paused by hand neither
+advances nor resumes behind the user's back.
 
 When suppression lifts, the player mounts and seeks by the runtime's
 playback clock: a per-video (position, observed-at, rate) triple,
 refreshed by periodic polls while a player is mounted and on every
-pause, seek, rate change and suppression — the rate comes from the
+pause, seek, rate change and eviction — the rate comes from the
 player's own rate-change events, since interactive controls let a
-viewer set 0.5x or 2x. While a suppressed video is effectively
-playing the clock advances virtually by elapsed time times rate,
-clamped at the video's duration once a positive, finite duration has
-been observed — the remount then seeks to the position the video
-would have reached, or resumes as ended when it would have ended.
-Until metadata supplies a duration, and for live streams where none
-exists, the clock advances unclamped and never infers an ended
-state. While paused — by event or by hand — it holds. Buffering is
-not modeled: the clock is best-effort continuity, resynced by the
-polls whenever a player is mounted, and the clamp bounds what a stall
-can leave behind. Fixtures cover suppression and remount at
-non-default rates, across the end of the video, before duration
-metadata has arrived, and for live video. The clock is deliberately client-local — media
-events carry commands, not positions, so cross-client position
-identity was never a property of the model; what folds identically
-everywhere is the status. Effectively playing videos are suppressed
-last, but they are not exempt: when they alone exceed the budget, the
-least recently started ones go silent — deterministic, and honest
-about the browser's limits, where that many simultaneous live iframes
-have already stopped being a presentation.
+viewer set 0.5x or 2x. Because a playing player is never evicted, an
+evicted video's clock is always a paused one: it holds its position
+and the remount seeks exactly there — no virtual advancement, no
+duration arithmetic, nothing to misjudge for live streams or videos
+whose metadata has not arrived. Buffering is not modeled: the clock
+is best-effort continuity, resynced by the polls whenever a player
+is mounted. It is deliberately client-local — media events carry
+commands, not positions, and what folds identically everywhere is
+the status. Fixtures cover eviction and remount at non-default
+rates, for live video, before duration metadata has arrived, and the
+over-limit path: an (N+1)th play pausing the oldest in place, then
+resuming from the held position when a slot frees.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -648,18 +653,17 @@ payloads, not only metadata stubs, cutting the process between cold
 upload, storage commit, acknowledgement, local cleanup, restart, and
 revival. The in-room byte accounting is per authenticated
 principal, so one editor's churn spends that editor's budget and
-can never evict another video's recovery window. Only past the
-retention window do payloads age into stubs. Count and bytes
-surface as room observability; a stress test proves storage and
-restart cost stay bounded under create/delete cycles, and a fixture
-revives a video inside the window after sustained adversarial churn
-and must restore it in full. Compaction is not amnesia, though: a full tombstone compacts
-to a metadata stub — the key and its deletion stamp, a few dozen
-bytes — so a revival arriving after the events themselves are gone is
-detected rather than silently wrong. The server accepts the carrier
-and flags the key as revived-without-events, and the editor surfaces
-that flag on the video, making the loss visible and attributable
-instead of a quietly inert deck. Stubs are never evicted inside the
+can never evict another video's recovery window. And the window is
+in-room residency, not the payload's life: past it, the payload
+stays in cold storage for the entire exact-stub tier — years, and
+deliberately longer than the replay lease that bounds the longest
+supported offline absence — so a revival at any point in that tier
+still restores completely and atomically. Count and bytes surface
+as room observability; a stress test proves storage and restart
+cost stay bounded under create/delete cycles, and fixtures revive a
+video inside the 30-day window after sustained adversarial churn,
+and again deep in the stub tier, and must restore it in full both
+times. Stubs are never evicted inside the
 evidence horizon defined below — they are the last evidence a
 deletion happened — but they need not
 live in the room to do their job. When in-room stubs exceed a size
@@ -699,11 +703,16 @@ letting the sweep clean up is not a way around the deletion
 throttle, and a room-wide creation rate cap bounds how fast durable
 evidence can be forced into existence by any mix of principals. The
 exact-key set ages through a tiered lifecycle rather than toward a
-terminal cap: full tombstones (restorable) become exact key stubs
-(exactly confirmable flags), and only after a host-configurable
-retention measured in years do stubs compact into the filter tier,
-where a revival still warns, marked unconfirmed — the one tier that
-can over-warn, and the design accepts that explicitly rather than
+terminal cap: full tombstones (in-room, restorable) become exact key
+stubs (cold, still restorable — the payload travels with them), and
+only after a host-configurable retention measured in years do stubs
+and payloads compact into the filter tier. A revival there is
+**quarantined**, not silently committed: the carrier is admitted
+into an explicitly quarantined state the editor must resolve — keep
+it as a new video or discard it — never presented as a healthy video
+that quietly lost its history, and the accompanying warning is
+marked unconfirmed — the filter tier is the one tier that can
+over-warn, and the design accepts that explicitly rather than
 claiming otherwise: the warning is phrased as a question about very
 old content, not an assertion of loss, and it is dismissible, with
 the dismissal recording the key in a small confirmed-fresh set so
