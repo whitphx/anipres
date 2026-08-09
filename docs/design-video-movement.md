@@ -612,9 +612,17 @@ can over-warn, and the design accepts that explicitly rather than
 claiming otherwise: the warning is phrased as a question about very
 old content, not an assertion of loss, and it is dismissible, with
 the dismissal recording the key in a small confirmed-fresh set so
-the same false positive never returns. Cost decays with age,
-evidence never disappears, and no tier ever refuses a legitimate
-deletion. A stress test drives create/delete churn
+the same false positive never returns. A dismissal silences one
+false positive, never future evidence: it is scoped to the state
+that produced it, and the tombstone-minting path clears any
+dismissal for a key in the same transaction that records the key's
+real deletion — so a video that collided with the filter, was
+declared fresh, and is later genuinely deleted warns again exactly
+as an undismissed key would. A fixture chains filter collision,
+dismissal, real deletion of that key, compaction into the filter
+tier, and late revival, and must see the warning return. Cost
+decays with age, evidence never disappears, and no tier ever
+refuses a legitimate deletion. A stress test drives create/delete churn
 through the spill path — claimless carrier deletions swept
 server-side included, and through rotated connections — and pins
 in-room storage, restart cost, cold-lookup rate, and the budget;
