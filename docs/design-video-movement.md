@@ -200,16 +200,20 @@ can start before any notification lands: P is therefore a hard limit
 for everything the runtime issues and a soft one against native
 controls, transiently exceedable by at most M − P, every excess play
 reverted as its notification arrives. A host that needs an absolute
-cap sets M = P and trades away the pause-then-evict headroom. Tests
-fire simultaneous programmatic plays together with several native
-starts delivered before any notification, not only the eventual
-post-overflow state. When M presses, the
-longest-paused player is evicted, which is safe precisely because it
-is paused: its clock holds exactly. The invariants hold as a pair —
-never more than P playing, never more than M mounted, and no playing
-player ever unmounted — and the headroom between P and M is what
-buys the graceful pause-then-evict path instead of a contradiction;
-a fixture repeats overflow plays past both limits. Non-playing
+cap sets M = P — configuration validation accepts that zero-headroom
+mode explicitly, and in it an overflow play is refused outright
+rather than paused-then-evicted. Tests fire simultaneous
+programmatic plays together with several native starts delivered
+before any notification, not only the eventual post-overflow state.
+When M presses, the longest-paused player is evicted, which is safe
+precisely because it is paused: its clock holds exactly. The
+testable contract is stated once, without an absolute it cannot
+keep: runtime-issued playback never exceeds P; native playback may
+transiently exceed P, bounded by M − P, and every excess reverts as
+its notification arrives; mounted players never exceed M; and no
+confirmed-playing player is ever unmounted. The headroom between P
+and M is what buys the graceful pause-then-evict path; a fixture
+repeats overflow plays past both limits. Non-playing
 residency is sticky: eviction by viewport distance uses a margin and
 a minimum residency time, so panning the camera reorders candidates
 without thrashing mounts.
@@ -240,12 +244,17 @@ separated registers: desired state, from the fold; issued and
 unconfirmed commands, a queue; confirmed iframe state, from
 notifications; and native interaction, the residue. A notification
 is matched against the pending-command queue first, consumed as the
-acknowledgement of the oldest command it can satisfy, and only a
-notification no pending command explains is classified native and
-allowed to write the manual overlay. While any command is pending
-for a player, no durable manual intent is derived from its
-notifications at all, and a command whose timeout expires surfaces
-as a stuck player rather than reclassifying anything. Tests
+acknowledgement of the oldest command it can satisfy. What makes
+that matching sound rather than lossy is that native input never
+overlaps pendency at all: while a command is pending for a player —
+a window of typically tens of milliseconds, bounded by the
+stuck-player timeout — the player's pointer input is disabled, so a
+notification during pendency can only be an acknowledgement and a
+notification while idle can only be native. No user action is ever
+discarded for arriving at the wrong moment; it is briefly not
+accepted, and the control surface shows it. A command whose timeout
+expires surfaces as a stuck player rather than reclassifying
+anything. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
 slot accounting both land right.
