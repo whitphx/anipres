@@ -215,7 +215,21 @@ allows. The one edge
 admission cannot reach is the iframe's own controls: a manual play
 arrives as an asynchronous state-change notification, and one that
 would exceed P is reverted immediately, paused back with a surfaced
-notice, never displacing another player. Because notifications are
+notice, never displacing another player. Reversion itself can fail —
+`pauseVideo` carries no correlated acknowledgement, and an
+unrestorable player cannot be torn down — so the overflow policy has
+a defined terminal form rather than an assumed convergence: if the
+corrective pause cannot confirm within its bounded retry, enforcement
+escalates to pausing (or, on ambiguity, tearing down) a *restorable*
+playing player instead, restoring the count at the cost the
+restorability predicate already prices; and only when every playing
+player is unrestorable with an unconfirmable pause does the budget
+yield — explicitly, the contract weakening to a surfaced persistent
+overflow in which each excess stream carries its viewport chip and
+Stop, because silently destroying live positions the user started is
+the one resolution off the table. A live-stream test times out the
+corrective pause while the position keeps advancing and asserts the
+escalation, then the surfaced yield. Because notifications are
 asynchronous and up to M players sit mounted, several native plays
 can start before any notification lands: P is therefore a hard limit
 for everything the runtime issues and a soft one against native
