@@ -318,17 +318,25 @@ Retirement *is* the watermark advancing, so there is no
 forgotten-id window: an acknowledged operation replayed after any
 amount of compaction, reconnection, force-reset (which issues a
 fresh epoch), or server restart is still at or below the watermark
-and still rejected, with O(1) durable state per instance. Nor do
-instances accumulate: epoch ids are server-issued and sequential per
-principal, each principal holds a small fixed number of live epoch
-watermarks, and issuing past the cap retires the least-recently
-active epoch by advancing a single per-principal retirement mark —
-writes from any retired epoch are rejected outright, so replay state
-is a few integers per principal however many resets a client
-performs. Retirement only claims an epoch idle long enough that its
-client would be force-reset regardless, and that client's
-resubmissions arrive as fresh writes, the same semantics tlsync
-already gives a force-reset stash. Fixtures chain a lost
+and still rejected, with O(1) durable state per instance. Nor does
+instance turnover accumulate ambiguity: epoch ids are server-issued
+and sequential per principal, and every epoch keeps exactly one
+durable integer — its watermark — whether live or retired.
+Retirement moves that integer into a compact per-principal retired
+map, spillable to cold storage like all evidence, and stops
+accepting writes under the epoch; it never discards the watermark,
+because the watermark is what keeps an acknowledgement-ambiguous
+operation resolvable forever. A client returning on a retired epoch
+asks for its final watermark, drops everything at or below it as
+committed, and resubmits everything above it under a fresh epoch —
+safe precisely because those operations never applied. Nothing
+ambiguous is ever reissued as a fresh write, and nothing committed
+can apply twice. Epoch issuance is rate-limited per principal, which
+bounds the retired map the same way deletion churn is bounded. A
+fixture commits a write, withholds its acknowledgement, lands a
+competing edit, retires the epoch, and reconnects the old client:
+the write must not reapply and the competing edit must stand.
+Fixtures also chain a lost
 acknowledgement, an intervening edit by another client, and the
 retry — including replay of an acknowledged operation after
 compaction — through each of reconnect, force-reset, and restart,
