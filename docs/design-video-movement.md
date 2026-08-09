@@ -169,11 +169,16 @@ destroys it — and stays mounted while M allows. The one edge
 admission cannot reach is the iframe's own controls: a manual play
 arrives as an asynchronous state-change notification, and one that
 would exceed P is reverted immediately, paused back with a surfaced
-notice, never displacing another player — so P is exceeded by at
-most one manual play for at most the notification latency, the
-honest limit of control at an iframe boundary. Tests fire
-simultaneous programmatic plays together with direct-control starts,
-not only the eventual post-overflow state. When M presses, the
+notice, never displacing another player. Because notifications are
+asynchronous and up to M players sit mounted, several native plays
+can start before any notification lands: P is therefore a hard limit
+for everything the runtime issues and a soft one against native
+controls, transiently exceedable by at most M − P, every excess play
+reverted as its notification arrives. A host that needs an absolute
+cap sets M = P and trades away the pause-then-evict headroom. Tests
+fire simultaneous programmatic plays together with several native
+starts delivered before any notification, not only the eventual
+post-overflow state. When M presses, the
 longest-paused player is evicted, which is safe precisely because it
 is paused: its clock holds exactly. The invariants hold as a pair —
 never more than P playing, never more than M mounted, and no playing
@@ -723,7 +728,13 @@ that: a filter positive is confirmed against the exact cold-storage
 set before anything is flagged, so a freshly minted video can never
 draw a false revived-without-events warning. A filter false positive
 costs one cold read, never a wrong flag; the filter's error rate is
-a performance knob, not a correctness bound. Inside the evidence
+a performance knob, not a correctness bound. An *unconfirmable*
+positive — the cold read failing or timing out — gets the same
+contract as an unreadable tombstone: the push commits nothing and
+returns retryable, because failing open could admit a stale revival
+and failing closed forever would block a fresh video over a false
+positive, so the design does neither and waits, visibly. Outage and
+timeout fixtures cover both a true and a false filter positive. Inside the evidence
 horizon, detection never falls silent, and in every exact tier it
 never cries wolf; the one tier that can over-warn is named below,
 and its warnings say so.
@@ -767,7 +778,14 @@ with it. Inside the horizon every bound holds because every
 structure is sized from exact data; past it, the design says plainly
 that deletion evidence is gone — the one honest alternative to a
 filter that saturates toward flagging everything or a store that
-only grows. Cost decays with age, no tier ever refuses a legitimate
+only grows. Gone evidence does not mean an open door, because the
+server knows every reconnecting client's baseline age: a session
+whose baseline predates the evidence horizon has its reapplied
+content quarantined wholesale for explicit resolution rather than
+merged as fresh work, so a stale carrier from beyond the horizon can
+never enter as a healthy video even though the tombstone that would
+have named it is gone. A fixture replays a pre-horizon baseline and
+must land in quarantine. Cost decays with age, no tier ever refuses a legitimate
 deletion, and a long-horizon test drives churn across generations,
 asserting false-positive and cold-lookup rates hold their configured
 targets. A stress test drives create/delete churn
