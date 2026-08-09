@@ -626,10 +626,16 @@ vocabulary without shipping any new feature:
   with neither binding nor target key — so new-vocabulary markers
   pass through untouched.
 
-Everything the pre-release authors itself still uses bindings. The
-main release follows once the pre-release is deployed, and rolling
-back means rolling back to the pre-release; rolling back past it is
-out of the support window. A fixture proves the round trip end to
+Media events the pre-release authors are dual-written: the legacy
+binding its own behavior needs, and the action's target key
+alongside. The second half is not optional politeness — schema parity
+means the main release's migrations will never rerun over this
+content, so nothing else would supply the key on roll-forward, and a
+binding-only event would arrive inert. A fixture creates an event
+under the pre-release and proves it still targets and controls its
+video after roll-forward. The main release follows once the
+pre-release is deployed, and rolling back means rolling back to the
+pre-release; rolling back past it is out of the support window. A fixture proves the round trip end to
 end: it builds and persists a room with the main release's
 `TLSocketRoom`, then reopens the snapshot with the pre-release's —
 the load succeeding is the proof, record validation alone would not
