@@ -610,7 +610,16 @@ host-configurable — and the window is a guarantee, not a hope:
 quota pressure inside it never destroys a payload. When in-room
 bytes run short, full tombstone payloads spill to the same cold
 storage the stubs use, restorable from there exactly as from the
-room, and the in-room byte accounting is per authenticated
+room — and through the same idempotent spill state machine the stubs
+use: the local payload stays authoritative until the cold object is
+durably confirmed, a resumable spill intent and the cold-object
+reference persist in the room's own storage, and only then is the
+local payload retired, so a crash at any boundary duplicates work
+but never strands a committed deletion without its recovery data.
+Fault-injection covers constrained-room spills of restorable
+payloads, not only metadata stubs, cutting the process between cold
+upload, storage commit, acknowledgement, local cleanup, restart, and
+revival. The in-room byte accounting is per authenticated
 principal, so one editor's churn spends that editor's budget and
 can never evict another video's recovery window. Only past the
 retention window do payloads age into stubs. Count and bytes
