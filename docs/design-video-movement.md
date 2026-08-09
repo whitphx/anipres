@@ -123,6 +123,13 @@ through three states:
   the anchor is the carrier of the sequence's earliest keyframe — the
   video's starting position — and an unanimated video is its only
   carrier. Deleting or reordering keyframes re-evaluates the rule.
+  Entering a carrier's editing state overrides it for the duration:
+  the double-clicked carrier becomes the anchor before pointer input
+  reaches the player — re-anchoring is a style change, never a
+  remount, so this costs nothing — and the default resumes when
+  editing ends, so every visible keyframe is a place the video can
+  actually be controlled from. A browser test double-clicks a
+  non-earliest keyframe and drives the player there.
 - **Absent.** Before a video's cue step, after a backward jump to a
   step before it, or once every carrier is gone, the fold yields no
   anchor at all. The player stays mounted — unmounting is the reload
@@ -170,11 +177,20 @@ that moment instead: authoring warns when a step would drive more
 than P simultaneous playing videos, presentation start surfaces the
 same check, and the runtime enforces P by admission, not reaction:
 every programmatic play — event-driven or UI-driven — synchronously
-reserves a play slot before the command is issued, and when the
+reserves a play slot before the command is issued. When the
 reservation needs a slot freed, the least recently started playing
-video is paused *in place* within the same reconciliation pass — a
-pause preserves the iframe and all of its state where an unmount
-destroys it — and stays mounted while M allows. The one edge
+video is sent its pause *in place* — a pause preserves the iframe
+and all of its state where an unmount destroys it — but the slot is
+not free yet: `pauseVideo` is a void command to an iframe that
+reports state asynchronously, so the slot stays occupied and the
+replacement play stays queued until a non-playing state is
+confirmed, with a timeout that surfaces a stuck player rather than
+assuming it stopped. Eviction obeys the same confirmation — nothing
+unmounts until its reported state is non-playing — so a logically
+paused but still-playing iframe can neither breach P nor be
+destroyed mid-playback; tests deliver pause confirmations late,
+never, and out of order. The paused player stays mounted while M
+allows. The one edge
 admission cannot reach is the iframe's own controls: a manual play
 arrives as an asynchronous state-change notification, and one that
 would exceed P is reverted immediately, paused back with a surfaced
