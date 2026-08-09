@@ -241,9 +241,10 @@ overlay is cleared only by a media command targeting that video —
 the one moment the fold deliberately retakes control — and survives
 navigation that carries no such command: a movement-only step must
 not resume a video the user paused, or "does not resume behind the
-user's back" would mean nothing. A budget pause has its own, shorter
-lifetime: cleared by a freed slot, which resumes from the held
-position, or by a media command. Priority and the playback clock
+user's back" would mean nothing. A budget pause is cleared by a
+media command or by the user's own play; a freed slot never
+auto-resumes anything — it merely permits resumption, which the
+control surface invites from the held position. Priority and the playback clock
 read the effective status, and tests navigate through steps with and
 without media commands over a manual pause.
 
@@ -269,26 +270,25 @@ browser test types at a previously focused player during pendency
 and proves the keystroke lands on the container, and another
 delivers a same-direction native action against a pending budget
 pause and proves manual-pause persistence and slot accounting stay
-correct. The one channel no web page can exclude is the browser's
-media session — hardware play/pause keys — and that residual is
-stated honestly: a media-key action inside the tens-of-milliseconds
-pendency window is misattributed to the command. And one ordering
-neither focus nor input-disabling can exclude — a native action
-taken just *before* a same-direction command is issued, its
-notification arriving during pendency and consumed as the
-acknowledgement — is closed by a conservative resume rule rather
-than an attribution guess: any pause whose acknowledgement window
-could contain a user action, meaning the player was interactive at
-any point between its last confirmed state and the acknowledgement,
-is marked possibly-manual, and a possibly-manual pause is never
-auto-resumed by a freed slot. It resumes only on an explicit media
-command or the user's own play, with the control surface showing
-"paused — resume" instead of resuming behind the user's back. Slot
-accounting is unaffected, since paused is paused whoever caused it;
-the cost is bounded and benign — at worst a budget-paused video
-waits for a click it did not need. A test fires a native pause
-immediately before a budget pause and delivers its notification
-during pendency. A notification that contradicts the
+correct. Two channels remain that no exclusion covers — the
+browser's media session, whose hardware play/pause keys no web page
+can intercept from outside the iframe's origin, and the ordering
+where a native action lands just *before* a same-direction command
+whose pendency then swallows the notification. Rather than guess at
+attribution in either, the conservative resume rule swallows both:
+**every pause acknowledgement is marked possibly-manual**, because a
+hardware or just-in-time user pause can coincide with any pending
+pause and no query can say who paused; and a possibly-manual pause
+is never auto-resumed. It resumes only on an explicit media command
+or the user's own play, with the control surface showing "paused —
+resume" instead of resuming behind the user's back — which is why
+freed slots never auto-resume at all. Slot accounting is unaffected,
+since paused is paused whoever caused it; the cost is bounded and
+benign — a budget-paused video waits for a click it may not have
+needed. Tests fire a native pause immediately before a budget pause
+with its notification delivered during pendency, and a hardware
+pause coinciding with a pending budget pause, verifying a freed slot
+resumes neither. A notification that contradicts the
 pending command — a pause while play is pending, whether a late
 acknowledgement of something earlier or a user's keystroke — is
 consumed by neither register; it drops the player into
@@ -357,8 +357,9 @@ backgrounding, across a background throttle and resume. The clock is deliberatel
 client-local — media events carry commands, not positions, and what
 folds identically everywhere is the status. Fixtures cover eviction and remount at non-default
 rates, for live video, before duration metadata has arrived, and the
-over-limit path: an (N+1)th play pausing the oldest in place, then
-resuming from the held position when a slot frees.
+over-limit path: an over-limit play pausing the oldest in place,
+the freed slot inviting — never forcing — resumption from the held
+position.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -930,7 +931,20 @@ Every path that mints a tombstone or stub debits the same budget.
 The standing sweep attributes its work to the authenticated
 principal whose push emptied the key, so omitting claim metadata and
 letting the sweep clean up is not a way around the deletion
-throttle, and a room-wide creation rate cap bounds how fast durable
+throttle — and that attribution is durable, not inferred at sweep
+time: the principal is persisted with the pending state in the same
+transaction that applies the emptying push, so a crash-persisted
+partial batch still knows whom to charge at the next load. What
+genuinely has no principal — a rollback-window deletion recorded by
+a release that kept no provenance, a legacy orphan — draws on a
+small, bounded room-owned recovery reserve, separate from every
+principal share precisely so it cannot be farmed: it serves only
+unattributable orphans, and if momentarily exhausted the sweep
+defers as retryable, the orphan markers persisting harmlessly until
+it succeeds. A restart test loads a room holding an unattributable
+orphan with every principal share exhausted and no client connected,
+proving the sweep draws the room reserve — or defers and later
+completes — without touching any principal's share. Meanwhile, and a room-wide creation rate cap bounds how fast durable
 evidence can be forced into existence by any mix of principals. The
 exact-key set ages through a tiered lifecycle rather than toward a
 terminal cap: full tombstones (in-room, restorable) become exact key
