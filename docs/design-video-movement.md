@@ -389,9 +389,18 @@ regression guard, and the pre-release's stamping.
 
 In a shared room, client-authored stamps are provisional, not
 authoritative. The pre-apply hook is a single serialization point,
-and it re-stamps every admitted media-prop write with a server-issued
-stamp — the room's next counter for that prop, paired with the
-authenticated principal — discarding whatever the client claimed.
+and it re-stamps every admitted media-prop **edit** with a
+server-issued stamp — the room's next counter for that prop, paired
+with the authenticated principal — discarding whatever the client
+claimed. Edit is a classification the hook makes explicitly, not a
+synonym for write: creating a same-key keyframe carrier writes
+copied media props by design, and those arrive with — and must keep
+— an empty revision map, because their values are a possibly stale
+snapshot that must never gain authority; only fresh-key copy
+normalization, which founds a new video, is stamped on creation. A
+race fixture changes the configuration, then lands a delayed
+same-key keyframe creation carrying the old values, and asserts no
+property's authority moves.
 Client stamps order only that client's own offline view until it
 reconnects; the server's order replaces them on admission, and every
 client converges on the serialized result. This dissolves the
@@ -949,14 +958,16 @@ parks just as well as dragging the video does. With several carriers
 per video, parking has one authority, not one reaction per carrier
 racing writes to the same markers: each client runs a single
 reaction per `videoKey`, parking the video's markers at the
-editing-anchor carrier's page transform — the same deterministic
-rule that places the player — and re-evaluating in the same batch
-when that carrier is deleted or reordered, so markers never linger
-at a stale anchor's coordinates. The target is a pure function of
-the converged document, so concurrent clients compute identical
-positions and their writes converge idempotently; tests move several
-carriers concurrently and assert stable marker positions and bounded
-write counts. The cheaper alternative
+earliest-keyframe carrier's page transform — the player's *default*
+anchor rule, deliberately without the local double-click override
+that can re-anchor the player during editing, because parking must
+be a pure function of the converged document while interaction is
+per-client — re-evaluating in the same batch when that carrier is
+deleted or reordered, so markers never linger at a stale anchor's
+coordinates. Concurrent clients therefore compute identical
+positions and their writes converge idempotently even while each is
+editing a different carrier; a multi-client test does exactly that
+and asserts identical marker positions and bounded write counts. The cheaper alternative
 — park once at
 creation and accept drift — is rejected: the drift is unbounded in the
 one case users notice, which is moving a video far across the canvas.
