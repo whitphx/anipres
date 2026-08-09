@@ -250,18 +250,25 @@ included: a concurrent copy or deletion moves it.
 
 So authority follows the data instead of the structure, and it is
 tracked **per property**, not per carrier. Alongside the media props,
-each carrier holds a revision map — one small counter per media prop
-— and every property of a video's configuration resolves
-independently: the `videoId` read is the `videoId` of whichever
-carrier holds the highest `videoId` revision, ties broken toward the
-carrier whose own id equals the `videoKey` (the shape that placed the
-video), then toward the smallest id — and likewise for each other
-prop. An edit writes the edited props, each stamped with one more
-than its current highest revision. It may land on any carrier — by
-convention the key-named shape while it lives, the smallest id
-otherwise — because correctness never depends on which record holds a
-value, only on the revision it travels with; the convention just
-keeps the common case tidy.
+each carrier holds a revision map — per media prop, a Lamport stamp:
+a counter plus the stable id of the editing session that wrote it —
+and every property of a video's configuration resolves independently:
+the `videoId` read is the `videoId` carrying the highest stamp,
+counters compared first, exact ties broken by session id. Stamps are
+globally unique, so the order is total and no residue is left for
+delivery or retry timing to decide; a carrier-id tiebreak would not
+be, because edits are deliberately routed to the same carrier — two
+offline clients editing one prop from counter N both write N+1 to
+the same record, and only the session id separates them. An edit
+writes the edited props, each stamped one past its highest seen
+counter, and may land on any carrier — by convention the key-named
+shape while it lives, the smallest id otherwise — because
+correctness never depends on which record holds a value, only on the
+stamp it travels with. Props never stamped resolve from the
+key-named carrier, then the smallest id; unstamped values are birth
+copies, identical wherever they sit. The same total order governs
+reads, transfers, undo's still-resolves check, the server's
+regression guard, and the pre-release's stamping.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -269,8 +276,10 @@ divergent deletions and transfers and edit different props on
 different survivors, and on convergence each edit wins its own
 property; nothing is discarded wholesale. Only edits to the same prop
 contend, and that tie is the genuine conflict of concurrent editing —
-it resolves deterministically by the id tiebreak and costs exactly
-that one property, never a carrier's worth of unrelated changes. Only
+it resolves deterministically by the stamp's total order and costs
+exactly that one property, never a carrier's worth of unrelated
+changes. Same-carrier concurrent-edit fixtures run both delivery
+orders and a restart-with-retry. Only
 three writes ever produce a nonzero revision: an edit; the delete
 transfer below; and copy normalization, which stamps a new video's
 owner under its own fresh key. Same-key keyframe copies are written
@@ -452,8 +461,17 @@ what they have acknowledged, because tlsync force-resets a client
 whose baseline predates its pruned history and then reapplies and
 pushes that client's stashed changes on top of the fresh state — an
 arbitrarily old offline extension can arrive at any later time. So
-the tombstone lives as long as the document does (a few tiny records
-per deleted video, and video deletions are rare), and restoration is
+retention is long but bounded — "video deletions are rare" is not an
+invariant a scripted or hostile editor honors, and unbounded
+tombstones would let repeated create-and-delete cycles exhaust the
+room's storage while the visible document stays small. Each room
+keeps tombstones under a quota, by default the newest 30 days within
+a fixed byte budget, both host-configurable, compacting oldest first
+and surfacing count and bytes as room observability; a stress test
+proves storage and restart cost stay bounded under create/delete
+cycles. A key revived after its tombstone was compacted comes back
+as a video without events — that bound and its failure mode are
+stated contract, not a surprise. Within the bound, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, rebroadcasts them, and clears the
 tombstone. That is semantically right, not just race repair — fresh
