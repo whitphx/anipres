@@ -232,6 +232,24 @@ position, or by a media command. Priority and the playback clock
 read the effective status, and tests navigate through steps with and
 without media commands over a manual pause.
 
+Distinguishing the user's hand from the runtime's own commands is
+never left to per-notification inference, because the iframe reports
+both identically and confirmations can arrive late or out of order.
+Each player runs one serialized transition state machine with four
+separated registers: desired state, from the fold; issued and
+unconfirmed commands, a queue; confirmed iframe state, from
+notifications; and native interaction, the residue. A notification
+is matched against the pending-command queue first, consumed as the
+acknowledgement of the oldest command it can satisfy, and only a
+notification no pending command explains is classified native and
+allowed to write the manual overlay. While any command is pending
+for a player, no durable manual intent is derived from its
+notifications at all, and a command whose timeout expires surfaces
+as a stuck player rather than reclassifying anything. Tests
+interleave programmatic plays, budget pauses, and native clicks with
+late and out-of-order notifications, asserting the overlay and the
+slot accounting both land right.
+
 When suppression lifts, the player mounts and seeks by the runtime's
 playback clock: a per-video (position, observed-at, rate) triple,
 refreshed by periodic polls while a player is mounted and on every
@@ -909,7 +927,18 @@ position: a reaction on the carrier's `getShapePageTransform` — not a
 store side effect on the carrier record — keeps a video's markers at
 its position, so movement that never touches the carrier itself
 (dragging a parent group, resizing an enclosing frame, reparenting)
-parks just as well as dragging the video does. The cheaper alternative
+parks just as well as dragging the video does. With several carriers
+per video, parking has one authority, not one reaction per carrier
+racing writes to the same markers: each client runs a single
+reaction per `videoKey`, parking the video's markers at the
+editing-anchor carrier's page transform — the same deterministic
+rule that places the player — and re-evaluating in the same batch
+when that carrier is deleted or reordered, so markers never linger
+at a stale anchor's coordinates. The target is a pure function of
+the converged document, so concurrent clients compute identical
+positions and their writes converge idempotently; tests move several
+carriers concurrently and assert stable marker positions and bounded
+write counts. The cheaper alternative
 — park once at
 creation and accept drift — is rejected: the drift is unbounded in the
 one case users notice, which is moving a video far across the canvas.
