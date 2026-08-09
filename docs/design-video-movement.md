@@ -425,14 +425,22 @@ instead of pretending: a native or media-session play that starts
 cannot be observed until the next lifecycle event, so background
 overflow from that channel is bounded by the user's return, not by
 the runtime. A host that cannot accept it enables strict
-`pauseOnHidden`, and strict means strict: the players are unmounted
-at the hide transition, so post-hide native playback is impossible
+`pauseOnHidden`: every *restorable* player is unmounted at the hide
+transition, so post-hide native playback is impossible for them
 because no iframe exists to play — a pause command would not close
 the channel, being asynchronous and revocable by a later native
-start. The price is real and stated: continuity across a
-hide-and-return is reduced to a clock-guided remount, which is why
-strict mode is an option rather than the default, and the default is
-best-effort and says so.
+start — at the stated price that continuity across hide-and-return
+is reduced to a clock-guided remount. Unrestorable players are
+outside even strict mode's reach, by the same invariant that governs
+every teardown: destroying a live position without the user's
+explicit Stop is never on the table, so they receive the pause
+attempt and stay mounted, and strict mode's bound is honest rather
+than absolute — hard for everything restorable, while a live stream
+the user set playing may persist until they return. A host needing
+the absolute bound pairs strict mode with the `allowLive` content
+policy and simply does not embed unrestorable media. A browser test
+hides and returns while a live player is confirmed playing and
+asserts it was neither unmounted nor silently stopped.
 Tests start native plays whose notifications are delayed
 indefinitely or never delivered, including one beginning after
 backgrounding, across a background throttle and resume. The clock is deliberately
