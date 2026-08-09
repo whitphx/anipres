@@ -863,7 +863,14 @@ deleting client sends the room, alongside its push, the video keys it
 claims fully deleted — and, per key, the exact marker ids its cascade
 removed. Intent is per marker, not per key, because one batch can mix
 both kinds: a user may explicitly delete an event in the same
-operation that removes the video's last carrier. Only the claimed
+operation that removes the video's last carrier. A claim is
+validated against server-side pre-images before it is honored at
+all: every claimed marker id must exist, its pre-image must target
+the claimed `videoKey`, and its removal must arrive in the same push
+— any mismatch rejects the whole claim, so a malformed or hostile
+client cannot launder another video's events into a tombstone under
+an unused key; adversarial fixtures claim a nonexistent key and
+claim markers belonging to another video. Only the claimed
 marker ids are arbitrated; every other marker removal, an explicit
 event deletion batched with anything at all — including a cascade of
 its own video — applies as pushed whether or not the claim survives.
@@ -1373,7 +1380,19 @@ itself deployable with a floor beneath it:
   release trivially safe; a round-trip test opens, persists, and
   rolls a shared room back against the actual current release —
   including a connection that deliberately submits future vocabulary
-  — before anything later ships.
+  — before anything later ships. Stage A's write behavior is
+  document-sensitive, which is what makes both of its neighbors
+  safe: a document containing no future vocabulary gets exactly the
+  current release's behavior and stays byte-identical — the
+  A-to-current guarantee above — while a document already bearing
+  future vocabulary, which only a later stage can have produced (so
+  rolling it back past A is already out of the window), gets the
+  write-compatibility shims: media edits routed and stamped as
+  operations, duplicate and paste minting fresh keys. An ordinary
+  edit under a B-to-A rollback therefore cannot park a new value
+  under an old stamp, and a duplicate cannot rejoin its source;
+  fixtures edit and duplicate under rolled-back stage A on both
+  document kinds.
 - **Stage B, the pre-release.** The main release's rollback floor,
   described next. Rolling it back means rolling back to stage A,
   whose validators accept everything stage B writes.
