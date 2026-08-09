@@ -306,21 +306,26 @@ by the same asynchronous message channel as the notifications and
 can only echo what the iframe last sent; treating it as independent
 confirmation would be circular. Before a slot is freed, a
 replacement play issued, or an eviction admitted, the runtime
-demands corroboration that is *temporal*, not cached: two spaced
-reads of the playback position, frozen for a claimed pause,
-advancing for a claimed play — evidence a stale message cannot
-fabricate, because a cached position does not keep moving on its
-own. Where corroboration cannot be obtained inside the timeout, the
-runtime fails closed: the slot stays occupied, the eviction is
-refused, and the condition is surfaced — so the P/M contract carries
-one explicit corollary: a wedged player can hold its slot, and the
-budget may under-admit until that player recovers or the user tears
-it down, but it never over-admits and never unmounts a player it
-cannot prove paused. Validating the IFrame API's actual message and
-caching semantics in a browser-level prototype is an implementation
-milestone alongside the sync fork's. A test delivers an old paused
-notification during a later pause while the playback position keeps
-advancing, and asserts no slot frees and no eviction occurs. Tests
+demands corroboration that is *temporal*, not cached — and the
+evidence is asymmetric. An advancing playback position across spaced
+reads proves the player is playing, because a stale cache does not
+keep moving; it always blocks release. A frozen position proves
+nothing: a stale cache, a buffering player, and a genuinely paused
+one all freeze identically, so a frozen pair alone never frees a
+slot and never admits an eviction. Release requires the full
+conjunction — the pause acknowledgement, a frozen spaced pair, and
+no unexplained transition since the command — and whether that
+conjunction reliably separates pause from buffering, stall, and
+stale cache is precisely what the IFrame API browser prototype, an
+implementation milestone alongside the sync fork's, must establish
+with explicit buffering and stalled-playback tests. If it cannot,
+the runtime fails closed on both release and eviction: the P/M
+contract's corollary widens accordingly — a wedged or ambiguous
+player holds its slot, the budget under-admits until it recovers or
+the user tears it down, and the design never over-admits and never
+unmounts a player it cannot prove paused. A test delivers an old
+paused notification during a later pause while the playback position
+keeps advancing, and asserts no slot frees and no eviction occurs. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
 slot accounting both land right; browser tests add keyboard input
@@ -357,9 +362,15 @@ instead of pretending: a native or media-session play that starts
 *after* the page is hidden and whose notification never arrives
 cannot be observed until the next lifecycle event, so background
 overflow from that channel is bounded by the user's return, not by
-the runtime — and a host that cannot accept it enables the strict
-`pauseOnHidden` option, which pauses all playback at the hide
-transition and buys a hard bound at the price of background audio.
+the runtime. A host that cannot accept it enables strict
+`pauseOnHidden`, and strict means strict: the players are unmounted
+at the hide transition, so post-hide native playback is impossible
+because no iframe exists to play — a pause command would not close
+the channel, being asynchronous and revocable by a later native
+start. The price is real and stated: continuity across a
+hide-and-return is reduced to a clock-guided remount, which is why
+strict mode is an option rather than the default, and the default is
+best-effort and says so.
 Tests start native plays whose notifications are delayed
 indefinitely or never delivered, including one beginning after
 backgrounding, across a background throttle and resume. The clock is deliberately
