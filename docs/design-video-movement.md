@@ -129,6 +129,18 @@ mirrors, never the player's place in the DOM, so it cannot remount the
 iframe — which is what made every re-anchoring scheme on shape-mounted
 players unsafe.
 
+One existing mechanism must stand aside for this to work: `runFrames`
+animates an ordinary `shapeAnimation` by minting a temporary
+page-level clone and tweening it. Video keyframes opt out of exactly
+that step — their frames keep duration and easing, so step timing is
+untouched, but no clone is minted, because the runtime player is the
+moving representation and a cloned poster would visibly ride the same
+path beside it. Skipping the clone also keeps identity clean: no
+transient shape carrying a `videoKey` ever exists, so carrier
+counting, authority transfer, and orphan cleanup can never observe a
+phantom carrier. A presentation-level regression test plays a
+movement step and asserts exactly one moving video is visible.
+
 Viewport culling is deliberately not mirrored — hiding a live player
 because its carrier scrolled away is the remount hazard again — but
 culling answers visibility, not cost. One player per video still
@@ -299,6 +311,17 @@ serialization at the single authority, which is what convergence
 means for a last-writer register. Both releases run the same forked
 room server — the hook ships with the pre-release, so rollback
 changes client behavior, never the authority.
+
+The principal all of this keys on — stamps, epoch issuance, and
+every abuse budget — is propagated, never declared. The connect
+route already authenticates the user before handing the socket to
+the room; it passes the resolved user id to the Durable Object as
+server-generated connection context on the internal handoff, and the
+room binds that identity to the socket session. Nothing
+identity-shaped is ever read from the client's request — the
+rotatable `sessionId` included, which is display data at most. A
+test rotates arbitrary session ids under one account and verifies
+they share one set of limits.
 
 Serialization needs idempotency to stay safe under retry: a
 committed write whose acknowledgement was lost, retried after
