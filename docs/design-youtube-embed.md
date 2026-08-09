@@ -104,13 +104,22 @@ otherwise fail its store load on the unknown `youtube-embed` /
 `media-control` records, and parse a `mediaControl` frame as an
 `invalid-frame` whose offered repair clears it — losing the event.
 
-Rollout order is **server-before-client** here, inverting the v1 → v2
-gate: that gate only had to stop stale writers, while this release also
-adds record types the worker must be able to store, so an app deployed
-first would have nowhere to put a video. The gate matches the version
-exactly for the same reason — a client ahead of the worker is rejected
-(with tldraw's `SERVER_TOO_OLD`) instead of writing records the room
-would refuse on save.
+There is no rollout ordering to get right: the worker serves the app
+bundle (`[assets]` in `wrangler.toml`) and the production job ships
+both from one build, so a client can never be ahead of the worker that
+has to store its records. What this release does constrain is the
+direction — once a document holds the new records, a worker without
+their schema registrations can no longer load its room, so it rolls
+forward only (see the registration note in
+[`design-server-sync.md`](./design-server-sync.md)). A tab left open
+across the deploy still runs the previous bundle and is refused by the
+gate until it reloads.
+
+The gate matches the declared version exactly rather than treating it
+as a floor. Only the too-old direction is reachable under that deploy
+topology; answering the too-new one with tldraw's `SERVER_TOO_OLD`
+costs nothing and keeps the check meaningful if the two are ever
+deployed separately.
 
 The video's own cue track and its media track stay **separate tracks
 in the data model** — a step may legally animate the video and fire a
