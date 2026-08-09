@@ -277,22 +277,26 @@ copies, identical wherever they sit. The same total order governs
 reads, transfers, undo's still-resolves check, the server's
 regression guard, and the pre-release's stamping.
 
-Stamps are client-authored, so the server treats them as claims to
-validate, not facts. The pre-apply hook takes the session component
-from the authenticated connection rather than from the payload, and
-admits a counter only up to the prop's current high-water mark plus
-one — headroom for exactly the concurrent siblings that offline
-editing legitimately creates, and none for forged jumps. Admitted
-props then apply one at a time by the total order: an incoming stamp
-that beats the stored one wins the record, one that does not is
-dropped. Concurrent (N+1, session A) and (N+1, session B) edits
-therefore converge on the same winner in both arrival orders — the
-loser loses to the order, never to the clock on the wire — and with
-increments bounded by one per accepted advance, the numeric ceiling
-is unreachable within any document's realistic lifetime. Fixtures
-pin hostile counters, forged session ids, numeric boundaries, and
-simultaneous N+1 siblings in both arrival orders with unchanged
-retries.
+In a shared room, client-authored stamps are provisional, not
+authoritative. The pre-apply hook is a single serialization point,
+and it re-stamps every admitted media-prop write with a server-issued
+stamp — the room's next counter for that prop, paired with the
+authenticated principal — discarding whatever the client claimed.
+Client stamps order only that client's own offline view until it
+reconnects; the server's order replaces them on admission, and every
+client converges on the serialized result. This dissolves the
+validation problem rather than solving it: a collapsed offline
+history — several offline edits arriving as one final record diff
+after a force-reset — is simply one admitted write earning one fresh
+stamp, and forgery has nothing to forge, since counters never come
+from the payload there is no hostile jump to reject and no numeric
+ceiling a client can reach. Same-prop concurrent edits resolve by
+serialization at the single authority, which is what convergence
+means for a last-writer register. Both releases run the same forked
+room server — the hook ships with the pre-release, so rollback
+changes client behavior, never the authority. Fixtures cover
+simultaneous edits in both arrival orders, unchanged retries, and a
+force-reset replay of a multi-edit offline history.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -564,10 +568,16 @@ the snapshot already, and would never reach the server as a record
 operation at all. So the intent does not ride the record stash: the
 client records each explicit event deletion — marker id and key — in
 its own durable state and reports them as prune requests on every
-connect until the server acknowledges them. Pruning is idempotent,
-and a prune naming a marker no tombstone holds is a no-op. The
-reset-path fixture drives the real reset and stash-reapply flow, not
-a hand-built final push.
+connect until the server acknowledges them. That store is ordered and
+reversible, not append-only: undoing the deletion — or any local
+restoration of the marker — cancels the pending prune, so what a
+client reports on connect is the net of its history, and a
+delete-then-undo reports nothing. Pruning is idempotent, and a prune
+naming a marker no tombstone holds is a no-op. The reset-path fixture
+drives the real reset and stash-reapply flow, not a hand-built final
+push, and one chain covers the full hazard: offline event delete,
+local undo, concurrent video tombstoning by another client,
+reconnect, then carrier revival — the event must come back.
 
 Both delivery orders, a reconnect after offline editing, and a
 reconnect so late the client was force-reset all converge on a video
