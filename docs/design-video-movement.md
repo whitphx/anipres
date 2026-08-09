@@ -323,16 +323,24 @@ instance turnover accumulate ambiguity: epoch ids are server-issued
 and sequential per principal, and every epoch keeps exactly one
 durable integer — its watermark — whether live or retired.
 Retirement moves that integer into a compact per-principal retired
-map, spillable to cold storage like all evidence, and stops
-accepting writes under the epoch; it never discards the watermark,
-because the watermark is what keeps an acknowledgement-ambiguous
-operation resolvable forever. A client returning on a retired epoch
-asks for its final watermark, drops everything at or below it as
-committed, and resubmits everything above it under a fresh epoch —
-safe precisely because those operations never applied. Nothing
-ambiguous is ever reissued as a fresh write, and nothing committed
-can apply twice. Epoch issuance is rate-limited per principal, which
-bounds the retired map the same way deletion churn is bounded. A
+map and stops accepting writes under the epoch. Retired watermarks
+live under a **replay lease** — a year by default,
+host-configurable, deliberately longer than every other retention
+horizon in this design — and within it, a client returning on a
+retired epoch resolves exactly: it asks for the final watermark,
+drops everything at or below it as committed, and resubmits
+everything above it under a fresh epoch, safe precisely because
+those operations never applied. Nothing ambiguous is ever reissued
+as a fresh write, and nothing committed can apply twice. Past the
+lease the watermark compacts away, and the outcome is explicit
+rather than guessed: a device returning after longer than the lease
+is told its pending media operations could not be replayed, and
+surfaces that to the user instead of silently reapplying or
+silently dropping them. The lease is what makes the bound real —
+total retry state is the per-principal issuance rate limit times
+the lease window, a constant, and a long-duration churn test
+verifies total durable state, cold storage included, stays under
+that bound rather than merely growing slowly. A
 fixture commits a write, withholds its acknowledgement, lands a
 competing edit, retires the epoch, and reconnects the old client:
 the write must not reapply and the competing edit must stand.
