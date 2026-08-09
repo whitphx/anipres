@@ -118,9 +118,19 @@ through three states:
 A change of anchor only changes which shape's values the player
 mirrors, never the player's place in the DOM, so it cannot remount the
 iframe — which is what made every re-anchoring scheme on shape-mounted
-players unsafe. Viewport culling is deliberately not mirrored: culling
-exists to keep thousands of off-screen shapes cheap, one player is not
-that, and an off-viewport player is invisible without any help.
+players unsafe.
+
+Viewport culling is deliberately not mirrored — hiding a live player
+because its carrier scrolled away is the remount hazard again — but
+culling answers visibility, not cost. One player per video still
+means a document with many videos could mount many iframes, so
+mounting is bounded by a lifecycle policy instead: a video gets a live
+player while it is presenting, playing, selected, or near the
+viewport, and shows only its poster otherwise. Eviction records the
+player's current position in runtime state and seeds the replacement
+from it, so an evicted paused video resumes where it left off. A
+playing video is never evicted for being off-screen — it may be
+audible.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -191,18 +201,24 @@ it, and the reload is the point.
 
 ### Existing documents
 
-Existing videos predate the prop, so a props migration materializes
-it: `videoKey = shape.id`, which identifies each existing video as
-itself — correct because today every video is exactly one shape, and
+Existing videos predate the prop, so a migration materializes it:
+`videoKey = shape.id`, which identifies each existing video as itself
+— correct because today every video is exactly one shape, and
 deterministic, as migrations must be (that constraint rules out
-minting random keys, not writing the record's own id). A read-time
-fallback would not be enough: a follow-up keyframe copied from a video
-whose key was never stored would fall back to its _own_ new shape id,
-splitting one video into two identities the first time it is animated.
-Materializing the key closes that hole, and because a props migration
-is record-scoped it runs everywhere a legacy record can appear — store
-loads and pasted `TLContent` alike — so the key is in place before any
-copy can be made, and travels with every copy.
+minting random keys, not writing the record's own id). The props-only
+migration helper cannot express this, because its callback receives
+the props value and never sees the record id — so the materialization
+is a record-scoped shape migration, the kind whose callback receives
+the whole record. Record-scoped migrations are also what tldraw
+replays on each record of a pasted `TLContent` payload, so the key is
+in place everywhere a legacy record can appear — store loads and
+pastes alike — before any copy can be made, and travels with every
+copy.
+
+A read-time fallback would not be enough: a follow-up keyframe copied
+from a video whose key was never stored would fall back to its _own_
+new shape id, splitting one video into two identities the first time
+it is animated. Materializing the key closes that hole.
 
 ## What this removes
 
@@ -329,7 +345,7 @@ clipboard content does not, and gets its own pass:
 
 - The binding type stays registered (see above), so the old records
   load instead of failing validation.
-- The record-scoped props migration materializes `videoKey` on every
+- The record-scoped shape migration materializes `videoKey` on every
   legacy video (see "Existing documents").
 - A store-level migration resolves, for each `media-control` binding,
   the video shape at its `toId`, and writes that shape's id — now that
@@ -361,7 +377,20 @@ release resolves events through bindings and deletes an unbound marker
 as an orphan, so a document opened once by the new release and then
 reopened by the old one would silently lose its media events. Left in
 place — inert to the new code, intact to the old — they keep
-everything the old release wrote survivable under rollback. Content
+everything the old release wrote survivable under rollback.
+
+Surviving the first open is not enough; the guarantee has to survive
+edits. A retained binding points at the original carrier, and a
+new-release edit can delete exactly that shape — add a movement
+keyframe, then remove the original position. So the batch cleanup that
+already watches carrier deletion also tends the retained bindings:
+when a binding's video endpoint is deleted while other carriers of its
+`videoKey` survive, the binding is repointed at the anchor surviving
+carrier, in the same history entry. The old release can then still
+resolve the event after any sequence of new-release edits; only when
+the last carrier goes do events, markers and bindings go together.
+
+Content
 authored by the new release (movement keyframes, new media events,
 pasted copies) is written without bindings and was never representable
 in the old vocabulary; rollback safety here means the old release's
@@ -371,7 +400,8 @@ Fixtures pin all of this. A document captured from the pre-migration
 schema, holding a video with `media-control` bindings, must load under
 the new schema with its event targeting intact — and, reopened under
 the previous release's schema and cleanup rules, must still have its
-events. Sibling fixtures hold the degraded states — an unbound marker,
+events, including after the round trip that adds a keyframe and
+deletes the originally bound carrier. Sibling fixtures hold the degraded states — an unbound marker,
 a binding with a missing or mistyped endpoint — and must come out with
 those records gone. A pre-change `TLContent` fixture pasted through
 the wrapper must come out with its event targeting the pasted video.
