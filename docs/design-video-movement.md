@@ -320,18 +320,24 @@ write inside a structural delete, the same exposure as the marker
 cleanup and binding repointing that already live in that batch, not a
 standing reconcile pass over carrier records.
 
-Transfers are client-computed, so a stale one can arrive late: two
-clients can each delete carrier A and transfer its props to survivor
-B, one of them after B was already edited past the transferred
-revision. The transport merges property patches without reading them,
-so ordering is enforced where the merged state lives: each media prop
-and its revision travel and apply as one unit, and the room server
-rejects any application that would lower a prop's revision on its
-record — a regression can only be a stale write, because the value a
-lower revision carries is by construction one a newer edit already
-superseded. Unsynced documents have a single writer and need no
-guard. Fixtures race a stale transfer against a newer edit on the
-transfer target, in both delivery orders.
+Who performs the transfer follows who owns the merged state. For an
+unsynced document the deleting client's batch does, as above. In a
+shared room clients do not transfer at all: a client-computed
+transfer can be stale on arrival, and worse, its chosen target can
+itself be deleted by a concurrent push from a client that never saw
+the transfer — leaving the high stamp on two dead records while a
+revision-zero survivor resolves. The room server instead repairs
+authority as part of its standing per-push invariant: applying a push
+gives it each deleted record's pre-image, so when a deleted carrier
+held any prop's highest stamp while others survive, the server writes
+those values and stamps onto a surviving carrier in the same
+transaction — post-merge, the target is by construction a record that
+survived. The transport-side monotonicity guard stays as defense
+against any other stale write: each media prop and its stamp travel
+and apply as one unit, and the server rejects an application that
+would lower a prop's stamp on its record. A three-carrier fixture
+deletes the authority holder and the would-be transfer target
+concurrently, in both delivery orders and through restart-and-retry.
 
 Undo never moves a revision backwards either, because a lowered
 revision is indistinguishable from the stale writes the server guard
