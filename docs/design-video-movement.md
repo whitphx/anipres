@@ -321,20 +321,30 @@ reads proves the player is playing, because a stale cache does not
 keep moving; it always blocks release. A frozen position proves
 nothing: a stale cache, a buffering player, and a genuinely paused
 one all freeze identically, so a frozen pair alone never frees a
-slot and never admits an eviction. Release requires the full
-conjunction — the pause acknowledgement, a frozen spaced pair, and
-no unexplained transition since the command — and whether that
-conjunction reliably separates pause from buffering, stall, and
-stale cache is precisely what the IFrame API browser prototype, an
-implementation milestone alongside the sync fork's, must establish
-with explicit buffering and stalled-playback tests. If it cannot,
-the runtime fails closed on both release and eviction: the P/M
-contract's corollary widens accordingly — a wedged or ambiguous
-player holds its slot, the budget under-admits until it recovers or
-the user tears it down, and the design never over-admits and never
-unmounts a player it cannot prove paused. A test delivers an old
-paused notification during a later pause while the playback position
-keeps advancing, and asserts no slot frees and no eviction occurs. Tests
+slot and never admits an eviction — and no conjunction of ambiguous
+signals is promoted into proof, because a delayed same-state
+notification over a buffering-frozen position is observationally
+identical to a real pause, and no prototype can split identical
+observables. Release therefore rests on certainty or does not
+happen: the two grounds for freeing a mounted player's slot are a
+genuinely command-correlated acknowledgement, if the IFrame API
+browser prototype — an implementation milestone alongside the sync
+fork's — proves one exists, and **teardown**, synchronous removal of
+the iframe, causally certain because a DOM node that no longer
+exists cannot play. When evidence stays ambiguous past the settle
+window, the runtime does not guess: if the slot is needed it tears
+the player down and takes the certainty teardown grants — a bounded,
+named loss, since a player whose playback was unobservable for the
+whole window loses little, and remounts later by its clock exactly
+as an evicted one would — and if the slot is not needed it fails
+closed and under-admits. Either branch keeps both guarantees: no
+admission ever exceeds P, and no player provably playing is ever
+unmounted. The regression scenario runs an old pause notification,
+a later pause command, a buffering-frozen position, and a delayed
+buffering notification, and asserts the slot frees only through
+teardown. A test also delivers an old paused notification during a
+later pause while the position keeps advancing, and asserts no slot
+frees and no eviction occurs. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
 slot accounting both land right; browser tests add keyboard input
