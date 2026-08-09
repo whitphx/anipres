@@ -145,24 +145,33 @@ Viewport culling is deliberately not mirrored — hiding a live player
 because its carrier scrolled away is the remount hazard again — but
 culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
-mounting is governed by a budget: at most N live players — N a
-host-configurable prop, defaulting to 4 — granted in priority order:
-effectively playing, then selected, then near the viewport.
-Everything over budget shows its poster.
+mounting is governed by two explicit limits, both host-configurable:
+at most P simultaneously playing players (default 4) and at most M
+mounted players (default 6, always at least P plus headroom),
+granted in priority order: effectively playing, then selected, then
+near the viewport. Everything over the mount budget shows its
+poster.
 
 An effectively playing player is **never unmounted**. Eviction and
 reconstruction cannot preserve what an iframe holds — buffers,
 captions, a live stream's position — and uninterrupted playback is
-the guarantee this whole design exists for, so the budget is simply
-never spent there. The playback limit is enforced ahead of that
-moment instead: authoring warns when a step would drive more than N
-simultaneous playing videos, presentation start surfaces the same
-check, and if a race still produces an (N+1)th play at runtime, the
-least recently started playing video is paused *in place* — a pause
-preserves the iframe and all of its state, where an unmount destroys
-it. Non-playing residency is sticky: eviction by viewport distance
-uses a margin and a minimum residency time, so panning the camera
-reorders candidates without thrashing mounts.
+the guarantee this whole design exists for, so the mount budget is
+simply never spent there. The playing limit is enforced ahead of
+that moment instead: authoring warns when a step would drive more
+than P simultaneous playing videos, presentation start surfaces the
+same check, and if a race still produces a (P+1)th play at runtime,
+the least recently started playing video is paused *in place* — a
+pause preserves the iframe and all of its state where an unmount
+destroys it — and stays mounted while M allows. When M presses, the
+longest-paused player is evicted, which is safe precisely because it
+is paused: its clock holds exactly. The invariants hold as a pair —
+never more than P playing, never more than M mounted, and no playing
+player ever unmounted — and the headroom between P and M is what
+buys the graceful pause-then-evict path instead of a contradiction;
+a fixture repeats overflow plays past both limits. Non-playing
+residency is sticky: eviction by viewport distance uses a margin and
+a minimum residency time, so panning the camera reorders candidates
+without thrashing mounts.
 
 The budget suppresses mounting; it never rewrites desired state.
 Desired playback folds from events identically on every client, and
@@ -684,7 +693,19 @@ No terminal "deletions refused" state exists anywhere in the
 lifecycle: no volume of authenticated churn can take a core editing
 operation away from legitimate users, and the per-principal rate
 limit on deletion claims is a throttle against abuse, never a dam
-that fills. In the room, a compact membership filter summarizes the
+that fills. Storage degradation gets an explicit contract instead of
+an impossible promise, though: the room reserves local headroom for
+recovery payloads ahead of the document's own growth, and if that
+reserve is exhausted while cold storage is also unavailable — the
+one state in which a deletion's recovery data cannot be durably
+persisted anywhere — the deletion push is rejected as retryable,
+with backpressure surfacing before exhaustion. Deferred, not
+refused: policy never takes deletion away, and the retry lands the
+moment either store recovers. What the room never does is accept a
+deletion it could not back with recovery data, or shed evidence to
+make one fit. A test fills the room to its actual quota with cold
+storage down, proves the deletion defers with the documented error,
+then restores cold storage and proves the retry succeeds. In the room, a compact membership filter summarizes the
 spilled keys as a fast negative check — keys are shape ids with no
 order, so membership is the only possible test — and it is only
 that: a filter positive is confirmed against the exact cold-storage
