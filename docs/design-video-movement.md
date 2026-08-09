@@ -195,7 +195,7 @@ The duplicate-vs-rejoin distinction comes for free: the
 follow-up-keyframe path is ours and preserves `videoKey`, while
 `Cmd+D` and paste run through the remap wrapper, which mints a fresh
 one alongside the fresh `trackId` — the new id of the copied
-authority carrier when it is among the copies, and the smallest new
+key-named carrier when it is among the copies, and the smallest new
 id otherwise. Normalization happens at serialization, while the
 source store is still in hand: copying or duplicating resolves the
 source video's authoritative values and writes them, at a fresh
@@ -225,64 +225,73 @@ the owner and land edits on different records. The same objection
 kills any rule that reads structure, "the smallest surviving id"
 included: a concurrent copy or deletion moves it.
 
-So authority follows the data instead of the structure. Each carrier
-holds a configuration revision — a small counter prop — and the
-**authority carrier**, the one edit target and the one source every
-reader resolves, is the carrier holding the highest revision, ties
-broken toward the carrier whose own id equals the `videoKey` (the
-shape that placed the video), then toward the smallest id. Editing
-media props means writing the authority record, wherever in the UI
-the edit was made, stamped with one more than the current highest
-revision. Only three writes ever produce a nonzero revision: an
-edit; the delete transfer below; and copy normalization, which
-stamps a new video's owner under its own fresh key. Same-key
-keyframe copies are written at revision zero — their media props are
-dead data no reader consults — so adding a keyframe, reordering, and
-geometry work can never move authority, and a revision tie is only
-reachable where the tied values are identical (a never-edited video,
-or the instant after a transfer). The tiebreak never chooses between
-diverged data.
+So authority follows the data instead of the structure, and it is
+tracked **per property**, not per carrier. Alongside the media props,
+each carrier holds a revision map — one small counter per media prop
+— and every property of a video's configuration resolves
+independently: the `videoId` read is the `videoId` of whichever
+carrier holds the highest `videoId` revision, ties broken toward the
+carrier whose own id equals the `videoKey` (the shape that placed the
+video), then toward the smallest id — and likewise for each other
+prop. An edit writes the edited props, each stamped with one more
+than its current highest revision. It may land on any carrier — by
+convention the key-named shape while it lives, the smallest id
+otherwise — because correctness never depends on which record holds a
+value, only on the revision it travels with; the convention just
+keeps the common case tidy.
+
+Per-property resolution is what survives histories a single
+per-carrier counter cannot. Two offline clients can go through
+divergent deletions and transfers and edit different props on
+different survivors, and on convergence each edit wins its own
+property; nothing is discarded wholesale. Only edits to the same prop
+contend, and that tie is the genuine conflict of concurrent editing —
+it resolves deterministically by the id tiebreak and costs exactly
+that one property, never a carrier's worth of unrelated changes. Only
+three writes ever produce a nonzero revision: an edit; the delete
+transfer below; and copy normalization, which stamps a new video's
+owner under its own fresh key. Same-key keyframe copies are written
+with an empty revision map — their media props are dead data no
+reader consults — so adding a keyframe, reordering, and geometry work
+can never move authority.
 
 Authority is resolved at read time, not written back. Nothing fans
-the winner out across the other records, deliberately: read-time
-resolution needs no writes at all, where a standing rewrite pass
-would turn every media edit into one write per carrier, racing other
-clients' passes on the same properties. And because there is one
-edit target, concurrent edits are concurrent patches of one record —
-tldraw sync ships record updates as per-key patches (`diffRecord`
-diffs a record key by key and recurses into `props`), so two edits
-to disjoint media props merge, an edit and a concurrent move of the
-same record merge, and a genuine same-prop conflict resolves per
-property, ordered by the revision it travels with.
+winners out across records, deliberately: read-time resolution needs
+no writes at all, where a standing rewrite pass would turn every
+media edit into one write per carrier, racing other clients' passes
+on the same properties. tldraw sync ships record updates as per-key
+patches — `diffRecord` diffs a record key by key and recurses into
+`props` — so a media edit and a concurrent move of the same record
+merge, and edits to different props merge wherever they land.
 
 `videoKey` itself stays a value every carrier shares, not a
 reference to the authority record: media events target the key, and
 player lookup and orphan cleanup ask "does any carrier with this key
 survive", never "does the authority survive".
 
-Deletion must not lower the high-water mark. If deleting the
-authority carrier simply removed the highest revision, a later edit
-could stamp a number the deleted record still beats, and restoring
-that record (locally, or by another client's undo) would win the
+Deletion must not lower a high-water mark. If deleting a carrier
+simply removed the highest revision some prop had, a later edit could
+stamp a number the deleted record still beats, and restoring that
+record (locally, or by another client's undo) would win that prop's
 read back with stale values. The batch delete cleanup therefore
-transfers authority in the same history entry: when the authority
-carrier is deleted while others survive, its values and revision are
-written onto the smallest-id survivor, which thereby holds the
-highest revision and becomes the authority. The high-water mark
-never regresses; an edit after the deletion stamps a strictly higher
-revision; a restored carrier ties the transferred revision at best,
-carrying the same values — and undoing the whole deletion reverses
-the transfer with it, returning exactly the pre-delete state. This is
-a one-shot write inside a structural delete, the same exposure as the
-marker cleanup and binding repointing that already live in that
-batch, not a standing reconcile pass over carrier records.
+transfers authority in the same history entry: when a deleted carrier
+holds the resolving value of any prop while other carriers survive,
+those values and their revisions are merged onto the smallest-id
+survivor, per property, keeping the higher revision. No high-water
+mark regresses; an edit after the deletion stamps strictly higher; a
+restored carrier ties a transferred revision at best, carrying the
+same value — and undoing the whole deletion reverses the transfer
+with it, returning exactly the pre-delete state. This is a one-shot
+write inside a structural delete, the same exposure as the marker
+cleanup and binding repointing that already live in that batch, not a
+standing reconcile pass over carrier records.
 
 Undoing a media edit itself also behaves: it restores the edited
-record's previous values and revision, authority falls back to the
-next-highest revision, and every reader follows. An edit racing a
-deletion can still lose, exactly as an edit to any concurrently
-deleted shape can, and no worse. The player reads the authoritative
-configuration regardless of which carrier is anchored.
+record's previous values and revisions, each affected property falls
+back to its next-highest revision, and every reader follows. An edit
+racing a deletion can still lose, exactly as an edit to any
+concurrently deleted shape can, and no worse. The player reads the
+resolved configuration regardless of which carrier is anchored.
 
 Same-key keyframe copies still carry a raw snapshot of the current
 values (at revision zero) as a cosmetic courtesy to anything reading
@@ -366,14 +375,24 @@ which already runs the custom schema and owns the merged state,
 arbitrates the claim: it applies a delete operation's marker removals
 only when the merged state really holds no carrier of that key, and
 declines them — keeping the markers and rebroadcasting them to the
-deleting client — when a concurrent extension won. Either way every
-client converges on a video that is entirely gone or entirely intact,
-and a two-client fixture pins it: concurrent last-carrier deletion
-and follow-up creation must merge to a carrier that keeps its events.
-Undo on the deleting client stays whole too: its history entry holds
-carriers and markers together, and restoring the carriers restores a
-video whose events either come back with them or were never allowed
-to die.
+deleting client — when a concurrent extension won.
+
+Arbitration alone is order-dependent — a deletion reaching the room
+before the concurrent extension passes the no-carrier check — so the
+protocol is add-wins from both sides. The server declines removals
+when it can see a surviving carrier; a client that receives marker
+removals for a key while itself holding or pushing a carrier of that
+key reinstates those markers from its local copy, which it still
+has. Whichever side learns of the surviving carrier last is the side
+that restores the events, so both delivery orders — and a reconnect
+after offline editing — converge on a video that is entirely gone or
+entirely intact. A two-client fixture runs the race in both message
+orders and through a reconnect: concurrent last-carrier deletion and
+follow-up creation must always merge to a carrier that keeps its
+events. Undo on the deleting client stays whole too: its history
+entry holds carriers and markers together, and restoring the
+carriers restores a video whose events either come back with them or
+were never allowed to die.
 
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
@@ -505,8 +524,8 @@ first. Its contract is that every ordinary edit made under it leaves
 main-release documents consistent, which means it understands the new
 vocabulary without shipping any new feature:
 
-- It declares `videoKey` and the configuration revision as optional
-  props, writing neither on its own.
+- It declares `videoKey` and the configuration revision map as
+  optional props, writing neither on its own.
 - Its duplicate and paste paths run the main release's identity
   remap — shared code, not a reimplementation: a copied video gets a
   fresh `videoKey` by the same rule the main release uses,
