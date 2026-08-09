@@ -145,17 +145,26 @@ client, so an over-budget playing video stays logically playing — its
 player is simply not mounted, and it is silent. The mounted set is a
 pure function of the folded states and the priority order, so it
 changes only when they do; suppression cannot oscillate on its own.
+Manual interaction joins as a client-local overlay: the runtime
+already hears the player's state-change events, and a manual pause or
+play recorded there combines with the folded status into an
+_effective_ status, cleared by the next media command or by
+navigation reconciliation — the moments the fold deliberately retakes
+control. The budget's priority order and the playback clock read the
+effective status, so a video paused by hand does not advance while
+suppressed and does not resume on remount.
+
 When suppression lifts, the player mounts and seeks by the runtime's
 playback clock: a per-video (position, observed-at) pair, refreshed
 by periodic polls while a player is mounted and on every pause, seek
-and suppression. While a suppressed video is desired-playing the
+and suppression. While a suppressed video is effectively playing the
 clock advances virtually with elapsed time, so the remount seeks to
-the position the video would have reached; while paused, it holds.
-The clock is deliberately client-local — media events carry commands,
-not positions, so cross-client position identity was never a property
-of the model; what folds identically everywhere is the status, and
-that is all the budget consults. Playing videos are suppressed last, but they are not
-exempt: when desired-playing videos alone exceed the budget, the
+the position the video would have reached; while paused — by event or
+by hand — it holds. The clock is deliberately client-local — media
+events carry commands, not positions, so cross-client position
+identity was never a property of the model; what folds identically
+everywhere is the status. Effectively playing videos are suppressed
+last, but they are not exempt: when they alone exceed the budget, the
 least recently started ones go silent — deterministic, and honest
 about the browser's limits, where that many simultaneous live iframes
 have already stopped being a presentation.
@@ -389,29 +398,36 @@ which already runs the custom schema and owns the merged state,
 enforces the pairing as a standing invariant rather than trusting any
 client's claim: after applying each push — a push carries a client
 transaction's whole diff, so a delete batch arrives as one message —
-it re-evaluates the video keys that push touched. Marker removals for
-a key whose carriers survive are declined and the markers
-rebroadcast; markers left behind for a key with no carriers are
-removed, however the record operations were split or ordered. Load is
-the invariant's first run, not a special case.
+it re-evaluates the video keys that push touched, reading the push
+itself for intent. A marker removal arriving alongside carrier
+deletions of its key is a last-carrier cascade's claim: it is
+declined — markers kept and rebroadcast — while any carrier of the
+key survives the merge. A marker removal with no accompanying carrier
+deletion is an ordinary event deletion and applies as pushed;
+deleting one event of a living video is a legitimate edit, not a
+raced cascade, and a shared-room fixture proves it sticks. Markers
+left behind for a key with no carriers are removed, however the
+record operations were split or ordered. Load is the invariant's
+first run, not a special case.
 
 The server-side invariant alone is still order-dependent — a deletion
 reaching the room before the concurrent extension passes the
 no-carrier check — so the protocol is add-wins from both sides. The
-server declines removals while it can see a surviving carrier; a
-client that receives marker
-removals for a key while itself holding or pushing a carrier of that
-key reinstates those markers from its local copy, which it still
-has. Whichever side learns of the surviving carrier last is the side
-that restores the events, so both delivery orders — and a reconnect
-after offline editing — converge on a video that is entirely gone or
-entirely intact. A two-client fixture runs the race in both message
-orders and through a reconnect: concurrent last-carrier deletion and
-follow-up creation must always merge to a carrier that keeps its
-events. Undo on the deleting client stays whole too: its history
-entry holds carriers and markers together, and restoring the
-carriers restores a video whose events either come back with them or
-were never allowed to die.
+server declines cascade removals while it can see a surviving
+carrier; a client that receives a cascade — marker removals arriving
+with their key's carrier deletions — while itself holding or pushing
+a carrier of that key reinstates those markers from its local copy,
+which it still has. A standalone event deletion is never reinstated;
+it carried no claim about carriers. Whichever side learns of the
+surviving carrier last restores the events, so both delivery orders —
+and a reconnect after offline editing — converge on a video that is
+entirely gone or entirely intact. A two-client fixture runs the race
+in both message orders and through a reconnect: concurrent
+last-carrier deletion and follow-up creation must always merge to a
+carrier that keeps its events. Undo on the deleting client stays
+whole too: its history entry holds carriers and markers together, and
+restoring the carriers restores a video whose events either come back
+with them or were never allowed to die.
 
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
