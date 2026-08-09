@@ -33,10 +33,9 @@ describe("buildMessages", () => {
         totalSteps: 1,
         steps: [
           {
-            // 1-indexed to match the UI; perception projects steps
-            // starting at 1 so agent prose lines up with what the
-            // user sees in the timeline.
-            index: 1,
+            // The timeline's own numbering, so agent prose lines up
+            // with what the user sees there.
+            index: 0,
             batches: [
               {
                 trackId: "track-A",
