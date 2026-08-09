@@ -205,8 +205,19 @@ mode explicitly, and in it an overflow play is refused outright
 rather than paused-then-evicted. Tests fire simultaneous
 programmatic plays together with several native starts delivered
 before any notification, not only the eventual post-overflow state.
-When M presses, the longest-paused player is evicted, which is safe
-precisely because it is paused: its clock holds exactly. The
+When M presses, the longest-paused *evictable* player is evicted —
+evictable meaning restoration is confirmable: a positive, finite
+duration has been observed and the content seeks. Live streams,
+unknown-duration players, and any player whose restore-seek has
+previously failed are not evictable and stay mounted; if M presses
+with no evictable candidate, the new mount is refused — its carrier
+keeps the poster, with a notice — because refusing a new player is
+recoverable and jumping an unseekable stream is not. Should a
+restoration seek fail despite the check, the player resumes at the
+position the content offers, a live stream's edge included, with the
+discontinuity surfaced rather than silent. For an evictable player,
+eviction is safe precisely because it is paused: its clock holds
+exactly. The
 testable contract is stated once, without an absolute it cannot
 keep: runtime-issued playback never exceeds P; native playback may
 transiently exceed P, bounded by M − P, and every excess reverts as
@@ -295,10 +306,14 @@ is mounted. Those polls double as liveness for the budget: every
 mounted player's actual state is queried on the same cadence, and an
 observed state the registers cannot explain — a native play whose
 notification never arrived — reconciles immediately, budget
-enforcement included, so slot accounting can be stale for at most
-one poll interval even when the iframe drops notifications
-entirely; tests start native plays whose notifications are delayed
-indefinitely or never delivered. The clock is deliberately
+enforcement included. A poll interval is not a wall-clock bound and
+the design does not claim one: browsers throttle timers in
+background pages while iframe media plays on, so reconciliation also
+runs on `visibilitychange`, on page resume, and before any command
+is issued, bounding stale accounting by the page's own lifecycle
+transitions rather than by a timer the browser may freeze. Tests
+start native plays whose notifications are delayed indefinitely or
+never delivered, including across a background throttle and resume. The clock is deliberately
 client-local — media events carry commands, not positions, and what
 folds identically everywhere is the status. Fixtures cover eviction and remount at non-default
 rates, for live video, before duration metadata has arrived, and the
