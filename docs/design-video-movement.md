@@ -499,10 +499,25 @@ instance turnover accumulate ambiguity: epoch ids are server-issued
 and sequential per principal, and every epoch keeps exactly one
 durable integer — its watermark — whether live or retired.
 Retirement moves that integer into a compact per-principal retired
-map and stops accepting writes under the epoch. Retired watermarks
-live under a **replay lease** — a year by default,
-host-configurable, deliberately longer than every other retention
-horizon in this design — and within it, a client returning on a
+map and stops accepting writes under the epoch — and retirement is
+not only voluntary: an epoch idle past an inactivity timeout is
+retired automatically, its watermark and any unresolved outcomes
+falling under the retired lifecycle exactly as if the client had
+resolved and left, and each principal holds at most a hard cap of
+live epochs, issuance beyond it retiring the least recently active
+first. A client that submits operations and vanishes without
+acknowledging therefore converges to the same bounded retired
+state, and the long-duration storage test includes exactly that
+abandonment. Retired watermarks live under a **replay lease** — a year by default and
+host-configurable, but never freely: one ordering invariant governs
+every retention knob in this design, enforced by configuration
+validation that rejects violations rather than warning about them —
+the replay lease is at most the exact-payload retention, which is at
+most the evidence horizon, with the birth ledger tied to the
+evidence horizon by construction. A still-leased operation therefore
+always finds full recovery data ahead of it, never a stub or a bare
+filter, and boundary tests replay exactly at each horizon's edge.
+Within the lease, a client returning on a
 retired epoch resolves exactly: it asks for the final watermark and
 its retained outcomes, drops committed sequences, surfaces
 terminally failed ones, and resubmits everything above the watermark
