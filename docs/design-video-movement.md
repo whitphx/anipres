@@ -132,11 +132,23 @@ through three states:
   non-earliest keyframe and drives the player there.
 - **Absent.** Before a video's cue step, after a backward jump to a
   step before it, or once every carrier is gone, the fold yields no
-  anchor at all. The player stays mounted — unmounting is the reload
-  hazard — but is hidden and inert: `visibility: hidden`, no pointer
-  events, playback paused. Hiding waits for the pause: the player is
-  hidden only once the pause is confirmed by the usual evidence, and
-  until then it stays visible with an immediate stop control. A
+  anchor at all. The player is hidden and inert — `visibility:
+  hidden`, no pointer events, playback paused — but hidden is a
+  *transient* state, never a resting one, because a mounted iframe
+  can be restarted by the media-session channel with no observable
+  notification, and a hidden restart would be exactly the
+  hidden-and-uncontrollable outcome this state forbids. Hiding waits
+  for the pause to confirm, and then holds only for a short grace
+  window in case the presenter immediately re-advances; past the
+  grace, a restorable player is torn down — nothing mounted is
+  nothing restartable, and it remounts by clock on the next advance —
+  while an unrestorable player never hides at all, keeping the
+  compact viewport chip described below for as long as it stays
+  mounted. During the grace window, any playing evidence instantly
+  restores visibility as the chip. A browser test confirms the
+  pause, hides the player, fires a media-session play with its
+  notification withheld, and proves playback cannot end up hidden
+  and uncontrollable. A
   pause that outlives its bounded retry is resolved by the same
   restorability predicate that governs every teardown: a restorable
   player is torn down despite the continuity loss, because an
