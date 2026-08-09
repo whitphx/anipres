@@ -64,24 +64,35 @@ way a shape does, and without the store learning anything about it.
 
 The camera is all the layer provides; the rest of the carrier's
 rendering context is mirrored explicitly. tldraw styles each shape's
-container from four computed values — the full page transform
-(`getShapePageTransform`, so ancestor rotation and group movement are
-included), the clip path (`getShapeClipPath`, which is how frame masks
-apply), the composed opacity, and a `z-index` taken from the shape's
-position in `getRenderingShapes()`. Shape containers are stacked as
-siblings by that `z-index`, so a player container subscribing to the
-same four values of its anchor carrier sits in the same stacking
-context: a video inside a frame is clipped by the frame, and a shape
-drawn above the video occludes the live player. During a step tween
-the transform interpolates between the outgoing and incoming carriers'
-page transforms while the other three values follow the incoming one.
+container from the same small set of computed values — the full page
+transform (`getShapePageTransform`, so ancestor rotation and group
+movement are included), the geometry bounds' width and height, the
+clip path (`getShapeClipPath`, which is how frame masks apply), the
+composed opacity, and a `z-index` taken from the shape's position in
+`getRenderingShapes()`. Shape containers are stacked as siblings by
+that `z-index`, so a player container subscribing to the same values
+of its anchor carrier sits in the same stacking context: a video
+inside a frame is clipped by the frame, a shape drawn above the video
+occludes the live player, and a keyframe with a different size resizes
+the player — the iframe fills its container, so the embedded player
+rescales with no API involvement. During a step tween the transform
+and the width/height interpolate between the outgoing and incoming
+carriers' values, while clip, opacity and `z-index` follow the
+incoming one.
 
-Which carrier the player anchors to is the question the visibility
-rule already answers — the anchor is the carrier the rule currently
-shows — so presentation and editing visibility come along with the
-anchor choice. Viewport culling is deliberately not mirrored: culling
-exists to keep thousands of off-screen shapes cheap, one player is not
-that, and an off-viewport player is invisible without any help.
+Which carrier the player anchors to must be deterministic. In
+presentation mode the visibility rule answers it: the anchor is the
+carrier the rule currently shows. While editing, every carrier is
+visible, so a fixed rule takes over: the anchor is the carrier of the
+sequence's earliest keyframe — the video's starting position — and an
+unanimated video is its only carrier. Deleting or reordering keyframes
+re-evaluates the same rule. A change of anchor only changes which
+shape's values the player mirrors, never the player's place in the
+DOM, so it cannot remount the iframe — which is what made every
+re-anchoring scheme on shape-mounted players unsafe. Viewport culling
+is deliberately not mirrored: culling exists to keep thousands of
+off-screen shapes cheap, one player is not that, and an off-viewport
+player is invisible without any help.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -96,8 +107,8 @@ where the desired playback state already lives: outside the document.
 
 Per video, the runtime already holds a desired **playback** state
 (playing/paused, muted, volume) folded from the event history. This
-adds a desired **transform**, folded the same way from the keyframe
-history:
+adds a desired **transform** — position, size and rotation — folded
+the same way from the keyframe history:
 
 - Advancing one step tweens the transform over the frame's `duration`
   with its `easing`, alongside the existing animation.
@@ -169,10 +180,16 @@ and rewrite them to the copy's key.
 
 ### Delete and parking, without the binding
 
-**Delete.** When the last carrier of a `videoKey` is removed, its event
-markers are removed with it. Deleting one keyframe of an animated video
-leaves the events alone — which the binding's per-shape cascade would
-have got wrong.
+**Delete.** When a delete operation leaves a `videoKey` with no
+carrier, its event markers are removed with it. The check runs once
+against the store after the whole batch, inside the same history
+entry — not per shape during the batch, where deleting every keyframe
+of a video in one selection would let each removal see the others'
+carriers as still present and conclude nothing was orphaned. Living
+inside the history entry also means one undo restores markers and
+carriers together. Deleting one keyframe of an animated video leaves
+the events alone — which the binding's per-shape cascade would have
+got wrong.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
