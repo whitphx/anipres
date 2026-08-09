@@ -877,9 +877,26 @@ of something whose evidence expired — an active session's
 years-late undo included, which no baseline check could catch — and
 it is quarantined for explicit resolution, never admitted as a
 healthy new video. Sessions whose reconnect baseline predates the
-horizon are additionally quarantined wholesale. Fixtures cover the
-reconnect replay, an active-session undo performed after the
-horizon, and an operation rebased from retained local history. Cost decays with age, no tier ever refuses a legitimate
+horizon are additionally quarantined wholesale.
+
+The ledger itself is finite, because every legitimate producer of an
+old key is finite: offline replay is bounded by the replay lease,
+pre-horizon reconnect baselines are quarantined wholesale, and the
+local undo stack expires structural video entries at the evidence
+horizon — a session-local, in-memory stack never approaches that age
+in practice, and the bound is enforced regardless, surfacing an
+expired undo as a no-op with a notice. A ledger entry whose key has
+no live carrier therefore expires with the horizon too: past it no
+legitimate path can resurrect the key, and a fabricated client that
+mints an "old" key is indistinguishable from a client authoring a
+new video — a power every authenticated editor already has, gated by
+the same creation budgets. What remains is content-proportional in
+the true sense — entries for live keys plus one horizon window of
+churn — and the long-horizon stress test asserts total birth-ledger
+and cold-storage size against exactly that bound. Fixtures cover the
+reconnect replay, an active-session undo performed after the horizon
+(the expired no-op with its notice), and an operation rebased from
+retained local history. Cost decays with age, no tier ever refuses a legitimate
 deletion, and a long-horizon test drives churn across generations,
 asserting false-positive and cold-lookup rates hold their configured
 targets. A stress test drives create/delete churn
