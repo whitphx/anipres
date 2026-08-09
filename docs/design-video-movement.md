@@ -552,8 +552,15 @@ first. Its contract is that every ordinary edit made under it leaves
 main-release documents consistent, which means it understands the new
 vocabulary without shipping any new feature:
 
-- It declares `videoKey` and the configuration revision map as
-  optional props, writing neither on its own.
+- It ships the main release's persisted schema wholesale — the
+  optional props, the migration sequences, and their versions —
+  writing none of the new props on its own. Declaring the props alone
+  would not be enough: tldraw stamps migration-sequence versions into
+  persisted snapshots and checks them when a room loads, so a
+  pre-release lacking the main release's migrations would refuse a
+  room the main release had opened, however valid its records.
+  Schema parity, not record validity, is what makes a snapshot
+  persisted by either release load under the other.
 - Its duplicate and paste paths run the main release's identity
   remap — shared code, not a reimplementation: a copied video gets a
   fresh `videoKey` by the same rule the main release uses,
@@ -579,8 +586,11 @@ vocabulary without shipping any new feature:
 Everything the pre-release authors itself still uses bindings. The
 main release follows once the pre-release is deployed, and rolling
 back means rolling back to the pre-release; rolling back past it is
-out of the support window. A fixture proves a migrated snapshot
-validates against the pre-release's exact schema.
+out of the support window. A fixture proves the round trip end to
+end: it builds and persists a room with the main release's
+`TLSocketRoom`, then reopens the snapshot with the pre-release's —
+the load succeeding is the proof, record validation alone would not
+exercise the migration-version check.
 
 Well-formed bindings are rewritten but not deleted. Deleting them
 would make an ordinary deployment rollback destructive: the previous
