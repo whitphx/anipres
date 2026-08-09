@@ -313,7 +313,23 @@ advances the watermark and replays as the same failure, so one
 invalid operation can never dam the queue behind it; only genuinely
 retryable conditions, a lost connection or a failed transaction,
 leave the watermark standing. A fixture makes sequence N terminally
-invalid and N+1 valid, across reconnect and restart. A gap can
+invalid and N+1 valid, across reconnect and restart.
+
+The watermark says a sequence was *decided*, never which way, so
+outcomes outlive it exactly as long as they are unresolved: for each
+sequence above the client's last durably acknowledged result, the
+server retains whether it committed or terminally failed and why,
+compacting each outcome only once the client acknowledges having
+seen it. Resolution — on reconnect, or against a retired epoch —
+never reads "at or below" as "committed"; it looks each decision up,
+silently drops the committed ones, and surfaces the failures. The
+unresolved window is bounded by the client's in-flight limit and the
+replay lease, so the storage argument stands. A test loses a
+terminal rejection's response before reconnect — and again across
+restart, force-reset, and epoch retirement — and the failure must
+surface, never pass as success.
+
+A gap can
 never form to starve the rule from the client side either, because a
 sequence number exists only as the position of a durably enqueued
 operation: assigning the number and persisting the operation in the
@@ -335,10 +351,11 @@ map and stops accepting writes under the epoch. Retired watermarks
 live under a **replay lease** — a year by default,
 host-configurable, deliberately longer than every other retention
 horizon in this design — and within it, a client returning on a
-retired epoch resolves exactly: it asks for the final watermark,
-drops everything at or below it as committed, and resubmits
-everything above it under a fresh epoch, safe precisely because
-those operations never applied. Nothing ambiguous is ever reissued
+retired epoch resolves exactly: it asks for the final watermark and
+its retained outcomes, drops committed sequences, surfaces
+terminally failed ones, and resubmits everything above the watermark
+under a fresh epoch, safe precisely because those operations never
+applied. Nothing ambiguous is ever reissued
 as a fresh write, and nothing committed can apply twice. Past the
 lease the watermark compacts away, and the outcome is explicit
 rather than guessed: a device returning after longer than the lease
