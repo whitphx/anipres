@@ -129,10 +129,12 @@ It also stops being _correct_ to bind to a shape: with several
 carriers, a binding to keyframe #1 would cascade-delete a video's
 events when that one keyframe is deleted.
 
-Removed: the `media-control` binding type and its `BindingUtil`,
+Removed: the `media-control` binding's `BindingUtil`,
 `bindMediaControlMarker`, `copyMediaControlBinding`,
-`getMediaControlBindingTargetId`, the marker parking hooks, and the
-binding's registration in the worker schema.
+`getMediaControlBindingTargetId`, and the marker parking hooks. The
+binding type's schema registration stays — inert, never written again
+— so that documents already holding the binding still validate long
+enough to be migrated; the Rollout section says how.
 
 Kept: the `media-control` marker shape. One frame per shape is still
 the rule, so a media event still needs a carrier that is not the video.
@@ -211,15 +213,34 @@ everything that reads frames.
 
 ## Rollout
 
-The persisted vocabulary changes: the `media-control` binding type is
-removed, the `mediaControl` action gains its target key, and
-`youtube-embed` gains `videoKey`. `SYNC_CLIENT_VERSION` moves to 4, and
-old clients are refused as usual.
+The persisted vocabulary changes: the `mediaControl` action gains its
+target key, `youtube-embed` gains `videoKey`, and the `media-control`
+binding stops being written. `SYNC_CLIENT_VERSION` moves to 4, and old
+clients are refused as usual.
 
-Documents holding the removed binding are not migrated. The deployment
-is sole-user, through the Slidev addon, and the feature that created
-those records shipped days before this change — so a clean break costs
-nothing now and a migration would be maintained forever. If that
-assumption stops holding before this lands, the fallback is to keep
-reading the binding for one release and rewrite it into `videoKey` on
-load.
+Documents that already hold the binding are migrated on load, not
+stranded. The version gate only refuses old *clients*; it does nothing
+for the binding records that existing documents contain, and those
+documents surface in more places than the sole-user framing suggests —
+synced rooms, snapshot files, clipboard payloads, locally cached
+copies. All of them arrive through tldraw's schema migration path, so
+that is where the rewrite lives:
+
+- The binding type stays registered (see above), so the old records
+  load instead of failing validation.
+- A store-level migration resolves, for each `media-control` binding,
+  the video shape at its `toId`, and writes that shape's id into the
+  `mediaControl` action carried by the marker at its `fromId`. Under
+  the fallback rule above that id _is_ the video's `videoKey`, so the
+  event keeps its target. Then the binding record is deleted.
+- The migration reads only what is in the store, so it is
+  deterministic, as store migrations must be.
+
+A fixture document captured from the pre-migration schema, containing
+a video with `media-control` bindings, pins the behavior: it must load
+under the new schema with its event targeting intact.
+
+The schema registration and the migration are the whole compatibility
+surface; everything behavioral is deleted now. Dropping those two is
+possible once no unmigrated document remains, and is a later judgment
+call, not a step in this rollout.
