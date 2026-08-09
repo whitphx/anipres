@@ -243,21 +243,30 @@ Each player runs one serialized transition state machine with four
 separated registers: desired state, from the fold; issued and
 unconfirmed commands, a queue; confirmed iframe state, from
 notifications; and native interaction, the residue. A notification
-is matched against the pending-command queue first, consumed as the
-acknowledgement of the oldest command it can satisfy. What makes
-that matching sound rather than lossy is that native input never
-overlaps pendency at all: while a command is pending for a player —
-a window of typically tens of milliseconds, bounded by the
-stuck-player timeout — the player's pointer input is disabled, so a
-notification during pendency can only be an acknowledgement and a
-notification while idle can only be native. No user action is ever
-discarded for arriving at the wrong moment; it is briefly not
-accepted, and the control surface shows it. A command whose timeout
-expires surfaces as a stuck player rather than reclassifying
-anything. Tests
+is matched against the pending-command queue by **expected
+transition**, never by timing: a command predicts the specific state
+it produces — pause predicts paused, play predicts playing — and
+consumes only a notification of exactly that state. Autonomous
+transitions — buffering, ended, errors — update confirmed state and
+are never read as intent or as acknowledgement. Pointer input is
+disabled during pendency as a courtesy, but nothing rests on it: a
+focused cross-origin iframe still takes keyboard input, so no timing
+argument is trusted anywhere. A notification that contradicts the
+pending command — a pause while play is pending, whether a late
+acknowledgement of something earlier or a user's keystroke — is
+consumed by neither register; it drops the player into
+**reconcile**: the runtime stops issuing commands to it, queries the
+player's actual state directly — the API answers synchronously —
+rebuilds confirmed state and slot accounting from that ground truth,
+and re-derives intent conservatively, treating a video observed
+paused that the fold wants playing as manually paused, the harmless
+direction. Command timeouts land in the same reconcile path. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
-slot accounting both land right.
+slot accounting both land right; browser tests add keyboard input
+into a focused iframe during pendency, autonomous buffering and
+ended transitions, and a timed-out acknowledgement arriving during a
+later command.
 
 When suppression lifts, the player mounts and seeks by the runtime's
 playback clock: a per-video (position, observed-at, rate) triple,
