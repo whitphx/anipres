@@ -393,41 +393,41 @@ the operation that deletes their video's last carrier. On a shared
 room, though, "last" is a claim the deleting client cannot settle —
 another client may be extending the video at that moment, and
 honoring the marker removals then would strip a surviving video of
-its events, a loss no sweep can reconstruct. So the room's server,
-which already runs the custom schema and owns the merged state,
-enforces the pairing as a standing invariant rather than trusting any
-client's claim: after applying each push — a push carries a client
-transaction's whole diff, so a delete batch arrives as one message —
-it re-evaluates the video keys that push touched, reading the push
-itself for intent. A marker removal arriving alongside carrier
-deletions of its key is a last-carrier cascade's claim: it is
-declined — markers kept and rebroadcast — while any carrier of the
-key survives the merge. A marker removal with no accompanying carrier
-deletion is an ordinary event deletion and applies as pushed;
-deleting one event of a living video is a legitimate edit, not a
-raced cascade, and a shared-room fixture proves it sticks. Markers
-left behind for a key with no carriers are removed, however the
-record operations were split or ordered. Load is the invariant's
-first run, not a special case.
+its events, a loss no sweep can reconstruct.
 
-The server-side invariant alone is still order-dependent — a deletion
-reaching the room before the concurrent extension passes the
-no-carrier check — so the protocol is add-wins from both sides. The
-server declines cascade removals while it can see a surviving
-carrier; a client that receives a cascade — marker removals arriving
-with their key's carrier deletions — while itself holding or pushing
-a carrier of that key reinstates those markers from its local copy,
-which it still has. A standalone event deletion is never reinstated;
-it carried no claim about carriers. Whichever side learns of the
-surviving carrier last restores the events, so both delivery orders —
-and a reconnect after offline editing — converge on a video that is
-entirely gone or entirely intact. A two-client fixture runs the race
-in both message orders and through a reconnect: concurrent
-last-carrier deletion and follow-up creation must always merge to a
-carrier that keeps its events. Undo on the deleting client stays
-whole too: its history entry holds carriers and markers together, and
-restoring the carriers restores a video whose events either come back
-with them or were never allowed to die.
+So the claim is explicit, and the room's server — which already runs
+the custom schema and owns the merged state — arbitrates it. Record
+operations carry no intent, and co-occurrence cannot supply it: a
+user may delete an event and a keyframe of the same video in one
+legitimate batch. The cascade therefore announces itself — the
+deleting client sends the room, alongside its push, the video keys it
+claims fully deleted. Only marker removals under a claimed key are
+arbitrated; every other marker removal, an explicit event deletion
+batched with anything at all, applies as pushed, and a fixture proves
+one sticks even when co-batched with a carrier deletion of the same
+video.
+
+Arbitration is the server's alone, and it is causal. If the merged
+state still holds a carrier of a claimed key — a concurrent extension
+arrived first — the claim is refused: the marker removals are
+declined and the markers rebroadcast. If none survives, the removals
+apply, but the server keeps a tombstone for the claim — the removed
+markers and the sequence point at which the claim landed — until
+every connected client has acknowledged that point and no concurrent
+push can remain. A push from a baseline older than the claim that
+adds a carrier of a tombstoned key is exactly the raced extension:
+the server restores the markers from the tombstone and rebroadcasts
+them. Both delivery orders — and a reconnect after offline editing —
+therefore converge on a video that is entirely gone or entirely
+intact, with no client-side repair rule to race. A two-client fixture
+runs the race in both message orders and through a reconnect:
+concurrent last-carrier deletion and follow-up creation must always
+merge to a carrier that keeps its events. Undo on the deleting client
+stays whole too: its history entry holds carriers and markers
+together, and re-putting an already-restored marker is a no-op, so
+the tombstone never fights an undo. Markers left behind for a key
+with no carriers and no live claim — however record operations were
+split or ordered — fall to the standing sweep below.
 
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
