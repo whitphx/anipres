@@ -132,46 +132,34 @@ through three states:
   non-earliest keyframe and drives the player there.
 - **Absent.** Before a video's cue step, after a backward jump to a
   step before it, or once every carrier is gone, the fold yields no
-  anchor at all. The player is hidden and inert — `visibility:
-  hidden`, no pointer events, playback paused — but hidden is a
-  *transient* state, never a resting one, because a mounted iframe
-  can be restarted by the media-session channel with no observable
-  notification, and a hidden restart would be exactly the
-  hidden-and-uncontrollable outcome this state forbids. Hiding waits
-  for the pause to confirm, and then holds only for a short grace
-  window in case the presenter immediately re-advances; past the
-  grace, a restorable player is torn down — nothing mounted is
-  nothing restartable, and it remounts by clock on the next advance —
-  while an unrestorable player never hides at all, keeping the
-  compact viewport chip described below for as long as it stays
-  mounted. During the grace window, any playing evidence instantly
-  restores visibility as the chip. A browser test confirms the
-  pause, hides the player, fires a media-session play with its
-  notification withheld, and proves playback cannot end up hidden
-  and uncontrollable. A
-  pause that outlives its bounded retry is resolved by the same
-  restorability predicate that governs every teardown: a restorable
-  player is torn down despite the continuity loss, because an
-  invisible, inaccessible player still producing audio is worse
-  than a reload; an unrestorable one — live, unknown duration, a
-  failed seek — is neither destroyed nor hidden, collapsing instead
-  into a small, visible "still playing" control anchored to the
-  viewport rather than to any carrier. The control's two actions are
-  fully defined: retry the pause, and **Stop** — explicitly
-  destructive, tearing the iframe down behind a warning that the
-  live position will be lost. The control itself cannot be hidden
-  while playback is unconfirmed; it disappears only after a
-  confirmed pause, a Stop, or teardown. Stray UI beats an audible
-  ghost, and losing a live position is a choice the user makes, not
-  one the runtime makes for them. Browser tests withhold the
-  pause acknowledgement for both a restorable player (torn down)
-  and a live one (visible control, never unmounted), asserting
-  playback is never both hidden and uncontrollable. The player leaves Absent the
-  moment the fold yields an anchor again, which is what re-advancing
-  does. Absent is
-  a rendering state, not an eviction; the lifecycle policy below
-  decides separately whether a long-absent player is worth keeping
-  mounted.
+  anchor at all. The governing invariant is continuous and admits no
+  window: **a mounted iframe is never hidden**, because a mounted
+  iframe can be restarted by the media-session channel with no
+  observable notification, and any hidden interval — however brief —
+  is an interval in which that restart produces audio nobody can
+  see or stop. So Absent for a restorable player means teardown: the
+  pause is attempted, and on confirmation — or on the bounded
+  retry's expiry — the iframe is removed, nothing mounted being
+  nothing restartable, and the next advance remounts it by clock.
+  Absent for an unrestorable player means staying visible: the
+  compact viewport chip described below, interactive for the entire
+  mounted lifetime. A browser test fires a media-session play with
+  its notification withheld at every point of the Absent lifecycle
+  and proves no moment exists where playback is hidden and
+  uncontrollable. The chip is a small "still playing / paused"
+  control anchored to the viewport rather than to any carrier, with
+  two fully defined actions: retry the pause, and **Stop** —
+  explicitly destructive, tearing the iframe down behind a warning
+  that the live position will be lost. It cannot be hidden while its
+  player is mounted, disappearing only with a Stop or teardown;
+  stray UI beats an audible ghost, and losing a live position is a
+  choice the user makes, not one the runtime makes for them.
+  Browser tests withhold the pause acknowledgement for a restorable
+  player (torn down at retry expiry) and a live one (chip stays,
+  never unmounted). The player leaves Absent the moment the fold
+  yields an anchor again — a restorable one by clock-guided remount,
+  an unrestorable one by dissolving its chip back into the anchored
+  player.
 
 A change of anchor only changes which shape's values the player
 mirrors, never the player's place in the DOM, so it cannot remount the
