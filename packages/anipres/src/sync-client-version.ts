@@ -20,10 +20,11 @@
  * - 3: the `mediaControl` frame action plus the `youtube-embed` and
  *   `media-control` shapes and the `media-control` binding.
  *
- * The server gate matches this value exactly, so a bump locks out both
- * directions until both sides ship it. Deploy order follows whichever
- * side gains capability: a bump that only adds `meta` vocabulary can
- * lead with the client, while one that adds record types must lead
- * with the server, which has to be able to store them.
+ * The server gate matches this value exactly. In the deployment this
+ * repo ships, the worker serves the app bundle, so both sides move
+ * together and only a tab still running the previous bundle is locked
+ * out — until it reloads. A deployment that ships them separately
+ * would need the worker first for a bump that adds record types, since
+ * it is the side that has to store them.
  */
 export const SYNC_CLIENT_VERSION = 3;
