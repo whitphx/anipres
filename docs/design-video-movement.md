@@ -133,13 +133,18 @@ Viewport culling is deliberately not mirrored — hiding a live player
 because its carrier scrolled away is the remount hazard again — but
 culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
-mounting is bounded by a lifecycle policy instead: a video gets a live
-player while it is presenting, playing, selected, or near the
-viewport, and shows only its poster otherwise. Eviction records the
-player's current position in runtime state and seeds the replacement
-from it, so an evicted paused video resumes where it left off. A
-playing video is never evicted for being off-screen — it may be
-audible.
+mounting is governed by a hard budget: at most N live players — N a
+host-configurable prop, defaulting to 4 — granted in priority order:
+playing, then selected, then nearest the viewport, with ties and
+evictions resolved LRU by last playback or interaction time.
+Everything over budget shows its poster. Eviction records the
+player's position in runtime state and seeds the replacement from it,
+so an evicted paused video resumes where it left off. Playing videos
+are evicted last, but they are not exempt: when playing videos alone
+exceed the budget, the least recently started one is paused and
+evicted — deterministic, and honest about the browser's limits, where
+that many simultaneous live iframes have already stopped being a
+presentation.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -175,7 +180,8 @@ receives media events has no animation at all, and so no track, while
 still being a perfectly valid subject for `play` and `pause`.
 
 So the video carries its own identity: a **`videoKey` prop**, minted
-when the video is placed.
+when the video is placed — as the placing shape's own id, a choice the
+configuration-owner rule below leans on.
 
 - **`videoKey`** — which video instance this is. Keys the live player,
   and is what a media event targets.
@@ -188,7 +194,9 @@ and no track. The two questions stop being entangled.
 The duplicate-vs-rejoin distinction comes for free: the
 follow-up-keyframe path is ours and preserves `videoKey`, while
 `Cmd+D` and paste run through the remap wrapper, which mints a fresh
-one alongside the fresh `trackId`. Duplicating a video therefore yields
+one alongside the fresh `trackId` — the new id of the copied owner
+when the owner is among the copies, and the smallest new id otherwise,
+the same successor rule deletion uses. Duplicating a video therefore yields
 an independent video with its own player, which is what the gesture
 implies.
 
@@ -202,17 +210,30 @@ carriers of one `videoKey` disagreeing on `videoId` is incoherent.
 The invariant needs an owner, not symmetric mirroring: copying edits
 in both directions between records only converges by luck under
 concurrent sync, where record-level conflict resolution can pick
-different winners on different carriers. So the carrier the editing
-anchor rule already designates — the earliest keyframe's — is also the
-configuration's canonical owner. Editing media props means writing
-that record, wherever in the UI the edit was made; a one-way reconcile
-side effect copies the canonical values onto the other carriers, so a
-stale copy is always overwritten toward the canonical record, never
-the reverse. Concurrent edits then collapse to concurrent writes of
-one record, which sync already resolves, and every client fans the
-same winner out; only geometry may differ between keyframes. The
-player reads the canonical configuration regardless of which carrier
-is anchored.
+different winners on different carriers. Nor can the owner be
+"whichever carrier is currently earliest" — keyframe order is itself
+synced mutable state, so two clients mid-reorder can disagree about
+the owner, land edits on different records, and have the reconcile
+discard one of them. The owner has to be immutable, and the key
+already names one: `videoKey` is the id of the shape that placed the
+video, so the carrier whose own id equals its `videoKey` is the
+configuration's canonical owner — a designation no reorder can move,
+because ids never change and copies always get fresh ones.
+
+Editing media props means writing the owner record, wherever in the
+UI the edit was made; a one-way reconcile side effect copies the
+owner's values onto the other carriers, so a stale copy is always
+overwritten toward the owner, never the reverse. Concurrent edits
+then collapse to concurrent writes of one record, which sync already
+resolves, and every client fans the same winner out; only geometry
+may differ between keyframes. When the owner shape is deleted while
+other carriers survive, ownership passes to the surviving carrier
+with the smallest id — a pure function of the converged shape set, so
+every client picks the same successor, and the successor already
+carries the reconciled values. An edit racing the owner's deletion
+can lose, exactly as an edit to any concurrently deleted shape can,
+and no worse. The player reads the owner's configuration regardless
+of which carrier is anchored.
 
 New keyframes copy the props, so they are born consistent; existing
 documents have one carrier per video, so nothing already disagrees.
