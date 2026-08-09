@@ -309,6 +309,19 @@ write inside a structural delete, the same exposure as the marker
 cleanup and binding repointing that already live in that batch, not a
 standing reconcile pass over carrier records.
 
+Transfers are client-computed, so a stale one can arrive late: two
+clients can each delete carrier A and transfer its props to survivor
+B, one of them after B was already edited past the transferred
+revision. The transport merges property patches without reading them,
+so ordering is enforced where the merged state lives: each media prop
+and its revision travel and apply as one unit, and the room server
+rejects any application that would lower a prop's revision on its
+record — a regression can only be a stale write, because the value a
+lower revision carries is by construction one a newer edit already
+superseded. Unsynced documents have a single writer and need no
+guard. Fixtures race a stale transfer against a newer edit on the
+transfer target, in both delivery orders.
+
 Undoing a media edit itself also behaves: it restores the edited
 record's previous values and revisions, each affected property falls
 back to its next-highest revision, and every reader follows. An edit
@@ -418,14 +431,15 @@ claim is refused: the claimed marker removals are declined and those
 markers rebroadcast, while the same push's explicit removals stand. If none survives, the removals apply, and the claim
 leaves a **durable tombstone**: the removed marker records, persisted
 in the room's storage next to the document itself, never held only in
-connection memory — and written in the same durable-storage
-transaction as the document update that removes the markers, so no
-crash window separates the destructive write from its recovery record
-(Durable Object storage batches awaited writes atomically behind its
-output gate). If the transaction fails, both halves fail, and the
+connection memory — and persisted transactionally with the data it
+protects. The room ordinarily applies changes in memory and snapshots
+lazily; a claim-bearing push opts out of that path: the server
+persists the updated snapshot and the tombstone in one synchronous
+SQLite transaction before acknowledging or broadcasting the push.
+Claims are rare — a video deletion — so the eager write costs nothing
+measurable. If the transaction fails, neither side commits and the
 claim is re-arbitrated when the push retries; fault-injection tests
-exercise each persistence boundary, marker removal against tombstone
-commit in particular. Retention cannot be tied to who is connected or
+kill the process at each storage boundary and reconstruct the room. Retention cannot be tied to who is connected or
 what they have acknowledged, because tlsync force-resets a client
 whose baseline predates its pruned history and then reapplies and
 pushes that client's stashed changes on top of the fresh state — an
@@ -448,6 +462,19 @@ the merged state and the arriving push. Within one push, pruning runs
 before restoration; across pushes, the same end state falls out of
 ordinary explicit-deletion semantics, since a restored marker deleted
 afterwards is just an event deletion.
+
+Explicit-deletion intent must also survive tlsync's force-reset,
+which re-bases a long-offline client by discarding its baseline and
+reapplying its stashed changes onto fresh server state — where a
+stashed marker removal becomes a no-op, the marker being absent from
+the snapshot already, and would never reach the server as a record
+operation at all. So the intent does not ride the record stash: the
+client records each explicit event deletion — marker id and key — in
+its own durable state and reports them as prune requests on every
+connect until the server acknowledges them. Pruning is idempotent,
+and a prune naming a marker no tombstone holds is a no-op. The
+reset-path fixture drives the real reset and stash-reapply flow, not
+a hand-built final push.
 
 Both delivery orders, a reconnect after offline editing, and a
 reconnect so late the client was force-reset all converge on a video
