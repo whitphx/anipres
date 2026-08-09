@@ -387,13 +387,17 @@ property, and tldraw validation rejects unknown props, so a migrated
 document would fail to load before any binding is consulted. (The
 action's target key has no such problem — frames live in `shape.meta`,
 which tldraw does not validate, so older code just ignores the extra
-key.) Rollback therefore gets an explicit floor: a schema-widening
-pre-release ships first, changing no behavior — it still reads and
-writes bindings — and declaring `videoKey` as an optional prop it
-never writes. The main release follows once the pre-release is
-deployed, and rolling back means rolling back to the pre-release;
-rolling back past it is out of the support window. A fixture proves a
-migrated snapshot validates against the pre-release's exact schema.
+key.) Rollback therefore gets an explicit floor: a pre-release ships
+first, with no new features and two small changes. It declares
+`videoKey` as an optional prop it never writes, and it narrows the
+mount-path cleanup to delete only markers that have neither a binding
+nor a target key — true legacy orphans — so markers authored later in
+the new vocabulary, which carry a target key and no binding, pass
+through it untouched. Everything it authors itself still uses
+bindings. The main release follows once the pre-release is deployed,
+and rolling back means rolling back to the pre-release; rolling back
+past it is out of the support window. A fixture proves a migrated
+snapshot validates against the pre-release's exact schema.
 
 Well-formed bindings are rewritten but not deleted. Deleting them
 would make an ordinary deployment rollback destructive: the previous
@@ -416,16 +420,20 @@ the last carrier goes do events, markers and bindings go together.
 
 Content
 authored by the new release (movement keyframes, new media events,
-pasted copies) is written without bindings and was never representable
-in the old vocabulary; rollback safety here means the old release's
-own data is never destroyed, not that new features downgrade.
+pasted copies) is written without bindings; under the pre-release it
+does not function — nothing there resolves a target key — but it
+validates, survives the narrowed cleanup untouched, and works again on
+roll-forward.
 
 Fixtures pin all of this. A document captured from the pre-migration
 schema, holding a video with `media-control` bindings, must load under
 the new schema with its event targeting intact — and, reopened under
 the previous release's schema and cleanup rules, must still have its
 events, including after the round trip that adds a keyframe and
-deletes the originally bound carrier. Sibling fixtures hold the degraded states — an unbound marker,
+deletes the originally bound carrier. Another round trip covers the
+other direction: an event authored under the main release, opened
+under the pre-release, then reopened under the main release, survives
+both hops. Sibling fixtures hold the degraded states — an unbound marker,
 a binding with a missing or mistyped endpoint — and must come out with
 those records gone. A pre-change `TLContent` fixture pasted through
 the wrapper must come out with its event targeting the pasted video.
