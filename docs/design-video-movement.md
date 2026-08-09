@@ -306,7 +306,15 @@ same transaction as the write, each instance's contiguous
 acknowledgement watermark rather than every id. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
 already committed; one exactly above admits and advances the
-watermark. Retirement *is* the watermark advancing, so there is no
+watermark. A gap can never form to starve that rule, because a
+sequence number exists only as the position of a durably enqueued
+operation: assigning the number and persisting the operation in the
+client's intent store are one local transaction, and on connect the
+client replays everything above the server's watermark straight from
+that queue — there is no allocation apart from the enqueue, so the
+watermark always has a successor. Crash tests cut the process
+between enqueue, transmission, commit, and acknowledgement.
+Retirement *is* the watermark advancing, so there is no
 forgotten-id window: an acknowledged operation replayed after any
 amount of compaction, reconnection, force-reset (which issues a
 fresh epoch), or server restart is still at or below the watermark
@@ -556,11 +564,19 @@ retention is long but bounded — "video deletions are rare" is not an
 invariant a scripted or hostile editor honors, and unbounded
 tombstones would let repeated create-and-delete cycles exhaust the
 room's storage while the visible document stays small. Each room
-keeps tombstones under a quota, by default the newest 30 days within
-a fixed byte budget, both host-configurable, compacting oldest first
-and surfacing count and bytes as room observability; a stress test
-proves storage and restart cost stay bounded under create/delete
-cycles. Compaction is not amnesia, though: a full tombstone compacts
+keeps full tombstones for a retention window — 30 days by default,
+host-configurable — and the window is a guarantee, not a hope:
+quota pressure inside it never destroys a payload. When in-room
+bytes run short, full tombstone payloads spill to the same cold
+storage the stubs use, restorable from there exactly as from the
+room, and the in-room byte accounting is per authenticated
+principal, so one editor's churn spends that editor's budget and
+can never evict another video's recovery window. Only past the
+retention window do payloads age into stubs. Count and bytes
+surface as room observability; a stress test proves storage and
+restart cost stay bounded under create/delete cycles, and a fixture
+revives a video inside the window after sustained adversarial churn
+and must restore it in full. Compaction is not amnesia, though: a full tombstone compacts
 to a metadata stub — the key and its deletion stamp, a few dozen
 bytes — so a revival arriving after the events themselves are gone is
 detected rather than silently wrong. The server accepts the carrier
@@ -861,10 +877,16 @@ itself deployable with a floor beneath it:
   materializes none of it — normalization, stamping, arbitration and
   tombstones all activate at version 4 and above. Documents stage A
   opens are therefore byte-identical afterwards by gate, not by
-  convention, which makes rolling it back to the current release
-  trivially safe; a round-trip test opens, persists, and rolls a
-  shared room back against the actual current release before
-  anything later ships.
+  convention. Nor is the gate trusted from the wire: the declared
+  client version is an unauthenticated claim, so a server serving
+  version 3 also inspects incoming diffs and strips or rejects every
+  future field and record shape whatever the client says — a
+  doctored version-3 connection cannot smuggle `videoKey` into a
+  stage-A document. That makes rolling stage A back to the current
+  release trivially safe; a round-trip test opens, persists, and
+  rolls a shared room back against the actual current release —
+  including a connection that deliberately submits future vocabulary
+  — before anything later ships.
 - **Stage B, the pre-release.** The main release's rollback floor,
   described next. Rolling it back means rolling back to stage A,
   whose validators accept everything stage B writes.
