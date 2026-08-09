@@ -549,38 +549,29 @@ bytes — so a revival arriving after the events themselves are gone is
 detected rather than silently wrong. The server accepts the carrier
 and flags the key as revived-without-events, and the editor surfaces
 that flag on the video, making the loss visible and attributable
-instead of a quietly inert deck. Stubs themselves are never evicted:
-they are the last evidence a deletion happened, and dropping one
-would convert a detectable loss into a silent one for whichever key
-hostile churn pushed out. They are small enough to keep — a key and
-a stamp — so the room bounds growth at the source instead.
-Video-deletion claims are rate-limited against the durable
-authenticated principal the worker already requires, not the
-connection, so rotating sessions rotates nothing; a room that still
-reaches the hard stub quota refuses further video deletions with a
-surfaced error rather than forget one. Nor is exhaustion terminal:
-an explicit administrative compaction moves the oldest stubs' exact
-keys to cold storage outside the room — the worker platform has
-cheap durable stores for exactly this — and rebuilds, from the full
-exact key set held there, a single in-room membership filter sized
-for the total archived cardinality at a fixed false-positive target.
-Keys are shape ids with no order, so membership is the only test
-that cannot fall silent: the filter has no false negatives, a
-revival of any archived key is always flagged as possibly missing
-events, and because every rebuild is sized from exact data, the
-false-positive rate holds constant under churn instead of
-saturating. The filter costs a few bits per archived key; a
-room-wide archive budget caps it, and a room at the cap refuses
-further video deletions — the same terminal refusal as the stub
-quota, because evidence is never the thing sacrificed. A stress test
-runs repeated archive cycles through the real consolidation and
-refusal paths and asserts the false-positive ceiling; fixtures
-create fresh keys after an archival and revive an archived one. A
-fixture fills the quota through rotated connections and proves the
-principal-level limit holds, the refusal surfaces, and reviving any
-retired key is still detected; the stress test pins storage and
-restart cost under create/delete churn. Within the full-tombstone
-bound, restoration is
+instead of a quietly inert deck. Stubs themselves are never evicted
+— they are the last evidence a deletion happened — but they need not
+live in the room to do their job. When in-room stubs exceed a size
+threshold, the room automatically spills the oldest ones' exact keys
+to cold storage outside it — the worker platform has cheap durable
+stores for exactly this — where capacity is effectively unbounded.
+No terminal "deletions refused" state exists anywhere in the
+lifecycle: no volume of authenticated churn can take a core editing
+operation away from legitimate users, and the per-principal rate
+limit on deletion claims is a throttle against abuse, never a dam
+that fills. In the room, a compact membership filter summarizes the
+spilled keys as a fast negative check — keys are shape ids with no
+order, so membership is the only possible test — and it is only
+that: a filter positive is confirmed against the exact cold-storage
+set before anything is flagged, so a freshly minted video can never
+draw a false revived-without-events warning. A filter false positive
+costs one cold read, never a wrong flag; the filter's error rate is
+a performance knob, not a correctness bound. Detection never falls
+silent and never cries wolf. A stress test drives create/delete
+churn through the spill path — including through rotated connections
+— and pins in-room storage, restart cost, and cold-lookup rate;
+fixtures create fresh keys that collide with the filter and revive a
+spilled key. Within the full-tombstone window, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, writes the tombstoned configuration and
 stamps onto the arriving carrier under the usual monotonic rules — so
