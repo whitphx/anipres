@@ -453,27 +453,37 @@ document would fail to load before any binding is consulted. (The
 action's target key has no such problem — frames live in `shape.meta`,
 which tldraw does not validate, so older code just ignores the extra
 key.) Rollback therefore gets an explicit floor: a pre-release ships
-first, with no new features and four small changes. It declares
-`videoKey` and the configuration revision as optional props, writing
-neither on its own. It narrows the mount-path cleanup to delete only
-markers that have neither a binding nor a target key — true legacy
-orphans — so markers authored later in the new vocabulary, which
-carry a target key and no binding, pass through it untouched. Its
-binding delete cascade becomes `videoKey`-aware: when a bound video
-is deleted while another carrier of its `videoKey` survives, the
-binding is repointed at the survivor instead of cascading into the
-marker — a state only main-release edits can produce, so on a purely
-legacy document nothing changes. And its media-prop editing becomes
-ownership-aware: an edit landing on a carrier whose id is not its
-`videoKey` is routed to the owner-function carrier and stamped with
-the next revision, exactly as the main release stamps its own edits,
-so a rollback-window edit holds authority on roll-forward instead of
-sitting unread on a non-owner record. Everything the pre-release authors itself
-still uses bindings. The main release follows once the pre-release is
-deployed,
-and rolling back means rolling back to the pre-release; rolling back
-past it is out of the support window. A fixture proves a migrated
-snapshot validates against the pre-release's exact schema.
+first. Its contract is that every ordinary edit made under it leaves
+main-release documents consistent, which means it understands the new
+vocabulary without shipping any new feature:
+
+- It declares `videoKey` and the configuration revision as optional
+  props, writing neither on its own.
+- Its duplicate and paste paths run the main release's identity
+  remap — shared code, not a reimplementation: a copied video gets a
+  fresh `videoKey` by the same owner-or-smallest-id rule,
+  target-keyed markers travel with the copy the way bound markers do,
+  and their actions are rewritten to the fresh key. A rollback-window
+  duplicate therefore stays an independent video on roll-forward
+  instead of rejoining the original.
+- Its media-prop editing is ownership-routed and revision-stamped,
+  exactly as the main release stamps its own edits, so a
+  rollback-window edit holds authority on roll-forward instead of
+  sitting unread on a non-owner record.
+- Its binding delete cascade is `videoKey`-aware: a bound video
+  deleted while another carrier of its key survives repoints the
+  binding at the survivor instead of cascading into the marker — a
+  state only main-release edits can produce, so purely legacy
+  documents behave as before.
+- Its mount-path cleanup narrows to true legacy orphans — markers
+  with neither binding nor target key — so new-vocabulary markers
+  pass through untouched.
+
+Everything the pre-release authors itself still uses bindings. The
+main release follows once the pre-release is deployed, and rolling
+back means rolling back to the pre-release; rolling back past it is
+out of the support window. A fixture proves a migrated snapshot
+validates against the pre-release's exact schema.
 
 Well-formed bindings are rewritten but not deleted. Deleting them
 would make an ordinary deployment rollback destructive: the previous
@@ -519,7 +529,9 @@ under the pre-release, then reopened under the main release, survives
 both hops — including the variant where the bound carrier is deleted
 while the pre-release is the one running, and the variant where the
 _last_ carrier is deleted there, whose now-targetless markers the
-load sweep collects on roll-forward. Sibling fixtures hold the degraded states — an unbound marker,
+load sweep collects on roll-forward. Duplicating and pasting a video
+under the pre-release round-trips too: the copy returns to the main
+release as an independent identity with its events attached. Sibling fixtures hold the degraded states — an unbound marker,
 a binding with a missing or mistyped endpoint — and must come out with
 those records gone. A pre-change `TLContent` fixture pasted through
 the wrapper must come out with its event targeting the pasted video.
