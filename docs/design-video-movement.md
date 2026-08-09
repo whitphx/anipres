@@ -161,13 +161,17 @@ pause, seek, rate change and suppression — the rate comes from the
 player's own rate-change events, since interactive controls let a
 viewer set 0.5x or 2x. While a suppressed video is effectively
 playing the clock advances virtually by elapsed time times rate,
-clamped at the video's duration, so the remount seeks to the position
-the video would have reached — or resumes as ended when it would have
-ended; while paused — by event or by hand — it holds. Buffering is
+clamped at the video's duration once a positive, finite duration has
+been observed — the remount then seeks to the position the video
+would have reached, or resumes as ended when it would have ended.
+Until metadata supplies a duration, and for live streams where none
+exists, the clock advances unclamped and never infers an ended
+state. While paused — by event or by hand — it holds. Buffering is
 not modeled: the clock is best-effort continuity, resynced by the
 polls whenever a player is mounted, and the clamp bounds what a stall
 can leave behind. Fixtures cover suppression and remount at
-non-default rates and across the end of the video. The clock is deliberately client-local — media
+non-default rates, across the end of the video, before duration
+metadata has arrived, and for live video. The clock is deliberately client-local — media
 events carry commands, not positions, so cross-client position
 identity was never a property of the model; what folds identically
 everywhere is the status. Effectively playing videos are suppressed
@@ -712,7 +716,16 @@ unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, writes the tombstoned configuration and
 stamps onto the arriving carrier under the usual monotonic rules — so
 a stale offline snapshot cannot demote the video's configuration —
-rebroadcasts the result, and clears the tombstone. A fixture edits
+rebroadcasts the result, and clears the tombstone. Unconditional
+means unconditional-or-unadmitted, never best-effort: revival is one
+atomic, retryable operation, so when the payload lives in cold
+storage and the read fails or times out, the carrier push commits
+nothing, acknowledges nothing, and returns retryable with the
+tombstone untouched — the server never admits a carrier it cannot
+restore behind, which is exactly what would let stale configuration
+or missing events leak. Fixtures cover cold-store outage, timeout,
+restart mid-revival, and a concurrent edit racing a retried revival.
+A further fixture edits
 the configuration after an offline carrier was created and before the
 visible last carrier is deleted, then revives, and must see the
 edited configuration. That is semantically right, not just race repair — fresh
