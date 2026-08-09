@@ -567,9 +567,24 @@ set before anything is flagged, so a freshly minted video can never
 draw a false revived-without-events warning. A filter false positive
 costs one cold read, never a wrong flag; the filter's error rate is
 a performance knob, not a correctness bound. Detection never falls
-silent and never cries wolf. A stress test drives create/delete
-churn through the spill path — including through rotated connections
-— and pins in-room storage, restart cost, and cold-lookup rate;
+silent and never cries wolf.
+
+Every path that mints a tombstone or stub debits the same budget.
+The standing sweep attributes its work to the authenticated
+principal whose push emptied the key, so omitting claim metadata and
+letting the sweep clean up is not a way around the deletion
+throttle, and a room-wide creation rate cap bounds how fast durable
+evidence can be forced into existence by any mix of principals. The
+exact-key set ages through a tiered lifecycle rather than toward a
+terminal cap: full tombstones (restorable) become exact key stubs
+(exactly confirmable flags), and only after a host-configurable
+retention measured in years do stubs compact into the filter tier,
+where a revival still warns, marked unconfirmed. Cost decays with
+age, evidence never disappears, and no tier ever refuses a
+legitimate deletion. A stress test drives create/delete churn
+through the spill path — claimless carrier deletions swept
+server-side included, and through rotated connections — and pins
+in-room storage, restart cost, cold-lookup rate, and the budget;
 fixtures create fresh keys that collide with the filter and revive a
 spilled key. Within the full-tombstone window, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
@@ -726,12 +741,22 @@ target key, `youtube-embed` gains `videoKey`, and the `media-control`
 binding stops being written. `SYNC_CLIENT_VERSION` moves twice — the
 acceptance stage described below keeps 3, the rollback pre-release
 takes 4, the main release 5 — and the gate becomes two-sided: a
-server refuses clients newer than itself as well as older. One number per release is what keeps
-rollback coherent at the protocol level, not just the schema level: a
-main-release client still open when the deployment rolls back would
-otherwise reconnect to a pre-release server and push cascade claims
-it cannot arbitrate, losing events to exactly the race the claims
-exist to prevent. Refusal alone swaps no JavaScript, so the client
+server refuses clients newer than itself as well as older. One number
+per release keeps each client's vocabulary matched to the assets that
+serve it; the server side needs no such split, because every release
+in the sequence ships the same forked room server — arbitration,
+tombstones, stamps and all. What must survive the forced reload is
+client-side intent: an unacknowledged cascade claim is durable state
+in the same ordered intent store as explicit-deletion prunes, keyed
+to the document, and the pre-release client replays or cancels
+pending entries on connect exactly as the main client would. A
+last-carrier deletion made just before a rollback reload therefore
+keeps its claim, and a concurrent extension still wins add-wins
+arbitration instead of meeting bare, claimless removals; an
+end-to-end fixture deletes a last carrier, withholds the
+acknowledgement, forces the version-5-to-version-4 reload while
+another client adds a carrier, and verifies every marker survives.
+Refusal alone swaps no JavaScript, so the client
 defines the transition: on the incompatible-version response it stops
 reconnecting, forces an asset reload that bypasses caches, and — if
 the fetched bundle still reports the refused version, as it briefly
