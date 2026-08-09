@@ -863,14 +863,23 @@ with it. Inside the horizon every bound holds because every
 structure is sized from exact data; past it, the design says plainly
 that deletion evidence is gone — the one honest alternative to a
 filter that saturates toward flagging everything or a store that
-only grows. Gone evidence does not mean an open door, because the
-server knows every reconnecting client's baseline age: a session
-whose baseline predates the evidence horizon has its reapplied
-content quarantined wholesale for explicit resolution rather than
-merged as fresh work, so a stale carrier from beyond the horizon can
-never enter as a healthy video even though the tombstone that would
-have named it is gone. A fixture replays a pre-horizon baseline and
-must land in quarantine. Cost decays with age, no tier ever refuses a legitimate
+only grows. Gone evidence does not mean an open door, because key
+provenance outlives key evidence. The room keeps a **birth ledger**
+— one tiny entry per `videoKey` ever created, the key and its birth
+stamp, written when the serialized creation first lands — spillable
+to cold storage and content-proportional rather than
+churn-proportional, debited to the creating principal like every
+other budget. A genuinely new video is born in the push that first
+names its key and matches its ledger entry exactly; a carrier
+creation whose key has a ledger birth older than its own push, no
+live carriers, and no remaining evidence is by definition a revival
+of something whose evidence expired — an active session's
+years-late undo included, which no baseline check could catch — and
+it is quarantined for explicit resolution, never admitted as a
+healthy new video. Sessions whose reconnect baseline predates the
+horizon are additionally quarantined wholesale. Fixtures cover the
+reconnect replay, an active-session undo performed after the
+horizon, and an operation rebased from retained local history. Cost decays with age, no tier ever refuses a legitimate
 deletion, and a long-horizon test drives churn across generations,
 asserting false-positive and cold-lookup rates hold their configured
 targets. A stress test drives create/delete churn
