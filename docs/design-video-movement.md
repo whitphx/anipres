@@ -134,8 +134,17 @@ through three states:
   step before it, or once every carrier is gone, the fold yields no
   anchor at all. The player stays mounted — unmounting is the reload
   hazard — but is hidden and inert: `visibility: hidden`, no pointer
-  events, playback paused. It leaves this state the moment the fold
-  yields an anchor again, which is what re-advancing does. Absent is
+  events, playback paused. Hiding waits for the pause: the player is
+  hidden only once the pause is confirmed by the usual evidence, and
+  until then it stays visible with an immediate stop control; a
+  pause that outlives its bounded retry is resolved by force —
+  the iframe is torn down despite the continuity loss, because an
+  invisible, inaccessible player still producing audio is the one
+  outcome worse than a reload. A browser test enters Absent with
+  the pause acknowledgement withheld and asserts playback can never
+  be both hidden and uncontrollable. The player leaves Absent the
+  moment the fold yields an anchor again, which is what re-advancing
+  does. Absent is
   a rendering state, not an eviction; the lifecycle policy below
   decides separately whether a long-absent player is worth keeping
   mounted.
