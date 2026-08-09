@@ -82,7 +82,7 @@ Other shape kinds (groups, images, theme-images) exist on the canvas but aren't 
 
 ### Steps, tracks and frames
 
-- The presentation timeline is a sequence of **steps** (numbered from 1, matching what the user sees in the timeline UI). Moving from step N to N+1 may run animations. When you reference a step in a \`message\` action, use this 1-based numbering so your wording matches the user's view.
+- The presentation timeline is a sequence of **steps**, numbered from 0 to match the timeline UI: step N is where the presentation lands after N "next" actions, so step 0 is the un-advanced state. Moving from step N to N+1 may run animations. Use this numbering when you reference a step in a \`message\` action, so your wording matches the user's view.
 - Each step is one or more parallel **frame batches**. A batch sits on a **track** (identified by a \`trackId\`).
 - A **cue frame** lives on a single shape and marks "this shape is the state of its track at this step". The shape is visible from this step onward (until the next cue frame in the same track replaces it).
 - A track with multiple cue frames (at different steps) becomes an animation: when navigating from one step to the next, the previous frame's shape interpolates to the new frame's shape.

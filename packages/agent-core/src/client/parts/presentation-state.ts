@@ -34,14 +34,12 @@ function summarise(editor: Editor): {
     })),
   });
 
-  // 1-indexed: Anipres' UI numbers steps from 1 ("Step 1", "Step 2"
-  // …) but the underlying array is 0-based. The agent's perception
-  // matches the user-facing numbering so messages like "I added a
-  // slide as step 7" line up with what the user sees in the
-  // timeline; the system prompt also describes steps as 1-numbered
-  // to keep the vocabulary consistent.
-  const steps = doc.steps.map((step, zeroBased) => ({
-    index: zeroBased + 1,
+  // The timeline labels steps from 0, where the label counts
+  // advances, so the agent perceives the same numbers the user reads
+  // and a message like "I added a slide as step 7" points at the
+  // column they see. The system prompt describes the same vocabulary.
+  const steps = doc.steps.map((step, index) => ({
+    index,
     batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
       shapeIds: batch.frames.map((frame) => frame.shapeId),

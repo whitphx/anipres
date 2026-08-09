@@ -138,10 +138,15 @@ const StepColumn = React.memo(
         <div className={`${styles.column} ${isActive ? styles.active : ""}`}>
           <div className={styles.headerCell}>
             <button
+              type="button"
               className={`${styles.frameButton} ${isActive ? styles.selected : ""}`}
               onClick={() => onStepSelect(stepIdx)}
+              aria-label={`Go to step ${stepIdx}`}
+              aria-current={isActive ? "step" : undefined}
             >
-              {stepIdx + 1}
+              {/* Zero-based so the label counts advances: step N is
+                  where the presentation lands after N "next" actions. */}
+              {stepIdx}
             </button>
           </div>
           <DroppableArea
@@ -543,7 +548,7 @@ export function Timeline({
         })}
         {showAttachCueFrameButton && (
           <div className={styles.column}>
-            <div className={styles.headerCell}>{steps.length + 1}</div>
+            <div className={styles.headerCell}>{steps.length}</div>
             {tracks.map((track) => (
               <div key={track.id} className={styles.frameBatchCell}></div>
             ))}

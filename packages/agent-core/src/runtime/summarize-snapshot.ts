@@ -52,9 +52,9 @@ export function summarizeSnapshot(snapshot: SnapshotInput): SnapshotSummary {
       frames: frameCount,
       totalSteps: doc.steps.length,
       steps: doc.steps.map((step, i) => ({
-        // 1-indexed, matching the UI's "Step 1"… numbering (see
+        // Matches the timeline's labels, which count advances (see
         // presentation-state.ts).
-        index: i + 1,
+        index: i,
         batches: step.batches.map((b) => ({
           trackId: b.trackId,
           action: b.frames[0].action,
