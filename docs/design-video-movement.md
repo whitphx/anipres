@@ -272,9 +272,23 @@ pause and proves manual-pause persistence and slot accounting stay
 correct. The one channel no web page can exclude is the browser's
 media session — hardware play/pause keys — and that residual is
 stated honestly: a media-key action inside the tens-of-milliseconds
-pendency window is misattributed to the command, costs at worst one
-unwanted resume, and the user's next action, arriving unambiguous,
-is durable. A notification that contradicts the
+pendency window is misattributed to the command. And one ordering
+neither focus nor input-disabling can exclude — a native action
+taken just *before* a same-direction command is issued, its
+notification arriving during pendency and consumed as the
+acknowledgement — is closed by a conservative resume rule rather
+than an attribution guess: any pause whose acknowledgement window
+could contain a user action, meaning the player was interactive at
+any point between its last confirmed state and the acknowledgement,
+is marked possibly-manual, and a possibly-manual pause is never
+auto-resumed by a freed slot. It resumes only on an explicit media
+command or the user's own play, with the control surface showing
+"paused — resume" instead of resuming behind the user's back. Slot
+accounting is unaffected, since paused is paused whoever caused it;
+the cost is bounded and benign — at worst a budget-paused video
+waits for a click it did not need. A test fires a native pause
+immediately before a budget pause and delivers its notification
+during pendency. A notification that contradicts the
 pending command — a pause while play is pending, whether a late
 acknowledgement of something earlier or a user's keystroke — is
 consumed by neither register; it drops the player into
