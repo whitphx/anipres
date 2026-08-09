@@ -80,19 +80,36 @@ and the width/height interpolate between the outgoing and incoming
 carriers' values, while clip, opacity and `z-index` follow the
 incoming one.
 
-Which carrier the player anchors to must be deterministic. In
-presentation mode the visibility rule answers it: the anchor is the
-carrier the rule currently shows. While editing, every carrier is
-visible, so a fixed rule takes over: the anchor is the carrier of the
-sequence's earliest keyframe — the video's starting position — and an
-unanimated video is its only carrier. Deleting or reordering keyframes
-re-evaluates the same rule. A change of anchor only changes which
-shape's values the player mirrors, never the player's place in the
-DOM, so it cannot remount the iframe — which is what made every
-re-anchoring scheme on shape-mounted players unsafe. Viewport culling
-is deliberately not mirrored: culling exists to keep thousands of
-off-screen shapes cheap, one player is not that, and an off-viewport
-player is invisible without any help.
+Which carrier the player anchors to is explicit runtime state, never
+derived from what happens to be rendered. Carrier visibility exists to
+show posters; the player's placement cannot follow it, because during
+an animated step there is no visible carrier at all — `runStep` hides
+the incoming frame's carrier for the length of the tween, and the
+outgoing one has stopped being current. The runtime moves the anchor
+through three states:
+
+- **Steady, presenting.** The anchor is the carrier the visibility
+  rule shows, and the player mirrors its values.
+- **Tweening.** Advancing a step re-points the anchor at the incoming
+  carrier and interpolates transform and size from the outgoing
+  carrier's stored geometry to the incoming one's. Both records are
+  hidden while this runs; the runtime reads stored values, not
+  rendered state, and the mirrored opacity is the carrier's own
+  composition without the presentation hiding — the player _is_ the
+  video's visible representation while its carriers are not.
+  Cancelling, jumping, or navigating away mid-tween drops the anchor
+  to the folded target directly, per the reconciliation rule below.
+- **Editing.** Every carrier is visible, so a fixed rule takes over:
+  the anchor is the carrier of the sequence's earliest keyframe — the
+  video's starting position — and an unanimated video is its only
+  carrier. Deleting or reordering keyframes re-evaluates the rule.
+
+A change of anchor only changes which shape's values the player
+mirrors, never the player's place in the DOM, so it cannot remount the
+iframe — which is what made every re-anchoring scheme on shape-mounted
+players unsafe. Viewport culling is deliberately not mirrored: culling
+exists to keep thousands of off-screen shapes cheap, one player is not
+that, and an off-viewport player is invisible without any help.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -144,6 +161,24 @@ follow-up-keyframe path is ours and preserves `videoKey`, while
 one alongside the fresh `trackId`. Duplicating a video therefore yields
 an independent video with its own player, which is what the gesture
 implies.
+
+### One video, one configuration
+
+Sharing an identity means sharing a configuration. A carrier copy
+carries all of the video's props, and `videoId`, `start`, `muted`,
+`controls` and `altText` describe the video, not a keyframe — two
+carriers of one `videoKey` disagreeing on `videoId` is incoherent. So
+media props are held identical across a `videoKey`'s carriers by the
+same kind of side effect that parks markers: editing them on one
+carrier writes them to all, and only geometry may differ between
+keyframes. The player then has exactly one configuration to read, from
+whichever carrier is the anchor. New keyframes copy the props, so they
+are born consistent; existing documents have one carrier per video, so
+nothing already disagrees. Editing `videoId` still reloads the iframe
+— changing which video this is is a different operation from moving
+it, and the reload is the point.
+
+### Existing documents
 
 For existing documents the prop reads as `props.videoKey || shape.id`.
 A props migration must be deterministic, so it cannot mint keys; the
