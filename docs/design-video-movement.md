@@ -305,8 +305,8 @@ stranded. The version gate only refuses old *clients*; it does nothing
 for the binding records that existing documents contain, and those
 documents surface in more places than the sole-user framing suggests —
 synced rooms, snapshot files, clipboard payloads, locally cached
-copies. All of them arrive through tldraw's schema migration path, so
-that is where the rewrite lives:
+copies. Whole documents arrive through tldraw's store migration path;
+clipboard content does not, and gets its own pass:
 
 - The binding type stays registered (see above), so the old records
   load instead of failing validation.
@@ -325,12 +325,21 @@ that is where the rewrite lives:
   inert survives the rewrite.
 - The migration reads only what is in the store, so it is
   deterministic, as store migrations must be.
+- A pasted `TLContent` payload is migrated per record, not per store,
+  so the cross-record rewrite cannot ride the schema path. The paste
+  wrapper around `putContentOntoCurrentPage` — which already does
+  operation-scoped preprocessing for frame remapping — applies the
+  same rewrite-or-delete rules to the payload first: resolve each
+  binding, write the action's target key, drop the binding, and only
+  then let the remap mint fresh identities.
 
 A fixture document captured from the pre-migration schema, containing
 a video with `media-control` bindings, pins the behavior: it must load
 under the new schema with its event targeting intact. Sibling fixtures
 hold the degraded states — an unbound marker, a binding with a missing
-or mistyped endpoint — and must come out with those records gone.
+or mistyped endpoint — and must come out with those records gone. A
+pre-change `TLContent` fixture pasted through the wrapper must come
+out with its event targeting the pasted video.
 
 The schema registration and the migration are the whole compatibility
 surface; everything behavioral is deleted now. Dropping those two is
