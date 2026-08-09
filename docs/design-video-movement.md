@@ -10,9 +10,11 @@ made videos a special case in the first place. Playback stays smooth
 across the move: the same player keeps playing, at the same position in
 the video, while its frame travels.
 
-Editing does not need live playback. That relaxation is what makes the
-rest of this design possible, and it is the one thing the reader should
-carry into every section below.
+A video _shape_ does not need to be a player. That relaxation is what
+makes the rest of this design possible, and it is the one thing the
+reader should carry into every section below. Editing keeps a live,
+interactive player — just one per video, owned by the runtime rather
+than by any shape.
 
 ## Why the current shape of the feature exists
 
@@ -35,10 +37,10 @@ the latest-frame-of-batch visibility rule.
 
 ## The idea
 
-**Stop mounting a player per shape.** A video shape renders a static
+**Stop mounting a player per shape.** Video shapes render a static
 poster; exactly one live player exists per video, owned by the runtime,
-and it is positioned to follow whichever shape currently represents
-that video.
+positioned to follow whichever shape currently represents that video —
+in presentation mode and while editing alike.
 
 Once a video shape is no longer a player, a copy of it is harmless, and
 the special case collapses:
@@ -154,10 +156,12 @@ one case users notice, which is moving a video far across the canvas.
 
 ## Editing
 
-A video renders as a static poster (`i.ytimg.com/vi/<id>/hqdefault.jpg`)
-while editing. Nothing mounts, so copies cost nothing, and the
-"double-click to interact" affordance disappears along with the live
-iframe.
+Video shapes render a static poster
+(`i.ytimg.com/vi/<id>/hqdefault.jpg`), and the runtime anchors the one
+live player to a single carrier of each `videoKey` — so a video is
+still playable and interactive while editing, and the other keyframes
+show where it will travel to. Nothing about a shape mounts a player, so
+copies cost nothing.
 
 Authoring a movement keyframe is then the same gesture as for any other
 shape: extend the sequence from the timeline's follow-up-frame button,
@@ -188,6 +192,16 @@ tldraw already gives a copy.
 
 Both were shaped by the constraint that a copy of a video is
 impossible. Removing that constraint is what makes them unnecessary.
+
+**Mounting the player on one carrier shape.** Keeps live editing
+without an overlay, by designating a single carrier as the host. Two
+things break it. Culling is computed from a shape's own store bounds
+and sets `display: none` on its container, so a player visually
+displaced onto the screen is hidden whenever its host's home position
+leaves the viewport. And re-anchoring — at a step boundary, when the
+host is hidden by the visibility rule, or when it is deleted — moves
+the iframe between DOM parents, which reloads it. Runtime ownership
+avoids both while giving the same live editing.
 
 **Multiple frames per shape.** Would remove the marker entirely, but
 one-frame-per-shape is load-bearing across the derivation, the timeline
