@@ -401,16 +401,21 @@ operations carry no intent, and co-occurrence cannot supply it: a
 user may delete an event and a keyframe of the same video in one
 legitimate batch. The cascade therefore announces itself — the
 deleting client sends the room, alongside its push, the video keys it
-claims fully deleted. Only marker removals under a claimed key are
-arbitrated; every other marker removal, an explicit event deletion
-batched with anything at all, applies as pushed, and a fixture proves
-one sticks even when co-batched with a carrier deletion of the same
-video.
+claims fully deleted — and, per key, the exact marker ids its cascade
+removed. Intent is per marker, not per key, because one batch can mix
+both kinds: a user may explicitly delete an event in the same
+operation that removes the video's last carrier. Only the claimed
+marker ids are arbitrated; every other marker removal, an explicit
+event deletion batched with anything at all — including a cascade of
+its own video — applies as pushed whether or not the claim survives.
+Fixtures prove an explicit deletion sticks when co-batched with a
+non-last carrier deletion, and when co-batched with a raced
+last-carrier cascade, under both delivery orders.
 
 Arbitration is the server's alone. If the merged state still holds a
 carrier of a claimed key — a concurrent extension arrived first — the
-claim is refused: the marker removals are declined and the markers
-rebroadcast. If none survives, the removals apply, and the claim
+claim is refused: the claimed marker removals are declined and those
+markers rebroadcast, while the same push's explicit removals stand. If none survives, the removals apply, and the claim
 leaves a **durable tombstone**: the removed marker records, persisted
 in the room's storage next to the document itself, never held only in
 connection memory. Retention cannot be tied to who is connected or
