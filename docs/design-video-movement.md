@@ -294,9 +294,23 @@ ceiling a client can reach. Same-prop concurrent edits resolve by
 serialization at the single authority, which is what convergence
 means for a last-writer register. Both releases run the same forked
 room server — the hook ships with the pre-release, so rollback
-changes client behavior, never the authority. Fixtures cover
-simultaneous edits in both arrival orders, unchanged retries, and a
-force-reset replay of a multi-edit offline history.
+changes client behavior, never the authority.
+
+Serialization needs idempotency to stay safe under retry: a
+committed write whose acknowledgement was lost, retried after
+another client's edit, must not earn a fresh, winning stamp. Every
+logical media write therefore carries a principal-scoped operation
+id, and the hook persists that id with the stamp it issued in the
+same transaction as the write; a replay of a known id returns the
+recorded result instead of a new stamp — after reconnect,
+force-reset, and server restart alike, because the log lives in the
+same durable storage as the tombstones. The log stays bounded per
+principal: a client retires its ids once acknowledged, and only the
+owning principal can replay them. Fixtures chain a lost
+acknowledgement, an intervening edit by another client, and the
+retry, through each of reconnect, force-reset, and restart, plus
+simultaneous edits in both arrival orders and a force-reset replay
+of a multi-edit offline history.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -537,16 +551,22 @@ authenticated principal the worker already requires, not the
 connection, so rotating sessions rotates nothing; a room that still
 reaches the hard stub quota refuses further video deletions with a
 surfaced error rather than forget one. Nor is exhaustion terminal:
-an explicit administrative compaction archives the oldest stubs out
-of the room, folding their keys into a fixed-size probabilistic
-filter kept in their place. Keys are shape ids with no order, so no
-scalar watermark could identify a retired one; membership is the
-only test, and the filter has no false negatives — a revival of any
-archived key is always flagged as possibly missing events — at the
-price of a small, explicit false-positive rate that can flag a
-genuinely new video once an archive has happened. After an archive,
-detection can over-warn, but it cannot fall silent. Fixtures create
-fresh keys after an archival and revive an archived one. A
+an explicit administrative compaction archives the oldest stubs into
+a probabilistic membership partition sized, at creation, for exactly
+the batch it absorbs at a fixed false-positive target — not one
+fixed-size filter fed forever, which saturates toward flagging
+everything. Keys are shape ids with no order, so membership is the
+only test that cannot fall silent: partitions have no false
+negatives, a revival of any archived key is always flagged as
+possibly missing events, and a query ORs the partitions, so the
+overall false-positive rate grows additively with partition count
+and is surfaced alongside storage. Each partition costs a small
+fraction of the stubs it replaces, and the principal-scoped deletion
+rate limit bounds how fast new ones can be forced into existence.
+After an archive, detection can over-warn, but it cannot fall
+silent. A stress test runs repeated archive cycles and asserts the
+false-positive ceiling; fixtures create fresh keys after an archival
+and revive an archived one. A
 fixture fills the quota through rotated connections and proves the
 principal-level limit holds, the refusal surfaces, and reviving any
 retired key is still detected; the stress test pins storage and
