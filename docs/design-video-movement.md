@@ -78,7 +78,16 @@ the same stacking context: a video inside a frame is clipped by the
 frame, a shape drawn above the video occludes the live player, and a
 keyframe with a different size resizes the player — the iframe fills
 its container, so the embedded player rescales with no API
-involvement.
+involvement. One tie needs breaking explicitly: `OnTheCanvas` renders
+before the shapes in the DOM, and equal-z-index siblings stack by DOM
+order, so a player merely sharing its carrier's `z-index` would be
+painted over by that carrier's own poster. The anchored carrier
+therefore suppresses its poster while its player is mounted — the
+player _is_ that carrier's visual — which dissolves the pair's
+ordering question entirely; against every other shape, the shared
+`z-index` alone stacks the player correctly. A browser-level test
+stacks shapes immediately above and below the carrier and asserts
+the player paints exactly where the carrier would.
 
 During a step tween the transform and the width/height interpolate
 between the outgoing and incoming carriers' stored values, opacity and
@@ -196,13 +205,16 @@ below, and the priority order, so it changes only when they do and
 cannot oscillate on its own. Manual interaction joins as a
 client-local overlay: the runtime already hears the player's
 state-change events, and a manual pause or play recorded there
-combines with the folded status into an _effective_ status, cleared
-by the next media command or by navigation reconciliation — the
-moments the fold deliberately retakes control. A budget pause lands
-in the same overlay, cleared additionally by a freed slot, which
-resumes playback from the held position. Priority and the playback
-clock read the effective status, so a video paused by hand neither
-advances nor resumes behind the user's back.
+combines with the folded status into an _effective_ status. A manual
+overlay is cleared only by a media command targeting that video —
+the one moment the fold deliberately retakes control — and survives
+navigation that carries no such command: a movement-only step must
+not resume a video the user paused, or "does not resume behind the
+user's back" would mean nothing. A budget pause has its own, shorter
+lifetime: cleared by a freed slot, which resumes from the held
+position, or by a media command. Priority and the playback clock
+read the effective status, and tests navigate through steps with and
+without media commands over a manual pause.
 
 When suppression lifts, the player mounts and seeks by the runtime's
 playback clock: a per-video (position, observed-at, rate) triple,
