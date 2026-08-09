@@ -407,27 +407,36 @@ batched with anything at all, applies as pushed, and a fixture proves
 one sticks even when co-batched with a carrier deletion of the same
 video.
 
-Arbitration is the server's alone, and it is causal. If the merged
-state still holds a carrier of a claimed key — a concurrent extension
-arrived first — the claim is refused: the marker removals are
-declined and the markers rebroadcast. If none survives, the removals
-apply, but the server keeps a tombstone for the claim — the removed
-markers and the sequence point at which the claim landed — until
-every connected client has acknowledged that point and no concurrent
-push can remain. A push from a baseline older than the claim that
-adds a carrier of a tombstoned key is exactly the raced extension:
-the server restores the markers from the tombstone and rebroadcasts
-them. Both delivery orders — and a reconnect after offline editing —
-therefore converge on a video that is entirely gone or entirely
-intact, with no client-side repair rule to race. A two-client fixture
-runs the race in both message orders and through a reconnect:
-concurrent last-carrier deletion and follow-up creation must always
-merge to a carrier that keeps its events. Undo on the deleting client
-stays whole too: its history entry holds carriers and markers
+Arbitration is the server's alone. If the merged state still holds a
+carrier of a claimed key — a concurrent extension arrived first — the
+claim is refused: the marker removals are declined and the markers
+rebroadcast. If none survives, the removals apply, and the claim
+leaves a **durable tombstone**: the removed marker records, persisted
+in the room's storage next to the document itself, never held only in
+connection memory. Retention cannot be tied to who is connected or
+what they have acknowledged, because tlsync force-resets a client
+whose baseline predates its pruned history and then reapplies and
+pushes that client's stashed changes on top of the fresh state — an
+arbitrarily old offline extension can arrive at any later time. So
+the tombstone lives as long as the document does (a few tiny records
+per deleted video, and video deletions are rare), and restoration is
+unconditional: whenever a tombstoned key gains a carrier again, the
+server restores its markers, rebroadcasts them, and clears the
+tombstone. That is semantically right, not just race repair — fresh
+videos mint fresh keys and paste remints them, so a key only ever
+returns as a continuation of the deleted video.
+
+Both delivery orders, a reconnect after offline editing, and a
+reconnect so late the client was force-reset all converge on a video
+that is entirely gone or entirely intact, with no client-side repair
+rule to race. Fixtures run the race in both message orders, through a
+reconnect, and through a server restart that reloads tombstones from
+storage before the offline client returns. Undo on the deleting
+client stays whole too: its history entry holds carriers and markers
 together, and re-putting an already-restored marker is a no-op, so
 the tombstone never fights an undo. Markers left behind for a key
-with no carriers and no live claim — however record operations were
-split or ordered — fall to the standing sweep below.
+with no carriers and no claim on record — however record operations
+were split or ordered — fall to the standing sweep below.
 
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
