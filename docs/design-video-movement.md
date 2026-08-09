@@ -62,9 +62,31 @@ outside it). A player placed there is positioned in page coordinates
 and inherits pan, zoom and `cameraZoom` animation for free — the same
 way a shape does, and without the store learning anything about it.
 
-That last point is the reason not to animate the video shape directly.
-Writing `x`/`y`/`w`/`h` during playback would put presentation state
-into the document: on a synced deck every intermediate frame broadcasts
+The camera is all the layer provides; the rest of the carrier's
+rendering context is mirrored explicitly. tldraw styles each shape's
+container from four computed values — the full page transform
+(`getShapePageTransform`, so ancestor rotation and group movement are
+included), the clip path (`getShapeClipPath`, which is how frame masks
+apply), the composed opacity, and a `z-index` taken from the shape's
+position in `getRenderingShapes()`. Shape containers are stacked as
+siblings by that `z-index`, so a player container subscribing to the
+same four values of its anchor carrier sits in the same stacking
+context: a video inside a frame is clipped by the frame, and a shape
+drawn above the video occludes the live player. During a step tween
+the transform interpolates between the outgoing and incoming carriers'
+page transforms while the other three values follow the incoming one.
+
+Which carrier the player anchors to is the question the visibility
+rule already answers — the anchor is the carrier the rule currently
+shows — so presentation and editing visibility come along with the
+anchor choice. Viewport culling is deliberately not mirrored: culling
+exists to keep thousands of off-screen shapes cheap, one player is not
+that, and an off-viewport player is invisible without any help.
+
+Keeping the store out of it is the reason not to animate the video
+shape directly. Writing `x`/`y`/`w`/`h` during playback would put
+presentation state into the document: on a synced deck every
+intermediate frame broadcasts
 to collaborators, an interrupted presentation leaves the video
 displaced, and `bailToMark` — which is how the current animation code
 suppresses history — would fight the animation. Runtime state belongs
@@ -129,12 +151,15 @@ It also stops being _correct_ to bind to a shape: with several
 carriers, a binding to keyframe #1 would cascade-delete a video's
 events when that one keyframe is deleted.
 
-Removed: the `media-control` binding's `BindingUtil`,
-`bindMediaControlMarker`, `copyMediaControlBinding`,
-`getMediaControlBindingTargetId`, and the marker parking hooks. The
-binding type's schema registration stays — inert, never written again
-— so that documents already holding the binding still validate long
-enough to be migrated; the Rollout section says how.
+Removed: `bindMediaControlMarker`, `copyMediaControlBinding`,
+`getMediaControlBindingTargetId`, the marker parking hooks, and every
+lifecycle hook on `MediaControlBindingUtil`. The util itself survives
+as an inert shell, because on the client the util _is_ the schema
+registration — the `bindingUtils` array is what the store's schema is
+built from — and the worker keeps its explicit `createTLSchema` entry
+for the same reason. Both stay so that documents already holding the
+binding still validate long enough to be migrated; the Rollout section
+says how.
 
 Kept: the `media-control` marker shape. One frame per shape is still
 the rule, so a media event still needs a carrier that is not the video.
@@ -151,8 +176,13 @@ have got wrong.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
-skews `zoomToFit`. A side-effect handler on carrier movement keeps a
-video's markers at its position. The cheaper alternative — park once at
+skews `zoomToFit`. Parking therefore follows the carrier's _page_
+position: a reaction on the carrier's `getShapePageTransform` — not a
+store side effect on the carrier record — keeps a video's markers at
+its position, so movement that never touches the carrier itself
+(dragging a parent group, resizing an enclosing frame, reparenting)
+parks just as well as dragging the video does. The cheaper alternative
+— park once at
 creation and accept drift — is rejected: the drift is unbounded in the
 one case users notice, which is moving a video far across the canvas.
 
