@@ -248,10 +248,22 @@ transition**, never by timing: a command predicts the specific state
 it produces — pause predicts paused, play predicts playing — and
 consumes only a notification of exactly that state. Autonomous
 transitions — buffering, ended, errors — update confirmed state and
-are never read as intent or as acknowledgement. Pointer input is
-disabled during pendency as a courtesy, but nothing rests on it: a
-focused cross-origin iframe still takes keyboard input, so no timing
-argument is trusted anywhere. A notification that contradicts the
+are never read as intent or as acknowledgement. A matching
+notification still cannot say *who* caused it, so during pendency
+native input is actively excluded rather than assumed away: the
+runtime disables pointer input and moves focus off the cross-origin
+iframe onto the player container, so a keyboard pause cannot reach
+the player while a pause command awaits its acknowledgement — a
+browser test types at a previously focused player during pendency
+and proves the keystroke lands on the container, and another
+delivers a same-direction native action against a pending budget
+pause and proves manual-pause persistence and slot accounting stay
+correct. The one channel no web page can exclude is the browser's
+media session — hardware play/pause keys — and that residual is
+stated honestly: a media-key action inside the tens-of-milliseconds
+pendency window is misattributed to the command, costs at worst one
+unwanted resume, and the user's next action, arriving unambiguous,
+is durable. A notification that contradicts the
 pending command — a pause while play is pending, whether a late
 acknowledgement of something earlier or a user's keystroke — is
 consumed by neither register; it drops the player into
