@@ -418,7 +418,14 @@ claim is refused: the claimed marker removals are declined and those
 markers rebroadcast, while the same push's explicit removals stand. If none survives, the removals apply, and the claim
 leaves a **durable tombstone**: the removed marker records, persisted
 in the room's storage next to the document itself, never held only in
-connection memory. Retention cannot be tied to who is connected or
+connection memory — and written in the same durable-storage
+transaction as the document update that removes the markers, so no
+crash window separates the destructive write from its recovery record
+(Durable Object storage batches awaited writes atomically behind its
+output gate). If the transaction fails, both halves fail, and the
+claim is re-arbitrated when the push retries; fault-injection tests
+exercise each persistence boundary, marker removal against tombstone
+commit in particular. Retention cannot be tied to who is connected or
 what they have acknowledged, because tlsync force-resets a client
 whose baseline predates its pruned history and then reapplies and
 pushes that client's stashed changes on top of the fresh state — an
@@ -544,8 +551,17 @@ everything that reads frames.
 
 The persisted vocabulary changes: the `mediaControl` action gains its
 target key, `youtube-embed` gains `videoKey`, and the `media-control`
-binding stops being written. `SYNC_CLIENT_VERSION` moves to 4, and old
-clients are refused as usual.
+binding stops being written. `SYNC_CLIENT_VERSION` moves twice — the
+rollback pre-release described below takes 4, the main release 5 —
+and the gate becomes two-sided: a server refuses clients newer than
+itself as well as older. One number per release is what keeps
+rollback coherent at the protocol level, not just the schema level: a
+main-release client still open when the deployment rolls back would
+otherwise reconnect to a pre-release server and push cascade claims
+it cannot arbitrate, losing events to exactly the race the claims
+exist to prevent. Refused instead, it reloads into the pre-release
+client. An integration fixture connects a main-release client to a
+rolled-back pre-release server and proves the refusal.
 
 Documents that already hold the binding are migrated on load, not
 stranded. The version gate only refuses old *clients*; it does nothing
