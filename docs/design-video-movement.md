@@ -332,17 +332,26 @@ browser prototype — an implementation milestone alongside the sync
 fork's — proves one exists, and **teardown**, synchronous removal of
 the iframe, causally certain because a DOM node that no longer
 exists cannot play. When evidence stays ambiguous past the settle
-window, the runtime does not guess: if the slot is needed it tears
-the player down and takes the certainty teardown grants — a bounded,
-named loss, since a player whose playback was unobservable for the
-whole window loses little, and remounts later by its clock exactly
-as an evicted one would — and if the slot is not needed it fails
-closed and under-admits. Either branch keeps both guarantees: no
+window, the runtime does not guess — and teardown obeys the same
+restorability predicate as eviction. If the slot is needed and the
+ambiguous player is restorable — finite duration observed, seeking
+confirmed — the runtime tears it down and takes the certainty
+teardown grants: a bounded, named loss, since a player whose
+playback was unobservable for the whole window loses little and
+remounts later by its clock exactly as an evicted one would. If the
+ambiguous player is *not* restorable — live, unknown duration, a
+failed seek — ambiguity always fails closed: the replacement play is
+refused with a surfaced notice or queued, and the existing player is
+never unmounted, because the only thing worse than refusing a new
+video is destroying a live position nothing can restore. If the
+slot is not needed at all, the runtime simply under-admits. Either branch keeps both guarantees: no
 admission ever exceeds P, and no player provably playing is ever
 unmounted. The regression scenario runs an old pause notification,
 a later pause command, a buffering-frozen position, and a delayed
 buffering notification, and asserts the slot frees only through
-teardown. A test also delivers an old paused notification during a
+teardown; its live-stream variant has an unrestorable player never
+acknowledge a budget pause and asserts the replacement is refused
+with the player intact. A test also delivers an old paused notification during a
 later pause while the position keeps advancing, and asserts no slot
 frees and no eviction occurs. Tests
 interleave programmatic plays, budget pauses, and native clicks with
