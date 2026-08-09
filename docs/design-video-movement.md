@@ -299,18 +299,23 @@ changes client behavior, never the authority.
 Serialization needs idempotency to stay safe under retry: a
 committed write whose acknowledgement was lost, retried after
 another client's edit, must not earn a fresh, winning stamp. Every
-logical media write therefore carries a principal-scoped operation
-id, and the hook persists that id with the stamp it issued in the
-same transaction as the write; a replay of a known id returns the
-recorded result instead of a new stamp — after reconnect,
-force-reset, and server restart alike, because the log lives in the
-same durable storage as the tombstones. The log stays bounded per
-principal: a client retires its ids once acknowledged, and only the
-owning principal can replay them. Fixtures chain a lost
-acknowledgement, an intervening edit by another client, and the
-retry, through each of reconnect, force-reset, and restart, plus
-simultaneous edits in both arrival orders and a force-reset replay
-of a multi-edit offline history.
+logical media write therefore carries an operation identity — a
+server-issued client-instance epoch plus a sequence number the
+instance increments monotonically — and the hook persists, in the
+same transaction as the write, each instance's contiguous
+acknowledgement watermark rather than every id. A sequence at or
+below its instance's watermark is rejected as a replay, its effect
+already committed; one exactly above admits and advances the
+watermark. Retirement *is* the watermark advancing, so there is no
+forgotten-id window: an acknowledged operation replayed after any
+amount of compaction, reconnection, force-reset (which issues a
+fresh epoch), or server restart is still at or below the watermark
+and still rejected, with O(1) durable state per instance. Fixtures
+chain a lost acknowledgement, an intervening edit by another client,
+and the retry — including replay of an acknowledged operation after
+compaction — through each of reconnect, force-reset, and restart,
+plus simultaneous edits in both arrival orders and a force-reset
+replay of a multi-edit offline history.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -405,19 +410,22 @@ the point.
 
 ### Existing documents
 
-Existing videos predate the prop, so a migration materializes it:
+Existing videos predate the prop, so it is materialized as
 `videoKey = shape.id`, which identifies each existing video as itself
 — correct because today every video is exactly one shape, and
-deterministic, as migrations must be (that constraint rules out
-minting random keys, not writing the record's own id). The props-only
-migration helper cannot express this, because its callback receives
-the props value and never sees the record id — so the materialization
-is a record-scoped shape migration, the kind whose callback receives
-the whole record. Record-scoped migrations are also what tldraw
-replays on each record of a pasted `TLContent` payload, so the key is
-in place everywhere a legacy record can appear — store loads and
-pastes alike — before any copy can be made, and travels with every
-copy.
+deterministic and idempotent, so it can run anywhere any number of
+times. Deliberately, this is **normalization, not a schema
+migration**: a tldraw migration would stamp new sequence versions
+into persisted snapshots, and every release that might ever reopen
+such a snapshot would then have to know those versions or refuse the
+document — a regress with no safe first deployment. Instead the
+persisted schema never gains a migration, only optional props, and
+the materialization runs at the same authorities that already own
+cleanup: the room server's standing per-push invariant for shared
+documents, the load-and-batch pass for unsynced ones, and the paste
+wrapper for `TLContent` payloads. Every path a legacy record can
+travel ends in one of those three, so the key is in place before any
+copy can be made, and travels with every copy.
 
 A read-time fallback would not be enough: a follow-up keyframe copied
 from a video whose key was never stored would fall back to its _own_
@@ -443,7 +451,7 @@ as an inert shell, because on the client the util _is_ the schema
 registration — the `bindingUtils` array is what the store's schema is
 built from — and the worker keeps its explicit `createTLSchema` entry
 for the same reason. Both stay so that documents already holding the
-binding still validate long enough to be migrated; the Rollout section
+binding still validate long enough to be normalized; the Rollout section
 says how.
 
 Kept: the `media-control` marker shape. One frame per shape is still
@@ -551,22 +559,23 @@ authenticated principal the worker already requires, not the
 connection, so rotating sessions rotates nothing; a room that still
 reaches the hard stub quota refuses further video deletions with a
 surfaced error rather than forget one. Nor is exhaustion terminal:
-an explicit administrative compaction archives the oldest stubs into
-a probabilistic membership partition sized, at creation, for exactly
-the batch it absorbs at a fixed false-positive target — not one
-fixed-size filter fed forever, which saturates toward flagging
-everything. Keys are shape ids with no order, so membership is the
-only test that cannot fall silent: partitions have no false
-negatives, a revival of any archived key is always flagged as
-possibly missing events, and a query ORs the partitions, so the
-overall false-positive rate grows additively with partition count
-and is surfaced alongside storage. Each partition costs a small
-fraction of the stubs it replaces, and the principal-scoped deletion
-rate limit bounds how fast new ones can be forced into existence.
-After an archive, detection can over-warn, but it cannot fall
-silent. A stress test runs repeated archive cycles and asserts the
-false-positive ceiling; fixtures create fresh keys after an archival
-and revive an archived one. A
+an explicit administrative compaction moves the oldest stubs' exact
+keys to cold storage outside the room — the worker platform has
+cheap durable stores for exactly this — and rebuilds, from the full
+exact key set held there, a single in-room membership filter sized
+for the total archived cardinality at a fixed false-positive target.
+Keys are shape ids with no order, so membership is the only test
+that cannot fall silent: the filter has no false negatives, a
+revival of any archived key is always flagged as possibly missing
+events, and because every rebuild is sized from exact data, the
+false-positive rate holds constant under churn instead of
+saturating. The filter costs a few bits per archived key; a
+room-wide archive budget caps it, and a room at the cap refuses
+further video deletions — the same terminal refusal as the stub
+quota, because evidence is never the thing sacrificed. A stress test
+runs repeated archive cycles through the real consolidation and
+refusal paths and asserts the false-positive ceiling; fixtures
+create fresh keys after an archival and revive an archived one. A
 fixture fills the quota through rotated connections and proves the
 principal-level limit holds, the refusal surfaces, and reviving any
 retired key is still detected; the stress test pins storage and
@@ -724,9 +733,9 @@ everything that reads frames.
 The persisted vocabulary changes: the `mediaControl` action gains its
 target key, `youtube-embed` gains `videoKey`, and the `media-control`
 binding stops being written. `SYNC_CLIENT_VERSION` moves twice — the
-rollback pre-release described below takes 4, the main release 5 —
-and the gate becomes two-sided: a server refuses clients newer than
-itself as well as older. One number per release is what keeps
+acceptance stage described below keeps 3, the rollback pre-release
+takes 4, the main release 5 — and the gate becomes two-sided: a
+server refuses clients newer than itself as well as older. One number per release is what keeps
 rollback coherent at the protocol level, not just the schema level: a
 main-release client still open when the deployment rolls back would
 otherwise reconnect to a pre-release server and push cascade claims
@@ -740,63 +749,75 @@ can while a rollback propagates — backs off behind a visible
 end-to-end test starts a version-5 browser client, rolls the
 deployment back, and proves the session resumes as version 4.
 
-Documents that already hold the binding are migrated on load, not
-stranded. The version gate only refuses old *clients*; it does nothing
+Documents that already hold the binding are normalized on load, not
+stranded. The version gate only refuses *clients*; it does nothing
 for the binding records that existing documents contain, and those
 documents surface in more places than the sole-user framing suggests —
 synced rooms, snapshot files, clipboard payloads, locally cached
-copies. Whole documents arrive through tldraw's store migration path;
-clipboard content does not, and gets its own pass:
+copies. Every path lands at one of the three normalization
+authorities (see "Existing documents"), which apply the same
+idempotent rewrite:
 
 - The binding type stays registered (see above), so the old records
   load instead of failing validation.
-- The record-scoped shape migration materializes `videoKey` on every
-  legacy video (see "Existing documents").
-- A store-level migration resolves, for each `media-control` binding,
-  the video shape at its `toId`, and writes that shape's id — now that
-  video's materialized `videoKey` — into the `mediaControl` action
-  carried by the marker at its `fromId`. The event keeps its target.
-  The binding record itself stays, per the rollback rule below.
+- `videoKey` is materialized as `shape.id` on every legacy video.
+- Each `media-control` binding is resolved: the video shape at its
+  `toId` supplies the target key written into the `mediaControl`
+  action carried by the marker at its `fromId`. The event keeps its
+  target. The binding record itself stays, per the rollback rule
+  below.
 - Legacy stores can also hold degraded records — a marker that lost
   its binding, a binding whose endpoint is missing or of the wrong
   type — and today the mount path deletes unbound markers as its
-  recovery. That recovery moves into the migration: a marker whose
+  recovery. That recovery moves into the same pass: a marker whose
   `mediaControl` action cannot be given a target — no binding, or a
   binding that does not resolve to a video — is deleted, along with
   any dangling binding. Deleting these is rollback-neutral, because
   the previous release's own cleanup does the same.
-- The migration reads only what is in the store, so it is
-  deterministic, as store migrations must be.
-- A pasted `TLContent` payload is migrated per record, not per store,
-  so the cross-record rewrite cannot ride the schema path. The paste
-  wrapper around `putContentOntoCurrentPage` — which already does
-  operation-scoped preprocessing for frame remapping — applies the
-  same rewrite rules to the payload first: resolve each binding, write
-  the action's target key, and only then let the remap mint fresh
-  identities. Pasted output is new content, so it is written in the
-  new vocabulary, without bindings.
+- The pass reads only what is in the store, so it is deterministic
+  and idempotent: running it again, anywhere, changes nothing.
+- A pasted `TLContent` payload goes through the paste wrapper —
+  which already does operation-scoped preprocessing for frame
+  remapping — before identity remapping runs. Pasted output is new
+  content, so it is written in the new vocabulary, without bindings.
 
 Retained bindings alone cannot make rollback safe, because the
 materialized `videoKey` prop is itself a poison pill to the release
 currently deployed: its `youtube-embed` schema does not declare the
-property, and tldraw validation rejects unknown props, so a migrated
+property, and tldraw validation rejects unknown props, so a normalized
 document would fail to load before any binding is consulted. (The
 action's target key has no such problem — frames live in `shape.meta`,
 which tldraw does not validate, so older code just ignores the extra
-key.) Rollback therefore gets an explicit floor: a pre-release ships
-first. Its contract is that every ordinary edit made under it leaves
-main-release documents consistent, which means it understands the new
-vocabulary without shipping any new feature:
+key.) Rollback therefore gets explicit floors, and each floor is
+itself deployable with a floor beneath it:
 
-- It ships the main release's persisted schema wholesale — the
-  optional props, the migration sequences, and their versions —
-  writing none of the new props on its own. Declaring the props alone
-  would not be enough: tldraw stamps migration-sequence versions into
-  persisted snapshots and checks them when a room loads, so a
-  pre-release lacking the main release's migrations would refuse a
-  room the main release had opened, however valid its records.
-  Schema parity, not record validity, is what makes a snapshot
-  persisted by either release load under the other.
+- **Stage A, acceptance.** Identical to the current release except
+  that its validators accept the future optional props and it
+  carries the two-sided version gate the later stages rely on. It
+  writes nothing new, changes no behavior, and — like every release
+  in this sequence — adds no schema migrations: none exist, because
+  materialization is normalization, so no snapshot is ever stranded
+  behind unknown migration versions. Documents stage A opens are
+  byte-identical afterwards, which makes rolling it back to the
+  current release trivially safe; a persisted-document round-trip
+  test proves it before anything later ships.
+- **Stage B, the pre-release.** The main release's rollback floor,
+  described next. Rolling it back means rolling back to stage A,
+  whose validators accept everything stage B writes.
+- **The main release.** Rolling back means rolling back to stage B.
+  Rolling back past a stage leaves the support window once the next
+  stage has shipped.
+
+The pre-release's contract is that every ordinary edit made under it
+leaves main-release documents consistent, which means it understands
+the new vocabulary without shipping any new feature:
+
+- It inherits stage A's widened validators and adds no migrations,
+  so snapshot version stamps never diverge between releases and a
+  room persisted by any of them loads under any other. The
+  `TLSocketRoom` round-trip fixture — build and persist a room under
+  the main release, reopen it under the pre-release — proves the
+  whole load path, not merely record validation.
 - Its duplicate and paste paths run the main release's identity
   remap — shared code, not a reimplementation: a copied video gets a
   fresh `videoKey` by the same rule the main release uses,
@@ -836,18 +857,13 @@ vocabulary without shipping any new feature:
 
 Media events the pre-release authors are dual-written: the legacy
 binding its own behavior needs, and the action's target key
-alongside. The second half is not optional politeness — schema parity
-means the main release's migrations will never rerun over this
-content, so nothing else would supply the key on roll-forward, and a
-binding-only event would arrive inert. A fixture creates an event
-under the pre-release and proves it still targets and controls its
-video after roll-forward. The main release follows once the
-pre-release is deployed, and rolling back means rolling back to the
-pre-release; rolling back past it is out of the support window. A fixture proves the round trip end to
-end: it builds and persists a room with the main release's
-`TLSocketRoom`, then reopens the snapshot with the pre-release's —
-the load succeeding is the proof, record validation alone would not
-exercise the migration-version check.
+alongside. The main release's normalization would derive the key
+from the binding anyway; writing it eagerly means the event is
+complete from the moment it exists, with no window where only the
+binding carries the truth. A fixture creates an event under the
+pre-release and proves it still targets and controls its video after
+roll-forward. The main release follows once the pre-release is
+deployed.
 
 Well-formed bindings are rewritten but not deleted. Deleting them
 would make an ordinary deployment rollback destructive: the previous
@@ -885,7 +901,7 @@ values every reader resolves after roll-forward. A fixture edits a media prop
 through a non-owner carrier under the pre-release and proves it holds
 authority after roll-forward.
 
-Fixtures pin all of this. A document captured from the pre-migration
+Fixtures pin all of this. A document captured from the pre-normalization
 schema, holding a video with `media-control` bindings, must load under
 the new schema with its event targeting intact — and, reopened under
 the previous release's schema and cleanup rules, must still have its
