@@ -311,9 +311,21 @@ the design does not claim one: browsers throttle timers in
 background pages while iframe media plays on, so reconciliation also
 runs on `visibilitychange`, on page resume, and before any command
 is issued, bounding stale accounting by the page's own lifecycle
-transitions rather than by a timer the browser may freeze. Tests
-start native plays whose notifications are delayed indefinitely or
-never delivered, including across a background throttle and resume. The clock is deliberately
+transitions rather than by a timer the browser may freeze. The hide
+transition itself enforces once more: on `visibilitychange` to
+hidden — an event browsers do deliver at that moment — the runtime
+reconciles all mounted players and pauses any playback above P. One
+channel remains beyond any page's reach, and the contract says so
+instead of pretending: a native or media-session play that starts
+*after* the page is hidden and whose notification never arrives
+cannot be observed until the next lifecycle event, so background
+overflow from that channel is bounded by the user's return, not by
+the runtime — and a host that cannot accept it enables the strict
+`pauseOnHidden` option, which pauses all playback at the hide
+transition and buys a hard bound at the price of background audio.
+Tests start native plays whose notifications are delayed
+indefinitely or never delivered, including one beginning after
+backgrounding, across a background throttle and resume. The clock is deliberately
 client-local — media events carry commands, not positions, and what
 folds identically everywhere is the status. Fixtures cover eviction and remount at non-default
 rates, for live video, before duration metadata has arrived, and the
@@ -852,13 +864,19 @@ operation away from legitimate users, and the per-principal rate
 limit on deletion claims is a throttle against abuse, never a dam
 that fills. Storage degradation gets an explicit contract instead of
 an impossible promise, though: the room reserves local headroom for
-recovery payloads ahead of the document's own growth, and if that
-reserve is exhausted while cold storage is also unavailable — the
-one state in which a deletion's recovery data cannot be durably
-persisted anywhere — the deletion push is rejected as retryable,
-with backpressure surfacing before exhaustion. Deferred, not
-refused: policy never takes deletion away, and the retry lands the
-moment either store recovers. What the room never does is accept a
+recovery payloads ahead of the document's own growth, and that
+reserve is partitioned into per-principal shares — isolation
+enforced at admission, not implied by accounting. A principal whose
+churn fills its own share has its deletions deferred as retryable,
+with backpressure surfacing before exhaustion, while every other
+principal's share, and therefore their deletions, remains untouched;
+only when a principal's share is exhausted *and* cold storage is
+unavailable — the one state in which that principal's recovery data
+cannot be durably persisted anywhere — does its deferral engage at
+all. Deferred, not refused: policy never takes deletion away, and
+the retry lands the moment either store recovers. A multi-principal
+test churns one principal to its share limit under cold-storage
+failure and proves another principal still deletes successfully. What the room never does is accept a
 deletion it could not back with recovery data, or shed evidence to
 make one fit. A test fills the room to its actual quota with cold
 storage down, proves the deletion defers with the documented error,
