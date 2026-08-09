@@ -504,7 +504,15 @@ preserves new-vocabulary markers but does not understand their
 targets — are collected by the same standing invariant: on the sync
 server after every applied push, and locally, at load and after each
 batch, for unsynced documents. A client of a shared room never sweeps
-from its own, possibly partial, view.
+from its own, possibly partial, view. Nor is the sweep a second,
+weaker deletion path: its removals commit through the same
+transactional, marker-aware tombstone as an accepted cascade claim,
+so a carrier arriving late — an offline extension, a force-reset
+replay, a rollback-window edit surfacing after roll-forward —
+restores swept events exactly as it restores cascade-deleted ones.
+Temporary absence is never proof of permanent deletion, and fixtures
+land a late carrier after a sweep across delivery orders, a
+force-reset, and a server restart.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
