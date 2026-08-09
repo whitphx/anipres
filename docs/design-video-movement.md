@@ -310,12 +310,24 @@ watermark. Retirement *is* the watermark advancing, so there is no
 forgotten-id window: an acknowledged operation replayed after any
 amount of compaction, reconnection, force-reset (which issues a
 fresh epoch), or server restart is still at or below the watermark
-and still rejected, with O(1) durable state per instance. Fixtures
-chain a lost acknowledgement, an intervening edit by another client,
-and the retry — including replay of an acknowledged operation after
+and still rejected, with O(1) durable state per instance. Nor do
+instances accumulate: epoch ids are server-issued and sequential per
+principal, each principal holds a small fixed number of live epoch
+watermarks, and issuing past the cap retires the least-recently
+active epoch by advancing a single per-principal retirement mark —
+writes from any retired epoch are rejected outright, so replay state
+is a few integers per principal however many resets a client
+performs. Retirement only claims an epoch idle long enough that its
+client would be force-reset regardless, and that client's
+resubmissions arrive as fresh writes, the same semantics tlsync
+already gives a force-reset stash. Fixtures chain a lost
+acknowledgement, an intervening edit by another client, and the
+retry — including replay of an acknowledged operation after
 compaction — through each of reconnect, force-reset, and restart,
 plus simultaneous edits in both arrival orders and a force-reset
-replay of a multi-edit offline history.
+replay of a multi-edit offline history; a stress test churns
+instance creation and force-resets across restarts and asserts the
+metadata stays flat.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -421,11 +433,16 @@ such a snapshot would then have to know those versions or refuse the
 document — a regress with no safe first deployment. Instead the
 persisted schema never gains a migration, only optional props, and
 the materialization runs at the same authorities that already own
-cleanup: the room server's standing per-push invariant for shared
-documents, the load-and-batch pass for unsynced ones, and the paste
-wrapper for `TLContent` payloads. Every path a legacy record can
-travel ends in one of those three, so the key is in place before any
-copy can be made, and travels with every copy.
+cleanup: the room server's standing invariant for shared documents —
+applied transactionally at room initialization, before any snapshot
+is served to any client, and again after every push — the
+load-and-batch pass for unsynced ones, and the paste wrapper for
+`TLContent` payloads. Every path a legacy record can travel ends in
+one of those three, so the key is in place before any copy can be
+made, and travels with every copy. A fixture opens a persisted
+legacy room and copies a video from it with no client push having
+occurred: the served snapshot is already normalized, and the copy
+carries its key.
 
 A read-time fallback would not be enough: a follow-up keyframe copied
 from a video whose key was never stored would fall back to its _own_
@@ -567,7 +584,8 @@ set before anything is flagged, so a freshly minted video can never
 draw a false revived-without-events warning. A filter false positive
 costs one cold read, never a wrong flag; the filter's error rate is
 a performance knob, not a correctness bound. Detection never falls
-silent and never cries wolf.
+silent, and in every exact tier it never cries wolf; the one tier
+that can over-warn is named below, and its warnings say so.
 
 Every path that mints a tombstone or stub debits the same budget.
 The standing sweep attributes its work to the authenticated
@@ -579,9 +597,14 @@ exact-key set ages through a tiered lifecycle rather than toward a
 terminal cap: full tombstones (restorable) become exact key stubs
 (exactly confirmable flags), and only after a host-configurable
 retention measured in years do stubs compact into the filter tier,
-where a revival still warns, marked unconfirmed. Cost decays with
-age, evidence never disappears, and no tier ever refuses a
-legitimate deletion. A stress test drives create/delete churn
+where a revival still warns, marked unconfirmed — the one tier that
+can over-warn, and the design accepts that explicitly rather than
+claiming otherwise: the warning is phrased as a question about very
+old content, not an assertion of loss, and it is dismissible, with
+the dismissal recording the key in a small confirmed-fresh set so
+the same false positive never returns. Cost decays with age,
+evidence never disappears, and no tier ever refuses a legitimate
+deletion. A stress test drives create/delete churn
 through the spill path — claimless carrier deletions swept
 server-side included, and through rotated connections — and pins
 in-room storage, restart cost, cold-lookup rate, and the budget;
