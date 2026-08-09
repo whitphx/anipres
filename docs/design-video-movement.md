@@ -278,14 +278,21 @@ reads, transfers, undo's still-resolves check, the server's
 regression guard, and the pre-release's stamping.
 
 Stamps are client-authored, so the server treats them as claims to
-validate, not facts: the pre-apply hook accepts a counter only when
-it advances the room's high-water mark for that prop by exactly one,
-takes the session component from the authenticated connection rather
-than from the payload, and rejects everything else. A forged maximal
-stamp never enters the room, and with increments capped at one per
-accepted push the numeric ceiling is unreachable within any
-document's realistic lifetime. Hostile-counter, forged-session-id
-and numeric-boundary fixtures pin the guard.
+validate, not facts. The pre-apply hook takes the session component
+from the authenticated connection rather than from the payload, and
+admits a counter only up to the prop's current high-water mark plus
+one — headroom for exactly the concurrent siblings that offline
+editing legitimately creates, and none for forged jumps. Admitted
+props then apply one at a time by the total order: an incoming stamp
+that beats the stored one wins the record, one that does not is
+dropped. Concurrent (N+1, session A) and (N+1, session B) edits
+therefore converge on the same winner in both arrival orders — the
+loser loses to the order, never to the clock on the wire — and with
+increments bounded by one per accepted advance, the numeric ceiling
+is unreachable within any document's realistic lifetime. Fixtures
+pin hostile counters, forged session ids, numeric boundaries, and
+simultaneous N+1 siblings in both arrival orders with unchanged
+retries.
 
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
@@ -516,13 +523,22 @@ instead of a quietly inert deck. Stubs themselves are never evicted:
 they are the last evidence a deletion happened, and dropping one
 would convert a detectable loss into a silent one for whichever key
 hostile churn pushed out. They are small enough to keep — a key and
-a stamp — so the room bounds growth at the source instead:
-video-deletion claims are rate-limited per session, and a room that
-still reaches the hard stub quota refuses further video deletions
-with a surfaced error rather than forget one. A fixture fills the
-quota and proves both the refusal and that reviving any retired key
-is still detected; the stress test pins storage and restart cost
-under create/delete churn. Within the full-tombstone bound, restoration is
+a stamp — so the room bounds growth at the source instead.
+Video-deletion claims are rate-limited against the durable
+authenticated principal the worker already requires, not the
+connection, so rotating sessions rotates nothing; a room that still
+reaches the hard stub quota refuses further video deletions with a
+surfaced error rather than forget one. Nor is exhaustion terminal:
+an explicit administrative compaction archives the oldest stubs out
+of the room and leaves a single deletion watermark behind, and a
+revival matching no live stub whose key predates the watermark is
+flagged conservatively as possibly missing events — after an
+archive, detection can over-warn, but it cannot fall silent. A
+fixture fills the quota through rotated connections and proves the
+principal-level limit holds, the refusal surfaces, and reviving any
+retired key is still detected; the stress test pins storage and
+restart cost under create/delete churn. Within the full-tombstone
+bound, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, rebroadcasts them, and clears the
 tombstone. That is semantically right, not just race repair — fresh
