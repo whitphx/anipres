@@ -224,13 +224,18 @@ Editing media props means writing the owner record, wherever in the
 UI the edit was made, and stamping it with a configuration revision:
 a small counter prop, written as one more than the highest revision
 any carrier of the key currently holds. Authority follows the
-revision, not the owner: a one-way reconcile side effect copies the
-values of the highest-revision carrier — ties broken by the owner
-function, then by smallest id — onto the others, without touching
-their own revisions. Concurrent edits then converge the way single
-records do: both writers stamp the same next revision, the tiebreak
-picks the same winner on every client, and the same values fan out
-everywhere; only geometry may differ between keyframes.
+revision, and it is resolved at read time, not written back: every
+reader of a video's configuration — the player, the posters, the
+props panel — reads the values of the highest-revision carrier, ties
+broken by the owner function, then by smallest id. Nothing fans the
+winner out across the other records, deliberately: a reconcile pass
+rewriting every carrier would race concurrent geometry edits on those
+same records, and a lost race would discard a moved keyframe or a
+media edit wholesale. Stale props on a non-owner carrier are dead
+data no reader consults; the one edit path writes one record, and
+concurrent edits converge because they are concurrent writes of one
+record, stamped with the same next revision and tiebroken identically
+on every client. Only geometry is per-carrier.
 
 Ownership is a pure function of the carrier set, not a transferable
 title: the owner is the carrier whose id equals the `videoKey` while
@@ -247,17 +252,19 @@ the smallest survivor the edit target; an edit there stamps a higher
 revision; restoring the original carrier — locally or by another
 client's undo — brings back a record whose revision predates that
 edit, so the restored owner resumes routing future edits, but its
-stale values do not win the reconcile. Undoing a media edit itself
-also behaves: it restores the edited record's previous values and
-revision, authority falls back to the next-highest revision, and the
-fan-out follows. An edit racing a deletion can still lose, exactly as
+stale values do not win the read. Undoing a media edit itself also
+behaves: it restores the edited record's previous values and
+revision, authority falls back to the next-highest revision, and
+every reader follows. An edit racing a deletion can still lose, exactly as
 an edit to any concurrently deleted shape can, and no worse. The
 player reads the authoritative configuration regardless of which
 carrier is anchored.
 
-New keyframes copy the props, so they are born consistent; existing
-documents have one carrier per video, so nothing already disagrees.
-Editing `videoId` still reloads the iframe — changing which video this
+New keyframes snapshot the authoritative values at creation — a
+cosmetic courtesy to anything that reads records raw, such as the
+rollback pre-release's flattened view; correctness never depends on
+it. Existing documents have one carrier per video, so nothing already
+disagrees. Editing `videoId` still reloads the iframe — changing which video this
 is is a different operation from moving it, and the reload is the
 point.
 
@@ -461,7 +468,7 @@ ownership-aware: an edit landing on a carrier whose id is not its
 `videoKey` is routed to the owner-function carrier and stamped with
 the next revision, exactly as the main release stamps its own edits,
 so a rollback-window edit holds authority on roll-forward instead of
-being reconciled away. Everything the pre-release authors itself
+sitting unread on a non-owner record. Everything the pre-release authors itself
 still uses bindings. The main release follows once the pre-release is
 deployed,
 and rolling back means rolling back to the pre-release; rolling back
@@ -497,7 +504,7 @@ roll-forward.
 Media-prop edits made during the rollback window survive roll-forward
 by construction: they are routed and revision-stamped the same way
 the main release's own edits are, so they are the authoritative
-values when reconciliation resumes. A fixture edits a media prop
+values every reader resolves after roll-forward. A fixture edits a media prop
 through a non-owner carrier under the pre-release and proves it holds
 authority after roll-forward.
 
