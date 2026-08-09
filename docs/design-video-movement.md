@@ -137,14 +137,23 @@ mounting is governed by a hard budget: at most N live players — N a
 host-configurable prop, defaulting to 4 — granted in priority order:
 playing, then selected, then nearest the viewport, with ties and
 evictions resolved LRU by last playback or interaction time.
-Everything over budget shows its poster. Eviction records the
-player's position in runtime state and seeds the replacement from it,
-so an evicted paused video resumes where it left off. Playing videos
-are evicted last, but they are not exempt: when playing videos alone
-exceed the budget, the least recently started one is paused and
-evicted — deterministic, and honest about the browser's limits, where
-that many simultaneous live iframes have already stopped being a
-presentation.
+Everything over budget shows its poster.
+
+The budget suppresses players; it never rewrites desired state.
+Desired playback is folded from events and is the same on every
+client, so an over-budget playing video stays logically playing — its
+player is simply not mounted, and it is silent. The mounted set is a
+pure function of the folded states and the priority order, so it
+changes only when they do; suppression cannot oscillate on its own.
+When suppression lifts, the player mounts and seeks to where the fold
+says the video now is: a suppressed-while-playing video resumes at
+the position it would have reached had it played — the same answer a
+late-joining client computes — and a paused one at its recorded
+position. Playing videos are suppressed last, but they are not
+exempt: when desired-playing videos alone exceed the budget, the
+least recently started ones go silent — deterministic, and honest
+about the browser's limits, where that many simultaneous live iframes
+have already stopped being a presentation.
 
 Keeping the store out of it is the reason not to animate the video
 shape directly. Writing `x`/`y`/`w`/`h` during playback would put
@@ -372,15 +381,20 @@ another client may be extending the video at that moment, and
 honoring the marker removals then would strip a surviving video of
 its events, a loss no sweep can reconstruct. So the room's server,
 which already runs the custom schema and owns the merged state,
-arbitrates the claim: it applies a delete operation's marker removals
-only when the merged state really holds no carrier of that key, and
-declines them — keeping the markers and rebroadcasting them to the
-deleting client — when a concurrent extension won.
+enforces the pairing as a standing invariant rather than trusting any
+client's claim: after applying each push — a push carries a client
+transaction's whole diff, so a delete batch arrives as one message —
+it re-evaluates the video keys that push touched. Marker removals for
+a key whose carriers survive are declined and the markers
+rebroadcast; markers left behind for a key with no carriers are
+removed, however the record operations were split or ordered. Load is
+the invariant's first run, not a special case.
 
-Arbitration alone is order-dependent — a deletion reaching the room
-before the concurrent extension passes the no-carrier check — so the
-protocol is add-wins from both sides. The server declines removals
-when it can see a surviving carrier; a client that receives marker
+The server-side invariant alone is still order-dependent — a deletion
+reaching the room before the concurrent extension passes the
+no-carrier check — so the protocol is add-wins from both sides. The
+server declines removals while it can see a surviving carrier; a
+client that receives marker
 removals for a key while itself holding or pushing a carrier of that
 key reinstates those markers from its local copy, which it still
 has. Whichever side learns of the surviving carrier last is the side
@@ -397,10 +411,10 @@ were never allowed to die.
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
 preserves new-vocabulary markers but does not understand their
-targets — are collected by the same authority: an idempotent sweep on
-the sync server when a shared room loads, locally for unsynced
-documents. A client of a shared room never sweeps from its own,
-possibly partial, view.
+targets — are collected by the same standing invariant: on the sync
+server after every applied push, and locally, at load and after each
+batch, for unsynced documents. A client of a shared room never sweeps
+from its own, possibly partial, view.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
@@ -422,6 +436,15 @@ live player to a single carrier of each `videoKey` — so a video is
 still playable and interactive while editing, and the other keyframes
 show where it will travel to. Nothing about a shape mounts a player, so
 copies cost nothing.
+
+Interactive does not mean pointer-stealing. The player container is
+`pointer-events: none` while idle, so selecting, dragging and
+resizing the carrier beneath it stay ordinary canvas gestures;
+double-clicking the video enters the shape's editing state — the same
+convention tldraw's own embed shapes use — which makes the player
+interactive until editing ends with a click elsewhere or Escape. In
+presentation mode the default flips: canvas editing is off, and the
+player takes pointer input when the video's `controls` allow it.
 
 Authoring a movement keyframe is then the same gesture as for any other
 shape: extend the sequence from the timeline's follow-up-frame button,
