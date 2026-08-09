@@ -145,11 +145,16 @@ client, so an over-budget playing video stays logically playing — its
 player is simply not mounted, and it is silent. The mounted set is a
 pure function of the folded states and the priority order, so it
 changes only when they do; suppression cannot oscillate on its own.
-When suppression lifts, the player mounts and seeks to where the fold
-says the video now is: a suppressed-while-playing video resumes at
-the position it would have reached had it played — the same answer a
-late-joining client computes — and a paused one at its recorded
-position. Playing videos are suppressed last, but they are not
+When suppression lifts, the player mounts and seeks by the runtime's
+playback clock: a per-video (position, observed-at) pair, refreshed
+by periodic polls while a player is mounted and on every pause, seek
+and suppression. While a suppressed video is desired-playing the
+clock advances virtually with elapsed time, so the remount seeks to
+the position the video would have reached; while paused, it holds.
+The clock is deliberately client-local — media events carry commands,
+not positions, so cross-client position identity was never a property
+of the model; what folds identically everywhere is the status, and
+that is all the budget consults. Playing videos are suppressed last, but they are not
 exempt: when desired-playing videos alone exceed the budget, the
 least recently started ones go silent — deterministic, and honest
 about the browser's limits, where that many simultaneous live iframes
