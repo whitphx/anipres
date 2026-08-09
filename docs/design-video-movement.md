@@ -480,9 +480,13 @@ Arbitration is the server's alone. If the merged state still holds a
 carrier of a claimed key — a concurrent extension arrived first — the
 claim is refused: the claimed marker removals are declined and those
 markers rebroadcast, while the same push's explicit removals stand. If none survives, the removals apply, and the claim
-leaves a **durable tombstone**: the removed marker records, persisted
-in the room's storage next to the document itself, never held only in
-connection memory — and persisted transactionally with the data it
+leaves a **durable tombstone**: the removed marker records, together
+with the video's resolved media configuration and its per-prop stamps
+at the moment of deletion — deleting the last carrier deletes the
+records that held authority, and without this a late revival would
+resolve configuration from whatever stale snapshot the arriving
+carrier happens to hold — persisted in the room's storage next to the
+document itself, never held only in connection memory — and persisted transactionally with the data it
 protects. The room ordinarily applies changes in memory and snapshots
 lazily; a claim-bearing push opts out of that path: the server
 persists the updated snapshot and the tombstone in one synchronous
@@ -534,18 +538,28 @@ connection, so rotating sessions rotates nothing; a room that still
 reaches the hard stub quota refuses further video deletions with a
 surfaced error rather than forget one. Nor is exhaustion terminal:
 an explicit administrative compaction archives the oldest stubs out
-of the room and leaves a single deletion watermark behind, and a
-revival matching no live stub whose key predates the watermark is
-flagged conservatively as possibly missing events — after an
-archive, detection can over-warn, but it cannot fall silent. A
+of the room, folding their keys into a fixed-size probabilistic
+filter kept in their place. Keys are shape ids with no order, so no
+scalar watermark could identify a retired one; membership is the
+only test, and the filter has no false negatives — a revival of any
+archived key is always flagged as possibly missing events — at the
+price of a small, explicit false-positive rate that can flag a
+genuinely new video once an archive has happened. After an archive,
+detection can over-warn, but it cannot fall silent. Fixtures create
+fresh keys after an archival and revive an archived one. A
 fixture fills the quota through rotated connections and proves the
 principal-level limit holds, the refusal surfaces, and reviving any
 retired key is still detected; the stress test pins storage and
 restart cost under create/delete churn. Within the full-tombstone
 bound, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
-server restores its markers, rebroadcasts them, and clears the
-tombstone. That is semantically right, not just race repair — fresh
+server restores its markers, writes the tombstoned configuration and
+stamps onto the arriving carrier under the usual monotonic rules — so
+a stale offline snapshot cannot demote the video's configuration —
+rebroadcasts the result, and clears the tombstone. A fixture edits
+the configuration after an offline carrier was created and before the
+visible last carrier is deleted, then revives, and must see the
+edited configuration. That is semantically right, not just race repair — fresh
 videos mint fresh keys and paste remints them, so a key only ever
 returns as a continuation of the deleted video.
 
@@ -697,9 +711,14 @@ rollback coherent at the protocol level, not just the schema level: a
 main-release client still open when the deployment rolls back would
 otherwise reconnect to a pre-release server and push cascade claims
 it cannot arbitrate, losing events to exactly the race the claims
-exist to prevent. Refused instead, it reloads into the pre-release
-client. An integration fixture connects a main-release client to a
-rolled-back pre-release server and proves the refusal.
+exist to prevent. Refusal alone swaps no JavaScript, so the client
+defines the transition: on the incompatible-version response it stops
+reconnecting, forces an asset reload that bypasses caches, and — if
+the fetched bundle still reports the refused version, as it briefly
+can while a rollback propagates — backs off behind a visible
+"deployment changed, reloading" notice rather than spinning. An
+end-to-end test starts a version-5 browser client, rolls the
+deployment back, and proves the session resumes as version 4.
 
 Documents that already hold the binding are migrated on load, not
 stranded. The version gate only refuses old *clients*; it does nothing
