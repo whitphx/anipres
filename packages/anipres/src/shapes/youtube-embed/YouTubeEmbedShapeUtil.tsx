@@ -249,7 +249,7 @@ function MediaEventStrip({ shape }: { shape: YouTubeEmbedShape }) {
           <button
             key={event.markerShapeId}
             type="button"
-            aria-label={`Media event: ${event.command} (step ${event.stepIndex + 1})`}
+            aria-label={`Media event: ${event.command} (step ${event.stepIndex})`}
             aria-current={selected ? "true" : undefined}
             onClick={() => {
               editor.select(event.markerShapeId as TLShapeId);
@@ -275,7 +275,8 @@ function MediaEventStrip({ shape }: { shape: YouTubeEmbedShape }) {
             }}
           >
             <span aria-hidden="true">{MEDIA_COMMAND_ICONS[event.command]}</span>
-            {event.stepIndex + 1}
+            {/* Same numbering as the timeline: the label counts advances. */}
+            {event.stepIndex}
           </button>
         );
       })}

@@ -55,7 +55,8 @@ whole timeline machinery applies unchanged.
   invisible zero-size marker is harmless. Its visual surface is the
   **media-event strip** the YouTube embed shape's component draws below
   the video (edit mode only): one badge per event with its command icon
-  and step number, navigation-only — clicking a badge selects the
+  and step number (the timeline's own numbering, counting advances from
+  0), navigation-only — clicking a badge selects the
   marker, which highlights its frame in the timeline, where editing and
   deletion live (the frame-edit popover carries the "Delete event"
   action, since there is no canvas object to delete).
