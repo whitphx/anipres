@@ -203,9 +203,12 @@ implies.
 ### One video, one configuration
 
 Sharing an identity means sharing a configuration. A carrier copy
-carries all of the video's props, and `videoId`, `start`, `muted`,
-`controls` and `altText` describe the video, not a keyframe — two
-carriers of one `videoKey` disagreeing on `videoId` is incoherent.
+carries all of the video's props, and `url`, `videoId`, `start`,
+`muted`, `controls` and `altText` describe the video, not a keyframe
+— two carriers of one `videoKey` disagreeing on `videoId` is
+incoherent. (The `url` prop the URL form round-trips is part of the
+set: leaving it carrier-local would let a stale keyframe's form
+resubmit an old video selection.)
 
 The invariant needs an owner, not symmetric mirroring: copying edits
 in both directions between records only converges by luck under
@@ -247,18 +250,29 @@ a reference to the owner record. Player lookup and orphan cleanup ask
 "does any carrier with this key survive", never "does the owner
 survive".
 
-The revision is what makes restoration safe. Deleting the owner makes
-the smallest survivor the edit target; an edit there stamps a higher
-revision; restoring the original carrier — locally or by another
-client's undo — brings back a record whose revision predates that
-edit, so the restored owner resumes routing future edits, but its
-stale values do not win the read. Undoing a media edit itself also
-behaves: it restores the edited record's previous values and
-revision, authority falls back to the next-highest revision, and
-every reader follows. An edit racing a deletion can still lose, exactly as
-an edit to any concurrently deleted shape can, and no worse. The
-player reads the authoritative configuration regardless of which
-carrier is anchored.
+Deletion must not lower the high-water mark. Survivor revisions can
+be arbitrarily stale — they are dead data — so if deleting the owner
+simply removed the highest revision, a later edit could stamp a
+number the deleted record still beats, and restoring that record
+(locally, or by another client's undo) would win the read back with
+stale values. The batch delete cleanup therefore transfers authority
+in the same history entry: when the owner-function carrier is deleted
+while others survive, the authoritative values and revision are
+written onto the new owner-function carrier. The high-water mark
+never regresses; an edit after the deletion stamps a strictly higher
+revision; a restored owner ties the transferred revision at best,
+carrying the same values — and undoing the whole deletion reverses
+the transfer with it, returning exactly the pre-delete state. This is
+a one-shot write inside a structural delete, the same exposure as the
+marker cleanup and binding repointing that already live in that
+batch, not a standing reconcile pass over carrier records.
+
+Undoing a media edit itself also behaves: it restores the edited
+record's previous values and revision, authority falls back to the
+next-highest revision, and every reader follows. An edit racing a
+deletion can still lose, exactly as an edit to any concurrently
+deleted shape can, and no worse. The player reads the authoritative
+configuration regardless of which carrier is anchored.
 
 New keyframes snapshot the authoritative values at creation — a
 cosmetic courtesy to anything that reads records raw, such as the
@@ -474,7 +488,9 @@ vocabulary without shipping any new feature:
   deleted while another carrier of its key survives repoints the
   binding at the survivor instead of cascading into the marker — a
   state only main-release edits can produce, so purely legacy
-  documents behave as before.
+  documents behave as before. The same delete path performs the
+  authority transfer, so revision high-water marks survive
+  rollback-window deletions too.
 - Its mount-path cleanup narrows to true legacy orphans — markers
   with neither binding nor target key — so new-vocabulary markers
   pass through untouched.
