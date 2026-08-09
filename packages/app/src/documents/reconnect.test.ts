@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compareOrderKeys } from "anipres/models";
 import type { TLStoreSnapshot } from "tldraw";
-import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import {
+  CLIENT_TOO_OLD_MESSAGE,
+  SERVER_TOO_OLD_MESSAGE,
+} from "../lib/client-version";
 import { reconcileOfflineEdits } from "./reconnect";
 import { expectSnapshotPutRequest, mockResponse } from "./test-helpers";
 
@@ -441,6 +444,25 @@ describe("reconcileOfflineEdits — HTTP 426 (client too old)", () => {
     expect(result).toEqual(clientTooOldResult);
     // No offline-cache fetch, no retry, no fork push.
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it("reports the reverse direction without telling the user to reload", async () => {
+    const repository = makeForkableRepository();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockResponse({ reason: "server-too-old" }, 426),
+    );
+
+    const result = await reconcileOfflineEdits(reconnectParams(repository));
+
+    expect(result).toEqual({
+      action: "error",
+      reason: SERVER_TOO_OLD_MESSAGE,
+      reasonCode: "server-too-old",
+    });
+    // Same conservatism as the stale-bundle direction: nothing forked,
+    // nothing deleted, the local edits stay where they are.
     expect(repository.save).not.toHaveBeenCalled();
     expect(repository.delete).not.toHaveBeenCalled();
   });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { TIMELINE_FORMAT_VERSION } from "anipres/models";
+import { SYNC_CLIENT_VERSION } from "anipres/models";
 import {
   TLSyncErrorCloseEventCode,
   TLSyncErrorCloseEventReason,
 } from "@tldraw/sync-core";
 import {
-  MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+  REQUIRED_SYNC_ANIMATION_DATA_VERSION,
   getAnimationDataVersionGateResponse,
 } from "./animation-data-version";
 import { connectRoutes } from "./routes/connect";
@@ -14,46 +14,83 @@ import { documentsRoutes } from "./routes/documents";
 const documentId = "00000000-0000-4000-8000-000000000000";
 
 describe("sync animation data version gate", () => {
-  it("gates on the library's timeline format version (single source of truth)", () => {
-    expect(MINIMUM_SYNC_ANIMATION_DATA_VERSION).toBe(TIMELINE_FORMAT_VERSION);
+  it("gates on the library's sync client version (single source of truth)", () => {
+    expect(REQUIRED_SYNC_ANIMATION_DATA_VERSION).toBe(SYNC_CLIENT_VERSION);
   });
 
-
-  it("rejects v1 clients and clients without a version", async () => {
-    for (const suffix of ["", "?animationDataVersion=1"]) {
+  it("rejects clients predating the media record vocabulary", async () => {
+    // A build from before the youtube-embed/media-control records
+    // declares 2: it would fail the store load on the unknown shape and
+    // binding types, and offer to clear the mediaControl frames it
+    // cannot parse.
+    for (const suffix of [
+      "",
+      "?animationDataVersion=1",
+      "?animationDataVersion=2",
+    ]) {
       const response = getAnimationDataVersionGateResponse(
         new Request(`https://example.test/api/connect/document${suffix}`),
       );
       expect(response?.status).toBe(426);
       expect(await response?.json()).toEqual({
         error: "Animation data upgrade required",
-        minimumVersion: MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+        reason: "client-too-old",
+        minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,
       });
     }
   });
 
-  it("allows v2 and later clients through to the sync handshake", () => {
+  it("allows a client declaring this build's vocabulary", () => {
     expect(
       getAnimationDataVersionGateResponse(
         new Request(
-          "https://example.test/api/connect/document?animationDataVersion=2",
-        ),
-      ),
-    ).toBeUndefined();
-    expect(
-      getAnimationDataVersionGateResponse(
-        new Request(
-          "https://example.test/api/connect/document?animationDataVersion=3",
+          `https://example.test/api/connect/document?animationDataVersion=${SYNC_CLIENT_VERSION}`,
         ),
       ),
     ).toBeUndefined();
     expect(
       getAnimationDataVersionGateResponse(
         new Request("https://example.test/api/documents/document/snapshot", {
-          headers: { "x-anipres-animation-data-version": "2" },
+          headers: {
+            "x-anipres-animation-data-version": String(SYNC_CLIENT_VERSION),
+          },
         }),
       ),
     ).toBeUndefined();
+  });
+
+  it("rejects a client ahead of this build, which would write records it cannot store", async () => {
+    // The deploy window this closes: a newer app reaching a worker that
+    // has no schema registration for the records it is about to write.
+    const response = getAnimationDataVersionGateResponse(
+      new Request(
+        `https://example.test/api/connect/document?animationDataVersion=${SYNC_CLIENT_VERSION + 1}`,
+      ),
+    );
+    expect(response?.status).toBe(426);
+    expect(await response?.json()).toEqual({
+      error: "Server animation data upgrade required",
+      reason: "server-too-old",
+      minimumVersion: REQUIRED_SYNC_ANIMATION_DATA_VERSION,
+    });
+  });
+
+  it("closes a too-new sync upgrade with SERVER_TOO_OLD, not CLIENT_TOO_OLD", async () => {
+    const connectResponse = await connectRoutes.request(
+      `/api/connect/${documentId}?animationDataVersion=${SYNC_CLIENT_VERSION + 1}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+    expect(connectResponse.status).toBe(101);
+    const ws = connectResponse.webSocket;
+    const closeEvent = new Promise<CloseEvent>((resolve) => {
+      ws!.addEventListener("close", (event) => resolve(event));
+    });
+    ws!.accept();
+    const { code, reason } = await closeEvent;
+    expect(code).toBe(TLSyncErrorCloseEventCode);
+    // Telling this client it is too old would send the user to reload
+    // into the bundle they are already running.
+    expect(reason).toBe(TLSyncErrorCloseEventReason.SERVER_TOO_OLD);
   });
 
   it("rejects a stale sync upgrade IN-PROTOCOL with CLIENT_TOO_OLD", async () => {
@@ -93,7 +130,7 @@ describe("sync animation data version gate", () => {
   it("passes a snapshot PUT that declares the version, as the app's putSnapshot helper does", async () => {
     // Proves the GATE MIDDLEWARE admits a request carrying the current
     // version header (stringified from the same
-    // MINIMUM_SYNC_ANIMATION_DATA_VERSION constant the app's shared
+    // REQUIRED_SYNC_ANIMATION_DATA_VERSION constant the app's shared
     // snapshot client uses). The app-side request shape itself —
     // content type, client id, version header — is pinned by
     // packages/app/src/documents/snapshot-push.test.ts against the
@@ -105,7 +142,7 @@ describe("sync animation data version gate", () => {
         headers: {
           "content-type": "application/json",
           "x-anipres-animation-data-version": String(
-            MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+            REQUIRED_SYNC_ANIMATION_DATA_VERSION,
           ),
         },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   findFramePosition,
+  followupActionFrom,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -495,5 +496,30 @@ describe("split materialization with multiple unresolved members", () => {
     expect(rederived.diagnostics).toEqual([]);
     expect(rederived.steps[0].id).toBe("s1");
     expect(rederived.steps[2].id).toBe("s2");
+  });
+});
+
+describe("followupActionFrom", () => {
+  it("gives animation actions a fresh default duration", () => {
+    expect(
+      followupActionFrom({ type: "shapeAnimation", duration: 200 }),
+    ).toEqual({ type: "shapeAnimation", duration: 1000 });
+    expect(
+      followupActionFrom({ type: "cameraZoom", inset: 10, easing: "linear" }),
+    ).toEqual({ type: "cameraZoom", duration: 1000 });
+  });
+
+  it("carries the command (and setVolume's volume) of a media action", () => {
+    expect(
+      followupActionFrom({ type: "mediaControl", command: "play" }),
+    ).toEqual({ type: "mediaControl", command: "play" });
+    expect(
+      followupActionFrom({
+        type: "mediaControl",
+        command: "setVolume",
+        volume: 30,
+        duration: 500,
+      }),
+    ).toEqual({ type: "mediaControl", command: "setVolume", volume: 30 });
   });
 });

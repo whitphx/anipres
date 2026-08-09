@@ -4,6 +4,12 @@ import {
   TldrawUiPopoverTrigger,
   TldrawUiPopoverContent,
 } from "tldraw";
+import {
+  MEDIA_CONTROL_COMMANDS,
+  type MediaControlCommand,
+  type MediaControlFrameAction,
+} from "../../timeline-model";
+import { DEFAULT_MEDIA_VOLUME } from "../../media/media-state";
 import type { FrameUIData } from "../frame-ui-data";
 import { NumberField } from "./NumberField";
 import { SelectField } from "./SelectField";
@@ -14,14 +20,45 @@ function isEasingOption(value: string): value is keyof typeof EASINGS {
   return EASINGS_OPTIONS.includes(value);
 }
 
+function isMediaControlCommand(value: string): value is MediaControlCommand {
+  return (MEDIA_CONTROL_COMMANDS as readonly string[]).includes(value);
+}
+
+/**
+ * Rebuilds a valid mediaControl action for a new command: `volume` is
+ * only allowed alongside setVolume, so it must be added/stripped rather
+ * than spread through.
+ */
+function withCommand(
+  action: MediaControlFrameAction,
+  command: MediaControlCommand,
+): MediaControlFrameAction {
+  return {
+    type: "mediaControl",
+    command,
+    ...(action.duration !== undefined ? { duration: action.duration } : {}),
+    ...(command === "setVolume"
+      ? { volume: action.volume ?? DEFAULT_MEDIA_VOLUME }
+      : {}),
+  };
+}
+
 export interface FrameEditPopoverProps {
   frame: FrameUIData;
   onUpdate: (newFrame: FrameUIData) => void;
+  /**
+   * Deletes the event this frame represents. Offered only for media
+   * events: their carrier shapes are invisible, so this popover is the
+   * one place a user can remove one (other frames are removed by
+   * deleting their shape on the canvas).
+   */
+  onDelete: () => void;
   children: React.ReactNode;
 }
 export function FrameEditPopover({
   frame,
   onUpdate,
+  onDelete,
   children,
 }: FrameEditPopoverProps) {
   return (
@@ -44,6 +81,41 @@ export function FrameEditPopover({
               }
             />
           )}
+          {frame.action.type === "mediaControl" && (
+            <>
+              <SelectField
+                label="Command"
+                value={frame.action.command}
+                options={[...MEDIA_CONTROL_COMMANDS]}
+                onChange={(newCommand) => {
+                  if (
+                    frame.action.type === "mediaControl" &&
+                    isMediaControlCommand(newCommand)
+                  ) {
+                    onUpdate({
+                      ...frame,
+                      action: withCommand(frame.action, newCommand),
+                    });
+                  }
+                }}
+              />
+              {frame.action.command === "setVolume" && (
+                <NumberField
+                  label="Volume"
+                  value={frame.action.volume ?? DEFAULT_MEDIA_VOLUME}
+                  onChange={(newVolume) =>
+                    onUpdate({
+                      ...frame,
+                      action: {
+                        ...frame.action,
+                        volume: Math.min(100, Math.max(0, newVolume)),
+                      },
+                    })
+                  }
+                />
+              )}
+            </>
+          )}
           <NumberField
             label="Duration"
             value={frame.action.duration ?? 0}
@@ -57,22 +129,36 @@ export function FrameEditPopover({
               })
             }
           />
-          <SelectField
-            label="Easing"
-            value={frame.action.easing ?? ""}
-            options={EASINGS_OPTIONS}
-            onChange={(newEasing) => {
-              if (isEasingOption(newEasing)) {
-                onUpdate({
-                  ...frame,
-                  action: {
-                    ...frame.action,
-                    easing: newEasing,
-                  },
-                });
-              }
-            }}
-          />
+          {frame.action.type !== "mediaControl" && (
+            <SelectField
+              label="Easing"
+              value={frame.action.easing ?? ""}
+              options={EASINGS_OPTIONS}
+              onChange={(newEasing) => {
+                if (
+                  frame.action.type !== "mediaControl" &&
+                  isEasingOption(newEasing)
+                ) {
+                  onUpdate({
+                    ...frame,
+                    action: {
+                      ...frame.action,
+                      easing: newEasing,
+                    },
+                  });
+                }
+              }}
+            />
+          )}
+          {frame.action.type === "mediaControl" && (
+            <button
+              type="button"
+              className={styles.deleteButton}
+              onClick={onDelete}
+            >
+              Delete event
+            </button>
+          )}
         </div>
       </TldrawUiPopoverContent>
     </TldrawUiPopover>

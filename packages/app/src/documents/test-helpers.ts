@@ -2,7 +2,7 @@
 // only; not part of the app bundle).
 
 import { expect } from "vitest";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
+import { REQUIRED_SYNC_ANIMATION_DATA_VERSION } from "anipres-worker/animation-data-version";
 import { CLIENT_ID } from "../lib/client-id";
 
 export function mockResponse(body: unknown, status = 200): Response {
@@ -37,7 +37,7 @@ export function expectSnapshotPutRequest(call: unknown[]) {
   expect(request.method).toBe("PUT");
   expect(request.url).toContain("/snapshot");
   expect(request.headers.get("x-anipres-animation-data-version")).toBe(
-    String(MINIMUM_SYNC_ANIMATION_DATA_VERSION),
+    String(REQUIRED_SYNC_ANIMATION_DATA_VERSION),
   );
   expect(request.headers.get("content-type")).toBe("application/json");
   expect(request.headers.get("x-anipres-client-id")).toBe(CLIENT_ID);

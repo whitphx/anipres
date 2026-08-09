@@ -103,6 +103,23 @@ describe("putSnapshot", () => {
 
   it("maps 426 to client-too-old", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
+      mockResponse(
+        { error: "Animation data upgrade required", reason: "client-too-old" },
+        426,
+      ),
+    );
+    await expect(
+      putSnapshot({
+        documentId: "doc-id",
+        snapshot: SNAPSHOT,
+        expectedSnapshotVersion: 1,
+      }),
+    ).resolves.toEqual({ outcome: "client-too-old", status: 426 });
+  });
+
+  it("maps a 426 without a reason to client-too-old", async () => {
+    // A gate response from before the field existed.
+    vi.mocked(fetch).mockResolvedValueOnce(
       mockResponse({ error: "Animation data upgrade required" }, 426),
     );
     await expect(
@@ -112,6 +129,27 @@ describe("putSnapshot", () => {
         expectedSnapshotVersion: 1,
       }),
     ).resolves.toEqual({ outcome: "client-too-old", status: 426 });
+  });
+
+  it("maps the reverse direction to server-too-old", async () => {
+    // Reporting this as a stale bundle would tell the user to reload
+    // into the very bundle the worker just rejected.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      mockResponse(
+        {
+          error: "Server animation data upgrade required",
+          reason: "server-too-old",
+        },
+        426,
+      ),
+    );
+    await expect(
+      putSnapshot({
+        documentId: "doc-id",
+        snapshot: SNAPSHOT,
+        expectedSnapshotVersion: 1,
+      }),
+    ).resolves.toEqual({ outcome: "server-too-old", status: 426 });
   });
 
   it("maps any other error status to failed", async () => {

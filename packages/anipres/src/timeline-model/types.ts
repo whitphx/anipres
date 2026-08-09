@@ -10,14 +10,13 @@ import type { JsonObject } from "tldraw";
 import type { OrderKey } from "./order-key";
 
 /**
- * The animation-metadata format this build reads AND writes. v1 input
+ * The animation-metadata format this build reads AND writes: the shape
+ * of a frame record, which a new action type does not change. v1 input
  * is recognized but never converted (surfaced as a `v1-frame`
  * diagnostic; design doc r9).
  *
- * ROLLOUT GATE (spec: docs/design-animation-data-model.md, Risk 6):
- * tldraw's store schema versioning does not cover `meta` contents, so
- * the sync layer enforces a minimum client version against this
- * constant — a v1-era writer would silently revert newer ordering.
+ * The sync rollout gate keys on `SYNC_CLIENT_VERSION` instead, which
+ * also moves when the persisted record vocabulary expands.
  */
 export const TIMELINE_FORMAT_VERSION = 2;
 
@@ -35,7 +34,34 @@ export interface CameraZoomFrameAction extends FrameActionBase {
   duration?: number;
   easing?: keyof typeof EASINGS;
 }
-export type FrameAction = ShapeAnimationFrameAction | CameraZoomFrameAction;
+export const MEDIA_CONTROL_COMMANDS = [
+  "play",
+  "pause",
+  "stop",
+  "mute",
+  "unmute",
+  "setVolume",
+] as const;
+export type MediaControlCommand = (typeof MEDIA_CONTROL_COMMANDS)[number];
+
+/**
+ * Fires a playback command against the media shape the frame's marker
+ * is bound to. `duration` is the wait
+ * before the batch's next frame runs, not an animation length — the
+ * command itself is instantaneous.
+ */
+export interface MediaControlFrameAction extends FrameActionBase {
+  type: "mediaControl";
+  command: MediaControlCommand;
+  duration?: number;
+  /** setVolume only: absolute volume, 0–100. */
+  volume?: number;
+}
+
+export type FrameAction =
+  | ShapeAnimationFrameAction
+  | CameraZoomFrameAction
+  | MediaControlFrameAction;
 
 /**
  * v2 cue frame — triggered by the user's "next" action.
@@ -44,7 +70,7 @@ export type FrameAction = ShapeAnimationFrameAction | CameraZoomFrameAction;
  * key coincidence has NO grouping meaning.
  */
 export interface CueFrame<T extends FrameAction = FrameAction> {
-  v: 2;
+  v: typeof TIMELINE_FORMAT_VERSION;
   id: string;
   type: "cue";
   trackId: string;
@@ -59,7 +85,7 @@ export interface CueFrame<T extends FrameAction = FrameAction> {
  * not chain position; `orderKey` orders sub frames within the batch.
  */
 export interface SubFrame<T extends FrameAction = FrameAction> {
-  v: 2;
+  v: typeof TIMELINE_FORMAT_VERSION;
   id: string;
   type: "sub";
   cueFrameId: string;

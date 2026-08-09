@@ -1,8 +1,19 @@
-import { type TLShape, type TLShapeId, EASINGS, createShapeId } from "tldraw";
+import {
+  type Editor,
+  type TLShape,
+  type TLShapeId,
+  EASINGS,
+  createShapeId,
+} from "tldraw";
 import type {
   RuntimeFrame,
   RuntimeStep,
 } from "../timeline-model/runtime-steps";
+import {
+  MediaControlShapeType,
+  resolveMediaControlTarget,
+} from "../shapes/media-control/MediaControlShape";
+import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
@@ -10,9 +21,16 @@ async function runFrames(
   frames: RuntimeFrame[],
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
+  generation: number,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
+    // A newer navigation (or presentation-mode exit) supersedes this
+    // run while it waits between frames; its remaining commands and
+    // animations must not fire on top of the reconciled state.
+    if (!presentationManager.isRunCurrent(generation)) {
+      return;
+    }
     const shape = editor.getShape(frame.shapeId as TLShapeId);
     if (shape == null) {
       throw new Error(`Shape not found for frame ${frame.id}`);
@@ -20,11 +38,19 @@ async function runFrames(
 
     const action = frame.action;
 
-    const { duration = 0, easing = "easeInCubic" } = action;
+    const { duration = 0 } = action;
     const immediate = duration === 0;
 
-    if (action.type === "cameraZoom") {
-      const { inset = 0 } = action;
+    if (action.type === "mediaControl") {
+      // The command targets the marker's bound video, not the marker
+      // itself. `duration` still applies below as the wait before the
+      // batch's next frame.
+      const target = resolveMediaControlTarget(editor, shape.id);
+      if (target != null) {
+        YouTubePlayerManager.get(editor).command(target.id, action);
+      }
+    } else if (action.type === "cameraZoom") {
+      const { inset = 0, easing = "easeInCubic" } = action;
 
       editor.stopCameraAnimation();
       const bounds = editor.getShapePageBounds(shape);
@@ -37,7 +63,18 @@ async function runFrames(
         immediate,
         animation: { duration, easing: EASINGS[easing] },
       });
+    } else if (
+      action.type === "shapeAnimation" &&
+      shape.type === MediaControlShapeType
+    ) {
+      // A marker is an invisible record, so there is nothing to
+      // animate: it carries a frame's data, never its own transform.
+      // No editor path produces this pairing, but the agent's
+      // attachCueFrame overwrites any shape's frame without checking
+      // the type, so the frame is honored for its `duration` wait
+      // below rather than animating a zero-size invisible shape.
     } else if (action.type === "shapeAnimation") {
+      const { easing = "easeInCubic" } = action;
       editor.selectNone();
 
       if (predecessorShape == null) {
@@ -86,6 +123,25 @@ async function runFrames(
       };
       editor.on("tick", onTick);
 
+      // Bundled as a run effect so supersession/cancellation tears all
+      // three down at once (see PresentationManager.registerRunEffect
+      // for why supersession must not leave them running).
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+      const disposeAnimation = () => {
+        clearTimeout(cleanupTimer);
+        editor.off("tick", onTick);
+        editor.run(
+          () => {
+            if (editor.getShape(animeShapeId) != null) {
+              editor.deleteShape(animeShapeId);
+            }
+          },
+          { history: "ignore", ignoreShapeLock: true },
+        );
+      };
+      const unregisterRunEffect =
+        presentationManager.registerRunEffect(disposeAnimation);
+
       const { x, y, rotation } = shapePageTransform.decomposed();
       editor.animateShape(
         {
@@ -106,14 +162,9 @@ async function runFrames(
         },
       );
 
-      setTimeout(() => {
-        editor.run(
-          () => {
-            editor.deleteShape(animeShapeId);
-          },
-          { history: "ignore", ignoreShapeLock: true },
-        );
-        editor.off("tick", onTick);
+      cleanupTimer = setTimeout(() => {
+        unregisterRunEffect();
+        disposeAnimation();
       }, duration);
     }
 
@@ -123,10 +174,39 @@ async function runFrames(
   }
 }
 
+/**
+ * Clears every `hiddenDuringAnimation` flag on the page. Owned by
+ * whatever supersedes a run — the next run at its start, or
+ * `cancelActiveRun` when there is no successor. A superseded run must
+ * not clear flags itself: on a same-step rerun it would un-hide the
+ * shapes mid-way through the successor's animation.
+ */
+export function clearHiddenDuringAnimationFlags(editor: Editor): void {
+  const staleShapes = editor
+    .getCurrentPageShapes()
+    .filter((shape) => shape.meta?.hiddenDuringAnimation);
+  if (staleShapes.length === 0) {
+    return;
+  }
+  editor.run(
+    () => {
+      editor.updateShapes(
+        staleShapes.map((shape) => ({
+          id: shape.id,
+          type: shape.type,
+          meta: { ...shape.meta, hiddenDuringAnimation: null },
+        })),
+      );
+    },
+    { history: "ignore", ignoreShapeLock: true },
+  );
+}
+
 export function runStep(
   presentationManager: PresentationManager,
   steps: RuntimeStep[],
   index: number,
+  generation: number,
 ): Promise<void> {
   const step = steps[index];
   if (step == null) {
@@ -135,6 +215,10 @@ export function runStep(
   }
 
   const editor = presentationManager.editor;
+
+  // Flags a superseded run left behind (its cleanup is skipped, see the
+  // finally below).
+  clearHiddenDuringAnimationFlags(editor);
 
   const markBeforeAnimation = editor.markHistoryStoppingPoint();
 
@@ -177,7 +261,15 @@ export function runStep(
       frames,
       predecessorShape ?? null,
       markBeforeAnimation,
+      generation,
     ).finally(() => {
+      // A superseded run leaves cleanup to its successor (which already
+      // cleared the flags at its start) or to cancelActiveRun: clearing
+      // here would un-hide shapes mid-successor, and bailing to this
+      // run's older mark would roll the successor's changes back.
+      if (!presentationManager.isRunCurrent(generation)) {
+        return;
+      }
       editor.run(
         () => {
           editor.updateShapes(

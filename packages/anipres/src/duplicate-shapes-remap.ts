@@ -15,6 +15,7 @@
 
 import { uniqueId, type Editor, type TLShape, type TLShapeId } from "tldraw";
 import type { VecLike } from "tldraw";
+import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
 import {
   frameToMetaJson,
   parseFrameMeta,
@@ -120,7 +121,12 @@ export function createDuplicateShapesRemap(
       editor.run(() => {
         capturing = created;
         try {
-          result = original(shapes, offset);
+          // Duplicating a video must carry its media events, same as
+          // copy; see expandShapeIdsWithMediaControlMarkers.
+          result = original(
+            expandShapeIdsWithMediaControlMarkers(editor, shapes),
+            offset,
+          );
         } finally {
           capturing = null;
         }

@@ -1,18 +1,20 @@
 import type { Editor } from "tldraw";
 import { deriveTimeline, type FrameAction } from "anipres/models";
+import { resolveMediaControlTarget } from "anipres/schema";
 import {
   FocusedEasingSchema,
   type FocusedEasing,
 } from "../../format/focused-easing.js";
-import type { FocusedFrameAction } from "../../format/focused-frame-action.js";
+import type { PerceivedFrameAction } from "../../format/focused-frame-action.js";
 import type { PresentationStatePart } from "../../schemas/prompt-part.js";
 import { registerPartUtil } from "../part-util.js";
 
 /**
  * Lifts the Anipres presentation timeline out of the editor for the agent
- * to perceive. Each step lists its frame batches; each batch lists the
- * shapes (in track order) and their frame actions. Stable shape ids let the
- * agent reference exactly the shapes it sees.
+ * to perceive. Each step lists its frame batches; each batch lists its
+ * frames (in track order) with their actions. Media frames additionally
+ * carry the controlled video's shape id — their own carrier is a marker
+ * shape outside the agent's vocabulary.
  */
 export const PresentationStatePartUtil =
   registerPartUtil<PresentationStatePart>({
@@ -42,8 +44,20 @@ function summarise(editor: Editor): {
     index,
     batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
-      shapeIds: batch.frames.map((frame) => frame.shapeId),
-      frameAction: toFocusedFrameAction(batch.frames[0].action),
+      frames: batch.frames.map((frame) => {
+        // A mediaControl frame's carrier is a marker shape; the video
+        // it controls is the marker's binding target, which the agent
+        // can't resolve itself (markers aren't in its shape vocabulary).
+        const target =
+          frame.action.type === "mediaControl"
+            ? resolveMediaControlTarget(editor, frame.shapeId)
+            : null;
+        return {
+          shapeId: frame.shapeId,
+          ...(target != null ? { targetShapeId: target.id as string } : {}),
+          action: toFocusedFrameAction(frame.action),
+        };
+      }),
     })),
   }));
 
@@ -52,11 +66,19 @@ function summarise(editor: Editor): {
 
 /**
  * Project a tldraw `FrameAction` (which may use easings outside the agent's
- * vocabulary) into a `FocusedFrameAction` (a subset). Easings the agent
+ * vocabulary) into a `PerceivedFrameAction` (a subset). Easings the agent
  * doesn't recognise are dropped — the agent just sees an action without an
  * `easing` field, which is fine; the editor will fall back to its default.
  */
-function toFocusedFrameAction(action: FrameAction): FocusedFrameAction {
+function toFocusedFrameAction(action: FrameAction): PerceivedFrameAction {
+  if (action.type === "mediaControl") {
+    return {
+      type: "mediaControl",
+      command: action.command,
+      duration: action.duration,
+      volume: action.volume,
+    };
+  }
   const easing = coerceEasing(action.easing);
   if (action.type === "cameraZoom") {
     return {

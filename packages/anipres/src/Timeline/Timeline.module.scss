@@ -59,6 +59,9 @@ $inbetween-droppable-cell-width: 16px;
     display: flex;
     align-items: center;
     justify-content: left;
+    // A merged row (one video's keyframe + media tracks) can put two
+    // batches in one cell; keep them readable as separate batches.
+    gap: 8px;
   }
 
   .frameBatchControl {

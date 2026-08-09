@@ -16,12 +16,14 @@ export interface FrameEditorProps {
   frame: FrameUIData;
   isPlaceholder: boolean;
   onUpdate: (newFrame: FrameUIData) => void;
+  onDelete: () => void;
   isSelected: boolean;
   onClick: () => void;
 }
 export const FrameEditor = React.forwardRef<HTMLDivElement, FrameEditorProps>(
   (props, ref) => {
-    const { frame, isPlaceholder, onUpdate, isSelected, onClick } = props;
+    const { frame, isPlaceholder, onUpdate, onDelete, isSelected, onClick } =
+      props;
     const { duration = 0, easing } = frame.action;
 
     const [editingDuration, setEditingDuration] = useState<number | null>(null);
@@ -34,7 +36,7 @@ export const FrameEditor = React.forwardRef<HTMLDivElement, FrameEditorProps>(
     const rawDurationWidth = duration / DURATION_PER_PIXEL;
     const durationElemWidth = Math.min(rawDurationWidth, MAX_DURATION_WIDTH);
     return (
-      <FrameEditPopover frame={frame} onUpdate={onUpdate}>
+      <FrameEditPopover frame={frame} onUpdate={onUpdate} onDelete={onDelete}>
         <div
           ref={ref}
           className={styles.container}

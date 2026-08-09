@@ -26,9 +26,13 @@ import type { FrameUIData } from "../Timeline/frame-ui-data";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
+import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
+import { copyMediaControlBinding } from "../shapes/media-control/MediaControlBinding";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
+  followupActionFrom,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -36,6 +40,24 @@ import {
 } from "./operations";
 
 const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
+
+/**
+ * Whether a frame sequence may grow via the timeline's per-batch "+"
+ * buttons, which clone the previous carrier shape. Media events are
+ * keyed by ACTION, not carrier type — markers are safe to clone (the
+ * group path does), but events are added via "+ Media event" and
+ * chained by dragging one onto an earlier step. Videos are keyed by
+ * carrier TYPE: a video copy would mount a second live player.
+ */
+function canExtendFrameSequenceFrom(
+  frame: FrameUIData,
+  carrierShapeType: string | undefined,
+): boolean {
+  return (
+    frame.action.type !== "mediaControl" &&
+    carrierShapeType !== YouTubeEmbedShapeType
+  );
+}
 
 export interface ControlPanelProps {
   editor: Editor;
@@ -87,9 +109,18 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     };
   });
 
+  const selectedYouTubeEmbedShapes = selectedShapes.filter(
+    (shape) => shape.type === YouTubeEmbedShapeType,
+  );
+
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {
-      if (shape.type === SlideShapeType) {
+      if (
+        shape.type === SlideShapeType ||
+        // Markers exist solely to carry a media frame; attaching a
+        // shapeAnimation cue to one makes no sense.
+        shape.type === MediaControlShapeType
+      ) {
         return null;
       }
 
@@ -184,6 +215,17 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     const targetShape = editor.getShape(frameShapeId as TLShapeId);
     if (targetShape) {
       editor.select(targetShape);
+    }
+  };
+
+  // Deleting a media event means deleting its (invisible) marker shape;
+  // the frame disappears from the timeline with it. The type check is
+  // the invariant that only marker shapes may be deleted through this
+  // path — for any other carrier it would destroy a user's drawing.
+  const handleFrameDelete = (frame: FrameUIData) => {
+    const targetShape = editor.getShape(frame.shapeId as TLShapeId);
+    if (targetShape?.type === MediaControlShapeType) {
+      editor.deleteShape(targetShape.id);
     }
   };
 
@@ -341,7 +383,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
       }}
       onPointerDown={(e) => stopEventPropagation(e)}
     >
-      <div>
+      <div className={styles.actionButtons}>
         <button
           className={styles.playButton}
           onClick={() => {
@@ -350,13 +392,35 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         >
           ▶️
         </button>
+        {selectedYouTubeEmbedShapes.length > 0 && (
+          <button
+            type="button"
+            className={styles.playButton}
+            title="Add a playback event (play, pause, …) for the selected video as a new step"
+            onClick={() => {
+              selectedYouTubeEmbedShapes.forEach((shape) => {
+                presentationManager.attachMediaControlCueFrame(shape.id);
+              });
+            }}
+          >
+            + Media event
+          </button>
+        )}
       </div>
 
       <div className={styles.scrollableContainer}>
         <Timeline
           timelineDoc={doc}
+          trackGroups={presentationManager.$getMediaTrackGroups()}
+          canExtendFrameSequence={(cueFrame) =>
+            canExtendFrameSequenceFrom(
+              cueFrame,
+              editor.getShape(cueFrame.shapeId as TLShapeId)?.type,
+            )
+          }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
+          onFrameDelete={handleFrameDelete}
           currentStepIndex={currentStepIndex}
           onStepSelect={onCurrentStepIndexChange}
           shapeSelections={shapeSelections}
@@ -384,7 +448,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             // Locate by SHAPE id: with duplicated stored frame ids, the
             // frame id could resolve to another frame's step/track.
             const position = findFramePosition(doc, prevCueFrame.shapeId);
-            if (prevShape == null || position == null) {
+            if (
+              prevShape == null ||
+              position == null ||
+              // The buttons are hidden for these frames; the guard keeps
+              // the invariant local to the operation.
+              !canExtendFrameSequenceFrom(prevCueFrame, prevShape.type)
+            ) {
               return;
             }
 
@@ -400,10 +470,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               trackId: position.batch.trackId,
               stepId: uniqueId(),
               stepOrderKey: insertion.insertedKey,
-              action: {
-                type: prevCueFrame.action.type,
-                duration: 1000,
-              },
+              action: followupActionFrom(prevCueFrame.action),
             };
 
             editor.run(
@@ -464,7 +531,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 );
               const shouldCopyThisShape =
                 original.type === GroupShapeUtil.type ||
-                isShapeLastSelectedFrameInItsTrack;
+                // Never copy a video as a keyframe carrier: the copy
+                // would mount a second live player.
+                (isShapeLastSelectedFrameInItsTrack &&
+                  original.type !== YouTubeEmbedShapeType);
 
               if (shouldCopyThisShape) {
                 const newShapeId = createShapeId();
@@ -545,10 +615,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 trackId: origPosition.batch.trackId,
                 stepId: sharedStepId,
                 stepOrderKey: insertion.insertedKey,
-                action: {
-                  type: origFrame ? origFrame.action.type : "shapeAnimation",
-                  duration: 1000,
-                },
+                action: origFrame
+                  ? followupActionFrom(origFrame.action)
+                  : { type: "shapeAnimation", duration: 1000 },
               };
               shapesToCreate.push({
                 ...copied,
@@ -563,6 +632,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               () => {
                 applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
+                for (const { original, copied } of clonedShapes) {
+                  if (original.type === MediaControlShapeType) {
+                    copyMediaControlBinding(editor, original.id, copied.id);
+                  }
+                }
 
                 const rootCreatedShape = shapesToCreate.find(
                   (s) => s.parentId === editor.getCurrentPageId(),
@@ -584,7 +658,11 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               getStoredFrame: getStoredFrameByShapeId,
               mintId: uniqueId,
             });
-            if (prevShape == null || plan == null) {
+            if (
+              prevShape == null ||
+              plan == null ||
+              !canExtendFrameSequenceFrom(prevFrame, prevShape.type)
+            ) {
               return;
             }
 
@@ -594,10 +672,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               type: "sub",
               cueFrameId: plan.cueFrameId,
               orderKey: plan.orderKey,
-              action: {
-                type: prevFrame.action.type,
-                duration: 1000,
-              },
+              action: followupActionFrom(prevFrame.action),
             };
 
             editor.run(() => {

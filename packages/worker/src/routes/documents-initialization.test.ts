@@ -5,7 +5,7 @@ import {
 } from "cloudflare:test";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
-import { MINIMUM_SYNC_ANIMATION_DATA_VERSION } from "../animation-data-version";
+import { REQUIRED_SYNC_ANIMATION_DATA_VERSION } from "../animation-data-version";
 import type { AppBindings } from "../types";
 import { documentsRoutes } from "./documents";
 import { getDocumentAssetKey } from "../tldraw-assets";
@@ -55,7 +55,7 @@ function pushSnapshotViaRoute(
       headers: {
         "content-type": "application/json",
         "x-anipres-animation-data-version": String(
-          MINIMUM_SYNC_ANIMATION_DATA_VERSION,
+          REQUIRED_SYNC_ANIMATION_DATA_VERSION,
         ),
       },
       body: JSON.stringify(body),

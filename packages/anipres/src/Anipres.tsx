@@ -36,9 +36,16 @@ import type {
 import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./shapes/slide/SlideShape";
+import { MediaControlShapeType } from "./shapes/media-control/MediaControlShape";
+import { getMediaControlBindingTargetId } from "./shapes/media-control/MediaControlBinding";
+import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
+import { PresentationModeContext } from "./presentation-mode-context";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
+import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
+import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
+import { YouTubePlayerManager } from "./media/youtube-player-manager";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
 import { ControlPanel } from "./ControlPanel";
 import { createModeAwareDefaultComponents } from "./mode-aware-components";
@@ -69,8 +76,17 @@ import React, {
 
 import "./tldraw-overrides.css";
 
-import { customShapeUtils } from "./shape-utils";
-const customTools = [SlideShapeTool, ThemeImageShapeTool];
+import { customShapeUtils, customBindingUtils } from "./shape-utils";
+const customTools = [
+  SlideShapeTool,
+  ThemeImageShapeTool,
+  YouTubeEmbedShapeTool,
+];
+
+// Shape types whose embedded content the user can interact with — a
+// single click enters editing state on them in presentation mode.
+const isInteractiveEmbedShapeType = (type: string) =>
+  type === "embed" || type === YouTubeEmbedShapeType;
 
 // We use atoms as it's Tldraw's design,
 // but we also need to manage these states per instance of Anipres component
@@ -182,6 +198,12 @@ const makeUiOverrides = ({
         label: "Theme Image",
         onSelect: () => editor.setCurrentTool(ThemeImageShapeTool.id),
       };
+      tools[YouTubeEmbedShapeTool.id] = {
+        id: YouTubeEmbedShapeTool.id,
+        icon: "tool-embed",
+        label: "YouTube",
+        onSelect: () => editor.setCurrentTool(YouTubeEmbedShapeTool.id),
+      };
       return tools;
     },
     translations: {
@@ -192,6 +214,10 @@ const makeUiOverrides = ({
         "tool.theme-image-download": "Download Image",
         "tool.theme-image-download-dark": "Download Dark Theme Image",
         "tool.theme-image-sync": "Sync theme edits",
+        // Screen readers announce a selected shape via `tool.<type>`;
+        // without these the raw key is read out.
+        "tool.youtube-embed": "YouTube video",
+        "tool.media-control": "Media event",
       },
     },
   };
@@ -235,6 +261,9 @@ const createComponents = (signals: {
       const isThemeImageToolSelected = useIsToolSelected(
         tools[ThemeImageShapeTool.id],
       );
+      const isYouTubeToolSelected = useIsToolSelected(
+        tools[YouTubeEmbedShapeTool.id],
+      );
       return (
         !presentationMode && (
           <DefaultToolbar {...props}>
@@ -245,6 +274,10 @@ const createComponents = (signals: {
             <TldrawUiMenuItem
               {...tools[ThemeImageShapeTool.id]}
               isSelected={isThemeImageToolSelected}
+            />
+            <TldrawUiMenuItem
+              {...tools[YouTubeEmbedShapeTool.id]}
+              isSelected={isYouTubeToolSelected}
             />
             <DefaultToolbarContent />
           </DefaultToolbar>
@@ -257,6 +290,7 @@ const createComponents = (signals: {
         <DefaultKeyboardShortcutsDialog {...props}>
           <TldrawUiMenuItem {...tools[SlideShapeTool.id]} />
           <TldrawUiMenuItem {...tools[ThemeImageShapeTool.id]} />
+          <TldrawUiMenuItem {...tools[YouTubeEmbedShapeTool.id]} />
           <DefaultKeyboardShortcutsDialogContent />
         </DefaultKeyboardShortcutsDialog>
       );
@@ -302,6 +336,21 @@ const Inner = (props: InnerProps) => {
       $currentStepIndex,
     );
 
+    // Markers whose binding is gone (legacy documents, external
+    // content) are invisible and their events silently no-op; delete
+    // them instead of letting them accumulate.
+    const orphanedMarkerIds = editor
+      .getCurrentPageShapes()
+      .filter(
+        (shape) =>
+          shape.type === MediaControlShapeType &&
+          getMediaControlBindingTargetId(editor, shape.id) == null,
+      )
+      .map((shape) => shape.id);
+    if (orphanedMarkerIds.length > 0) {
+      editor.deleteShapes(orphanedMarkerIds);
+    }
+
     const stopHandlers: (() => void)[] = [];
 
     // Existing-frame-id set for the beforeCreate safety net below. It is
@@ -331,10 +380,12 @@ const Inner = (props: InnerProps) => {
       return existingFrameIdCache;
     };
 
-    // Relationship-preserving remap for editor.duplicateShapes — the path
-    // tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes, which
-    // bypasses putContentOntoCurrentPage. Installed BEFORE the safety net
-    // so the net can hand captured copies over during a wrapped call.
+    // Relationship-preserving remap for editor.duplicateShapes — the
+    // path tldraw's Duplicate action (Cmd/Ctrl+D, context menu) takes,
+    // and alt-drag cloning with it (the select tool's Translating state
+    // calls duplicateShapes to start a clone). None of them go through
+    // putContentOntoCurrentPage. Installed BEFORE the safety net so the
+    // net can hand captured copies over during a wrapped call.
     const duplicateShapesRemap = createDuplicateShapesRemap(editor, () =>
       presentationManager.$getTimelineDoc(),
     );
@@ -435,7 +486,7 @@ const Inner = (props: InnerProps) => {
           if (perInstanceAtoms.$presentationMode.get()) {
             next.selectedShapeIds.forEach((id) => {
               const shape = editor.getShape(id);
-              if (shape?.type === "embed") {
+              if (shape != null && isInteractiveEmbedShapeType(shape.type)) {
                 // In presentation mode, editing state is enabled by a single click on an embed shape.
                 // Editing state is needed because it's where the user can interact with the embed shape, e.g. controlling a YouTube video.
                 if (next.editingShapeId !== id) {
@@ -482,7 +533,7 @@ const Inner = (props: InnerProps) => {
         return;
       }
 
-      if (editingShape.type === "embed") {
+      if (isInteractiveEmbedShapeType(editingShape.type)) {
         // Editing an embed shape is allowed so that the user can manipulate the content inside the embed.
         return;
       }
@@ -506,6 +557,32 @@ const Inner = (props: InnerProps) => {
         if (presentationMode) {
           editor.selectNone();
           editor.setCurrentTool("select");
+          // The canvas shows the current step's completed state on
+          // entry; playback must match it (see the method's doc). The
+          // microtask escapes this react() callback's signal capture:
+          // the reconcile reads step/timeline signals, and tracking
+          // them here would re-fire this watcher on every navigation
+          // while presenting, superseding the live run it just started.
+          // The generation guard covers the deferral's other hazard: a
+          // run started in the same tick as the entry (e.g. the slidev
+          // addon's onMount calling moveTo) has already applied its own
+          // fold and fired its step's events live — the entry reconcile
+          // must not supersede it.
+          const generationAtEntry = presentationManager.currentRunGeneration();
+          queueMicrotask(() => {
+            if (
+              perInstanceAtoms.$presentationMode.get() &&
+              presentationManager.isRunCurrent(generationAtEntry)
+            ) {
+              presentationManager.reconcileMediaToCurrentStep();
+            }
+          });
+        } else {
+          // Don't let a video keep playing over the editor after the
+          // presentation ends — and don't let a step run still waiting
+          // between frames fire its remaining commands afterwards.
+          presentationManager.cancelActiveRun();
+          YouTubePlayerManager.get(editor).pauseAll();
         }
       }),
     );
@@ -564,6 +641,27 @@ const Inner = (props: InnerProps) => {
           "external pastes, the safe fallback). " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
+      );
+    }
+
+    // Copying a video must carry its media events; see
+    // expandShapeIdsWithMediaControlMarkers.
+    const editorWithGet = editor as Editor & {
+      getContentFromCurrentPage?: (
+        shapes: TLShapeId[] | TLShape[],
+      ) => TLContent | undefined;
+    };
+    if (typeof editorWithGet.getContentFromCurrentPage === "function") {
+      const originalGetContent =
+        editorWithGet.getContentFromCurrentPage.bind(editor);
+      editorWithGet.getContentFromCurrentPage = (shapes) =>
+        originalGetContent(
+          expandShapeIdsWithMediaControlMarkers(editor, shapes),
+        );
+    } else {
+      console.warn(
+        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
+          "Copying a video will not carry its media events.",
       );
     }
 
@@ -696,6 +794,14 @@ const Inner = (props: InnerProps) => {
     NonNullable<TldrawProps["getShapeVisibility"]>
   >(
     (shape, editor) => {
+      // Media-control markers are metadata carriers, never canvas
+      // objects: excluding them here removes them from rendering and
+      // hit-testing in every mode. Their visual surface is the
+      // media-event strip drawn by the YouTube embed shape's component.
+      if (shape.type === MediaControlShapeType) {
+        return "hidden";
+      }
+
       const presentationMode = perInstanceAtoms.$presentationMode.get();
       if (!presentationMode) {
         return "visible";
@@ -718,28 +824,35 @@ const Inner = (props: InnerProps) => {
   );
 
   return (
-    <Tldraw
-      onMount={handleMount}
-      components={{
-        ...createModeAwareDefaultComponents(perInstanceAtoms.$presentationMode),
-        ...createComponents({
-          $currentStepIndex,
-          $presentationMode: perInstanceAtoms.$presentationMode,
-        }),
-      }}
-      overrides={makeUiOverrides(perInstanceAtoms)}
-      shapeUtils={customShapeUtils}
-      tools={customTools}
-      getShapeVisibility={determineShapeVisibility}
-      maxAssetSize={maxAssetSize}
-      options={{
-        maxPages: 1,
-      }}
-      store={store}
-      snapshot={snapshot}
-      assetUrls={assetUrls}
-      user={user}
-    />
+    <PresentationModeContext.Provider
+      value={perInstanceAtoms.$presentationMode}
+    >
+      <Tldraw
+        onMount={handleMount}
+        components={{
+          ...createModeAwareDefaultComponents(
+            perInstanceAtoms.$presentationMode,
+          ),
+          ...createComponents({
+            $currentStepIndex,
+            $presentationMode: perInstanceAtoms.$presentationMode,
+          }),
+        }}
+        overrides={makeUiOverrides(perInstanceAtoms)}
+        shapeUtils={customShapeUtils}
+        bindingUtils={customBindingUtils}
+        tools={customTools}
+        getShapeVisibility={determineShapeVisibility}
+        maxAssetSize={maxAssetSize}
+        options={{
+          maxPages: 1,
+        }}
+        store={store}
+        snapshot={snapshot}
+        assetUrls={assetUrls}
+        user={user}
+      />
+    </PresentationModeContext.Provider>
   );
 };
 

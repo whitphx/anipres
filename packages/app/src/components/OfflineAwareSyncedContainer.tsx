@@ -20,7 +20,10 @@ import {
   reconcileOfflineEdits,
   type ReconnectResult,
 } from "../documents/reconnect";
-import { CLIENT_TOO_OLD_MESSAGE } from "../lib/client-version";
+import {
+  CLIENT_TOO_OLD_MESSAGE,
+  SERVER_TOO_OLD_MESSAGE,
+} from "../lib/client-version";
 import { useSyncedRepository } from "../documents/useSyncedRepository";
 import { useDocumentManagerContext } from "../documents/useDocumentManagerContext";
 
@@ -52,10 +55,14 @@ export function OfflineAwareSyncedContainer({
   colorScheme,
 }: OfflineAwareSyncedContainerProps) {
   const [mode, setMode] = useState<Mode>({ type: "loading" });
-  // Sticky per-mount: set when a reconnect push came back HTTP 426
-  // (client-too-old). Only a reload can clear it — the bundle version
-  // cannot change within this page's lifetime.
-  const [clientTooOld, setClientTooOld] = useState(false);
+  // Sticky per-mount: set when a reconnect push came back HTTP 426.
+  // Neither direction can clear within this page's lifetime — the
+  // bundle version cannot change, and a worker deploy is not something
+  // this tab can observe — so retries stay parked until a reload
+  // (client-too-old) or a later mount (server-too-old).
+  const [versionMismatch, setVersionMismatch] = useState<
+    "client-too-old" | "server-too-old" | null
+  >(null);
   const { refreshDocuments, selectDocument } = useDocumentManagerContext();
   const repository = useSyncedRepository();
   const currentSessionId = getSyncCacheSessionId();
@@ -145,7 +152,7 @@ export function OfflineAwareSyncedContainer({
 
     // A version-gated bundle can never reconcile; don't burn a doomed
     // round-trip on every online event while the reload banner is up.
-    if (clientTooOld) return;
+    if (versionMismatch != null) return;
 
     // If we couldn't load any cached snapshot, just switch to synced mode now
     // that the network is back — useSync can fetch the live state.
@@ -253,13 +260,16 @@ export function OfflineAwareSyncedContainer({
         return;
       }
       activeSessionRetryAttemptRef.current = 0;
-      if (result.reasonCode === "client-too-old") {
+      if (
+        result.reasonCode === "client-too-old" ||
+        result.reasonCode === "server-too-old"
+      ) {
         // The worker's animation-data version gate rejected the push:
-        // no retry from this bundle can ever succeed. Stay offline (the
-        // local cache keeps the edits safe across the reload) and show
-        // the reload banner instead of silently re-attempting on every
-        // online event.
-        setClientTooOld(true);
+        // no retry from this tab can succeed until one side is
+        // redeployed. Stay offline (the local cache keeps the edits
+        // safe) and show the banner instead of silently re-attempting
+        // on every online event.
+        setVersionMismatch(result.reasonCode);
       }
       setMode({
         type: "offline",
@@ -269,7 +279,7 @@ export function OfflineAwareSyncedContainer({
     }
   }, [
     mode,
-    clientTooOld,
+    versionMismatch,
     documentId,
     currentSessionId,
     refreshDocuments,
@@ -518,13 +528,15 @@ export function OfflineAwareSyncedContainer({
               interactive controls inside aria-live inconsistently, so
               the reload button sits next to it as a sibling. */}
           <span role="status" aria-live="polite">
-            {clientTooOld
+            {versionMismatch === "client-too-old"
               ? CLIENT_TOO_OLD_MESSAGE
-              : isReconnecting
-                ? "Reconnecting…"
-                : "Offline — changes saved locally"}
+              : versionMismatch === "server-too-old"
+                ? SERVER_TOO_OLD_MESSAGE
+                : isReconnecting
+                  ? "Reconnecting…"
+                  : "Offline — changes saved locally"}
           </span>
-          {clientTooOld && (
+          {versionMismatch === "client-too-old" && (
             <>
               {" "}
               <button type="button" onClick={() => window.location.reload()}>

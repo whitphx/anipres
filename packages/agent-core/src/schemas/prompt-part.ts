@@ -13,7 +13,10 @@
 // same reason). Worker callers don't need to know — they import a
 // typed helper (`parseAgentPrompt` below), not `z` itself.
 import * as z from "zod";
-import { FocusedFrameActionSchema } from "../format/focused-frame-action.js";
+import {
+  FocusedFrameActionSchema,
+  PerceivedFrameActionSchema,
+} from "../format/focused-frame-action.js";
 import { FocusedShapeSchema } from "../format/focused-shape.js";
 
 /**
@@ -50,10 +53,62 @@ export const SelectedShapesPartSchema = z.object({
 });
 export type SelectedShapesPart = z.infer<typeof SelectedShapesPartSchema>;
 
+const PresentationBatchSchema = z.object({
+  trackId: z.string(),
+  /** frames[0] is the cue; the rest chain after it in order. */
+  frames: z.array(
+    z.object({
+      shapeId: z.string(),
+      /**
+       * mediaControl frames only: the video shape the command
+       * controls (the carrying marker's binding target). The carrier's
+       * own shapeId does not identify the video.
+       */
+      targetShapeId: z.string().optional(),
+      action: PerceivedFrameActionSchema,
+    }),
+  ),
+});
+
+/**
+ * The batch shape browser bundles cached from before per-frame
+ * perception still send. A batch collapsed to one action loses which
+ * frame carried what, which is why the projection changed; fanning it
+ * back out is faithful enough for perception and beats failing the
+ * whole request.
+ *
+ * Only this direction is worth covering: a cached tab outlives a deploy
+ * by hours, while a new bundle meeting a not-yet-deployed worker is a
+ * minutes-long window — and a build that emits media frames could not
+ * be understood by that worker anyway, since the legacy `frameAction`
+ * has no `mediaControl` variant to carry them in.
+ */
+const LegacyPresentationBatchSchema = z.object({
+  trackId: z.string(),
+  shapeIds: z.array(z.string()),
+  frameAction: FocusedFrameActionSchema,
+});
+
+// Rewritten before validation rather than accepted as a union arm, so
+// the parsed type stays the current batch alone and a malformed
+// current-form batch still reports its own issue paths instead of an
+// aggregate complaining that `shapeIds` is missing.
+const AcceptedPresentationBatchSchema = z.preprocess((value) => {
+  const legacy = LegacyPresentationBatchSchema.safeParse(value);
+  if (!legacy.success) {
+    return value;
+  }
+  const { trackId, shapeIds, frameAction } = legacy.data;
+  return {
+    trackId,
+    frames: shapeIds.map((shapeId) => ({ shapeId, action: frameAction })),
+  };
+}, PresentationBatchSchema);
+
 /**
  * The Anipres presentation timeline projected for the agent: total step
- * count plus, for each step, the parallel frame batches with their shape
- * ids and frame actions. This is what lets the agent reason about ordering
+ * count plus, for each step, the parallel frame batches with their
+ * per-frame actions. This is what lets the agent reason about ordering
  * (e.g. "add a step after step 2").
  */
 export const PresentationStatePartSchema = z.object({
@@ -62,13 +117,7 @@ export const PresentationStatePartSchema = z.object({
   steps: z.array(
     z.object({
       index: z.number(),
-      batches: z.array(
-        z.object({
-          trackId: z.string(),
-          shapeIds: z.array(z.string()),
-          frameAction: FocusedFrameActionSchema,
-        }),
-      ),
+      batches: z.array(AcceptedPresentationBatchSchema),
     }),
   ),
 });
