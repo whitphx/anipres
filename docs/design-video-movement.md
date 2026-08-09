@@ -292,26 +292,35 @@ resumes neither. A notification that contradicts the
 pending command — a pause while play is pending, whether a late
 acknowledgement of something earlier or a user's keystroke — is
 consumed by neither register; it drops the player into
-**reconcile**: the runtime stops issuing commands to it, queries the
-player's actual state directly — the API answers synchronously —
-rebuilds confirmed state and slot accounting from that ground truth,
+**reconcile**: the runtime stops issuing commands to it, gathers the
+temporal corroboration described below — spaced playback-position
+reads, since the state getter merely echoes the same message channel
+— rebuilds confirmed state and slot accounting from that evidence,
 and re-derives intent conservatively, treating a video observed
 paused that the fold wants playing as manually paused, the harmless
 direction. Command timeouts land in the same reconcile path.
 
-Nothing irreversible moves on a notification alone. Before a slot is
-freed, a replacement play issued, or an eviction admitted, the
-runtime validates the claimed state against a fresh synchronous
-`getPlayerState()` query — the notification proposes, the query
-confirms. A stale same-state notification that outlived its
-command's timeout therefore cannot free a slot for a video that is
-in fact playing: the query says playing, the acknowledgement is
-discarded, and the player drops into the reconcile barrier, during
-which no command with the same expected state is issued until stale
-notifications have drained and a queried state has held stable. A
-test delivers an old paused notification during a later pause while
-the queried state remains playing, and asserts no slot frees and no
-eviction occurs. Tests
+Nothing irreversible moves on a notification alone — and nothing
+moves on `getPlayerState()` alone either, because that getter is fed
+by the same asynchronous message channel as the notifications and
+can only echo what the iframe last sent; treating it as independent
+confirmation would be circular. Before a slot is freed, a
+replacement play issued, or an eviction admitted, the runtime
+demands corroboration that is *temporal*, not cached: two spaced
+reads of the playback position, frozen for a claimed pause,
+advancing for a claimed play — evidence a stale message cannot
+fabricate, because a cached position does not keep moving on its
+own. Where corroboration cannot be obtained inside the timeout, the
+runtime fails closed: the slot stays occupied, the eviction is
+refused, and the condition is surfaced — so the P/M contract carries
+one explicit corollary: a wedged player can hold its slot, and the
+budget may under-admit until that player recovers or the user tears
+it down, but it never over-admits and never unmounts a player it
+cannot prove paused. Validating the IFrame API's actual message and
+caching semantics in a browser-level prototype is an implementation
+milestone alongside the sync fork's. A test delivers an old paused
+notification during a later pause while the playback position keeps
+advancing, and asserts no slot frees and no eviction occurs. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
 slot accounting both land right; browser tests add keyboard input
