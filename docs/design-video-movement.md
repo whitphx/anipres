@@ -357,20 +357,31 @@ have got wrong.
 
 This is an explicit deletion semantic, not garbage collection from
 whatever a client happens to see: markers are removed only as part of
-the operation that deletes their video's last carrier. The racing
-case is thereby defined rather than corrupted — if one client deletes
-a video while another concurrently extends it, the merged document
-holds the extension's keyframe with no events, which is what "the
-video was deleted under you" means; the keyframe itself survives, and
-nothing else is touched.
+the operation that deletes their video's last carrier. On a shared
+room, though, "last" is a claim the deleting client cannot settle —
+another client may be extending the video at that moment, and
+honoring the marker removals then would strip a surviving video of
+its events, a loss no sweep can reconstruct. So the room's server,
+which already runs the custom schema and owns the merged state,
+arbitrates the claim: it applies a delete operation's marker removals
+only when the merged state really holds no carrier of that key, and
+declines them — keeping the markers and rebroadcasting them to the
+deleting client — when a concurrent extension won. Either way every
+client converges on a video that is entirely gone or entirely intact,
+and a two-client fixture pins it: concurrent last-carrier deletion
+and follow-up creation must merge to a carrier that keeps its events.
+Undo on the deleting client stays whole too: its history entry holds
+carriers and markers together, and restoring the carriers restores a
+video whose events either come back with them or were never allowed
+to die.
 
 Orphans that no operation removed — a crash mid-batch, or a deletion
 performed under the rollback pre-release (see Rollout), which
 preserves new-vocabulary markers but does not understand their
-targets — are collected by an idempotent load sweep that runs only
-where the store is authoritative: on the sync server when a shared
-room loads, locally for unsynced documents. A client of a shared room
-never sweeps from its own, possibly partial, view.
+targets — are collected by the same authority: an idempotent sweep on
+the sync server when a shared room loads, locally for unsynced
+documents. A client of a shared room never sweeps from its own,
+possibly partial, view.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
