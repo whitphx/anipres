@@ -315,12 +315,22 @@ that is where the rewrite lives:
   `mediaControl` action carried by the marker at its `fromId`. Under
   the fallback rule above that id _is_ the video's `videoKey`, so the
   event keeps its target. Then the binding record is deleted.
+- Legacy stores can also hold degraded records — a marker that lost
+  its binding, a binding whose endpoint is missing or of the wrong
+  type — and today the mount path deletes unbound markers as its
+  recovery. That recovery moves into the migration: a marker whose
+  `mediaControl` action cannot be given a target — no binding, or a
+  binding that does not resolve to a video — is deleted, along with
+  any dangling binding. Nothing schema-invalid and nothing silently
+  inert survives the rewrite.
 - The migration reads only what is in the store, so it is
   deterministic, as store migrations must be.
 
 A fixture document captured from the pre-migration schema, containing
 a video with `media-control` bindings, pins the behavior: it must load
-under the new schema with its event targeting intact.
+under the new schema with its event targeting intact. Sibling fixtures
+hold the degraded states — an unbound marker, a binding with a missing
+or mistyped endpoint — and must come out with those records gone.
 
 The schema registration and the migration are the whole compatibility
 surface; everything behavioral is deleted now. Dropping those two is
