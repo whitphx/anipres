@@ -155,12 +155,19 @@ effective status, so a video paused by hand does not advance while
 suppressed and does not resume on remount.
 
 When suppression lifts, the player mounts and seeks by the runtime's
-playback clock: a per-video (position, observed-at) pair, refreshed
-by periodic polls while a player is mounted and on every pause, seek
-and suppression. While a suppressed video is effectively playing the
-clock advances virtually with elapsed time, so the remount seeks to
-the position the video would have reached; while paused — by event or
-by hand — it holds. The clock is deliberately client-local — media
+playback clock: a per-video (position, observed-at, rate) triple,
+refreshed by periodic polls while a player is mounted and on every
+pause, seek, rate change and suppression — the rate comes from the
+player's own rate-change events, since interactive controls let a
+viewer set 0.5x or 2x. While a suppressed video is effectively
+playing the clock advances virtually by elapsed time times rate,
+clamped at the video's duration, so the remount seeks to the position
+the video would have reached — or resumes as ended when it would have
+ended; while paused — by event or by hand — it holds. Buffering is
+not modeled: the clock is best-effort continuity, resynced by the
+polls whenever a player is mounted, and the clamp bounds what a stall
+can leave behind. Fixtures cover suppression and remount at
+non-default rates and across the end of the video. The clock is deliberately client-local — media
 events carry commands, not positions, so cross-client position
 identity was never a property of the model; what folds identically
 everywhere is the status. Effectively playing videos are suppressed
@@ -475,9 +482,16 @@ keeps tombstones under a quota, by default the newest 30 days within
 a fixed byte budget, both host-configurable, compacting oldest first
 and surfacing count and bytes as room observability; a stress test
 proves storage and restart cost stay bounded under create/delete
-cycles. A key revived after its tombstone was compacted comes back
-as a video without events — that bound and its failure mode are
-stated contract, not a surprise. Within the bound, restoration is
+cycles. Compaction is not amnesia, though: a full tombstone compacts
+to a metadata stub — the key and its deletion stamp, a few dozen
+bytes — so a revival arriving after the events themselves are gone is
+detected rather than silently wrong. The server accepts the carrier
+and flags the key as revived-without-events, and the editor surfaces
+that flag on the video, making the loss visible and attributable
+instead of a quietly inert deck. Stubs carry their own generous count
+cap, dropped oldest first; only past that second bound — pathological
+churn — does the outcome degrade to silence, and the stress test pins
+storage there. Within the bound, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, rebroadcasts them, and clears the
 tombstone. That is semantically right, not just race repair — fresh
@@ -708,6 +722,12 @@ vocabulary without shipping any new feature:
 - Its mount-path cleanup narrows to true legacy orphans — markers
   with neither binding nor target key — so new-vocabulary markers
   pass through untouched.
+- Its playback path falls back to the action's target key when a
+  marker has no binding — one lookup, not a feature — so media events
+  authored by the main release keep executing during rollback instead
+  of loading as inert records. An end-to-end fixture presents a deck
+  under the rolled-back release and asserts the commands run, not
+  merely that the records survive.
 
 Media events the pre-release authors are dual-written: the legacy
 binding its own behavior needs, and the action's target key
