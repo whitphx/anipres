@@ -297,7 +297,21 @@ player's actual state directly — the API answers synchronously —
 rebuilds confirmed state and slot accounting from that ground truth,
 and re-derives intent conservatively, treating a video observed
 paused that the fold wants playing as manually paused, the harmless
-direction. Command timeouts land in the same reconcile path. Tests
+direction. Command timeouts land in the same reconcile path.
+
+Nothing irreversible moves on a notification alone. Before a slot is
+freed, a replacement play issued, or an eviction admitted, the
+runtime validates the claimed state against a fresh synchronous
+`getPlayerState()` query — the notification proposes, the query
+confirms. A stale same-state notification that outlived its
+command's timeout therefore cannot free a slot for a video that is
+in fact playing: the query says playing, the acknowledgement is
+discarded, and the player drops into the reconcile barrier, during
+which no command with the same expected state is issued until stale
+notifications have drained and a queried state has held stable. A
+test delivers an old paused notification during a later pause while
+the queried state remains playing, and asserts no slot frees and no
+eviction occurs. Tests
 interleave programmatic plays, budget pauses, and native clicks with
 late and out-of-order notifications, asserting the overlay and the
 slot accounting both land right; browser tests add keyboard input
