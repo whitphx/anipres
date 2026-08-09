@@ -416,12 +416,22 @@ property's authority moves.
 Client stamps order only that client's own offline view until it
 reconnects; the server's order replaces them on admission, and every
 client converges on the serialized result. This dissolves the
-validation problem rather than solving it: a collapsed offline
-history — several offline edits arriving as one final record diff
-after a force-reset — is simply one admitted write earning one fresh
-stamp, and forgery has nothing to forge, since counters never come
-from the payload there is no hostile jump to reject and no numeric
-ceiling a client can reach. Same-prop concurrent edits resolve by
+validation problem rather than solving it — forgery has nothing to
+forge, since counters never come from the payload — and it makes
+classification exact rather than inferred, because media edits never
+ride record diffs at all: every media-prop edit is an explicit
+operation in the client's durable intent store, the same queue the
+sequence protocol below replays, naming the edited properties and
+their values, and the hook stamps exactly those. A record creation —
+stash replay after a force-reset included — is therefore always
+carrier creation with an empty revision map, even when it is the
+ghost of an edited carrier the server has since deleted: the edit
+itself survives in the op queue and re-applies through owner routing
+onto whatever carrier now holds authority. Nothing is lost to the
+collapse and nothing stale is promoted; a test edits a carrier
+offline, deletes that carrier concurrently from another client,
+force-resets the editor, and lands the recreation beside a delayed
+stale keyframe creation. Same-prop concurrent edits resolve by
 serialization at the single authority, which is what convergence
 means for a last-writer register. Both releases run the same forked
 room server — the hook ships with the pre-release, so rollback
@@ -1117,7 +1127,14 @@ idempotent rewrite:
 
 - The binding type stays registered (see above), so the old records
   load instead of failing validation.
-- `videoKey` is materialized as `shape.id` on every legacy video.
+- `videoKey` is materialized as `shape.id` on every legacy video,
+  and its birth-ledger entry is backfilled in the same transaction —
+  a synthetic birth stamp at the normalization's own serialization
+  point, debited to the room rather than to any principal — so
+  late-revival detection covers legacy videos whose evidence later
+  expires. A fixture normalizes a legacy room, deletes such a video,
+  ages its evidence past the horizon, and proves a stale revival
+  still quarantines.
 - Each `media-control` binding is resolved: the video shape at its
   `toId` supplies the target key written into the `mediaControl`
   action carried by the marker at its `fromId`. The event keeps its
