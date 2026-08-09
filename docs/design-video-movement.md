@@ -221,12 +221,16 @@ configuration's canonical owner — a designation no reorder can move,
 because ids never change and copies always get fresh ones.
 
 Editing media props means writing the owner record, wherever in the
-UI the edit was made; a one-way reconcile side effect copies the
-owner's values onto the other carriers, so a stale copy is always
-overwritten toward the owner, never the reverse. Concurrent edits
-then collapse to concurrent writes of one record, which sync already
-resolves, and every client fans the same winner out; only geometry
-may differ between keyframes.
+UI the edit was made, and stamping it with a configuration revision:
+a small counter prop, written as one more than the highest revision
+any carrier of the key currently holds. Authority follows the
+revision, not the owner: a one-way reconcile side effect copies the
+values of the highest-revision carrier — ties broken by the owner
+function, then by smallest id — onto the others, without touching
+their own revisions. Concurrent edits then converge the way single
+records do: both writers stamp the same next revision, the tiebreak
+picks the same winner on every client, and the same values fan out
+everywhere; only geometry may differ between keyframes.
 
 Ownership is a pure function of the carrier set, not a transferable
 title: the owner is the carrier whose id equals the `videoKey` while
@@ -236,12 +240,20 @@ the key never changes, every carrier still stores it, and media
 events still target it, because `videoKey` is a value they share, not
 a reference to the owner record. Player lookup and orphan cleanup ask
 "does any carrier with this key survive", never "does the owner
-survive". Undoing the deletion brings the original owner back, and
-the same function selects it again; every client evaluating the
-function on the converged carrier set picks the same owner. An edit
-racing the owner's deletion can lose, exactly as an edit to any
-concurrently deleted shape can, and no worse. The player reads the
-owner's configuration regardless of which carrier is anchored.
+survive".
+
+The revision is what makes restoration safe. Deleting the owner makes
+the smallest survivor the edit target; an edit there stamps a higher
+revision; restoring the original carrier — locally or by another
+client's undo — brings back a record whose revision predates that
+edit, so the restored owner resumes routing future edits, but its
+stale values do not win the reconcile. Undoing a media edit itself
+also behaves: it restores the edited record's previous values and
+revision, authority falls back to the next-highest revision, and the
+fan-out follows. An edit racing a deletion can still lose, exactly as
+an edit to any concurrently deleted shape can, and no worse. The
+player reads the authoritative configuration regardless of which
+carrier is anchored.
 
 New keyframes copy the props, so they are born consistent; existing
 documents have one carrier per video, so nothing already disagrees.
@@ -430,7 +442,8 @@ action's target key has no such problem — frames live in `shape.meta`,
 which tldraw does not validate, so older code just ignores the extra
 key.) Rollback therefore gets an explicit floor: a pre-release ships
 first, with no new features and three small changes. It declares
-`videoKey` as an optional prop it never writes. It narrows the
+`videoKey` and the configuration revision as optional props it never
+writes. It narrows the
 mount-path cleanup to delete only markers that have neither a binding
 nor a target key — true legacy orphans — so markers authored later in
 the new vocabulary, which carry a target key and no binding, pass
@@ -480,8 +493,8 @@ The contract is that rollback destroys nothing the user already had,
 not that every edit made against the rolled-back release's flattened
 view of new-vocabulary content carries its intent forward. A fixture
 pins the outcome: a media prop edited on a non-owner carrier under
-the pre-release converges to the owner's value on roll-forward, with
-nothing else disturbed.
+the pre-release converges to the authoritative carrier's value on
+roll-forward, with nothing else disturbed.
 
 Fixtures pin all of this. A document captured from the pre-migration
 schema, holding a video with `media-control` bindings, must load under
