@@ -197,16 +197,28 @@ implies.
 Sharing an identity means sharing a configuration. A carrier copy
 carries all of the video's props, and `videoId`, `start`, `muted`,
 `controls` and `altText` describe the video, not a keyframe — two
-carriers of one `videoKey` disagreeing on `videoId` is incoherent. So
-media props are held identical across a `videoKey`'s carriers by the
-same kind of side effect that parks markers: editing them on one
-carrier writes them to all, and only geometry may differ between
-keyframes. The player then has exactly one configuration to read, from
-whichever carrier is the anchor. New keyframes copy the props, so they
-are born consistent; existing documents have one carrier per video, so
-nothing already disagrees. Editing `videoId` still reloads the iframe
-— changing which video this is is a different operation from moving
-it, and the reload is the point.
+carriers of one `videoKey` disagreeing on `videoId` is incoherent.
+
+The invariant needs an owner, not symmetric mirroring: copying edits
+in both directions between records only converges by luck under
+concurrent sync, where record-level conflict resolution can pick
+different winners on different carriers. So the carrier the editing
+anchor rule already designates — the earliest keyframe's — is also the
+configuration's canonical owner. Editing media props means writing
+that record, wherever in the UI the edit was made; a one-way reconcile
+side effect copies the canonical values onto the other carriers, so a
+stale copy is always overwritten toward the canonical record, never
+the reverse. Concurrent edits then collapse to concurrent writes of
+one record, which sync already resolves, and every client fans the
+same winner out; only geometry may differ between keyframes. The
+player reads the canonical configuration regardless of which carrier
+is anchored.
+
+New keyframes copy the props, so they are born consistent; existing
+documents have one carrier per video, so nothing already disagrees.
+Editing `videoId` still reloads the iframe — changing which video this
+is is a different operation from moving it, and the reload is the
+point.
 
 ### Existing documents
 
@@ -388,13 +400,18 @@ document would fail to load before any binding is consulted. (The
 action's target key has no such problem — frames live in `shape.meta`,
 which tldraw does not validate, so older code just ignores the extra
 key.) Rollback therefore gets an explicit floor: a pre-release ships
-first, with no new features and two small changes. It declares
-`videoKey` as an optional prop it never writes, and it narrows the
+first, with no new features and three small changes. It declares
+`videoKey` as an optional prop it never writes. It narrows the
 mount-path cleanup to delete only markers that have neither a binding
 nor a target key — true legacy orphans — so markers authored later in
 the new vocabulary, which carry a target key and no binding, pass
-through it untouched. Everything it authors itself still uses
-bindings. The main release follows once the pre-release is deployed,
+through it untouched. And its binding delete cascade becomes
+`videoKey`-aware: when a bound video is deleted while another carrier
+of its `videoKey` survives, the binding is repointed at the survivor
+instead of cascading into the marker — a state only main-release edits
+can produce, so on a purely legacy document nothing changes. Everything
+the pre-release authors itself still uses bindings. The main release
+follows once the pre-release is deployed,
 and rolling back means rolling back to the pre-release; rolling back
 past it is out of the support window. A fixture proves a migrated
 snapshot validates against the pre-release's exact schema.
@@ -433,7 +450,8 @@ events, including after the round trip that adds a keyframe and
 deletes the originally bound carrier. Another round trip covers the
 other direction: an event authored under the main release, opened
 under the pre-release, then reopened under the main release, survives
-both hops. Sibling fixtures hold the degraded states — an unbound marker,
+both hops — including the variant where the bound carrier is deleted
+while the pre-release is the one running. Sibling fixtures hold the degraded states — an unbound marker,
 a binding with a missing or mistyped endpoint — and must come out with
 those records gone. A pre-change `TLContent` fixture pasted through
 the wrapper must come out with its event targeting the pasted video.
