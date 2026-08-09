@@ -426,12 +426,25 @@ tombstone. That is semantically right, not just race repair — fresh
 videos mint fresh keys and paste remints them, so a key only ever
 returns as a continuation of the deleted video.
 
+Restoration is marker-aware, never bulk resurrection over intent. An
+explicit marker removal prunes that marker from its key's tombstone
+as well as from the store — so an event deleted by an offline client
+stays deleted when the same push revives its video — and a marker the
+push itself supplies, an offline edit, is never overwritten by the
+tombstone's stale copy: restore puts only markers absent from both
+the merged state and the arriving push. Within one push, pruning runs
+before restoration; across pushes, the same end state falls out of
+ordinary explicit-deletion semantics, since a restored marker deleted
+afterwards is just an event deletion.
+
 Both delivery orders, a reconnect after offline editing, and a
 reconnect so late the client was force-reset all converge on a video
 that is entirely gone or entirely intact, with no client-side repair
 rule to race. Fixtures run the race in both message orders, through a
 reconnect, and through a server restart that reloads tombstones from
-storage before the offline client returns. Undo on the deleting
+storage before the offline client returns — including variants where
+the offline client also deleted or edited one of the tombstoned
+events, which must stay deleted or keep the edit. Undo on the deleting
 client stays whole too: its history entry holds carriers and markers
 together, and re-putting an already-restored marker is a no-op, so
 the tombstone never fights an undo. Markers left behind for a key
