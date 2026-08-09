@@ -303,8 +303,10 @@ those values and their revisions are merged onto the smallest-id
 survivor, per property, keeping the higher revision. No high-water
 mark regresses; an edit after the deletion stamps strictly higher; a
 restored carrier ties a transferred revision at best, carrying the
-same value — and undoing the whole deletion reverses the transfer
-with it, returning exactly the pre-delete state. This is a one-shot
+same value. Undoing the deletion needs no reversal of the transfer:
+restoring the deleted carrier restores a record whose values the
+transfer copied verbatim, so the tie it re-creates is between
+identical values, and no revision ever moves backwards. This is a one-shot
 write inside a structural delete, the same exposure as the marker
 cleanup and binding repointing that already live in that batch, not a
 standing reconcile pass over carrier records.
@@ -322,12 +324,18 @@ superseded. Unsynced documents have a single writer and need no
 guard. Fixtures race a stale transfer against a newer edit on the
 transfer target, in both delivery orders.
 
-Undoing a media edit itself also behaves: it restores the edited
-record's previous values and revisions, each affected property falls
-back to its next-highest revision, and every reader follows. An edit
-racing a deletion can still lose, exactly as an edit to any
-concurrently deleted shape can, and no worse. The player reads the
-resolved configuration regardless of which carrier is anchored.
+Undo never moves a revision backwards either, because a lowered
+revision is indistinguishable from the stale writes the server guard
+exists to reject. Undoing a media edit re-imposes the prior value as
+a new edit: each affected property is written back stamped one more
+than its highest revision — and only if the value being undone still
+resolves, so when someone else has edited past it the undo of that
+property is a no-op rather than a clobber. Integration fixtures run
+media-edit undo and carrier-deletion undo through the real room
+server, with and without concurrent newer edits. An edit racing a
+deletion can still lose, exactly as an edit to any concurrently
+deleted shape can, and no worse. The player reads the resolved
+configuration regardless of which carrier is anchored.
 
 Same-key keyframe copies still carry a raw snapshot of the current
 values (at revision zero) as a cosmetic courtesy to anything reading
