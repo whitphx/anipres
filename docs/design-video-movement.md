@@ -68,17 +68,28 @@ container from the same small set of computed values — the full page
 transform (`getShapePageTransform`, so ancestor rotation and group
 movement are included), the geometry bounds' width and height, the
 clip path (`getShapeClipPath`, which is how frame masks apply), the
-composed opacity, and a `z-index` taken from the shape's position in
-`getRenderingShapes()`. Shape containers are stacked as siblings by
-that `z-index`, so a player container subscribing to the same values
-of its anchor carrier sits in the same stacking context: a video
-inside a frame is clipped by the frame, a shape drawn above the video
-occludes the live player, and a keyframe with a different size resizes
-the player — the iframe fills its container, so the embedded player
-rescales with no API involvement. During a step tween the transform
-and the width/height interpolate between the outgoing and incoming
-carriers' values, while clip, opacity and `z-index` follow the
-incoming one.
+composed opacity, and a `z-index` that mirrors the shape's position in
+the page's sorted shape order — the order the renderer itself is fed,
+and one that is defined for every shape whether or not it is currently
+rendered, so hiding a carrier does not unmoor the player's layering.
+Shape containers are stacked as siblings by `z-index`, so a player
+container subscribing to the same values of its anchor carrier sits in
+the same stacking context: a video inside a frame is clipped by the
+frame, a shape drawn above the video occludes the live player, and a
+keyframe with a different size resizes the player — the iframe fills
+its container, so the embedded player rescales with no API
+involvement.
+
+During a step tween the transform and the width/height interpolate
+between the outgoing and incoming carriers' stored values, opacity and
+`z-index` follow the incoming carrier, and the clip path is dropped
+for the duration, the incoming carrier's mask applying when the tween
+lands. Unclipped travel is not a compromise; it is what every other
+animated shape already does — the tween clone is created as a
+page-level shape, outside any frame's mask, and the destination mask
+takes over only when the real carrier appears on arrival. A video
+moving into, out of, or between frames behaves like any shape making
+the same move.
 
 Which carrier the player anchors to is explicit runtime state, never
 derived from what happens to be rendered. Carrier visibility exists to
