@@ -194,15 +194,16 @@ and no track. The two questions stop being entangled.
 The duplicate-vs-rejoin distinction comes for free: the
 follow-up-keyframe path is ours and preserves `videoKey`, while
 `Cmd+D` and paste run through the remap wrapper, which mints a fresh
-one alongside the fresh `trackId` — the new id of the copied owner
-when the owner is among the copies, and the smallest new id otherwise,
-mirroring the owner function's fallback. The remap also normalizes
-configuration: it resolves the source video's authoritative values
-and stamps them, with a fresh revision, onto the copy's new owner, so
-duplicating only a stale later keyframe cannot resurrect old props
-into authority. Duplicating a video therefore yields
-an independent video with its own player, which is what the gesture
-implies.
+one alongside the fresh `trackId` — the new id of the copied
+authority carrier when it is among the copies, and the smallest new
+id otherwise. Normalization happens at serialization, while the
+source store is still in hand: copying or duplicating resolves the
+source video's authoritative values and writes them, at a fresh
+revision, onto the payload's new owner — so even a paste into another
+document, where the source owner never existed, carries the source's
+current configuration rather than a stale keyframe's raw props.
+Duplicating a video therefore yields an independent video with its
+own player, which is what the gesture implies.
 
 ### One video, one configuration
 
@@ -220,58 +221,56 @@ concurrent sync, where each side's mirror writes race the other's on
 the same properties of different records. Nor can the owner be
 "whichever carrier is currently earliest" — keyframe order is itself
 synced mutable state, so two clients mid-reorder can disagree about
-the owner, land edits on different records, and have the reconcile
-discard one of them. The owner has to be immutable, and the key
-already names one: `videoKey` is the id of the shape that placed the
-video, so the carrier whose own id equals its `videoKey` is the
-configuration's canonical owner — a designation no reorder can move,
-because ids never change and copies always get fresh ones.
+the owner and land edits on different records. The same objection
+kills any rule that reads structure, "the smallest surviving id"
+included: a concurrent copy or deletion moves it.
 
-Editing media props means writing the owner record, wherever in the
-UI the edit was made, and stamping it with a configuration revision:
-a small counter prop, written as one more than the highest revision
-any carrier of the key currently holds. Authority follows the
-revision, and it is resolved at read time, not written back: every
-reader of a video's configuration — the player, the posters, the
-props panel — reads the values of the highest-revision carrier, ties
-broken by the owner function, then by smallest id. Nothing fans the
-winner out across the other records, deliberately: read-time
+So authority follows the data instead of the structure. Each carrier
+holds a configuration revision — a small counter prop — and the
+**authority carrier**, the one edit target and the one source every
+reader resolves, is the carrier holding the highest revision, ties
+broken toward the carrier whose own id equals the `videoKey` (the
+shape that placed the video), then toward the smallest id. Editing
+media props means writing the authority record, wherever in the UI
+the edit was made, stamped with one more than the current highest
+revision. Only three writes ever produce a nonzero revision: an
+edit; the delete transfer below; and copy normalization, which
+stamps a new video's owner under its own fresh key. Same-key
+keyframe copies are written at revision zero — their media props are
+dead data no reader consults — so adding a keyframe, reordering, and
+geometry work can never move authority, and a revision tie is only
+reachable where the tied values are identical (a never-edited video,
+or the instant after a transfer). The tiebreak never chooses between
+diverged data.
+
+Authority is resolved at read time, not written back. Nothing fans
+the winner out across the other records, deliberately: read-time
 resolution needs no writes at all, where a standing rewrite pass
 would turn every media edit into one write per carrier, racing other
-clients' passes on the same properties. Stale props on a non-owner
-carrier are dead data no reader consults; the one edit path writes
-one record, and concurrent edits converge because they are concurrent
-writes of one record, stamped with the same next revision and
-tiebroken identically on every client. Only geometry is per-carrier.
+clients' passes on the same properties. And because there is one
+edit target, concurrent edits are concurrent patches of one record —
+tldraw sync ships record updates as per-key patches (`diffRecord`
+diffs a record key by key and recurses into `props`), so two edits
+to disjoint media props merge, an edit and a concurrent move of the
+same record merge, and a genuine same-prop conflict resolves per
+property, ordered by the revision it travels with.
 
-Geometry and configuration share a record without contending: tldraw
-sync ships record updates as per-key patches — `diffRecord` diffs a
-record key by key and recurses into `props` — so one client moving
-the owner while another edits its `videoId` merges key-wise. Conflict
-exists per property, and the revision orders exactly the properties
-it governs.
+`videoKey` itself stays a value every carrier shares, not a
+reference to the authority record: media events target the key, and
+player lookup and orphan cleanup ask "does any carrier with this key
+survive", never "does the authority survive".
 
-Ownership is a pure function of the carrier set, not a transferable
-title: the owner is the carrier whose id equals the `videoKey` while
-that shape is alive, and the surviving carrier with the smallest id
-otherwise. Nothing is rewritten when the original owner is deleted —
-the key never changes, every carrier still stores it, and media
-events still target it, because `videoKey` is a value they share, not
-a reference to the owner record. Player lookup and orphan cleanup ask
-"does any carrier with this key survive", never "does the owner
-survive".
-
-Deletion must not lower the high-water mark. Survivor revisions can
-be arbitrarily stale — they are dead data — so if deleting the owner
-simply removed the highest revision, a later edit could stamp a
-number the deleted record still beats, and restoring that record
-(locally, or by another client's undo) would win the read back with
-stale values. The batch delete cleanup therefore transfers authority
-in the same history entry: when the owner-function carrier is deleted
-while others survive, the authoritative values and revision are
-written onto the new owner-function carrier. The high-water mark
+Deletion must not lower the high-water mark. If deleting the
+authority carrier simply removed the highest revision, a later edit
+could stamp a number the deleted record still beats, and restoring
+that record (locally, or by another client's undo) would win the
+read back with stale values. The batch delete cleanup therefore
+transfers authority in the same history entry: when the authority
+carrier is deleted while others survive, its values and revision are
+written onto the smallest-id survivor, which thereby holds the
+highest revision and becomes the authority. The high-water mark
 never regresses; an edit after the deletion stamps a strictly higher
-revision; a restored owner ties the transferred revision at best,
+revision; a restored carrier ties the transferred revision at best,
 carrying the same values — and undoing the whole deletion reverses
 the transfer with it, returning exactly the pre-delete state. This is
 a one-shot write inside a structural delete, the same exposure as the
@@ -285,13 +284,14 @@ deletion can still lose, exactly as an edit to any concurrently
 deleted shape can, and no worse. The player reads the authoritative
 configuration regardless of which carrier is anchored.
 
-New keyframes snapshot the authoritative values at creation — a
-cosmetic courtesy to anything that reads records raw, such as the
-rollback pre-release's flattened view; correctness never depends on
-it. Existing documents have one carrier per video, so nothing already
-disagrees. Editing `videoId` still reloads the iframe — changing which video this
-is is a different operation from moving it, and the reload is the
-point.
+Same-key keyframe copies still carry a raw snapshot of the current
+values (at revision zero) as a cosmetic courtesy to anything reading
+records raw, such as the rollback pre-release's flattened view;
+correctness never depends on it. Existing documents have one carrier
+per video — the original shape is the authority at revision zero.
+Editing `videoId` still reloads the iframe — changing which video
+this is is a different operation from moving it, and the reload is
+the point.
 
 ### Existing documents
 
@@ -498,12 +498,12 @@ vocabulary without shipping any new feature:
   props, writing neither on its own.
 - Its duplicate and paste paths run the main release's identity
   remap — shared code, not a reimplementation: a copied video gets a
-  fresh `videoKey` by the same owner-or-smallest-id rule,
+  fresh `videoKey` by the same rule the main release uses,
   target-keyed markers travel with the copy the way bound markers do,
   and their actions are rewritten to the fresh key. A rollback-window
   duplicate therefore stays an independent video on roll-forward
   instead of rejoining the original.
-- Its media-prop editing is ownership-routed and revision-stamped,
+- Its media-prop editing is authority-routed and revision-stamped,
   exactly as the main release stamps its own edits, so a
   rollback-window edit holds authority on roll-forward instead of
   sitting unread on a non-owner record.
