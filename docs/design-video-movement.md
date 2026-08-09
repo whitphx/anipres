@@ -196,7 +196,7 @@ follow-up-keyframe path is ours and preserves `videoKey`, while
 `Cmd+D` and paste run through the remap wrapper, which mints a fresh
 one alongside the fresh `trackId` — the new id of the copied owner
 when the owner is among the copies, and the smallest new id otherwise,
-the same successor rule deletion uses. Duplicating a video therefore yields
+mirroring the owner function's fallback. Duplicating a video therefore yields
 an independent video with its own player, which is what the gesture
 implies.
 
@@ -226,14 +226,22 @@ owner's values onto the other carriers, so a stale copy is always
 overwritten toward the owner, never the reverse. Concurrent edits
 then collapse to concurrent writes of one record, which sync already
 resolves, and every client fans the same winner out; only geometry
-may differ between keyframes. When the owner shape is deleted while
-other carriers survive, ownership passes to the surviving carrier
-with the smallest id — a pure function of the converged shape set, so
-every client picks the same successor, and the successor already
-carries the reconciled values. An edit racing the owner's deletion
-can lose, exactly as an edit to any concurrently deleted shape can,
-and no worse. The player reads the owner's configuration regardless
-of which carrier is anchored.
+may differ between keyframes.
+
+Ownership is a pure function of the carrier set, not a transferable
+title: the owner is the carrier whose id equals the `videoKey` while
+that shape is alive, and the surviving carrier with the smallest id
+otherwise. Nothing is rewritten when the original owner is deleted —
+the key never changes, every carrier still stores it, and media
+events still target it, because `videoKey` is a value they share, not
+a reference to the owner record. Player lookup and orphan cleanup ask
+"does any carrier with this key survive", never "does the owner
+survive". Undoing the deletion brings the original owner back, and
+the same function selects it again; every client evaluating the
+function on the converged carrier set picks the same owner. An edit
+racing the owner's deletion can lose, exactly as an edit to any
+concurrently deleted shape can, and no worse. The player reads the
+owner's configuration regardless of which carrier is anchored.
 
 New keyframes copy the props, so they are born consistent; existing
 documents have one carrier per video, so nothing already disagrees.
@@ -462,6 +470,18 @@ pasted copies) is written without bindings; under the pre-release it
 does not function — nothing there resolves a target key — but it
 validates, survives the narrowed cleanup untouched, and works again on
 roll-forward.
+
+One class of rollback-window edit is explicitly outside the contract:
+changing a video's media props through a non-owner carrier. The
+pre-release does not know the ownership model — under it, movement
+keyframes look like independent videos — so such an edit lands on a
+record that roll-forward reconciliation overwrites toward the owner.
+The contract is that rollback destroys nothing the user already had,
+not that every edit made against the rolled-back release's flattened
+view of new-vocabulary content carries its intent forward. A fixture
+pins the outcome: a media prop edited on a non-owner carrier under
+the pre-release converges to the owner's value on roll-forward, with
+nothing else disturbed.
 
 Fixtures pin all of this. A document captured from the pre-migration
 schema, holding a video with `media-control` bindings, must load under
