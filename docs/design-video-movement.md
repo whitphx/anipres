@@ -1083,9 +1083,22 @@ transactional, marker-aware tombstone as an accepted cascade claim,
 so a carrier arriving late — an offline extension, a force-reset
 replay, a rollback-window edit surfacing after roll-forward —
 restores swept events exactly as it restores cascade-deleted ones.
-Temporary absence is never proof of permanent deletion, and fixtures
-land a late carrier after a sweep across delivery orders, a
-force-reset, and a server restart.
+One honest asymmetry is stated rather than papered over: a cascade's
+tombstone carries the resolved configuration because the server
+holds the deleting push's pre-image, but a sweep can meet an
+already-persisted carrierless orphan — a crash-persisted partial
+batch, a rollback-window deletion — where no pre-image exists
+anywhere. The sweep then writes a markers-only tombstone flagged
+configuration-incomplete, and a revival restoring from one restores
+the events atomically while **quarantining the configuration side**:
+the arriving carrier's own settings are surfaced for explicit
+confirmation instead of being silently trusted as the video's
+configuration. Temporary absence is never proof of permanent
+deletion, and fixtures land a late carrier after a sweep across
+delivery orders, a force-reset, and a server restart — including a
+restart that sweeps a persisted carrierless orphan before the stale
+carrier arrives, asserting events restore and configuration
+quarantines.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
