@@ -305,8 +305,16 @@ instance increments monotonically — and the hook persists, in the
 same transaction as the write, each instance's contiguous
 acknowledgement watermark rather than every id. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
-already committed; one exactly above admits and advances the
-watermark. A gap can never form to starve that rule, because a
+already committed; one exactly above advances the watermark.
+Admission is not the only outcome that advances it: a terminal
+rejection — validation, authorization, the protocol gate, the
+monotonicity guard — is itself a durable per-sequence result that
+advances the watermark and replays as the same failure, so one
+invalid operation can never dam the queue behind it; only genuinely
+retryable conditions, a lost connection or a failed transaction,
+leave the watermark standing. A fixture makes sequence N terminally
+invalid and N+1 valid, across reconnect and restart. A gap can
+never form to starve the rule from the client side either, because a
 sequence number exists only as the position of a durably enqueued
 operation: assigning the number and persisting the operation in the
 client's intent store are one local transaction, and on connect the
@@ -598,8 +606,9 @@ bytes — so a revival arriving after the events themselves are gone is
 detected rather than silently wrong. The server accepts the carrier
 and flags the key as revived-without-events, and the editor surfaces
 that flag on the video, making the loss visible and attributable
-instead of a quietly inert deck. Stubs themselves are never evicted
-— they are the last evidence a deletion happened — but they need not
+instead of a quietly inert deck. Stubs are never evicted inside the
+evidence horizon defined below — they are the last evidence a
+deletion happened — but they need not
 live in the room to do their job. When in-room stubs exceed a size
 threshold, the room automatically spills the oldest ones' exact keys
 to cold storage outside it — the worker platform has cheap durable
@@ -625,9 +634,10 @@ that: a filter positive is confirmed against the exact cold-storage
 set before anything is flagged, so a freshly minted video can never
 draw a false revived-without-events warning. A filter false positive
 costs one cold read, never a wrong flag; the filter's error rate is
-a performance knob, not a correctness bound. Detection never falls
-silent, and in every exact tier it never cries wolf; the one tier
-that can over-warn is named below, and its warnings say so.
+a performance knob, not a correctness bound. Inside the evidence
+horizon, detection never falls silent, and in every exact tier it
+never cries wolf; the one tier that can over-warn is named below,
+and its warnings say so.
 
 Every path that mints a tombstone or stub debits the same budget.
 The standing sweep attributes its work to the authenticated
@@ -652,9 +662,21 @@ real deletion — so a video that collided with the filter, was
 declared fresh, and is later genuinely deleted warns again exactly
 as an undismissed key would. A fixture chains filter collision,
 dismissal, real deletion of that key, compaction into the filter
-tier, and late revival, and must see the warning return. Cost
-decays with age, evidence never disappears, and no tier ever
-refuses a legitimate deletion. A stress test drives create/delete churn
+tier, and late revival, and must see the warning return.
+
+The lifecycle ends at an explicit **evidence horizon** —
+host-configurable, five years by default — rather than pretending to
+infinity. Filters are generational, each covering a cohort of keys
+by deletion age and exact-sized for that cohort at build time; a
+cohort crossing the horizon is dropped, filter and dismissal records
+with it. Inside the horizon every bound holds because every
+structure is sized from exact data; past it, the design says plainly
+that deletion evidence is gone — the one honest alternative to a
+filter that saturates toward flagging everything or a store that
+only grows. Cost decays with age, no tier ever refuses a legitimate
+deletion, and a long-horizon test drives churn across generations,
+asserting false-positive and cold-lookup rates hold their configured
+targets. A stress test drives create/delete churn
 through the spill path — claimless carrier deletions swept
 server-side included, and through rotated connections — and pins
 in-room storage, restart cost, cold-lookup rate, and the budget;
