@@ -136,13 +136,20 @@ through three states:
   hazard — but is hidden and inert: `visibility: hidden`, no pointer
   events, playback paused. Hiding waits for the pause: the player is
   hidden only once the pause is confirmed by the usual evidence, and
-  until then it stays visible with an immediate stop control; a
-  pause that outlives its bounded retry is resolved by force —
-  the iframe is torn down despite the continuity loss, because an
-  invisible, inaccessible player still producing audio is the one
-  outcome worse than a reload. A browser test enters Absent with
-  the pause acknowledgement withheld and asserts playback can never
-  be both hidden and uncontrollable. The player leaves Absent the
+  until then it stays visible with an immediate stop control. A
+  pause that outlives its bounded retry is resolved by the same
+  restorability predicate that governs every teardown: a restorable
+  player is torn down despite the continuity loss, because an
+  invisible, inaccessible player still producing audio is worse
+  than a reload; an unrestorable one — live, unknown duration, a
+  failed seek — is neither destroyed nor hidden, collapsing instead
+  into a small, visible "still playing" control anchored to the
+  viewport rather than to any carrier, from which the user can
+  pause or dismiss it. Stray UI beats an audible ghost, and a
+  destroyed live position beats neither. Browser tests withhold the
+  pause acknowledgement for both a restorable player (torn down)
+  and a live one (visible control, never unmounted), asserting
+  playback is never both hidden and uncontrollable. The player leaves Absent the
   moment the fold yields an anchor again, which is what re-advancing
   does. Absent is
   a rendering state, not an eviction; the lifecycle policy below
