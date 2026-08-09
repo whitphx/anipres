@@ -131,27 +131,24 @@ markers to that video (`$getMediaTrackGroups`), and
 Grouping is display-only; drag & drop keeps operating on each batch's
 real track id.
 
-#### Moving a video mid-presentation (designed, not yet displayed)
+#### Moving a video mid-presentation (superseded)
 
-The v2 model animates a shape by carrying later keyframes on copies of
-it — impossible for a video, where a copy would mount a second live
-player and playback state lives in the original iframe. The designed
-representation is a **marker-carried keyframe**: a marker bound to the
-video carrying a `shapeAnimation` cue frame on the video's own track,
-with the target geometry stored in the frame's action metadata (the
-marker is an invisible record, so its own transform cannot serve as an
-editable keyframe target). Playback will tween the video shape itself
-(`updateShape`, not a temp copy) toward that target.
+A marker-carried keyframe was the designed representation while a copy
+of a video was impossible: the copy would mount a second live player.
+[`design-video-movement.md`](./design-video-movement.md) drops that
+constraint by taking the player off the shape, which lets keyframes be
+ordinary copies and removes the marker binding along with them. Read
+that document instead; the notes below describe only what this build
+does today.
 
-What exists today: `runFrames` treats marker-carried `shapeAnimation`
-frames as timing-only no-ops, and a framed video stays visible from its
-appearance step on instead of following the latest-batch-only
-visibility rule (later batches on its track are marker keyframes, never
-copies to switch to). The editor UI does not offer creating these
-keyframes yet, the target-geometry metadata shape is undecided, and the
-follow-up-frame buttons are withheld for video-carried batches — the
-default "clone the carrier" behavior is exactly the second-player
-hazard.
+`runFrames` treats a marker-carried `shapeAnimation` frame as a
+timing-only wait — no editor path creates that pairing, but the agent's
+`attachCueFrame` can. A framed video stays visible from its appearance
+step on rather than following the latest-frame-of-batch rule, because
+the video is always its batch's cue and cannot be replaced by a copy
+carrying the later keyframe. The follow-up-frame buttons are withheld
+for video-carried batches, since cloning the carrier is exactly the
+second-player hazard.
 
 ### Playback runtime
 
