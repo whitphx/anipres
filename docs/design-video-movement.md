@@ -469,7 +469,21 @@ SQLite transaction before acknowledging or broadcasting the push.
 Claims are rare — a video deletion — so the eager write costs nothing
 measurable. If the transaction fails, neither side commits and the
 claim is re-arbitrated when the push retries; fault-injection tests
-kill the process at each storage boundary and reconstruct the room. Retention cannot be tied to who is connected or
+kill the process at each storage boundary and reconstruct the room.
+
+None of this exists as extension points in stock `@tldraw/sync-core`
+3.15.5: `TLSocketRoom` applies pushes and acknowledges internally,
+its receive callback is observational, and `onDataChange` fires after
+the commit — too late to reject a stamp regression, transform a
+claimed push, or hold the acknowledgement for a storage transaction.
+The server-side protocol therefore stands on a small maintained fork
+(or vendored subclass) of `TLSyncRoom` that exposes a pre-apply hook:
+validate and transform the incoming diff, commit room state and
+tombstones in one SQLite transaction, then acknowledge and broadcast.
+Proving that hook — a prototype carrying the fault-injection tests
+above against the real boundary — is the first implementation
+milestone, gating every behavior that depends on it; if upstream
+grows an equivalent hook, the fork retires into it. Retention cannot be tied to who is connected or
 what they have acknowledged, because tlsync force-resets a client
 whose baseline predates its pruned history and then reapplies and
 pushes that client's stashed changes on top of the fresh state — an
@@ -765,10 +779,12 @@ the last carrier goes do events, markers and bindings go together.
 
 Content
 authored by the new release (movement keyframes, new media events,
-pasted copies) is written without bindings; under the pre-release it
-does not function — nothing there resolves a target key — but it
-validates, survives the narrowed cleanup untouched, and works again on
-roll-forward.
+pasted copies) is written without bindings. Under the pre-release its
+media events still execute, through the target-key playback fallback
+above; what stays dormant is the movement itself, since the
+pre-release mounts no runtime player and keyframe copies render as
+ordinary shapes. Everything validates, survives the narrowed cleanup
+untouched, and works fully again on roll-forward.
 
 Media-prop edits made during the rollback window survive roll-forward
 by construction: they are routed and revision-stamped the same way
