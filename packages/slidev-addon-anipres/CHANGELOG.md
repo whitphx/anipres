@@ -1,5 +1,12 @@
 # slidev-addon-anipres
 
+## 0.8.15
+
+### Patch Changes
+
+- Updated dependencies [[`69cec97`](https://github.com/whitphx/anipres/commit/69cec97eb037d0dc454f9264afe6801e6cf5eeec)]:
+  - anipres@0.16.0
+
 ## 0.8.14
 
 ### Patch Changes
