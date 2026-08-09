@@ -564,11 +564,6 @@ export class PresentationManager {
         return [shapeId, "hidden"];
       }
 
-      // Editing chrome, like slides — their frames still drive playback.
-      if (shape.type === MediaControlShapeType) {
-        return [shapeId, "hidden"];
-      }
-
       if (shape.meta?.hiddenDuringAnimation) {
         return [shapeId, "hidden"];
       }
@@ -593,10 +588,12 @@ export class PresentationManager {
         return [shapeId, "hidden"];
       }
 
-      // A framed video stays visible from its appearance step on. Later
-      // batches on its track are marker-carried keyframes, never copies
-      // of the video (a copy would mount a second player iframe), so the
-      // latest-batch-only rule below must not hide the original.
+      // A framed video stays visible from its appearance step on. The
+      // rule below shows only a batch's LAST frame, and the video is
+      // always its batch's cue (frames[0]), so any sub frame chained
+      // onto that batch would hide the video — and unlike an ordinary
+      // shape it can never be replaced by a copy carrying the later
+      // keyframe, since a copy would mount a second player iframe.
       if (shape.type === YouTubeEmbedShapeType) {
         return [shapeId, "visible"];
       }

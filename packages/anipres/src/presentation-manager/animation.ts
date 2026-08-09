@@ -67,11 +67,12 @@ async function runFrames(
       action.type === "shapeAnimation" &&
       shape.type === MediaControlShapeType
     ) {
-      // A marker carrying a shapeAnimation frame is the designed
-      // movement-keyframe representation for its bound video. Its
-      // playback — tweening the video shape itself, since a temp copy
-      // would mount a second player — is not implemented yet, so the
-      // frame only contributes its `duration` wait below.
+      // A marker is an invisible record, so there is nothing to
+      // animate: it carries a frame's data, never its own transform.
+      // No editor path produces this pairing, but the agent's
+      // attachCueFrame overwrites any shape's frame without checking
+      // the type, so the frame is honored for its `duration` wait
+      // below rather than animating a zero-size invisible shape.
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();

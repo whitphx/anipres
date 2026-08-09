@@ -644,3 +644,98 @@ describe("shape-animation run cancellation", () => {
     });
   });
 });
+
+describe("video visibility in presentation mode", () => {
+  function videoVisibility(options: {
+    withSubFrameOnItsBatch: boolean;
+    currentStepIndex: number;
+  }) {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", options.currentStepIndex),
+      );
+      const videoId = createShapeId("video");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "video-cue",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a1",
+            action: { type: "shapeAnimation" },
+          } satisfies CueFrame),
+        },
+      });
+      // A later step on another track, so the presentation can advance
+      // past the video's own step.
+      editor.createShape({
+        id: createShapeId("other"),
+        type: "geo",
+        x: 400,
+        y: 0,
+        props: { w: 50, h: 50 },
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "other-cue",
+            type: "cue",
+            trackId: "T-other",
+            stepId: "s2",
+            stepOrderKey: "a2",
+            action: { type: "shapeAnimation" },
+          } satisfies CueFrame),
+        },
+      });
+      if (options.withSubFrameOnItsBatch) {
+        editor.createShape({
+          id: createShapeId("sub"),
+          type: "geo",
+          x: 0,
+          y: 200,
+          props: { w: 10, h: 10 },
+          meta: {
+            frame: frameToMetaJson({
+              v: 2,
+              id: "video-sub",
+              type: "sub",
+              cueFrameId: "video-cue",
+              orderKey: "a1",
+              action: { type: "shapeAnimation" },
+            } satisfies SubFrame),
+          },
+        });
+      }
+      return manager.$getShapeVisibilitiesInPresentationMode()[videoId];
+    } finally {
+      dispose();
+    }
+  }
+
+  it("keeps a framed video visible after the presentation advances past its step", () => {
+    expect(
+      videoVisibility({ withSubFrameOnItsBatch: false, currentStepIndex: 1 }),
+    ).toBe("visible");
+  });
+
+  it("keeps it visible even when a sub frame is chained onto its batch", () => {
+    // The video is always its batch's cue, so the last-frame-of-batch
+    // rule would hide it; unlike an ordinary shape it cannot be
+    // replaced by a copy carrying the later keyframe, because a copy
+    // would mount a second player iframe.
+    expect(
+      videoVisibility({ withSubFrameOnItsBatch: true, currentStepIndex: 1 }),
+    ).toBe("visible");
+  });
+});
