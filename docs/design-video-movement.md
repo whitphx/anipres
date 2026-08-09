@@ -291,9 +291,16 @@ and the remount seeks exactly there — no virtual advancement, no
 duration arithmetic, nothing to misjudge for live streams or videos
 whose metadata has not arrived. Buffering is not modeled: the clock
 is best-effort continuity, resynced by the polls whenever a player
-is mounted. It is deliberately client-local — media events carry
-commands, not positions, and what folds identically everywhere is
-the status. Fixtures cover eviction and remount at non-default
+is mounted. Those polls double as liveness for the budget: every
+mounted player's actual state is queried on the same cadence, and an
+observed state the registers cannot explain — a native play whose
+notification never arrived — reconciles immediately, budget
+enforcement included, so slot accounting can be stale for at most
+one poll interval even when the iframe drops notifications
+entirely; tests start native plays whose notifications are delayed
+indefinitely or never delivered. The clock is deliberately
+client-local — media events carry commands, not positions, and what
+folds identically everywhere is the status. Fixtures cover eviction and remount at non-default
 rates, for live video, before duration metadata has arrived, and the
 over-limit path: an (N+1)th play pausing the oldest in place, then
 resuming from the held position when a slot frees.
@@ -422,7 +429,16 @@ classification exact rather than inferred, because media edits never
 ride record diffs at all: every media-prop edit is an explicit
 operation in the client's durable intent store, the same queue the
 sequence protocol below replays, naming the edited properties and
-their values, and the hook stamps exactly those. A record creation —
+their values, and the hook stamps exactly those. The hook enforces that as a
+rejection rule, not a convention: a raw record diff touching a media
+value or its revision entry — value-only, stamp-only, or an equal
+stamp carrying a different value — is rejected unless it comes from
+a validated explicit operation or a named server-side repair path
+(transfer, revival, normalization), so the value/stamp pair changes
+as a unit or not at all, and no malformed or hostile client can slip
+a new value under an existing stamp and split resolution across
+carriers; adversarial tests submit exactly those three patch shapes.
+A record creation —
 stash replay after a force-reset included — is therefore always
 carrier creation with an empty revision map, even when it is the
 ghost of an edited carrier the server has since deleted: the edit
