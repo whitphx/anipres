@@ -1374,12 +1374,20 @@ itself deployable with a floor beneath it:
   produced, runs the complete authoritative pre-apply path — stamps,
   arbitration, tombstones and all — whatever client protocol is
   connected. The stage boundary gates which clients connect; the
-  document gates what the server does. Nor is anything trusted from
-  the wire: the declared client version is an unauthenticated claim,
-  so a server fronting a pure-legacy document strips or rejects
-  every future field and record shape whatever the client says — a
-  doctored version-3 connection cannot smuggle `videoKey` into a
-  document that would then strand on rollback. A stage-B-to-A
+  document gates what the server does; and crossing from legacy to
+  future vocabulary is never a client's act at all, which is what
+  keeps the gate from becoming a bootstrap deadlock. Under stage A a
+  pure-legacy document is inert: every future field or record shape
+  in a push is stripped or rejected whatever the client says — the
+  declared version is an unauthenticated claim, and a doctored
+  connection cannot smuggle `videoKey` into a document that would
+  then strand on rollback. From stage B onward the server itself
+  **promotes** a legacy room at initialization: atomic, trusted
+  normalization plus an explicit persisted vocabulary marker, after
+  which the room is future-vocabulary and the full path serves it —
+  an integration test starts with a legacy shared room, lets stage B
+  promote it and accept its first new-vocabulary write, then rolls
+  back to stage A and proves the full path still serves it. A stage-B-to-A
   integration test proves the rolled-back server issues
   authoritative stamps and preserves cascade and tombstone semantics
   on a future-vocabulary room, not merely that the client routes an
