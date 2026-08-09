@@ -1289,7 +1289,7 @@ server refuses clients newer than itself as well as older. One number
 per release keeps each client's vocabulary matched to the assets that
 serve it; the server side needs no such split, because every release
 in the sequence ships the same forked room server — arbitration,
-tombstones, stamps and all, write-gated below protocol version 4 as
+tombstones, stamps and all, gated by the document's vocabulary as
 stage A describes. What must survive the forced reload is
 client-side intent: an unacknowledged cascade claim is durable state
 in the same ordered intent store as explicit-deletion prunes, keyed
@@ -1366,17 +1366,24 @@ itself deployable with a floor beneath it:
   in this sequence — adds no schema migrations: none exist, because
   materialization is normalization, so no snapshot is ever stranded
   behind unknown migration versions. The forked room server ships
-  here too, but write-gated by the protocol version it serves: a
-  server serving version 3 accepts the new vocabulary and
-  materializes none of it — normalization, stamping, arbitration and
-  tombstones all activate at version 4 and above. Documents stage A
-  opens are therefore byte-identical afterwards by gate, not by
-  convention. Nor is the gate trusted from the wire: the declared
-  client version is an unauthenticated claim, so a server serving
-  version 3 also inspects incoming diffs and strips or rejects every
-  future field and record shape whatever the client says — a
+  here too, gated by the **document**, not by the protocol version
+  it serves: a room whose document bears no future vocabulary gets
+  none of the new machinery — no normalization, no stamping, nothing
+  written, which is the byte-identical guarantee — while a room
+  whose document already bears it, which only a later stage can have
+  produced, runs the complete authoritative pre-apply path — stamps,
+  arbitration, tombstones and all — whatever client protocol is
+  connected. The stage boundary gates which clients connect; the
+  document gates what the server does. Nor is anything trusted from
+  the wire: the declared client version is an unauthenticated claim,
+  so a server fronting a pure-legacy document strips or rejects
+  every future field and record shape whatever the client says — a
   doctored version-3 connection cannot smuggle `videoKey` into a
-  stage-A document. That makes rolling stage A back to the current
+  document that would then strand on rollback. A stage-B-to-A
+  integration test proves the rolled-back server issues
+  authoritative stamps and preserves cascade and tombstone semantics
+  on a future-vocabulary room, not merely that the client routes an
+  edit. That makes rolling stage A back to the current
   release trivially safe; a round-trip test opens, persists, and
   rolls a shared room back against the actual current release —
   including a connection that deliberately submits future vocabulary
