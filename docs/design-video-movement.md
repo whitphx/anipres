@@ -114,6 +114,15 @@ through three states:
   the anchor is the carrier of the sequence's earliest keyframe — the
   video's starting position — and an unanimated video is its only
   carrier. Deleting or reordering keyframes re-evaluates the rule.
+- **Absent.** Before a video's cue step, after a backward jump to a
+  step before it, or once every carrier is gone, the fold yields no
+  anchor at all. The player stays mounted — unmounting is the reload
+  hazard — but is hidden and inert: `visibility: hidden`, no pointer
+  events, playback paused. It leaves this state the moment the fold
+  yields an anchor again, which is what re-advancing does. Absent is
+  a rendering state, not an eviction; the lifecycle policy below
+  decides separately whether a long-absent player is worth keeping
+  mounted.
 
 A change of anchor only changes which shape's values the player
 mirrors, never the player's place in the DOM, so it cannot remount the
@@ -370,6 +379,21 @@ clipboard content does not, and gets its own pass:
   the action's target key, and only then let the remap mint fresh
   identities. Pasted output is new content, so it is written in the
   new vocabulary, without bindings.
+
+Retained bindings alone cannot make rollback safe, because the
+materialized `videoKey` prop is itself a poison pill to the release
+currently deployed: its `youtube-embed` schema does not declare the
+property, and tldraw validation rejects unknown props, so a migrated
+document would fail to load before any binding is consulted. (The
+action's target key has no such problem — frames live in `shape.meta`,
+which tldraw does not validate, so older code just ignores the extra
+key.) Rollback therefore gets an explicit floor: a schema-widening
+pre-release ships first, changing no behavior — it still reads and
+writes bindings — and declaring `videoKey` as an optional prop it
+never writes. The main release follows once the pre-release is
+deployed, and rolling back means rolling back to the pre-release;
+rolling back past it is out of the support window. A fixture proves a
+migrated snapshot validates against the pre-release's exact schema.
 
 Well-formed bindings are rewritten but not deleted. Deleting them
 would make an ordinary deployment rollback destructive: the previous
