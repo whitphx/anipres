@@ -159,10 +159,21 @@ the guarantee this whole design exists for, so the mount budget is
 simply never spent there. The playing limit is enforced ahead of
 that moment instead: authoring warns when a step would drive more
 than P simultaneous playing videos, presentation start surfaces the
-same check, and if a race still produces a (P+1)th play at runtime,
-the least recently started playing video is paused *in place* — a
+same check, and the runtime enforces P by admission, not reaction:
+every programmatic play — event-driven or UI-driven — synchronously
+reserves a play slot before the command is issued, and when the
+reservation needs a slot freed, the least recently started playing
+video is paused *in place* within the same reconciliation pass — a
 pause preserves the iframe and all of its state where an unmount
-destroys it — and stays mounted while M allows. When M presses, the
+destroys it — and stays mounted while M allows. The one edge
+admission cannot reach is the iframe's own controls: a manual play
+arrives as an asynchronous state-change notification, and one that
+would exceed P is reverted immediately, paused back with a surfaced
+notice, never displacing another player — so P is exceeded by at
+most one manual play for at most the notification latency, the
+honest limit of control at an iframe boundary. Tests fire
+simultaneous programmatic plays together with direct-control starts,
+not only the eventual post-overflow state. When M presses, the
 longest-paused player is evicted, which is safe precisely because it
 is paused: its clock holds exactly. The invariants hold as a pair —
 never more than P playing, never more than M mounted, and no playing
@@ -1090,15 +1101,21 @@ place — inert to the new code, intact to the old — they keep
 everything the old release wrote survivable under rollback.
 
 Surviving the first open is not enough; the guarantee has to survive
-edits. A retained binding points at the original carrier, and a
-new-release edit can delete exactly that shape — add a movement
-keyframe, then remove the original position. So the batch cleanup that
-already watches carrier deletion also tends the retained bindings:
-when a binding's video endpoint is deleted while other carriers of its
-`videoKey` survive, the binding is repointed at the anchor surviving
-carrier, in the same history entry. The old release can then still
-resolve the event after any sequence of new-release edits; only when
-the last carrier goes do events, markers and bindings go together.
+edits — and at the merged state, not in any one client's view, since
+a client-chosen replacement can itself be concurrently deleted,
+stranding the binding on a dead target while a third carrier lives.
+Binding repair is therefore part of the room server's standing
+post-merge invariant, exactly like authority transfer: after each
+applied push, any retained binding whose target is absent is
+repointed to a surviving carrier of its `videoKey` before the result
+is broadcast, and deleted only when no carrier survives. The
+rollback release then always finds bindings pointing at live shapes,
+whatever interleaving of deletions produced the merge; only when the
+last carrier goes do events, markers and bindings go together. Tests
+delete the bound carrier and its chosen replacement concurrently, in
+both delivery orders, through restart and through rollback. Unsynced
+documents get the same repair from the local batch cleanup, in the
+same history entry.
 
 Content
 authored by the new release (movement keyframes, new media events,
