@@ -144,9 +144,14 @@ through three states:
   than a reload; an unrestorable one — live, unknown duration, a
   failed seek — is neither destroyed nor hidden, collapsing instead
   into a small, visible "still playing" control anchored to the
-  viewport rather than to any carrier, from which the user can
-  pause or dismiss it. Stray UI beats an audible ghost, and a
-  destroyed live position beats neither. Browser tests withhold the
+  viewport rather than to any carrier. The control's two actions are
+  fully defined: retry the pause, and **Stop** — explicitly
+  destructive, tearing the iframe down behind a warning that the
+  live position will be lost. The control itself cannot be hidden
+  while playback is unconfirmed; it disappears only after a
+  confirmed pause, a Stop, or teardown. Stray UI beats an audible
+  ghost, and losing a live position is a choice the user makes, not
+  one the runtime makes for them. Browser tests withhold the
   pause acknowledgement for both a restorable player (torn down)
   and a live one (visible control, never unmounted), asserting
   playback is never both hidden and uncontrollable. The player leaves Absent the
@@ -333,12 +338,20 @@ signals is promoted into proof, because a delayed same-state
 notification over a buffering-frozen position is observationally
 identical to a real pause, and no prototype can split identical
 observables. Release therefore rests on certainty or does not
-happen: the two grounds for freeing a mounted player's slot are a
-genuinely command-correlated acknowledgement, if the IFrame API
-browser prototype — an implementation milestone alongside the sync
-fork's — proves one exists, and **teardown**, synchronous removal of
-the iframe, causally certain because a DOM node that no longer
-exists cannot play. When evidence stays ambiguous past the settle
+happen — and the design's baseline assumes no unproven primitive.
+**Teardown** — synchronous removal of the iframe, causally certain
+because a DOM node that no longer exists cannot play — is the ground
+of release that always exists: baseline slot turnover for a
+restorable player attempts the pause for a grace period, then
+transfers the slot by teardown, and the torn-down player resumes by
+its clock exactly as an evicted one does. Pause-in-place with the
+iframe preserved is an *enhancement*, unlocked only if the IFrame
+API browser prototype — a blocking implementation milestone
+alongside the sync fork's, tasked with naming the exact observable
+that establishes causality — proves a genuinely command-correlated
+acknowledgement exists. If it finds none, the baseline stands
+complete on teardown and under-admission alone, and the continuity
+guarantees are read against that baseline. When evidence stays ambiguous past the settle
 window, the runtime does not guess — and teardown obeys the same
 restorability predicate as eviction. If the slot is needed and the
 ambiguous player is restorable — finite duration observed, seeking
