@@ -191,10 +191,18 @@ it, and the reload is the point.
 
 ### Existing documents
 
-For existing documents the prop reads as `props.videoKey || shape.id`.
-A props migration must be deterministic, so it cannot mint keys; the
-fallback identifies each existing video as itself, which is correct
-because today every video is exactly one shape.
+Existing videos predate the prop, so a props migration materializes
+it: `videoKey = shape.id`, which identifies each existing video as
+itself — correct because today every video is exactly one shape, and
+deterministic, as migrations must be (that constraint rules out
+minting random keys, not writing the record's own id). A read-time
+fallback would not be enough: a follow-up keyframe copied from a video
+whose key was never stored would fall back to its _own_ new shape id,
+splitting one video into two identities the first time it is animated.
+Materializing the key closes that hole, and because a props migration
+is record-scoped it runs everywhere a legacy record can appear — store
+loads and pasted `TLContent` alike — so the key is in place before any
+copy can be made, and travels with every copy.
 
 ## What this removes
 
@@ -321,38 +329,55 @@ clipboard content does not, and gets its own pass:
 
 - The binding type stays registered (see above), so the old records
   load instead of failing validation.
+- The record-scoped props migration materializes `videoKey` on every
+  legacy video (see "Existing documents").
 - A store-level migration resolves, for each `media-control` binding,
-  the video shape at its `toId`, and writes that shape's id into the
-  `mediaControl` action carried by the marker at its `fromId`. Under
-  the fallback rule above that id _is_ the video's `videoKey`, so the
-  event keeps its target. Then the binding record is deleted.
+  the video shape at its `toId`, and writes that shape's id — now that
+  video's materialized `videoKey` — into the `mediaControl` action
+  carried by the marker at its `fromId`. The event keeps its target.
+  The binding record itself stays, per the rollback rule below.
 - Legacy stores can also hold degraded records — a marker that lost
   its binding, a binding whose endpoint is missing or of the wrong
   type — and today the mount path deletes unbound markers as its
   recovery. That recovery moves into the migration: a marker whose
   `mediaControl` action cannot be given a target — no binding, or a
   binding that does not resolve to a video — is deleted, along with
-  any dangling binding. Nothing schema-invalid and nothing silently
-  inert survives the rewrite.
+  any dangling binding. Deleting these is rollback-neutral, because
+  the previous release's own cleanup does the same.
 - The migration reads only what is in the store, so it is
   deterministic, as store migrations must be.
 - A pasted `TLContent` payload is migrated per record, not per store,
   so the cross-record rewrite cannot ride the schema path. The paste
   wrapper around `putContentOntoCurrentPage` — which already does
   operation-scoped preprocessing for frame remapping — applies the
-  same rewrite-or-delete rules to the payload first: resolve each
-  binding, write the action's target key, drop the binding, and only
-  then let the remap mint fresh identities.
+  same rewrite rules to the payload first: resolve each binding, write
+  the action's target key, and only then let the remap mint fresh
+  identities. Pasted output is new content, so it is written in the
+  new vocabulary, without bindings.
 
-A fixture document captured from the pre-migration schema, containing
-a video with `media-control` bindings, pins the behavior: it must load
-under the new schema with its event targeting intact. Sibling fixtures
-hold the degraded states — an unbound marker, a binding with a missing
-or mistyped endpoint — and must come out with those records gone. A
-pre-change `TLContent` fixture pasted through the wrapper must come
-out with its event targeting the pasted video.
+Well-formed bindings are rewritten but not deleted. Deleting them
+would make an ordinary deployment rollback destructive: the previous
+release resolves events through bindings and deletes an unbound marker
+as an orphan, so a document opened once by the new release and then
+reopened by the old one would silently lose its media events. Left in
+place — inert to the new code, intact to the old — they keep
+everything the old release wrote survivable under rollback. Content
+authored by the new release (movement keyframes, new media events,
+pasted copies) is written without bindings and was never representable
+in the old vocabulary; rollback safety here means the old release's
+own data is never destroyed, not that new features downgrade.
 
-The schema registration and the migration are the whole compatibility
-surface; everything behavioral is deleted now. Dropping those two is
-possible once no unmigrated document remains, and is a later judgment
-call, not a step in this rollout.
+Fixtures pin all of this. A document captured from the pre-migration
+schema, holding a video with `media-control` bindings, must load under
+the new schema with its event targeting intact — and, reopened under
+the previous release's schema and cleanup rules, must still have its
+events. Sibling fixtures hold the degraded states — an unbound marker,
+a binding with a missing or mistyped endpoint — and must come out with
+those records gone. A pre-change `TLContent` fixture pasted through
+the wrapper must come out with its event targeting the pasted video.
+
+A later release deletes the inert binding records once rolling back to
+binding-reading code stops being supported; the schema registration
+and the inert util go with them. That cleanup is the whole remaining
+compatibility surface, and it is a later judgment call, not a step in
+this rollout.
