@@ -277,6 +277,16 @@ copies, identical wherever they sit. The same total order governs
 reads, transfers, undo's still-resolves check, the server's
 regression guard, and the pre-release's stamping.
 
+Stamps are client-authored, so the server treats them as claims to
+validate, not facts: the pre-apply hook accepts a counter only when
+it advances the room's high-water mark for that prop by exactly one,
+takes the session component from the authenticated connection rather
+than from the payload, and rejects everything else. A forged maximal
+stamp never enters the room, and with increments capped at one per
+accepted push the numeric ceiling is unreachable within any
+document's realistic lifetime. Hostile-counter, forged-session-id
+and numeric-boundary fixtures pin the guard.
+
 Per-property resolution is what survives histories a single
 per-carrier counter cannot. Two offline clients can go through
 divergent deletions and transfers and edit different props on
@@ -502,10 +512,17 @@ bytes — so a revival arriving after the events themselves are gone is
 detected rather than silently wrong. The server accepts the carrier
 and flags the key as revived-without-events, and the editor surfaces
 that flag on the video, making the loss visible and attributable
-instead of a quietly inert deck. Stubs carry their own generous count
-cap, dropped oldest first; only past that second bound — pathological
-churn — does the outcome degrade to silence, and the stress test pins
-storage there. Within the bound, restoration is
+instead of a quietly inert deck. Stubs themselves are never evicted:
+they are the last evidence a deletion happened, and dropping one
+would convert a detectable loss into a silent one for whichever key
+hostile churn pushed out. They are small enough to keep — a key and
+a stamp — so the room bounds growth at the source instead:
+video-deletion claims are rate-limited per session, and a room that
+still reaches the hard stub quota refuses further video deletions
+with a surfaced error rather than forget one. A fixture fills the
+quota and proves both the refusal and that reviving any retired key
+is still detected; the stress test pins storage and restart cost
+under create/delete churn. Within the full-tombstone bound, restoration is
 unconditional: whenever a tombstoned key gains a carrier again, the
 server restores its markers, rebroadcasts them, and clears the
 tombstone. That is semantically right, not just race repair — fresh
@@ -742,6 +759,15 @@ vocabulary without shipping any new feature:
   of loading as inert records. An end-to-end fixture presents a deck
   under the rolled-back release and asserts the commands run, not
   merely that the records survive.
+- Its `youtube-embed` render is key-aware for the same reason: among
+  carriers sharing a `videoKey` — a state only main-release documents
+  contain — exactly one, the carrier the target-key lookup selects,
+  mounts a live iframe, and the rest render posters. Without this, a
+  rolled-back deck holding movement keyframes would mount one player
+  per keyframe, resurrecting the duplicate-player hazard this design
+  exists to remove, with commands landing on a different carrier than
+  the one on screen. Rollback tests assert the iframe count, the
+  visible carrier, and the interaction target.
 
 Media events the pre-release authors are dual-written: the legacy
 binding its own behavior needs, and the action's target key
@@ -781,10 +807,11 @@ Content
 authored by the new release (movement keyframes, new media events,
 pasted copies) is written without bindings. Under the pre-release its
 media events still execute, through the target-key playback fallback
-above; what stays dormant is the movement itself, since the
-pre-release mounts no runtime player and keyframe copies render as
-ordinary shapes. Everything validates, survives the narrowed cleanup
-untouched, and works fully again on roll-forward.
+above; what stays dormant is the movement itself: the pre-release
+mounts no runtime player and never tweens, rendering the selected
+carrier as the one live embed and every other keyframe as a poster.
+Everything validates, survives the narrowed cleanup untouched, and
+works fully again on roll-forward.
 
 Media-prop edits made during the rollback window survive roll-forward
 by construction: they are routed and revision-stamped the same way
