@@ -196,7 +196,11 @@ follow-up-keyframe path is ours and preserves `videoKey`, while
 `Cmd+D` and paste run through the remap wrapper, which mints a fresh
 one alongside the fresh `trackId` — the new id of the copied owner
 when the owner is among the copies, and the smallest new id otherwise,
-mirroring the owner function's fallback. Duplicating a video therefore yields
+mirroring the owner function's fallback. The remap also normalizes
+configuration: it resolves the source video's authoritative values
+and stamps them, with a fresh revision, onto the copy's new owner, so
+duplicating only a stale later keyframe cannot resurrect old props
+into authority. Duplicating a video therefore yields
 an independent video with its own player, which is what the gesture
 implies.
 
@@ -212,8 +216,8 @@ resubmit an old video selection.)
 
 The invariant needs an owner, not symmetric mirroring: copying edits
 in both directions between records only converges by luck under
-concurrent sync, where record-level conflict resolution can pick
-different winners on different carriers. Nor can the owner be
+concurrent sync, where each side's mirror writes race the other's on
+the same properties of different records. Nor can the owner be
 "whichever carrier is currently earliest" — keyframe order is itself
 synced mutable state, so two clients mid-reorder can disagree about
 the owner, land edits on different records, and have the reconcile
@@ -231,14 +235,21 @@ revision, and it is resolved at read time, not written back: every
 reader of a video's configuration — the player, the posters, the
 props panel — reads the values of the highest-revision carrier, ties
 broken by the owner function, then by smallest id. Nothing fans the
-winner out across the other records, deliberately: a reconcile pass
-rewriting every carrier would race concurrent geometry edits on those
-same records, and a lost race would discard a moved keyframe or a
-media edit wholesale. Stale props on a non-owner carrier are dead
-data no reader consults; the one edit path writes one record, and
-concurrent edits converge because they are concurrent writes of one
-record, stamped with the same next revision and tiebroken identically
-on every client. Only geometry is per-carrier.
+winner out across the other records, deliberately: read-time
+resolution needs no writes at all, where a standing rewrite pass
+would turn every media edit into one write per carrier, racing other
+clients' passes on the same properties. Stale props on a non-owner
+carrier are dead data no reader consults; the one edit path writes
+one record, and concurrent edits converge because they are concurrent
+writes of one record, stamped with the same next revision and
+tiebroken identically on every client. Only geometry is per-carrier.
+
+Geometry and configuration share a record without contending: tldraw
+sync ships record updates as per-key patches — `diffRecord` diffs a
+record key by key and recurses into `props` — so one client moving
+the owner while another edits its `videoId` merges key-wise. Conflict
+exists per property, and the revision orders exactly the properties
+it governs.
 
 Ownership is a pure function of the carrier set, not a transferable
 title: the owner is the carrier whose id equals the `videoKey` while
@@ -333,21 +344,33 @@ and rewrite them to the copy's key.
 
 ### Delete and parking, without the binding
 
-**Delete.** When a delete operation leaves a `videoKey` with no
-carrier, its event markers are removed with it. The check runs once
-against the store after the whole batch, inside the same history
-entry — not per shape during the batch, where deleting every keyframe
-of a video in one selection would let each removal see the others'
-carriers as still present and conclude nothing was orphaned. Living
-inside the history entry also means one undo restores markers and
-carriers together. Deleting one keyframe of an animated video leaves
-the events alone — which the binding's per-shape cascade would have
-got wrong. The same check also runs once, idempotently, when a
-document is loaded: a marker whose target key has no surviving
-carrier is removed no matter what left it behind — a crash, a sync
-race, or a deletion performed under the rollback pre-release (see
-Rollout), which preserves new-vocabulary markers but does not
-understand their targets.
+**Delete.** Removing a video's last carrier is deleting the video,
+and its event markers go with it in the same operation. The check
+runs once against the store after the whole batch, inside the same
+history entry — not per shape during the batch, where deleting every
+keyframe of a video in one selection would let each removal see the
+others' carriers as still present and conclude nothing was orphaned.
+Living inside the history entry also means one undo restores markers
+and carriers together. Deleting one keyframe of an animated video
+leaves the events alone — which the binding's per-shape cascade would
+have got wrong.
+
+This is an explicit deletion semantic, not garbage collection from
+whatever a client happens to see: markers are removed only as part of
+the operation that deletes their video's last carrier. The racing
+case is thereby defined rather than corrupted — if one client deletes
+a video while another concurrently extends it, the merged document
+holds the extension's keyframe with no events, which is what "the
+video was deleted under you" means; the keyframe itself survives, and
+nothing else is touched.
+
+Orphans that no operation removed — a crash mid-batch, or a deletion
+performed under the rollback pre-release (see Rollout), which
+preserves new-vocabulary markers but does not understand their
+targets — are collected by an idempotent load sweep that runs only
+where the store is authoritative: on the sync server when a shared
+room loads, locally for unsynced documents. A client of a shared room
+never sweeps from its own, possibly partial, view.
 
 **Parking.** Markers are invisible and zero-size, but they still count
 toward `getCurrentPageBounds`, so a marker left behind by a moved video
