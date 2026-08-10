@@ -223,7 +223,7 @@ export function installVideoLifecycle(
   const stopCaptureConfigs = editor.sideEffects.registerBeforeDeleteHandler(
     "shape",
     (shape) => {
-      if (!soleWriter || !isYouTubeEmbedShape(shape)) {
+      if (!isYouTubeEmbedShape(shape)) {
         return;
       }
       const videoKey = getVideoKey(shape);
@@ -259,10 +259,19 @@ export function installVideoLifecycle(
       // Safe in any document: the heir is a pure function of the
       // survivors, so concurrent clients repoint identically.
       repointLegacyBindings(editor, keys);
+      // Also safe in any document: it re-imposes values that had
+      // already won, carrying the stamps that won them, onto every
+      // survivor rather than onto one chosen record a concurrent push
+      // could delete out from under it. Two clients performing it
+      // write the same pairs, so it converges, and a later edit
+      // outranks it. Withholding it is what is unsafe — deleting the
+      // carrier whose stamps won a property would drop the video back
+      // to whatever a stale carrier happened to be holding, with
+      // nothing left to say the configuration had ever been edited.
+      for (const [videoKey, captured] of capturedConfigs) {
+        restoreStampedVideoConfig(editor, videoKey, captured);
+      }
       if (soleWriter) {
-        for (const [videoKey, captured] of capturedConfigs) {
-          restoreStampedVideoConfig(editor, videoKey, captured);
-        }
         deleteOrphanedMediaMarkers(editor, keys);
       }
       capturedConfigs.clear();

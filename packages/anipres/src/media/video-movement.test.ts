@@ -1510,6 +1510,93 @@ describe("a legacy video keeps its identity through a group keyframe", () => {
   });
 });
 
+describe("deleting the carrier that won a property", () => {
+  it("keeps the edit when a stale carrier from a peer is all that survives", () => {
+    // The document is shared, so nothing here may assume this client is
+    // the only writer.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+
+      // A peer built a keyframe carrier from the configuration as it
+      // stood, then went offline.
+      const staleCarrier = {
+        ...original,
+        id: createShapeId("zzz-peer-keyframe"),
+        x: 900,
+        meta: { videoKey: videoId },
+      };
+
+      // Meanwhile this client edits the video.
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+
+      // The peer reconnects and its carrier merges.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([staleCarrier]);
+      });
+
+      // Deleting the carrier this client's edit was stamped on.
+      editor.deleteShapes([videoId]);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers).toHaveLength(1);
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("leaves a property the survivor has already moved past", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+
+      updateVideoConfig(editor, videoId, { videoId: "EDITED", start: 10 });
+
+      const owner = editor.getShape(videoId)!;
+      const ownerStamps = (
+        owner.meta as { videoConfigRev: Record<string, { c: number }> }
+      ).videoConfigRev;
+
+      // A peer's carrier arrives holding a newer `start` than anything
+      // this client has seen, and an older `videoId`.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...original,
+            id: createShapeId("zzz-peer"),
+            x: 900,
+            props: { ...original.props, videoId: "OLD", start: 42 },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: {
+                start: { c: ownerStamps.start.c + 1, s: "peer" },
+              },
+            },
+          },
+        ]);
+      });
+
+      editor.deleteShapes([videoId]);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      const config = resolveVideoConfig(carriers);
+      expect(config?.videoId).toBe("EDITED");
+      expect(config?.start).toBe(42);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("imported revision stamps cannot pin a configuration", () => {
   it("ignores an out-of-range counter, whichever record carries it", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

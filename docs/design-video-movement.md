@@ -27,6 +27,12 @@ where the events they carry cannot be reconstructed if destroyed. That
 leaves stray records behind a deleted video in a shared room, which the
 server arbitration described below is what finally removes.
 
+The configuration transfer that shares that batch is gated on nothing:
+it runs wherever a carrier is deleted. It removes no record and mints
+no authority, only re-imposing values that had already won along with
+the stamps that won them, so a client performing it against a document
+it does not solely own writes what any other client would write.
+
 ## Goal
 
 Let a video change position and size across presentation steps, the way
@@ -1125,14 +1131,22 @@ write inside a structural delete, the same exposure as the marker
 cleanup and binding repointing that already live in that batch, not a
 standing reconcile pass over carrier records.
 
-Who performs the transfer follows who owns the merged state. For an
-unsynced document the deleting client's batch does, as above. In a
-shared room clients do not transfer at all: a client-computed
-transfer can be stale on arrival, and worse, its chosen target can
-itself be deleted by a concurrent push from a client that never saw
-the transfer — leaving the high stamp on two dead records while a
-revision-zero survivor resolves. The room server instead repairs
-authority as part of its standing per-push invariant: applying a push
+The deleting client's batch performs the transfer, in a shared room
+as well as an unsynced document. A client-computed transfer can be
+stale on arrival, so it is written to every survivor rather than to
+one chosen record, which is what makes it durable: a concurrent push
+deleting its target no longer strands the high stamp on a dead
+record, since the transfer reached the other survivors too, and if
+every survivor is concurrently deleted the video has no carrier left
+to resolve. Two clients performing it write the same value and stamp
+pairs, so it converges, and an edit after it stamps strictly higher.
+Withholding it is the unsafe option: deleting the carrier whose
+stamps won a property drops the video back to whatever a stale
+carrier happened to be holding, silently and on an ordinary
+deletion, with nothing left to say the configuration was ever
+edited. The room server still repairs authority as part of its
+standing per-push invariant, which is what makes the repair
+authoritative rather than best-effort: applying a push
 gives it each deleted record's pre-image, so when a deleted carrier
 held any prop's highest stamp while others survive, the server writes
 those values and stamps onto a surviving carrier in the same
