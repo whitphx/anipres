@@ -42,9 +42,6 @@ export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
     return {
       w: 480,
       h: 270,
-      // Minted per placed video by the creation path; "" here so the
-      // default itself carries no identity.
-      videoKey: "",
       url: "",
       videoId: "",
       start: 0,

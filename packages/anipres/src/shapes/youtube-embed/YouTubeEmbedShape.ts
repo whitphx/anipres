@@ -6,18 +6,6 @@ export const YouTubeEmbedShapeType = "youtube-embed" as const;
 export interface YouTubeEmbedShapeProps {
   w: number;
   h: number;
-  /**
-   * Which video instance this shape carries — shared by every carrier
-   * of one video, so a video that moves across steps is several shapes
-   * with one key. Media events target this key rather than a shape id,
-   * and the runtime mounts exactly one player per key.
-   *
-   * Absent on records written before the prop existed — validated as
-   * optional so such a document loads at all, since the store validates
-   * a snapshot before any normalization can touch it. Read it through
-   * {@link getVideoKey}, which falls back to the shape's own id.
-   */
-  videoKey?: string;
   /** The URL the user pasted, kept for display and re-editing. */
   url: string;
   /** Extracted YouTube video id; "" while the shape has no video yet. */
@@ -43,7 +31,6 @@ export type YouTubeEmbedShape = TLBaseShape<
 export const youTubeEmbedShapeProps: RecordProps<YouTubeEmbedShape> = {
   w: T.nonZeroNumber,
   h: T.nonZeroNumber,
-  videoKey: T.string.optional(),
   url: T.string,
   videoId: T.string,
   start: T.positiveNumber,
@@ -53,14 +40,25 @@ export const youTubeEmbedShapeProps: RecordProps<YouTubeEmbedShape> = {
 };
 
 /**
- * The video identity a carrier belongs to. Records predating the
- * `videoKey` prop fall back to their own shape id, which is correct
- * because a video was exactly one shape before carriers could be
- * copied — and is what normalization materializes.
+ * Which video instance a carrier belongs to — shared by every carrier
+ * of one video, so a video that moves across steps is several shapes
+ * with one key. Media events target this key, and the runtime mounts
+ * exactly one player per key.
+ *
+ * Deliberately in `meta`, not in props: tldraw validates custom shape
+ * props and rejects one it does not know, so a `videoKey` prop would
+ * make any document that used this feature fail to load on a release
+ * that predates it — the whole document, not the video. `meta` is
+ * unvalidated, which is also why a frame's own data lives there, so an
+ * older build simply ignores it and the document still opens.
+ *
+ * A carrier without one is a video that has never been copied, and it
+ * answers with its own shape id: correct, because a video was exactly
+ * one shape until it was.
  */
 export function getVideoKey(shape: YouTubeEmbedShape): string {
-  const videoKey = shape.props.videoKey;
-  return videoKey != null && videoKey !== "" ? videoKey : shape.id;
+  const videoKey = shape.meta?.videoKey;
+  return typeof videoKey === "string" && videoKey !== "" ? videoKey : shape.id;
 }
 
 export function isYouTubeEmbedShape(

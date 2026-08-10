@@ -154,8 +154,9 @@ export function installVideoLifecycle(
       if (!isYouTubeEmbedShape(shape)) {
         return shape;
       }
-      if (shape.props.videoKey == null || shape.props.videoKey === "") {
-        return { ...shape, props: { ...shape.props, videoKey: shape.id } };
+      const carrierKey = shape.meta?.videoKey;
+      if (typeof carrierKey !== "string" || carrierKey === "") {
+        return { ...shape, meta: { ...shape.meta, videoKey: shape.id } };
       }
       // A new carrier of an existing video is born holding that video's
       // configuration. Read-time resolution does not depend on it — the
@@ -165,7 +166,7 @@ export function installVideoLifecycle(
       // where no client may write on another's behalf.
       const carriers = groupCarriersByVideoKey(
         editor.getCurrentPageShapes(),
-      ).get(shape.props.videoKey);
+      ).get(carrierKey);
       const config =
         carriers != null && carriers.length > 0
           ? resolveVideoConfig(carriers)

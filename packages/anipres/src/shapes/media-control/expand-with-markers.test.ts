@@ -162,8 +162,8 @@ describe("expandShapeIdsWithMediaControlMarkers", () => {
       // The marker copy targets the video COPY, which the remap gave a
       // fresh key of its own — a duplicate is an independent video, not
       // another carrier of the source.
-      const copyKey = (videoCopy as { props: { videoKey: string } }).props
-        .videoKey;
+      const copyKey = (videoCopy as { meta?: { videoKey?: string } }).meta
+        ?.videoKey;
       expect(copyKey).not.toBe(videoId);
       expect(resolveMediaControlVideoKey(editor, markerCopy.id)).toBe(copyKey);
     } finally {

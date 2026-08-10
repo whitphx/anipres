@@ -1,11 +1,13 @@
 # Moving and resizing a video during a presentation
 
-Status: implemented for a single document. The `videoKey` prop is
-written lazily — only when a video is first copied — so opening a
-document leaves it byte-identical and rollback-safe; a document that
-has actually used the feature is not, since the previous release's
-validator rejects the prop. The acceptance-only Stage A below, which
-would remove even that, has not been built. The shared-room protocol
+Status: implemented for a single document, with one deliberate
+departure: `videoKey` is carried in `shape.meta`, not in a validated
+prop. The design argues at length that the prop is a rollback poison
+pill needing an acceptance-only Stage A to deploy safely; putting the
+key where frames already live avoids that entirely, since tldraw does
+not validate `meta` and an older build simply ignores it. What an older
+build still gets wrong is deleting a binding-less marker as an orphan,
+which the version gate covers. The shared-room protocol
 described below — the `sync-core` pre-apply hook and everything resting
 on it — is **not** built; the sync gate moves to 4 and the worker and
 app bundle ship together, as they already do.

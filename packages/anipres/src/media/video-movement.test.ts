@@ -86,7 +86,7 @@ describe("video identity", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       // Materialized, not left to the read-time fallback.
-      expect(video.props.videoKey).toBe(videoId);
+      expect(video.meta.videoKey).toBe(videoId);
 
       // A movement keyframe is an ordinary copy carrying the same key —
       // which is what makes the two shapes one video.
@@ -95,7 +95,7 @@ describe("video identity", () => {
         ...video,
         id: keyframeId,
         x: 400,
-        meta: undefined,
+        meta: { videoKey: getVideoKey(video) },
       });
 
       const carriers = groupCarriersByVideoKey(editor.getCurrentPageShapes());
@@ -131,6 +131,7 @@ describe("video identity", () => {
         id: laterId,
         x: 400,
         meta: {
+          videoKey: getVideoKey(video),
           frame: frameToMetaJson(
             videoCue({ trackId: "T", stepId: "s1", stepOrderKey: "a2" }),
           ),
@@ -190,7 +191,12 @@ describe("marker lifecycle without the binding", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
 
       // The binding's per-shape cascade got exactly this wrong: one
       // keyframe going away is not the video going away.
@@ -216,7 +222,12 @@ describe("marker lifecycle without the binding", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
 
       // Checked once after the whole batch: per-shape, each removal
       // would see the other carrier still present and conclude the
@@ -245,7 +256,6 @@ describe("normalizeVideoIdentity", () => {
         props: {
           url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
           videoId: "M7lc1UVf-VE",
-          videoKey: "",
         },
       });
       const markerId = createShapeId("legacy-marker");
@@ -274,9 +284,9 @@ describe("normalizeVideoIdentity", () => {
 
       normalizeVideoIdentity(editor);
 
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      expect(video.props.videoKey).toBe(videoId);
+      // The event's target is filled in from the binding; the video's
+      // own key is not written, because merely opening a document must
+      // leave it byte-identical.
       const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
       if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
         throw new Error("expected a mediaControl cue frame");
@@ -326,7 +336,12 @@ describe("movement keeps one player", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const laterId = createShapeId("later");
-      editor.createShape({ ...video, id: laterId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: laterId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
 
       // Mid-step, BOTH carriers are hidden — the incoming one
       // explicitly, the outgoing one by no longer being current — so a
@@ -406,7 +421,12 @@ describe("one video, one configuration", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       editor.updateShape({
         id: videoId,
         type: video.type,
@@ -438,7 +458,12 @@ describe("one video, one configuration", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       // A stale keyframe naming a different video must not be able to
       // seat its own answer.
       editor.updateShape({
@@ -464,7 +489,8 @@ describe("copy/paste identity", () => {
         {
           id: "shape:src-video",
           type: "youtube-embed",
-          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+          props: { videoId: "M7lc1UVf-VE" },
+          meta: { videoKey: "shape:src-video" },
         },
         {
           id: "shape:src-marker",
@@ -495,8 +521,8 @@ describe("copy/paste identity", () => {
       () => `minted-${++n}`,
     );
 
-    const video = pasted.shapes[0] as { props: { videoKey: string } };
-    expect(video.props.videoKey).toBe("minted-1");
+    const video = pasted.shapes[0] as { meta: { videoKey: string } };
+    expect(video.meta.videoKey).toBe("minted-1");
     const marker = pasted.shapes[1] as { meta: { frame: unknown } };
     const parsed = parseFrameMeta(marker.meta.frame);
     if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
@@ -512,14 +538,15 @@ describe("copy/paste identity", () => {
         {
           id: "shape:src-video",
           type: "youtube-embed",
-          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+          props: { videoId: "M7lc1UVf-VE" },
+          meta: { videoKey: "shape:src-video" },
         },
       ],
     };
     const moved = remapContentVideoKeys(content, "move", () => "minted");
-    const video = moved.shapes[0] as { props: { videoKey: string } };
+    const video = moved.shapes[0] as { meta?: { videoKey?: string } };
     // A cut/paste is the same video changing place.
-    expect(video.props.videoKey).toBe("shape:src-video");
+    expect(video.meta?.videoKey).toBe("shape:src-video");
   });
 });
 
@@ -535,7 +562,12 @@ describe("configuration survives owner deletion", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       // The real edit path: a URL edits the VIDEO, so it reaches every
       // carrier of it.
       updateVideoConfig(editor, videoId, {
@@ -568,7 +600,12 @@ describe("copies of a stale keyframe carry the real configuration", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       editor.updateShape({
         id: videoId,
         type: video.type,
@@ -650,7 +687,8 @@ describe("paste applies both remaps in the right order", () => {
         {
           id: "shape:src-video",
           type: "youtube-embed",
-          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+          props: { videoId: "M7lc1UVf-VE" },
+          meta: { videoKey: "shape:src-video" },
         },
         {
           id: markerId,
@@ -699,8 +737,8 @@ describe("paste applies both remaps in the right order", () => {
       mintKey: () => "minted",
     });
 
-    const video = pasted.shapes[0] as { props: { videoKey: string } };
-    expect(video.props.videoKey).toBe("minted");
+    const video = pasted.shapes[0] as { meta: { videoKey: string } };
+    expect(video.meta.videoKey).toBe("minted");
     const marker = pasted.shapes[1] as { meta: { frame: unknown } };
     const parsed = parseFrameMeta(marker.meta.frame);
     if (
@@ -744,6 +782,7 @@ describe("timeline grouping", () => {
         id: keyframeId,
         x: 400,
         meta: {
+          videoKey: getVideoKey(video),
           frame: frameToMetaJson(
             videoCue({ trackId: "T-b", stepId: "s1", stepOrderKey: "a2" }),
           ),
@@ -767,13 +806,12 @@ describe("timeline grouping", () => {
 });
 
 describe("legacy records without the prop", () => {
-  it("validates a youtube-embed persisted before videoKey existed", () => {
-    // The store validates a snapshot while it is being created, long
-    // before any normalization can touch it — so a required prop here
-    // would reject the very documents this change means to upgrade.
-    expect(() =>
-      youTubeEmbedShapeProps.videoKey!.validate(undefined),
-    ).not.toThrow();
+  it("adds no validated prop, so older builds still load the document", () => {
+    // tldraw validates custom shape props and rejects one it does not
+    // know, so a `videoKey` prop would make a document that used this
+    // feature fail to load wholesale on an earlier release. The key
+    // lives in unvalidated `meta` for exactly that reason.
+    expect(youTubeEmbedShapeProps).not.toHaveProperty("videoKey");
   });
 
   it("materializes an absent key when the video is about to be copied", () => {
@@ -789,20 +827,13 @@ describe("legacy records without the prop", () => {
       });
       // Strip the key the minting handler wrote, leaving the record in
       // the shape a pre-change document has.
-      editor.updateShape({
-        id: videoId,
-        type: "youtube-embed",
-        props: { videoKey: undefined },
-      });
 
-      // Merely opening the document must not write the prop — an older
-      // build's validator rejects it, and that would make every opened
-      // document unloadable after a rollback.
+      // Merely opening a document must leave its records alone: this
+      // pass rewrites frames, which live in unvalidated meta, and never
+      // reaches for a video's own record.
+      const before = JSON.stringify(editor.getShape(videoId));
       normalizeVideoIdentity(editor);
-      expect(editor.getShape(videoId)?.props).not.toHaveProperty(
-        "videoKey",
-        videoId,
-      );
+      expect(JSON.stringify(editor.getShape(videoId))).toBe(before);
 
       // Copying is the first moment the key has to exist, or the copy
       // would fall back to its own id and become a different video.
@@ -810,7 +841,7 @@ describe("legacy records without the prop", () => {
 
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      expect(video.props.videoKey).toBe(videoId);
+      expect(video.meta.videoKey).toBe(videoId);
     } finally {
       dispose();
     }
@@ -826,7 +857,12 @@ describe("cross-document copy", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       editor.updateShape({
         id: videoId,
         type: video.type,
@@ -846,6 +882,7 @@ describe("cross-document copy", () => {
             id: keyframe.id as string,
             type: keyframe.type,
             props: keyframe.props,
+            meta: keyframe.meta,
           },
         ],
       };
@@ -949,7 +986,11 @@ describe("rotation tween", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const laterId = createShapeId("later");
-      editor.createShape({ ...video, id: laterId, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: laterId,
+        meta: { videoKey: getVideoKey(video) },
+      });
       // 179° → -179°: two degrees apart, but numerically 358.
       editor.updateShape({
         id: videoId,
@@ -1020,8 +1061,17 @@ describe("configuration handoff across a batch deletion", () => {
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeA = createShapeId("aaa-keyframe");
       const keyframeB = createShapeId("zzz-keyframe");
-      editor.createShape({ ...video, id: keyframeA, x: 400, meta: undefined });
-      editor.createShape({ ...video, id: keyframeB, x: 800, meta: undefined });
+      for (const [id, x] of [
+        [keyframeA, 400],
+        [keyframeB, 800],
+      ] as const) {
+        editor.createShape({
+          ...video,
+          id,
+          x,
+          meta: { videoKey: getVideoKey(video) },
+        });
+      }
       updateVideoConfig(editor, videoId, {
         url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
         videoId: "M7lc1UVf-VE",
@@ -1049,7 +1099,12 @@ describe("configuration handoff across a batch deletion", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
 
       editor.deleteShape(videoId);
 
@@ -1077,7 +1132,12 @@ describe("config edits reach every carrier", () => {
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
-      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
       // Changed AFTER the keyframe was created, so its birth snapshot
       // is already stale — and in a shared document nothing may write a
       // replacement at deletion time.

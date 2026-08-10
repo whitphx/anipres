@@ -122,9 +122,10 @@ export function ensureVideoKeyMaterialized(
   const pending = shapeIds
     .map((shapeId) => editor.getShape(shapeId))
     .filter(isYouTubeEmbedShape)
-    .filter(
-      (video) => video.props.videoKey == null || video.props.videoKey === "",
-    );
+    .filter((video) => {
+      const key = video.meta?.videoKey;
+      return typeof key !== "string" || key === "";
+    });
   if (pending.length === 0) {
     return;
   }
@@ -132,7 +133,7 @@ export function ensureVideoKeyMaterialized(
     pending.map((video) => ({
       id: video.id,
       type: YouTubeEmbedShapeType,
-      props: { videoKey: getVideoKey(video) },
+      meta: { ...video.meta, videoKey: getVideoKey(video) },
     })),
   );
 }

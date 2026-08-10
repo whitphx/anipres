@@ -19,10 +19,12 @@
  *   introduced for).
  * - 3: the `mediaControl` frame action plus the `youtube-embed` and
  *   `media-control` shapes and the `media-control` binding.
- * - 4: video identity — `youtube-embed` gains `videoKey`, and a
- *   `mediaControl` action names its target with one. An older build
- *   rejects the new prop outright, and would read an event whose
- *   binding is gone as an orphan to clean up.
+ * - 4: video identity — a `mediaControl` action names its target with
+ *   a `videoKey`, and events are written without the `media-control`
+ *   binding that used to carry it. The vocabulary itself is all in
+ *   `meta`, which an older build ignores, but its mount path deletes a
+ *   marker that has no binding as an orphan — so an older client must
+ *   not open one of these documents.
  *
  * The server gate matches this value exactly. In the deployment this
  * repo ships, the worker serves the app bundle, so both sides move

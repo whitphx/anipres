@@ -95,12 +95,12 @@ export function remapDuplicatedVideoKeys(
       carrierIds.map((id) => ({
         id,
         type: YouTubeEmbedShapeType,
-        props: {
-          ...(newKey !== oldKey ? { videoKey: newKey } : {}),
-          // Only the copy's own owner needs the configuration; the
-          // others resolve through it.
-          ...(config != null && id === ownerId ? config : {}),
-        },
+        ...(newKey !== oldKey
+          ? { meta: { ...editor.getShape(id)?.meta, videoKey: newKey } }
+          : {}),
+        // Only the copy's own owner needs the configuration; the others
+        // resolve through it.
+        ...(config != null && id === ownerId ? { props: { ...config } } : {}),
       })),
     );
   }
@@ -131,6 +131,12 @@ export function remapDuplicatedVideoKeys(
       },
     });
   }
+}
+
+/** The video a clipboard record belongs to; see `getVideoKey`. */
+function contentVideoKey(shape: { id: string; meta?: unknown }): string {
+  const key = (shape.meta as { videoKey?: unknown } | undefined)?.videoKey;
+  return typeof key === "string" && key !== "" ? key : shape.id;
 }
 
 /**
@@ -169,13 +175,10 @@ export function remapContentVideoKeys<
     if (shape.type !== YouTubeEmbedShapeType) {
       continue;
     }
-    const props = shape.props as { videoKey?: string } | undefined;
-    // A payload written before the prop existed falls back to the
-    // source shape's id, exactly as a stored record does.
-    const oldKey =
-      props?.videoKey != null && props.videoKey !== ""
-        ? props.videoKey
-        : shape.id;
+    // A payload from a video that was never copied carries no key, and
+    // falls back to the source shape's id exactly as a stored record
+    // does.
+    const oldKey = contentVideoKey(shape);
     if (!newKeyByOldKey.has(oldKey)) {
       newKeyByOldKey.set(oldKey, mintKey());
     }
@@ -187,11 +190,7 @@ export function remapContentVideoKeys<
     ...content,
     shapes: content.shapes.map((shape) => {
       if (shape.type === YouTubeEmbedShapeType) {
-        const props = shape.props as { videoKey?: string } | undefined;
-        const oldKey =
-          props?.videoKey != null && props.videoKey !== ""
-            ? props.videoKey
-            : shape.id;
+        const oldKey = contentVideoKey(shape);
         const newKey = newKeyByOldKey.get(oldKey);
         if (newKey == null) {
           return shape;
@@ -199,7 +198,11 @@ export function remapContentVideoKeys<
         const config = resolveSourceConfig?.(oldKey) ?? null;
         return {
           ...shape,
-          props: { ...(props ?? {}), ...(config ?? {}), videoKey: newKey },
+          props: {
+            ...(shape.props as object | undefined),
+            ...(config ?? {}),
+          },
+          meta: { ...(shape.meta as object | undefined), videoKey: newKey },
         };
       }
       if (shape.type !== MediaControlShapeType) {
@@ -300,17 +303,15 @@ export function canonicalizeContentVideoConfig<
     if (shape.type !== YouTubeEmbedShapeType) {
       return shape;
     }
-    const props = shape.props as { videoKey?: string } | undefined;
-    const videoKey =
-      props?.videoKey != null && props.videoKey !== ""
-        ? props.videoKey
-        : shape.id;
-    const config = resolveConfig(videoKey);
+    const config = resolveConfig(contentVideoKey(shape));
     if (config == null) {
       return shape;
     }
     changed = true;
-    return { ...shape, props: { ...(props ?? {}), ...config } };
+    return {
+      ...shape,
+      props: { ...(shape.props as object | undefined), ...config },
+    };
   });
   return changed ? { ...content, shapes } : content;
 }
