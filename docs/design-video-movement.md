@@ -854,29 +854,38 @@ fresh queue and epoch before accepting the edit. No operation is
 ever appended to a queue that cannot be replayed, and none is
 appended after a seal.
 
-The destination is a single durable **recovery database** per
-namespace, which is also what keeps local storage bounded. Per-load
-databases are not retained for the server's year-long replay lease —
-that lease governs how long an *operation* stays replayable, not how
-long a database must sit on disk — so every load compacts drained
-and sealed predecessors into the recovery database and deletes them.
-The steady state is therefore one database per live tab plus one
-recovery database per namespace, whatever the reload, crash or
-refresh-loop churn, and the lease applies to records inside the
-recovery database, where operations past the server's watermark
-retention leave a durable notice so the "could not be replayed"
-outcome can be surfaced rather than vanishing. Should a quota or
+The destination is never shared, because a shared destination is a
+shared bottleneck: a single recovery database per namespace would
+put every collector's migration behind one store, and a tab
+suspended mid-write there would block the others exactly as a shared
+queue did. Each collector migrates into **its own queue database** —
+the one it alone writes, created at its own load — so the whole
+protocol touches only the collector's private store and the sealed
+source it holds exclusively. No suspended tab can stand in another's
+way at any step.
+
+That is also what bounds local storage. Per-load databases are not
+retained for the server's year-long replay lease — that lease
+governs how long an *operation* stays replayable, not how long a
+database must sit on disk — so every load folds its sealed
+predecessors forward into its own database and deletes them, each
+load reducing the backlog rather than adding to it. The steady state
+is one database per live tab, whatever the reload, crash or
+refresh-loop churn. Operations past the server's watermark retention
+travel with the fold as a durable notice, so the "could not be
+replayed" outcome surfaces rather than vanishing. Should a quota or
 creation failure occur anyway, the tab surfaces it and refuses to
 accept queued edits it cannot persist rather than accepting them
 into memory it will lose.
 
 Tests wake a tab after its lease has expired and after its queue has
 been sealed; append immediately before expiry, crash before
-submission, and reload only after collection has begun; and churn
-repeated reloads with drained and undrained queues, asserting in
-each case that the edit is migrated or reported, never silently
-lost, and that database count, storage use and startup time stay
-bounded.
+submission, and reload only after collection has begun; suspend a
+tab mid-migration while other tabs close and reload repeatedly; and
+churn repeated reloads with drained and undrained queues — asserting
+in each case that the edit is migrated or reported, never silently
+lost, and that database count, storage use, startup time and the
+availability of new enqueues all stay bounded.
 
 Emptiness is therefore never a trigger, and a late append is not a
 hazard but an ordinary case: every load re-adopts any non-empty
