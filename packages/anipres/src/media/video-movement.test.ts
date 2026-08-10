@@ -1469,3 +1469,39 @@ describe("a refused duplicate leaves the original alone", () => {
     }
   });
 });
+
+describe("a legacy video keeps its identity through a group keyframe", () => {
+  it("materializes before the copies are built, not after", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      // A pre-change record: no identity of its own.
+      const videoId = createShapeId("legacy-video");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: { videoId: "M7lc1UVf-VE" },
+      });
+
+      // The grouped add-after path builds its copies from the source
+      // records, so the source has to be carrying its identity before
+      // any of them are constructed — materializing inside the write
+      // that follows is too late, and the copy becomes its own video.
+      ensureVideoKeyMaterialized(editor, [videoId]);
+      const source = editor.getShape(videoId)!;
+      const copyId = createShapeId("group-keyframe");
+      const copy = { ...source, id: copyId, x: 400 };
+      editor.createShape(copy);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id).sort()).toEqual(
+        [videoId, copyId].sort(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+});

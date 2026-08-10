@@ -490,6 +490,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           }}
           requestCueFrameAddAfterGroup={(shapeSelection) => {
             const selectedShapeId = shapeSelection.shapeId;
+            // Before anything is read, let alone cloned: the copies
+            // below are built from the source records, so a video whose
+            // identity was never written would hand its keyframe a
+            // blank one and the keyframe would become its own video.
+            ensureVideoKeyMaterialized(editor, [
+              ...editor.getShapeAndDescendantIds([selectedShapeId]),
+            ]);
 
             // The last selected frame per track, and the latest step any
             // of them belongs to — the new step goes right after it.
@@ -625,12 +632,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.run(
               () => {
                 applyStepKeyUpdates(insertion.updates);
-                // A keyframe is a copy of the video, so the source has
-                // to be carrying its identity before the copy is made.
-                ensureVideoKeyMaterialized(
-                  editor,
-                  clonedShapes.map(({ original }) => original.id),
-                );
                 editor.createShapes(shapesToCreate);
 
                 const rootCreatedShape = shapesToCreate.find(

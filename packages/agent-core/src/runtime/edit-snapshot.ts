@@ -19,10 +19,14 @@ export type SnapshotInput = Partial<TLEditorSnapshot> | TLStoreSnapshot;
 export interface EditSnapshotOptions {
   snapshot: SnapshotInput;
   /**
-   * Whether the result replaces the source document rather than merging
-   * into one that others may also be editing. Enables cleanup that
-   * needs a whole-document view — see anipres' `soleWriter`. Defaults
-   * to false.
+   * Whether the returned snapshot replaces the source document rather
+   * than merging into one others may also be editing.
+   *
+   * True by default, because that is this function's contract: it takes
+   * a whole snapshot and hands a whole snapshot back. Cleanup that
+   * needs a whole-document view — see anipres' `soleWriter` — depends on
+   * it, so a caller that merges the result instead must say so, or a
+   * video it deletes will leave its events behind as invisible records.
    */
   soleWriter?: boolean;
   prompt: string;
@@ -70,9 +74,9 @@ export async function editSnapshot(
 
   const [editor, dispose] = loadHeadlessEditor({
     snapshot: opts.snapshot,
-    // The caller hands back a whole snapshot to replace the document
-    // with, so this editor is its only writer for the edit's duration.
-    soleWriter: opts.soleWriter ?? false,
+    // The caller gets a whole snapshot to replace the document with, so
+    // this editor is its only writer for the edit's duration.
+    soleWriter: opts.soleWriter ?? true,
   });
   const transcript: AgentAction[] = [];
   try {
