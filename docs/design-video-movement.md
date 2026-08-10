@@ -1291,7 +1291,26 @@ reversible, not append-only: undoing the deletion — or any local
 restoration of the marker — cancels the pending prune, so what a
 client reports on connect is the net of its history, and a
 delete-then-undo reports nothing. Pruning is idempotent, and a prune
-naming a marker no tombstone holds is a no-op. The reset-path fixture
+naming a marker no tombstone holds is a no-op.
+
+That store and the editor's own persistence are two durable surfaces
+with no shared transaction, so their ordering is specified rather
+than assumed: the intent store is written **first** and is the
+source of truth, the editor mutation is the derived step, and each
+intent carries a phase — `intended`, then `applied` once the local
+record and its history entry exist, then retired on acknowledgement.
+Recovery therefore always converges forward: an intent found in
+`intended` after a crash is re-applied to the editor, which is safe
+because applying a deletion to an already-deleted marker is a no-op
+and the history entry is rebuilt with it. The reverse hazard — a
+committed editor deletion with no intent — cannot arise, because the
+intent precedes it. Undo after acknowledgement is likewise defined:
+the marker is restored as an ordinary creation and the prune is
+cancelled if still pending, or countered by that creation if not,
+which is exactly the durable-tombstone restore path. Crash tests cut
+the process at each boundary — intent persisted, record and history
+mutated, transmitted, acknowledged — and assert the editor and the
+intent store agree afterwards. The reset-path fixture
 drives the real reset and stash-reapply flow, not a hand-built final
 push, and one chain covers the full hazard: offline event delete,
 local undo, concurrent video tombstoning by another client,
