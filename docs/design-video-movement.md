@@ -804,11 +804,26 @@ enqueue with no principal available and assert no edit is ever
 attributed to a principal that did not author it. Binding happens once, before
 the first submission: the tab acquires an epoch and writes it into
 the queue in one transaction, after which the local sequence
-numbers are that epoch's. A queue is never rebound; if binding is
-somehow interrupted after any operation could have been
-transmitted, the queue is adopted as an orphan by a freshly bound
-one rather than reused, which is the same read-only path everything
-else recovers through. A test cold-loads offline, edits, crashes,
+numbers are that epoch's.
+
+Binding is **idempotent in the queue's own identity**, which is what
+makes an unbound orphan safe to adopt. Every queue mints a
+high-entropy id with its first local append, and the server maps
+that id to exactly one epoch per principal: whoever asks to bind it
+— the original tab returning, or any number of adopters racing —
+receives the same epoch back. Racing adopters therefore submit the
+same source operation under the same epoch and the same sequence,
+where the watermark recognizes the second as the replay it is.
+Without that mapping, each adopter would bind the orphan to an epoch
+of its own and the same edit could be applied twice, taking a later
+authoritative stamp and overwriting an intervening edit — precisely
+what exactly-once is supposed to prevent. A queue is never rebound
+to a different epoch; if binding is interrupted after any operation
+could have been transmitted, the id resolves to the same epoch on
+retry, so recovery is a repeat rather than a fork. Fixtures adopt
+one unbound queue from two collectors at once, with an intervening
+edit between them, and assert each operation applies exactly once —
+run for both an attributed queue and one released from quarantine. A test cold-loads offline, edits, crashes,
 reloads, authenticates, and asserts every offline edit reaches the
 server exactly once.
 
