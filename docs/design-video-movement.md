@@ -141,7 +141,13 @@ records of every event. Already on that page, rather than anywhere in
 the document, because moving a video to another page runs the same cut
 and paste: there the markers stayed behind on the page it left, and a
 video and its events being page-scoped, they have to be laid down again
-or the video arrives with nothing to play.
+or the video arrives with nothing to play. And already there by the
+identity of the frame it carries, not by its record's id alone: the
+move pastes a marker under a new id while keeping the event's frame
+identity, so moving the video back would not recognize the marker still
+sitting where it started, and would lay a second copy of the same event
+beside it — one more per round trip, each live the moment the video
+returns.
 
 A paste from elsewhere takes the configuration its payload carries,
 canonicalized where it was copied, and never this document's answer for

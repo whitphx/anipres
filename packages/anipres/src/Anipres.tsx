@@ -48,6 +48,7 @@ import { installVideoLifecycle } from "./media/marker-lifecycle";
 import { ensureVideoKeyMaterialized } from "./media/normalize-video-identity";
 import {
   applyPasteRemapToContent,
+  alreadyOnPage,
   dropContentAlreadyInDocument,
   canonicalizeContentVideoConfig,
 } from "./media/remap-video-keys";
@@ -739,17 +740,9 @@ const Inner = (props: InnerProps) => {
               editor.getShape(shapeId as TLShapeId) != null,
           });
           if (operation === "move") {
-            // On THIS page, not anywhere in the document. A cut and
-            // paste leaves the retained markers where they were, so
-            // they are already here and a second copy would double
-            // them. Moving a video to another page goes through the
-            // same cut and paste, and there the markers stayed behind
-            // on the page it left — a video and its events are
-            // page-scoped, so they have to be laid down here or the
-            // video arrives with nothing to play.
-            const onThisPage = editor.getCurrentPageShapeIds();
-            content = dropContentAlreadyInDocument(content, (shapeId) =>
-              onThisPage.has(shapeId as TLShapeId),
+            content = dropContentAlreadyInDocument(
+              content,
+              alreadyOnPage(editor),
             );
           }
           const remap = remapContentFrames({

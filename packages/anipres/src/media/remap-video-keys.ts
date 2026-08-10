@@ -341,12 +341,15 @@ export function remapContentVideoKeys<
  */
 export function dropContentAlreadyInDocument<
   T extends {
-    shapes: { id: string }[];
+    shapes: { id: string; meta?: unknown }[];
     bindings?: { fromId: string; toId: string }[];
   },
->(content: T, shapeIsAlreadyHere: (shapeId: string) => boolean): T {
+>(
+  content: T,
+  isAlreadyHere: (shape: { id: string; meta?: unknown }) => boolean,
+): T {
   const dropped = new Set(
-    content.shapes.map((shape) => shape.id).filter(shapeIsAlreadyHere),
+    content.shapes.filter(isAlreadyHere).map((shape) => shape.id),
   );
   if (dropped.size === 0) {
     return content;
@@ -363,6 +366,45 @@ export function dropContentAlreadyInDocument<
         }
       : {}),
   };
+}
+
+/**
+ * Whether a record a move is carrying is already on the page it is
+ * being laid down on.
+ *
+ * By its own id, and by the identity of the frame it carries. The
+ * second is what a page round trip needs: a move to another page pastes
+ * the marker under a NEW shape id while keeping the event's frame
+ * identity, so moving the video back would not recognize the marker
+ * still sitting where it started, and would lay a second copy of the
+ * same event beside it — once per round trip, each one live the moment
+ * the video returns.
+ */
+export function alreadyOnPage(
+  editor: Editor,
+): (shape: { id: string; meta?: unknown }) => boolean {
+  const shapeIds = editor.getCurrentPageShapeIds();
+  const frameIds = new Set<string>();
+  for (const shape of editor.getCurrentPageShapes()) {
+    const frameId = frameIdentityOf(shape.meta?.frame);
+    if (frameId != null) {
+      frameIds.add(frameId);
+    }
+  }
+  return (shape) => {
+    if (shapeIds.has(shape.id as TLShapeId)) {
+      return true;
+    }
+    const frameId = frameIdentityOf(
+      (shape.meta as { frame?: unknown } | undefined)?.frame,
+    );
+    return frameId != null && frameIds.has(frameId);
+  };
+}
+
+function frameIdentityOf(frameMeta: unknown): string | null {
+  const parsed = parseFrameMeta(frameMeta);
+  return parsed.kind === "v2" || parsed.kind === "v1" ? parsed.frame.id : null;
 }
 
 /**

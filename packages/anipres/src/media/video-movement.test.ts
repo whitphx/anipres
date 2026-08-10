@@ -44,6 +44,7 @@ import {
   applyPasteRemapToContent,
   canonicalizeContentVideoConfig,
   remapContentVideoKeys,
+  alreadyOnPage,
   dropContentAlreadyInDocument,
 } from "./remap-video-keys";
 import { youTubeEmbedShapeProps } from "../shapes/youtube-embed/YouTubeEmbedShape";
@@ -1640,7 +1641,7 @@ describe("cutting and pasting a video whose markers stayed behind", () => {
 
     const pasted = dropContentAlreadyInDocument(
       content,
-      (shapeId) => shapeId === "shape:marker",
+      (shape) => shape.id === "shape:marker",
     );
 
     expect(pasted.shapes.map((shape) => shape.id)).toEqual(["shape:video"]);
@@ -2214,6 +2215,48 @@ describe("a legacy event delivered before its video", () => {
       expect(manager.$getTotalSteps()).toBe(1);
       // And rebound to the carrier that survived, for an older build.
       expect(getMediaControlBindingTargetId(editor, markerId)).toBe(keyframeId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("what a move counts as already here", () => {
+  it("recognizes an event by its frame, not only by its shape id", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = markersOf(editor, videoId);
+      const frame = parseFrameMeta(marker.meta?.frame);
+      if (frame.kind !== "v2") throw new Error("expected a v2 frame");
+
+      const isAlreadyHere = alreadyOnPage(editor);
+
+      // Moving a video to another page pastes its marker under a new
+      // shape id while keeping the event's frame identity. Moving it
+      // back therefore arrives carrying an id this page has never
+      // seen, for an event that never left it.
+      expect(
+        isAlreadyHere({
+          id: createShapeId("pasted-elsewhere"),
+          meta: { frame: marker.meta?.frame },
+        }),
+      ).toBe(true);
+
+      // A genuinely new event is not already here.
+      expect(
+        isAlreadyHere({
+          id: createShapeId("unrelated"),
+          meta: {
+            frame: frameToMetaJson({ ...frame.frame, id: "another-frame" }),
+          },
+        }),
+      ).toBe(false);
     } finally {
       dispose();
     }
