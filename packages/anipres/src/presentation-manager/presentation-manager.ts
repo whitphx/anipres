@@ -37,7 +37,7 @@ import { writeLegacyMediaControlBinding } from "../shapes/media-control/MediaCon
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { getVideoTransitions } from "../media/video-transition";
-import { timelineShapesOf } from "../media/live-media-events";
+import { timelineShapesOfEditor } from "../media/live-media-events";
 import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
@@ -183,7 +183,7 @@ export class PresentationManager {
   /** The single derivation everything else consumes. Total: never throws. */
   @computed $getTimelineDoc(): TimelineDoc {
     return deriveTimeline({
-      shapes: timelineShapesOf(
+      shapes: timelineShapesOfEditor(
         this.editor,
         this.$getCurrentPageDescendantShapes(),
       ).map((shape) => ({

@@ -13,10 +13,15 @@ import {
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import {
+  getConfigOwnerCarrier,
   groupCarriersByVideoKey,
   resolveVideoConfig,
   type VideoConfig,
 } from "./video-anchor";
+import {
+  MediaControlBindingType,
+  writeLegacyMediaControlBinding,
+} from "../shapes/media-control/MediaControlBinding";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 import type { Frame } from "../timeline-model/types";
 
@@ -159,7 +164,46 @@ export function remapDuplicatedVideoKeys(
         }),
       },
     });
+    rebindCopiedMarker(editor, shape.id, newKey);
   }
+}
+
+/**
+ * Points a copied event's compatibility binding at the video it now
+ * names.
+ *
+ * Duplication creates the shapes first and rewrites their keys here
+ * afterwards, so the lifecycle's own repair has already run, against
+ * the key the marker arrived with. Whatever binding it has is from the
+ * source: pointing at the source's own carrier when that carrier was
+ * not part of the copy, or absent when it was a later keyframe that
+ * carried no binding. Either way an older build, which resolves an
+ * event only through the binding, would read the copy's event as the
+ * source video's or as an orphan to delete.
+ */
+function rebindCopiedMarker(
+  editor: Editor,
+  markerShapeId: TLShapeId,
+  videoKey: string,
+): void {
+  const carriers = groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+    videoKey,
+  );
+  const heir = carriers != null ? getConfigOwnerCarrier(carriers) : null;
+  if (heir == null) {
+    return;
+  }
+  const existing = editor.getBindingsFromShape(
+    markerShapeId,
+    MediaControlBindingType,
+  );
+  if (existing.some((binding) => binding.toId === heir.id)) {
+    return;
+  }
+  if (existing.length > 0) {
+    editor.deleteBindings(existing);
+  }
+  writeLegacyMediaControlBinding(editor, markerShapeId, heir.id);
 }
 
 /** The video a clipboard record belongs to; see `getVideoKey`. */
@@ -191,14 +235,23 @@ export function remapContentVideoKeys<
   /**
    * The source video's configuration, when the source document is this
    * one — a same-document copy of a later keyframe carries that
-   * keyframe's own props, which may be blank or superseded. An external
-   * paste has no source to ask, so the payload's own values stand.
+   * keyframe's own props, which may be blank or superseded.
+   *
+   * Consulted for a duplicate only, and ignored otherwise however the
+   * caller passes it. An external paste has no source here to ask: a
+   * key resolving in THIS document belongs to a different video that
+   * happens to share the key, two documents forked from one snapshot
+   * being all it takes, and answering from it would overwrite what the
+   * payload carries with the wrong video's settings. The payload was
+   * canonicalized where it was copied, so its own values stand.
    */
   resolveSourceConfig?: (videoKey: string) => VideoConfig | null,
 ): T {
   if (operation === "move") {
     return content;
   }
+  const sourceConfigOf =
+    operation === "duplicate" ? resolveSourceConfig : undefined;
   const newKeyByOldKey = new Map<string, string>();
   for (const shape of content.shapes) {
     if (shape.type !== YouTubeEmbedShapeType) {
@@ -224,7 +277,7 @@ export function remapContentVideoKeys<
         if (newKey == null) {
           return shape;
         }
-        const config = resolveSourceConfig?.(oldKey) ?? null;
+        const config = sourceConfigOf?.(oldKey) ?? null;
         // A fresh identity starts with a fresh revision history: the
         // stamps in the payload order the SOURCE video's edits, and
         // carrying them over would let a payload from anywhere pin this

@@ -1,7 +1,7 @@
 import type { Editor } from "tldraw";
 import {
   deriveTimeline,
-  timelineShapesOf,
+  timelineShapesOfEditor,
   type FrameAction,
 } from "anipres/models";
 import { resolveMediaControlTarget } from "anipres/schema";
@@ -37,7 +37,7 @@ function summarise(editor: Editor): {
   // media event whose video has no carrier left occupies no step, and
   // counting it would shift every later step out of line.
   const doc = deriveTimeline({
-    shapes: timelineShapesOf(editor, editor.getCurrentPageShapes()).map(
+    shapes: timelineShapesOfEditor(editor, editor.getCurrentPageShapes()).map(
       (shape) => ({
         shapeId: shape.id,
         frameMeta: shape.meta?.frame,

@@ -1,12 +1,21 @@
 import type { Editor, TLShape } from "tldraw";
 import {
   getVideoKey,
-  isYouTubeEmbedShape,
+  YouTubeEmbedShapeType,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import {
   MediaControlShapeType,
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
+import { MediaControlBindingType } from "../shapes/media-control/MediaControlBinding";
+import { parseFrameMeta } from "../timeline-model/parse";
+
+/** The least a record has to be for the rule below to read it. */
+interface TimelineShape {
+  id: string;
+  type: string;
+  meta?: Record<string, unknown>;
+}
 
 /**
  * The shapes a timeline is derived from, which is not every shape that
@@ -22,23 +31,83 @@ import {
  * same events, and should the video come back, by undo or from a peer,
  * its events come back with it.
  *
- * Everything deriving a timeline goes through here, the agent's
- * perception of the deck as much as the runtime's own: a reader
- * counting steps this one drops would number every later step
- * differently from the steps the user sees and the presentation plays.
+ * Everything that derives a timeline or counts steps goes through here
+ * — the runtime, the agent's perception of the deck, a snapshot counted
+ * without an editor — because a reader counting the steps this rule
+ * drops would number every later step differently from the steps the
+ * user sees and the presentation plays.
+ *
+ * How a marker names its video is the caller's to answer, since a live
+ * editor resolves the legacy binding through the store and a snapshot
+ * has to read the binding records itself.
  */
-export function timelineShapesOf(
-  editor: Editor,
-  shapes: readonly TLShape[],
-): TLShape[] {
+export function timelineShapesOf<T extends TimelineShape>(
+  shapes: readonly T[],
+  markerVideoKey: (shape: T) => string | null,
+): T[] {
   const liveVideoKeys = new Set(
-    shapes.filter(isYouTubeEmbedShape).map(getVideoKey),
+    shapes
+      .filter((shape) => shape.type === YouTubeEmbedShapeType)
+      .map((shape) => videoKeyOfRecord(shape)),
   );
   return shapes.filter((shape) => {
     if (shape.type !== MediaControlShapeType) {
       return true;
     }
-    const videoKey = resolveMediaControlVideoKey(editor, shape.id);
+    const videoKey = markerVideoKey(shape);
     return videoKey != null && liveVideoKeys.has(videoKey);
   });
+}
+
+/** The editor's answer: `resolveMediaControlVideoKey` reads the store. */
+export function timelineShapesOfEditor(
+  editor: Editor,
+  shapes: readonly TLShape[],
+): TLShape[] {
+  return timelineShapesOf(shapes, (shape) =>
+    resolveMediaControlVideoKey(editor, shape.id),
+  );
+}
+
+/**
+ * The same answer from records alone, for a snapshot counted without an
+ * editor: the frame's own target key, or the legacy binding's target
+ * when the frame predates it.
+ */
+export function timelineShapesOfRecords<T extends TimelineShape>(
+  shapes: readonly T[],
+  bindings: readonly { type: string; fromId: string; toId: string }[],
+): T[] {
+  const videoKeyById = new Map(
+    shapes
+      .filter((shape) => shape.type === YouTubeEmbedShapeType)
+      .map((shape) => [shape.id, videoKeyOfRecord(shape)] as const),
+  );
+  return timelineShapesOf(shapes, (shape) => {
+    const parsed = parseFrameMeta(shape.meta?.frame);
+    if (parsed.kind === "v2" && parsed.frame.action.type === "mediaControl") {
+      const videoKey = parsed.frame.action.videoKey;
+      if (videoKey != null) {
+        return videoKey;
+      }
+    }
+    const binding = bindings.find(
+      (candidate) =>
+        candidate.type === MediaControlBindingType &&
+        candidate.fromId === shape.id,
+    );
+    return binding != null ? (videoKeyById.get(binding.toId) ?? null) : null;
+  });
+}
+
+/**
+ * A carrier's video key read off the bare record, which is what
+ * `getVideoKey` does — the same fallback to the shape's own id for a
+ * video that has never been copied — without needing the shape typed.
+ */
+function videoKeyOfRecord(shape: TimelineShape): string {
+  return getVideoKey({
+    id: shape.id,
+    meta: shape.meta,
+  } as Parameters<typeof getVideoKey>[0]);
 }

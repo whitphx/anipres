@@ -54,11 +54,15 @@ described below is what finally removes.
 Staying is not the same as counting. Whether an event is part of the
 presentation is settled at read time, by the timeline derivation, which
 drops a media event whose video has no carrier on the page. Everything
-that derives a timeline goes through the same rule, the agent's
-perception of the deck as much as the runtime's own: a reader counting
-the steps this one drops would number every later step differently from
-the steps the user sees and the presentation plays, and an instruction
-naming a step by number would land on the wrong one. Deciding it
+that derives a timeline or counts steps goes through the same rule —
+the runtime, the agent's perception of the deck, a snapshot counted
+without an editor — because a reader counting the steps this one drops
+numbers every later step differently from the steps the user sees and
+the presentation plays: an instruction naming a step lands on the wrong
+one, and a deck allocating its clicks from that count spends one going
+nowhere. How a marker names its video is the only part that differs, a
+live editor resolving the legacy binding through the store where a
+snapshot reads the binding records itself. Deciding it
 there rather than by deleting the record needs no arbitration at all —
 every client sees the same carriers and drops the same events, no
 client writes anything, and nothing has to be settled before the
@@ -120,6 +124,19 @@ another document, which mints a fresh key and splits the video in two.
 And a move lays down only what it removed: a payload shape whose
 record is still there is dropped, with any binding that pointed at it,
 so the video does not end up with two records of every event.
+
+A paste from elsewhere takes the configuration its payload carries,
+canonicalized where it was copied, and never this document's answer for
+the same key. Two documents forked from one snapshot hold the same key
+for videos that have been edited apart since, so resolving it here
+would import the wrong video's settings. Only a duplicate, whose source
+is by definition in this document, asks.
+
+Duplication creates its shapes before their keys are rewritten, so the
+lifecycle's binding repair has already run against the key each copy
+arrived with. The remap therefore points a copied event's compatibility
+binding at the video it now names, rather than leaving it on the
+source's carrier or on nothing at all.
 
 The configuration transfer that shares that batch is gated on nothing:
 it runs wherever a carrier is deleted. It removes no record and mints

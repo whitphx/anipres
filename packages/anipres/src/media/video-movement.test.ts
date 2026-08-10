@@ -4,7 +4,10 @@ import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { PageRecordType } from "tldraw";
 import type { TLPageId } from "tldraw";
-import { loadHeadlessEditor } from "../headless-editor-utils";
+import {
+  calculateTotalSteps,
+  loadHeadlessEditor,
+} from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
 import { transitionProgress } from "./video-transition";
 import { createDuplicateShapesRemap } from "../duplicate-shapes-remap";
@@ -2026,6 +2029,121 @@ describe("a video's first keyframe in a batch", () => {
     } finally {
       dispose();
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("counting a snapshot's steps", () => {
+  it("drops an orphaned event the way the runtime does", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      expect(calculateTotalSteps(editor.getSnapshot())).toBe(
+        manager.$getTotalSteps(),
+      );
+
+      // A shared document keeps the marker when the video's last
+      // carrier goes.
+      editor.deleteShapes([videoId]);
+      expect(markersOf(editor, videoId)).toHaveLength(1);
+
+      // The Slidev addon allocates its clicks from this count, so a
+      // step the presentation does not run is a click that goes
+      // nowhere and shifts every later one.
+      expect(calculateTotalSteps(editor.getSnapshot())).toBe(
+        manager.$getTotalSteps(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("pasting from a document forked from this one", () => {
+  it("keeps the payload's video, not the one sharing its key here", () => {
+    // Both documents descend from one snapshot, so the copied video and
+    // a video here carry the same key, and each was edited since.
+    const sharedKey = "shape:shared";
+    const content = {
+      shapes: [
+        {
+          id: sharedKey,
+          type: "youtube-embed",
+          props: { videoId: "FROM_THE_SOURCE" },
+          meta: { videoKey: sharedKey },
+        },
+      ],
+    };
+
+    const pasted = remapContentVideoKeys(
+      content,
+      "external-paste",
+      () => "minted",
+      // This document's answer for that key: a different video.
+      () => ({
+        videoId: "FROM_HERE",
+        url: "",
+        start: 0,
+        muted: false,
+        controls: true,
+        altText: "",
+      }),
+    );
+
+    const video = pasted.shapes[0] as { props: { videoId: string } };
+    expect(video.props.videoId).toBe("FROM_THE_SOURCE");
+  });
+});
+
+describe("duplicating a later keyframe of a video with events", () => {
+  it("binds the copied event to a carrier of the copy", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+
+      createDuplicateShapesRemap(editor, () =>
+        manager.$getTimelineDoc(),
+      ).install();
+      // The later keyframe alone, so the carrier the source event is
+      // bound to is not part of the copy.
+      editor.select(keyframeId);
+      editor.duplicateShapes([keyframeId], { x: 100, y: 0 });
+
+      const copiedVideos = editor
+        .getCurrentPageShapes()
+        .filter(isYouTubeEmbedShape)
+        .filter((shape) => shape.id !== videoId && shape.id !== keyframeId);
+      expect(copiedVideos).toHaveLength(1);
+      const copyKey = getVideoKey(copiedVideos[0]);
+      const [copiedMarker] = markersOf(editor, copyKey);
+      expect(copiedMarker).not.toBeUndefined();
+
+      // An older build resolves an event only through this binding, so
+      // one pointing at the source video would have the copy's event
+      // drive the original, and none at all would have it deleted.
+      const boundTo = getMediaControlBindingTargetId(editor, copiedMarker.id);
+      expect(copiedVideos.map((shape) => shape.id)).toContain(boundTo);
+    } finally {
+      dispose();
     }
   });
 });
