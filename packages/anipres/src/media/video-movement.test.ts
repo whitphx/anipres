@@ -1649,8 +1649,16 @@ describe("cutting and pasting a video whose markers stayed behind", () => {
     expect(pasted.bindings).toEqual([]);
   });
 
-  it("leaves a payload alone when nothing survived the cut", () => {
-    const content = { shapes: [{ id: "shape:video", type: "youtube-embed" }] };
+  it("lays down everything when none of it is already here", () => {
+    // Both readings of "already here": nothing survived the cut, and a
+    // move to another page, whose markers stayed behind on the page
+    // the video left and so are not on this one.
+    const content = {
+      shapes: [
+        { id: "shape:video", type: "youtube-embed" },
+        { id: "shape:marker", type: "media-control" },
+      ],
+    };
     expect(dropContentAlreadyInDocument(content, () => false)).toBe(content);
   });
 });

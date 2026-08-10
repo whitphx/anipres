@@ -134,9 +134,14 @@ the payload, rather than from the ids the payload ended up carrying —
 otherwise one id gone and another still present reads as mixed
 presence, and an ordinary cut and paste is taken for an import from
 another document, which mints a fresh key and splits the video in two.
-And a move lays down only what it removed: a payload shape whose
-record is still there is dropped, with any binding that pointed at it,
-so the video does not end up with two records of every event.
+And a move lays down only what it removed: a payload shape whose record
+is already on the page the content is going to is dropped, with any
+binding that pointed at it, so the video does not end up with two
+records of every event. Already on that page, rather than anywhere in
+the document, because moving a video to another page runs the same cut
+and paste: there the markers stayed behind on the page it left, and a
+video and its events being page-scoped, they have to be laid down again
+or the video arrives with nothing to play.
 
 A paste from elsewhere takes the configuration its payload carries,
 canonicalized where it was copied, and never this document's answer for

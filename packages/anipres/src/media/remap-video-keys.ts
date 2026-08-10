@@ -333,17 +333,20 @@ export function remapContentVideoKeys<
  * records of every event.
  *
  * A move re-creates what it removed and nothing else, so a shape whose
- * source record is still there is dropped, along with any binding that
- * pointed at it.
+ * record is already where the content is going is dropped, along with
+ * any binding that pointed at it. Already *here* rather than anywhere
+ * in the document: a video moved to another page leaves its markers
+ * behind on the page it left, and those have to be laid down again,
+ * a video and its events being page-scoped.
  */
 export function dropContentAlreadyInDocument<
   T extends {
     shapes: { id: string }[];
     bindings?: { fromId: string; toId: string }[];
   },
->(content: T, shapeExistsInDocument: (shapeId: string) => boolean): T {
+>(content: T, shapeIsAlreadyHere: (shapeId: string) => boolean): T {
   const dropped = new Set(
-    content.shapes.map((shape) => shape.id).filter(shapeExistsInDocument),
+    content.shapes.map((shape) => shape.id).filter(shapeIsAlreadyHere),
   );
   if (dropped.size === 0) {
     return content;
