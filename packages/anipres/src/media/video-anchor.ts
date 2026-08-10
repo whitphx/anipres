@@ -383,22 +383,32 @@ export function updateVideoConfig(
       s: session,
     };
   }
-  editor.updateShapes(
-    carriers.map((carrier) => ({
-      id: carrier.id,
-      type: carrier.type,
-      props: { ...patch },
-      meta: {
-        ...carrier.meta,
-        videoConfigRev: {
-          ...(typeof carrier.meta?.videoConfigRev === "object" &&
-          carrier.meta.videoConfigRev != null
-            ? carrier.meta.videoConfigRev
-            : {}),
-          ...stamps,
-        },
-      },
-    })),
+  // Locked too. A lock says a shape must not be moved or reshaped on
+  // the canvas; it says nothing about which records make up one video,
+  // and skipping a locked carrier would leave it holding a stale
+  // configuration to seat later, when the carrier that was edited is
+  // deleted.
+  editor.run(
+    () => {
+      editor.updateShapes(
+        carriers.map((carrier) => ({
+          id: carrier.id,
+          type: carrier.type,
+          props: { ...patch },
+          meta: {
+            ...carrier.meta,
+            videoConfigRev: {
+              ...(typeof carrier.meta?.videoConfigRev === "object" &&
+              carrier.meta.videoConfigRev != null
+                ? carrier.meta.videoConfigRev
+                : {}),
+              ...stamps,
+            },
+          },
+        })),
+      );
+    },
+    { ignoreShapeLock: true },
   );
 }
 
@@ -512,5 +522,11 @@ export function restoreStampedVideoConfig(
   if (updates.length === 0) {
     return;
   }
-  editor.updateShapes(updates);
+  // Locked as well, for the reason `updateVideoConfig` is.
+  editor.run(
+    () => {
+      editor.updateShapes(updates);
+    },
+    { ignoreShapeLock: true },
+  );
 }

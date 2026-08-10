@@ -1561,6 +1561,82 @@ describe("a tween outliving its own clock", () => {
   });
 });
 
+describe("a locked carrier", () => {
+  it("still receives the video's configuration and its repair", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+      const lockedId = createShapeId("zzz-locked");
+      editor.createShape({
+        ...original,
+        id: lockedId,
+        x: 900,
+        isLocked: true,
+        meta: { videoKey: videoId },
+      });
+
+      // Configuring the video reaches every carrier of it, locked or
+      // not: the lock is about moving a shape on the canvas, not about
+      // which records make up one video.
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+      const locked = editor.getShape(lockedId);
+      if (!isYouTubeEmbedShape(locked)) throw new Error("expected a video");
+      expect(locked.props.videoId).toBe("EDITED");
+
+      // And the deletion repair reaches it too, so it is not left
+      // holding a blank video after the carrier that was configured
+      // goes away.
+      editor.deleteShapes([videoId]);
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("still receives it when the lock is on an ancestor", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+      const groupedId = createShapeId("zzz-grouped");
+      const companionId = createShapeId("zzz-companion");
+      editor.createShape({
+        ...original,
+        id: groupedId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      editor.createShape({
+        id: companionId,
+        type: "geo",
+        x: 1200,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      // groupShapes silently no-ops in the headless harness; assemble
+      // the group the way it does internally.
+      const groupId = createShapeId("zzz-group");
+      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([groupedId, companionId], groupId);
+      editor.updateShape({ id: groupId, type: "group", isLocked: true });
+
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+
+      const grouped = editor.getShape(groupedId);
+      if (!isYouTubeEmbedShape(grouped)) throw new Error("expected a video");
+      expect(grouped.props.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a carrier arriving from a peer", () => {
   it("is stored as sent, not corrected towards this client's view", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });

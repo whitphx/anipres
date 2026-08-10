@@ -709,7 +709,11 @@ be, because edits are deliberately routed to the same carrier — two
 offline clients editing one prop from counter N both write N+1 to
 the same record, and only the session id separates them. An edit
 writes the edited props, each stamped one past its highest seen
-counter, and may land on any carrier — by convention the key-named
+counter, reaching locked carriers as well — a lock says a shape must
+not be moved or reshaped on the canvas, never that it has stopped
+being part of the video, and a carrier skipped here would sit on a
+stale configuration ready to seat it the moment the edited carrier is
+deleted — and may land on any carrier — by convention the key-named
 shape while it lives, the smallest id otherwise — because
 correctness never depends on which record holds a value, only on the
 stamp it travels with. Props never stamped resolve from the
