@@ -52,7 +52,11 @@ why withholding it costs a shared document nothing a user can see.
 
 A video is page-scoped: its carriers, and the markers of its events,
 resolve against one page's shapes. So a deletion repairs the page the
-deleted record was on, read while it is still resolvable, and not
+deleted record was on, read while it is still resolvable, and the
+records it captured are held against that page rather than pooled —
+one key can sit on two pages, a page having been duplicated or a
+document imported, and a batch deleting a carrier on each would
+otherwise repair both from whichever capture came first. Not
 whichever page happens to be open — a carrier deleted on a page the
 user is not looking at would otherwise be repaired against a page that
 holds none of its video, which repairs nothing and leaves a survivor
@@ -60,6 +64,12 @@ on the real page holding whatever it last saw. `videoKey` itself is
 the exception, being document-wide: normalization walks every page,
 since a legacy video left unnormalized elsewhere would have a
 follow-up keyframe mint a new key and split it in two.
+
+Deleting a legacy event that resolves to nothing is gated the way the
+cascade is. Unresolvable now is not unresolvable for good: in a shared
+document the video, or the binding, may simply not have arrived, and a
+peer's undo can bring either back. The record stays, and stays inert,
+until it resolves or a client that owns the document settles it.
 
 An event's target key is read as absent when it is present but empty.
 An empty key names no video, and normalization takes any key that is

@@ -35,7 +35,10 @@ import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
  * Reads only what is in the store, so it is deterministic and
  * idempotent: running it again changes nothing.
  */
-export function normalizeVideoIdentity(editor: Editor): void {
+export function normalizeVideoIdentity(
+  editor: Editor,
+  options: { soleWriter: boolean },
+): void {
   // Every page, not just the open one: a legacy video left unnormalized
   // on another page would have a follow-up keyframe copied from it mint
   // a NEW key — splitting one video in two the first time it is
@@ -62,7 +65,17 @@ export function normalizeVideoIdentity(editor: Editor): void {
     const targetId = getMediaControlBindingTargetId(editor, shape.id);
     const target = targetId != null ? editor.getShape(targetId) : null;
     if (!isYouTubeEmbedShape(target)) {
-      orphanedMarkerIds.push(shape.id);
+      // Unresolvable now is not unresolvable for good: in a shared
+      // document the target, or the binding, may simply not have
+      // arrived, and a peer's undo can bring either back. Deleting on
+      // that evidence destroys an event that cannot be reconstructed,
+      // which is the same claim the last-carrier cascade declines to
+      // make. The record stays instead, and stays inert — the timeline
+      // derivation drops an event naming no live video — until it
+      // resolves or an authoritative cleanup settles it.
+      if (options.soleWriter) {
+        orphanedMarkerIds.push(shape.id);
+      }
       continue;
     }
     markerUpdates.push({ shape, videoKey: getVideoKey(target) });

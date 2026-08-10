@@ -176,7 +176,7 @@ export function installVideoLifecycle(
   // The load-side normalization authority for an unsynced document:
   // legacy videos get their `videoKey`, legacy events get the target key
   // that used to live in a binding.
-  normalizeVideoIdentity(editor);
+  normalizeVideoIdentity(editor, { soleWriter });
   // A placed video mints its identity as its own id. Written at
   // creation rather than left to the read-time fallback: a follow-up
   // keyframe copied from a video whose key was never stored would fall
@@ -223,14 +223,17 @@ export function installVideoLifecycle(
   // completed operation would make an unrelated edit able to remove
   // markers, which is a wider claim than "this operation deleted the
   // video".
-  let deletedCarrierKeys: Set<string> | null = null;
-  // The pages the deletions touched, read while the records are still
-  // resolvable: by the time the operation completes they are gone, and
-  // with them any way to ask which page they were on.
-  let deletedPageIds: Set<TLPageId> | null = null;
-  const capturedConfigs = new Map<string, StampedVideoConfig>();
+  // Per page, because a video is resolved per page: the same key can
+  // sit on two of them — a duplicated page, an imported document —
+  // and a batch deleting a carrier on each would otherwise repair both
+  // from whichever capture came first, writing one page's settings
+  // over the other's.
+  let deletedByPage: Map<TLPageId, Set<string>> | null = null;
+  const capturedByPage = new Map<TLPageId, Map<string, StampedVideoConfig>>();
   // Read while every carrier is still present: the stamps that won a
-  // property may live only on the record about to go.
+  // property may live only on the record about to go. The page has to
+  // be read here too — once the operation completes the record is
+  // gone, and with it any way to ask which page it was on.
   const stopCaptureConfigs = editor.sideEffects.registerBeforeDeleteHandler(
     "shape",
     (shape) => {
@@ -238,44 +241,42 @@ export function installVideoLifecycle(
         return;
       }
       const pageId = editor.getAncestorPageId(shape);
-      if (pageId != null) {
-        deletedPageIds ??= new Set();
-        deletedPageIds.add(pageId);
-      }
-      const videoKey = getVideoKey(shape);
-      if (capturedConfigs.has(videoKey)) {
+      if (pageId == null) {
         return;
       }
-      const captured = readStampedVideoConfig(
+      deletedByPage ??= new Map();
+      const videoKey = getVideoKey(shape);
+      const keys = deletedByPage.get(pageId) ?? new Set<string>();
+      keys.add(videoKey);
+      deletedByPage.set(pageId, keys);
+
+      let captured = capturedByPage.get(pageId);
+      if (captured == null) {
+        captured = new Map();
+        capturedByPage.set(pageId, captured);
+      }
+      if (captured.has(videoKey)) {
+        return;
+      }
+      const config = readStampedVideoConfig(
         groupCarriersByVideoKey(shapesOnSamePage(editor, shape)).get(
           videoKey,
         ) ?? [],
       );
-      if (captured != null) {
-        capturedConfigs.set(videoKey, captured);
+      if (config != null) {
+        captured.set(videoKey, config);
       }
-    },
-  );
-  const stopWatchDeletes = editor.sideEffects.registerAfterDeleteHandler(
-    "shape",
-    (shape) => {
-      if (!isYouTubeEmbedShape(shape)) {
-        return;
-      }
-      deletedCarrierKeys ??= new Set();
-      deletedCarrierKeys.add(getVideoKey(shape));
     },
   );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
-      const keys = deletedCarrierKeys;
-      deletedCarrierKeys = null;
-      if (keys == null) {
+      const byPage = deletedByPage;
+      deletedByPage = null;
+      if (byPage == null) {
+        capturedByPage.clear();
         return;
       }
-      const pageIds = deletedPageIds ?? new Set<TLPageId>();
-      deletedPageIds = null;
-      for (const pageId of pageIds) {
+      for (const [pageId, keys] of byPage) {
         const shapes = [...editor.getPageShapeIds(pageId)]
           .map((shapeId) => editor.getShape(shapeId))
           .filter((shape) => shape != null);
@@ -291,20 +292,20 @@ export function installVideoLifecycle(
         // carrier whose stamps won a property would drop the video back
         // to whatever a stale carrier happened to be holding, with
         // nothing left to say the configuration had ever been edited.
-        for (const [videoKey, captured] of capturedConfigs) {
+        for (const [videoKey, captured] of capturedByPage.get(pageId) ??
+          new Map<string, StampedVideoConfig>()) {
           restoreStampedVideoConfig(editor, videoKey, captured, shapes);
         }
         if (soleWriter) {
           deleteOrphanedMediaMarkers(editor, keys, shapes);
         }
       }
-      capturedConfigs.clear();
+      capturedByPage.clear();
     },
   );
   return () => {
     stopMinting();
     stopCaptureConfigs();
-    stopWatchDeletes();
     stopParking();
     stopCleanup();
   };

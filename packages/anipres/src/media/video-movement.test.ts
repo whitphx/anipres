@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { PageRecordType } from "tldraw";
+import type { TLPageId } from "tldraw";
 import { loadHeadlessEditor } from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
 import { transitionProgress } from "./video-transition";
@@ -292,7 +293,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      normalizeVideoIdentity(editor);
+      normalizeVideoIdentity(editor, { soleWriter: true });
 
       // Read as no key at all, so the binding still recovers it rather
       // than the event pointing at a video that cannot exist.
@@ -347,7 +348,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      normalizeVideoIdentity(editor);
+      normalizeVideoIdentity(editor, { soleWriter: true });
 
       // The event's target is filled in from the binding; the video's
       // own key is not written, because merely opening a document must
@@ -384,7 +385,7 @@ describe("normalizeVideoIdentity", () => {
         },
       });
 
-      normalizeVideoIdentity(editor);
+      normalizeVideoIdentity(editor, { soleWriter: true });
 
       expect(editor.getShape(markerId)).toBeUndefined();
     } finally {
@@ -897,7 +898,7 @@ describe("legacy records without the prop", () => {
       // pass rewrites frames, which live in unvalidated meta, and never
       // reaches for a video's own record.
       const before = JSON.stringify(editor.getShape(videoId));
-      normalizeVideoIdentity(editor);
+      normalizeVideoIdentity(editor, { soleWriter: true });
       expect(JSON.stringify(editor.getShape(videoId))).toBe(before);
 
       // Copying is the first moment the key has to exist, or the copy
@@ -1038,7 +1039,7 @@ describe("normalization covers every page", () => {
       // Back to the first page, so the legacy records are off-screen.
       editor.setCurrentPage(otherPageId);
 
-      normalizeVideoIdentity(editor);
+      normalizeVideoIdentity(editor, { soleWriter: true });
 
       const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
       if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
@@ -1700,6 +1701,115 @@ describe("deleting a carrier on a page that is not open", () => {
       // page too.
       editor.deleteShapes([keyframeId]);
       expect(markersOnOtherPage()).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("an unresolvable legacy event in a shared document", () => {
+  it("is kept, inert, until its video arrives", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      // A marker whose binding target has not arrived yet.
+      const markerId = createShapeId("legacy-marker");
+      editor.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
+      });
+
+      normalizeVideoIdentity(editor, { soleWriter: false });
+
+      // Kept, because absence now is not absence for good — but inert,
+      // so it occupies no step while it names no live video.
+      expect(editor.getShape(markerId)).not.toBeUndefined();
+      expect(manager.$getTotalSteps()).toBe(0);
+
+      // The video and its binding arrive from the peer.
+      const videoId = createVideo(editor, "video");
+      editor.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
+      });
+      normalizeVideoIdentity(editor, { soleWriter: false });
+
+      expect(manager.$getTotalSteps()).toBe(1);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("one batch deleting carriers on two pages", () => {
+  it("repairs each page from its own capture", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      // The same key on two pages: a duplicated page, or an import.
+      const sharedKey = "video-key";
+      const [firstPage] = editor.getPages();
+      const secondPageId = PageRecordType.createId("second");
+      editor.createPage({ id: secondPageId, name: "Second" });
+
+      const build = (pageId: TLPageId, suffix: string, videoId: string) => {
+        editor.setCurrentPage(pageId);
+        const ownerId = createVideo(editor, `owner-${suffix}`);
+        const owner = editor.getShape(ownerId);
+        if (!isYouTubeEmbedShape(owner)) throw new Error("expected a video");
+        editor.updateShape({
+          id: ownerId,
+          type: owner.type,
+          meta: { ...owner.meta, videoKey: sharedKey },
+        });
+        const survivorId = createShapeId(`zzz-survivor-${suffix}`);
+        editor.createShape({
+          ...owner,
+          id: survivorId,
+          x: 900,
+          meta: { videoKey: sharedKey },
+        });
+        updateVideoConfig(editor, sharedKey, { videoId });
+        return { ownerId, survivorId };
+      };
+      const first = build(firstPage.id, "first", "FIRST");
+      const second = build(secondPageId, "second", "SECOND");
+      // A second edit, so this page's revisions outrank the other's and
+      // a repair that mixed the two would actually take.
+      updateVideoConfig(editor, sharedKey, { videoId: "SECOND" });
+
+      // One operation, spanning both pages, so the repair sees both
+      // pages' captures at once.
+      editor.setCurrentPage(firstPage.id);
+      editor.deleteShapes([first.ownerId, second.ownerId]);
+
+      const configOn = (pageId: TLPageId) =>
+        resolveVideoConfig(
+          groupCarriersByVideoKey(
+            [...editor.getPageShapeIds(pageId)]
+              .map((shapeId) => editor.getShape(shapeId))
+              .filter((shape) => shape != null),
+          ).get(sharedKey) ?? [],
+        )?.videoId;
+
+      expect(configOn(firstPage.id)).toBe("FIRST");
+      expect(configOn(secondPageId)).toBe("SECOND");
     } finally {
       dispose();
     }
