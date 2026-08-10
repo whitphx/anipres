@@ -2148,6 +2148,70 @@ describe("duplicating a later keyframe of a video with events", () => {
   });
 });
 
+describe("a legacy event delivered before its video", () => {
+  it("survives the deletion of the carrier it was bound to", () => {
+    // A shared room delivers records in whatever order it likes, and
+    // the lifecycle normalizes once, when it is installed.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const markerId = createShapeId("legacy-marker");
+      editor.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            // Pre-videoKey: the binding is the only record of what
+            // this event controls.
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
+      });
+
+      // Then the video, a second carrier of it, and the binding.
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("zzz-keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      editor.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
+      });
+      expect(manager.$getTotalSteps()).toBe(1);
+
+      // tldraw takes a binding away with the record it points at, so
+      // an event that named its video only through the binding would
+      // be left naming nothing, resolvable by no route at all.
+      editor.deleteShapes([videoId]);
+
+      expect(editor.getShape(markerId)).not.toBeUndefined();
+      expect(manager.$getTotalSteps()).toBe(1);
+      // And rebound to the carrier that survived, for an older build.
+      expect(getMediaControlBindingTargetId(editor, markerId)).toBe(keyframeId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

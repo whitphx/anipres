@@ -98,6 +98,19 @@ the exception, being document-wide: normalization walks every page,
 since a legacy video left unnormalized elsewhere would have a
 follow-up keyframe mint a new key and split it in two.
 
+A legacy event's target key is written into its own frame the moment a
+binding says what it controls, rather than only by the pass that runs
+when the lifecycle is installed. A shared room delivers records in
+whatever order it likes, so a marker can arrive ahead of both its
+binding and its video; resolution falls back to the binding as soon as
+that lands, and the event works, but nothing has recorded the key.
+tldraw takes a binding away with the record it points at, so deleting
+that carrier while another carrier of the same video survives would
+leave the event naming nothing, resolvable by no route, and it would
+drop out of the presentation for good. The write is deterministic —
+read off a binding every client already has — so a shared document is
+safe.
+
 Deleting a legacy event that resolves to nothing is gated the way the
 cascade is. Unresolvable now is not unresolvable for good: in a shared
 document the video, or the binding, may simply not have arrived, and a

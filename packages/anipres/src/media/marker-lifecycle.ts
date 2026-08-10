@@ -29,6 +29,7 @@ import {
 } from "./video-anchor";
 import {
   getMediaControlBindingTargetId,
+  MediaControlBindingType,
   writeLegacyMediaControlBinding,
 } from "../shapes/media-control/MediaControlBinding";
 import {
@@ -36,6 +37,7 @@ import {
   isYouTubeEmbedShape,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
+import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 
 interface MarkerPlacement {
   markerId: TLShapeId;
@@ -151,6 +153,64 @@ function shapesOnPage(editor: Editor, pageId: TLPageId): TLShape[] {
 function shapesOnSamePage(editor: Editor, shape: TLShape): TLShape[] {
   const pageId = editor.getAncestorPageId(shape);
   return pageId == null ? [] : shapesOnPage(editor, pageId);
+}
+
+/**
+ * Writes a legacy event's target key into its own frame, once there is
+ * a binding that says what it controls.
+ *
+ * Normalization runs when the lifecycle is installed, which in a shared
+ * room is before the document has finished arriving: a marker can be
+ * delivered ahead of its binding and its video. Resolution falls back
+ * to the binding as soon as it lands, so the event works — but nothing
+ * has written the key, and tldraw removes a binding along with the
+ * record it points at. Deleting that carrier while another carrier of
+ * the same video survives would then leave the marker naming nothing at
+ * all, resolvable by no route, and the event would drop out of the
+ * presentation for good.
+ *
+ * Deterministic, so a shared document is safe: the key is read off the
+ * binding every client already has, and every client writes the same
+ * one.
+ */
+function materializeMarkerVideoKey(
+  editor: Editor,
+  markerShapeId: TLShapeId,
+): void {
+  const marker = editor.getShape(markerShapeId);
+  if (marker?.type !== MediaControlShapeType) {
+    return;
+  }
+  const parsed = parseFrameMeta(marker.meta?.frame);
+  if (
+    parsed.kind !== "v2" ||
+    parsed.frame.action.type !== "mediaControl" ||
+    parsed.frame.action.videoKey != null
+  ) {
+    return;
+  }
+  const videoKey = resolveMediaControlVideoKey(editor, markerShapeId);
+  if (videoKey == null) {
+    return;
+  }
+  editor.run(
+    () => {
+      editor.updateShape({
+        id: marker.id,
+        type: marker.type,
+        meta: {
+          ...marker.meta,
+          frame: frameToMetaJson({
+            ...parsed.frame,
+            action: { ...parsed.frame.action, videoKey },
+          }),
+        },
+      });
+    },
+    // Normalization, not a user edit — the same scope the load-time
+    // pass uses, for the same reason.
+    { history: "ignore", ignoreShapeLock: true },
+  );
 }
 
 export interface VideoLifecycleOptions {
@@ -299,6 +359,15 @@ export function installVideoLifecycle(
       createdByPage.set(pageId, keys);
     },
   );
+  const stopWatchBindings = editor.sideEffects.registerAfterCreateHandler(
+    "binding",
+    (binding) => {
+      if (binding.type !== MediaControlBindingType) {
+        return;
+      }
+      materializeMarkerVideoKey(editor, binding.fromId);
+    },
+  );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
       const byPage = deletedByPage;
@@ -346,6 +415,7 @@ export function installVideoLifecycle(
     stopMinting();
     stopCaptureConfigs();
     stopWatchCreates();
+    stopWatchBindings();
     stopParking();
     stopCleanup();
   };
