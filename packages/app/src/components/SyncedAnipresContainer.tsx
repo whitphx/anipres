@@ -404,6 +404,7 @@ export function SyncedAnipresContainer({
     <Anipres
       key={documentId}
       store={storeWithStatus}
+      collaborative
       colorScheme={colorScheme}
       maxAssetSize={MAX_ASSET_SIZE}
     />

@@ -323,6 +323,7 @@ interface InnerProps {
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   store?: TLStore | TLStoreWithStatus;
   perInstanceAtoms: AnipresAtoms;
+  collaborative?: boolean;
   assetUrls?: TldrawProps["assetUrls"];
   maxAssetSize?: TldrawProps["maxAssetSize"];
   user: TLUser;
@@ -333,6 +334,7 @@ const Inner = (props: InnerProps) => {
     snapshot,
     store,
     perInstanceAtoms,
+    collaborative,
     assetUrls,
     maxAssetSize,
     user,
@@ -350,10 +352,11 @@ const Inner = (props: InnerProps) => {
 
     stopHandlers.push(
       installVideoLifecycle(editor, {
-        // A `store` prop is how a synced document is handed in, and the
-        // last-carrier cascade is a claim no client can settle against
-        // concurrent editors — see VideoLifecycleOptions.
-        soleWriter: store == null,
+        // Declared by the host, never inferred from whether a `store`
+        // was passed: a synced document edited offline is mounted from
+        // a snapshot and its edits merge later, so it has collaborators
+        // even with no store in sight. See VideoLifecycleOptions.
+        soleWriter: !collaborative,
       }),
     );
 
@@ -877,6 +880,16 @@ export interface AnipresProps {
   onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
   snapshot?: InnerProps["snapshot"];
   store?: InnerProps["store"];
+  /**
+   * Whether this document has other writers — a synced room, including
+   * one being edited offline for a later merge.
+   *
+   * Cleanup that depends on seeing the whole document (deleting a
+   * video's event markers when its last carrier goes) is withheld when
+   * it is set, because that claim cannot be settled locally. Defaults
+   * to false: a document with no collaborators.
+   */
+  collaborative?: boolean;
   assetUrls?: InnerProps["assetUrls"];
   maxAssetSize?: InnerProps["maxAssetSize"];
   stepHotkeyEnabled?: boolean;
@@ -892,6 +905,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       onMount,
       snapshot,
       store,
+      collaborative,
       assetUrls,
       maxAssetSize,
       stepHotkeyEnabled,
@@ -977,6 +991,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         perInstanceAtoms={anipresAtoms}
         snapshot={snapshot}
         store={store}
+        collaborative={collaborative}
         assetUrls={memoizedAssetUrls}
         maxAssetSize={maxAssetSize}
         user={user}
