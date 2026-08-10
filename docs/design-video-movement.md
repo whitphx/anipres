@@ -194,7 +194,18 @@ movement step and asserts exactly one moving video is visible.
 
 Viewport culling is deliberately not mirrored — hiding a live player
 because its carrier scrolled away is the remount hazard again — but
-culling answers visibility, not cost. One player per video still
+a player whose carrier has left the viewport is offscreen, and
+offscreen is a form of hidden: if it plays, or the media-session
+channel restarts it, that is again audio nobody can see or stop. The
+Absent state's rule therefore extends to it, since it is the same
+rule. A player that is playing while its carrier is out of view
+raises the same compact viewport chip, with the same pause and
+**Stop** actions, held until the carrier returns or playback stops —
+so "no audible player without a reachable control" holds
+continuously, whatever put the player out of sight. A browser test
+scrolls a playing carrier off-viewport, fires a media-session play
+with its notification withheld, and asserts a control is reachable
+throughout. Culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
 mounting is governed by two explicit limits, both host-configurable:
 at most P simultaneously playing players (default 4) and at most M
@@ -280,9 +291,17 @@ eviction is safe precisely because it is paused: its clock holds
 exactly. The
 testable contract is stated once, without an absolute it cannot
 keep: runtime-issued playback never exceeds P; native playback may
-transiently exceed P, bounded by M − P, and every excess reverts as
-its notification arrives; mounted players never exceed M; and no
-confirmed-playing player is ever unmounted. The headroom between P
+exceed P, bounded by M − P, and every excess reverts as its
+notification arrives — transiently in every case except the terminal
+one named above, where all playing players are unrestorable and no
+corrective pause confirms, in which the excess persists, bounded by
+the same M − P, until the user acts on a surfaced chip; mounted
+players never exceed M; and no player is unmounted except where
+restoration is defined. A host that needs convergence to P as a
+resource or policy guarantee gets it by refusing unrestorable
+content, since that terminal state cannot arise without it. A
+contract test drives the all-unrestorable, unconfirmable-pause case
+and asserts the surfaced overflow and its bound. The headroom between P
 and M is what buys the graceful pause-then-evict path; a fixture
 repeats overflow plays past both limits. Non-playing
 residency is sticky: eviction by viewport distance uses a margin and
@@ -926,13 +945,24 @@ claims fully deleted — and, per key, the exact marker ids its cascade
 removed. Intent is per marker, not per key, because one batch can mix
 both kinds: a user may explicitly delete an event in the same
 operation that removes the video's last carrier. A claim is
-validated against server-side pre-images before it is honored at
-all: every claimed marker id must exist, its pre-image must target
-the claimed `videoKey`, and its removal must arrive in the same push
-— any mismatch rejects the whole claim, so a malformed or hostile
-client cannot launder another video's events into a tombstone under
-an unused key; adversarial fixtures claim a nonexistent key and
-claim markers belonging to another video. Only the claimed
+validated against server-side pre-images before it is honored, and
+the validation separates forgery from staleness. A claimed marker
+whose pre-image targets a *different* key, or whose removal does not
+arrive in the same push, is forgery: it rejects the whole claim, so
+no client can launder another video's events into a tombstone under
+an unused key. A claimed marker that simply no longer exists is
+staleness, not forgery — another client legitimately deleted that
+event first — and it is dropped from the claim while the rest is
+honored. Voiding the claim there would be the worse outcome by far:
+the carrier deletion would still apply, leaving no carriers, no
+markers, and no tombstone to recover from. The tombstone is
+therefore always created when a claim's key loses its last carrier,
+carrying the configuration even when every claimed marker turned out
+to be already gone. Adversarial fixtures claim a nonexistent key and
+claim markers belonging to another video; a race fixture has one
+client explicitly delete a marker and another land a stale
+last-carrier cascade naming it, asserting the tombstone exists with
+its configuration intact. Only the claimed
 marker ids are arbitrated; every other marker removal, an explicit
 event deletion batched with anything at all — including a cascade of
 its own video — applies as pushed whether or not the claim survives.
