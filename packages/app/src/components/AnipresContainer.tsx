@@ -37,6 +37,9 @@ export function AnipresContainer({
     <Anipres
       key={documentId}
       snapshot={snapshot ?? undefined}
+      // A local document with no sync behind it, so the cleanup that
+      // needs a whole-document view is safe here.
+      soleWriter
       onMount={handleMount}
       colorScheme={colorScheme}
       maxAssetSize={MAX_ASSET_SIZE}

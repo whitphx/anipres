@@ -548,9 +548,6 @@ export function OfflineAwareSyncedContainer({
         <Anipres
           key={documentId}
           snapshot={mode.snapshot}
-          // Offline, but still a shared document: these edits merge
-          // back later, so this client is not its only writer.
-          collaborative
           onMount={handleOfflineMount}
           colorScheme={colorScheme}
           maxAssetSize={MAX_ASSET_SIZE}

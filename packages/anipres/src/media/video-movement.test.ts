@@ -1025,29 +1025,55 @@ describe("configuration handoff across a batch deletion", () => {
   it("does not hand off configuration in a shared document", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
     try {
-      const videoId = createShapeId("video");
-      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const videoId = createVideo(editor, "video");
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
       editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+
+      editor.deleteShape(videoId);
+
+      // No record was rewritten on deletion — a client-authored handoff
+      // races collaborators editing the owner or deleting the heir —
+      // and the video survives anyway, because the keyframe was born
+      // knowing it and reading falls back to any carrier that does.
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id)).toEqual([keyframeId]);
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
+      expect(readPlacements(editor, false)).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("handoff preserves every setting", () => {
+  it("carries a changed start time, not just the video id", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      // Same video, different settings — a videoId comparison alone
+      // would call this unchanged and silently restore the old ones.
       editor.updateShape({
         id: videoId,
         type: video.type,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
+        props: { start: 42, muted: true },
       });
 
       editor.deleteShape(videoId);
 
-      // A client-authored handoff races collaborators editing the owner
-      // or deleting the heir, so it is withheld; the server arbitration
-      // the design specifies is what performs it.
-      const keyframe = editor.getShape(keyframeId);
-      if (!isYouTubeEmbedShape(keyframe)) throw new Error("expected a video");
-      expect(keyframe.props.videoId).toBe("");
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      const config = resolveVideoConfig(carriers);
+      expect(config?.start).toBe(42);
+      expect(config?.muted).toBe(true);
     } finally {
       dispose();
     }

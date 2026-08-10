@@ -167,12 +167,12 @@ function applyCapturedConfig(
       continue;
     }
     const owner = getConfigOwnerCarrier(carriers);
-    if (
-      owner == null ||
-      resolveVideoConfig(carriers)?.videoId === config.videoId
-    ) {
+    if (owner == null) {
       continue;
     }
+    // Written unconditionally: `start`, `muted`, `controls`, `url` and
+    // `altText` can all differ while `videoId` matches, so comparing the
+    // video alone would silently restore a survivor's stale settings.
     editor.updateShape({
       id: owner.id,
       type: owner.type,
@@ -214,11 +214,30 @@ export function installVideoLifecycle(
   // keep it here — the duplicate path mints them a fresh one.
   const stopMinting = editor.sideEffects.registerBeforeCreateHandler(
     "shape",
-    (shape) =>
-      isYouTubeEmbedShape(shape) &&
-      (shape.props.videoKey == null || shape.props.videoKey === "")
-        ? { ...shape, props: { ...shape.props, videoKey: shape.id } }
-        : shape,
+    (shape) => {
+      if (!isYouTubeEmbedShape(shape)) {
+        return shape;
+      }
+      if (shape.props.videoKey == null || shape.props.videoKey === "") {
+        return { ...shape, props: { ...shape.props, videoKey: shape.id } };
+      }
+      // A new carrier of an existing video is born holding that video's
+      // configuration. Read-time resolution does not depend on it — the
+      // owner answers — but it means every carrier knows the video, so
+      // losing the owner cannot leave the survivors unable to say what
+      // the video is. Nothing else can repair that in a shared document,
+      // where no client may write on another's behalf.
+      const carriers = groupCarriersByVideoKey(
+        editor.getCurrentPageShapes(),
+      ).get(shape.props.videoKey);
+      const config =
+        carriers != null && carriers.length > 0
+          ? resolveVideoConfig(carriers)
+          : null;
+      return config == null || config.videoId === ""
+        ? shape
+        : { ...shape, props: { ...shape.props, ...config } };
+    },
   );
   // Configuration handoff is a client-authored guess in a shared room —
   // another client may be editing the owner, adding a carrier, or

@@ -135,10 +135,23 @@ export function getConfigOwnerCarrier(
 export function resolveVideoConfig(
   carriers: YouTubeEmbedShape[],
 ): VideoConfig | null {
-  const owner = getConfigOwnerCarrier(carriers);
-  if (owner == null) {
+  const preferred = getConfigOwnerCarrier(carriers);
+  if (preferred == null) {
     return null;
   }
+  // The owner answers unless it has nothing to say. A carrier that
+  // knows the video is better than one that does not, whoever owns the
+  // configuration: without this, deleting the owner would leave a
+  // surviving keyframe whose own blank props make the whole video
+  // disappear — and in a shared document nothing is allowed to write a
+  // replacement, so read-time robustness is the only thing that can
+  // save it.
+  const owner =
+    preferred.props.videoId !== ""
+      ? preferred
+      : ([...carriers]
+          .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .find((carrier) => carrier.props.videoId !== "") ?? preferred);
   return {
     videoId: owner.props.videoId,
     url: owner.props.url,

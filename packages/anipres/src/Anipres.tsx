@@ -323,7 +323,7 @@ interface InnerProps {
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   store?: TLStore | TLStoreWithStatus;
   perInstanceAtoms: AnipresAtoms;
-  collaborative?: boolean;
+  soleWriter?: boolean;
   assetUrls?: TldrawProps["assetUrls"];
   maxAssetSize?: TldrawProps["maxAssetSize"];
   user: TLUser;
@@ -334,7 +334,7 @@ const Inner = (props: InnerProps) => {
     snapshot,
     store,
     perInstanceAtoms,
-    collaborative,
+    soleWriter,
     assetUrls,
     maxAssetSize,
     user,
@@ -356,7 +356,7 @@ const Inner = (props: InnerProps) => {
         // was passed: a synced document edited offline is mounted from
         // a snapshot and its edits merge later, so it has collaborators
         // even with no store in sight. See VideoLifecycleOptions.
-        soleWriter: !collaborative,
+        soleWriter: soleWriter ?? false,
       }),
     );
 
@@ -881,15 +881,19 @@ export interface AnipresProps {
   snapshot?: InnerProps["snapshot"];
   store?: InnerProps["store"];
   /**
-   * Whether this document has other writers — a synced room, including
-   * one being edited offline for a later merge.
+   * Whether this client is the document's only writer.
    *
-   * Cleanup that depends on seeing the whole document (deleting a
-   * video's event markers when its last carrier goes) is withheld when
-   * it is set, because that claim cannot be settled locally. Defaults
-   * to false: a document with no collaborators.
+   * Cleanup that depends on seeing the whole document — removing a
+   * video's event markers once its last carrier is gone — runs only
+   * when it is set, because that claim cannot be settled against
+   * concurrent editors and getting it wrong destroys events nothing can
+   * rebuild. Defaults to **false**, the conservative answer: a synced
+   * document, including one edited offline for a later merge, must not
+   * opt in, and a caller that has not thought about it does not
+   * silently get the destructive behavior. Set it for a document you
+   * alone are editing.
    */
-  collaborative?: boolean;
+  soleWriter?: boolean;
   assetUrls?: InnerProps["assetUrls"];
   maxAssetSize?: InnerProps["maxAssetSize"];
   stepHotkeyEnabled?: boolean;
@@ -905,7 +909,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       onMount,
       snapshot,
       store,
-      collaborative,
+      soleWriter,
       assetUrls,
       maxAssetSize,
       stepHotkeyEnabled,
@@ -991,7 +995,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         perInstanceAtoms={anipresAtoms}
         snapshot={snapshot}
         store={store}
-        collaborative={collaborative}
+        soleWriter={soleWriter}
         assetUrls={memoizedAssetUrls}
         maxAssetSize={maxAssetSize}
         user={user}
