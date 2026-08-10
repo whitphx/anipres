@@ -196,13 +196,20 @@ export function remapContentVideoKeys<
           return shape;
         }
         const config = resolveSourceConfig?.(oldKey) ?? null;
+        // A fresh identity starts with a fresh revision history: the
+        // stamps in the payload order the SOURCE video's edits, and
+        // carrying them over would let a payload from anywhere pin this
+        // new video's configuration where no local edit could outrank
+        // it.
+        const meta = { ...(shape.meta as Record<string, unknown> | undefined) };
+        delete meta.videoConfigRev;
         return {
           ...shape,
           props: {
             ...(shape.props as object | undefined),
             ...(config ?? {}),
           },
-          meta: { ...(shape.meta as object | undefined), videoKey: newKey },
+          meta: { ...meta, videoKey: newKey },
         };
       }
       if (shape.type !== MediaControlShapeType) {

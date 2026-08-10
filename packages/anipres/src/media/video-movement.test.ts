@@ -1505,3 +1505,77 @@ describe("a legacy video keeps its identity through a group keyframe", () => {
     }
   });
 });
+
+describe("imported revision stamps cannot pin a configuration", () => {
+  it("ignores an out-of-range counter, whichever record carries it", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const otherId = createShapeId("zzz-other");
+      editor.createShape({
+        ...video,
+        id: otherId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+
+      const owner = editor.getShape(videoId)!;
+      const other = editor.getShape(otherId)!;
+      // An ordinary edit.
+      editor.updateShape({
+        id: owner.id,
+        type: owner.type,
+        props: { videoId: "EDITED" },
+        meta: { ...owner.meta, videoConfigRev: { videoId: { c: 2, s: "a" } } },
+      });
+      // What a hostile or corrupt record can carry: a counter no
+      // increment could outrank, with a session id that wins every tie.
+      editor.updateShape({
+        id: other.id,
+        type: other.type,
+        props: { videoId: "PINNED" },
+        meta: {
+          ...other.meta,
+          videoConfigRev: {
+            videoId: { c: Number.MAX_VALUE, s: "\uffff" },
+          },
+        },
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("drops the source's revision history when pasting a new identity", () => {
+    const content = {
+      shapes: [
+        {
+          id: "shape:src-video",
+          type: "youtube-embed",
+          props: { videoId: "M7lc1UVf-VE" },
+          meta: {
+            videoKey: "shape:src-video",
+            videoConfigRev: { videoId: { c: 500, s: "zzz" } },
+          },
+        },
+      ],
+    };
+
+    const pasted = remapContentVideoKeys(content, "duplicate", () => "minted");
+
+    const video = pasted.shapes[0] as {
+      meta: { videoKey: string; videoConfigRev?: unknown };
+    };
+    expect(video.meta.videoKey).toBe("minted");
+    // A new video starts with a clean history, so a local edit outranks
+    // whatever the payload claimed.
+    expect(video.meta.videoConfigRev).toBeUndefined();
+  });
+});

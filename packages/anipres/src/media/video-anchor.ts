@@ -133,6 +133,10 @@ export interface ConfigStamp {
   [key: string]: number | string;
 }
 
+// Far above any editing history, and far below the safe-integer limit,
+// so `highest + 1` always advances.
+const MAX_CONFIG_STAMP_COUNTER = 1_000_000_000;
+
 const VIDEO_CONFIG_KEYS = [
   "videoId",
   "url",
@@ -153,13 +157,23 @@ function readStamps(
   const stamps: Partial<Record<VideoConfigKey, ConfigStamp>> = {};
   for (const key of VIDEO_CONFIG_KEYS) {
     const value = (raw as Record<string, unknown>)[key];
+    // Bounded, because a stamp can arrive from outside: a pasted
+    // payload carrying `Number.MAX_VALUE` and a lexically maximal
+    // session id would win forever, and `highest + 1` does not advance
+    // at that magnitude — the video's configuration could never be
+    // edited again.
     if (
       value != null &&
       typeof value === "object" &&
-      typeof (value as ConfigStamp).c === "number" &&
+      Number.isSafeInteger((value as ConfigStamp).c) &&
+      (value as ConfigStamp).c >= 0 &&
+      (value as ConfigStamp).c <= MAX_CONFIG_STAMP_COUNTER &&
       typeof (value as ConfigStamp).s === "string"
     ) {
-      stamps[key] = value as ConfigStamp;
+      stamps[key] = {
+        c: (value as ConfigStamp).c,
+        s: (value as ConfigStamp).s,
+      };
     }
   }
   return stamps;
