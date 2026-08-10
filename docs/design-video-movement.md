@@ -589,10 +589,23 @@ synonym for write: creating a same-key keyframe carrier writes
 copied media props by design, and those arrive with — and must keep
 — an empty revision map, because their values are a possibly stale
 snapshot that must never gain authority; only fresh-key copy
-normalization, which founds a new video, is stamped on creation. A
-race fixture changes the configuration, then lands a delayed
-same-key keyframe creation carrying the old values, and asserts no
-property's authority moves.
+normalization, which founds a new video, is stamped on creation.
+
+Keeping the revision map empty is not by itself enough, because
+unstamped props resolve by the id tie-break, so a carrier arriving
+with a lower id than the key-named one — absent, perhaps, or never
+present — could seat its snapshot as the resolved value for a
+property nothing has ever stamped. The hook therefore does not
+merely decline to stamp a creation's media props: it **rewrites**
+them to the video's currently resolved configuration before
+admitting the record, discarding the client's snapshot entirely.
+Nothing is lost, since that snapshot is only a courtesy to raw
+readers, and the creation path stops being a channel through which
+any value can enter. Fixtures land a delayed same-key creation
+carrying superseded values, and an adversarial one where the
+key-named carrier is gone and a lower-id carrier arrives with
+mismatched revision-zero props; in both the resolved configuration
+must be unchanged.
 Client stamps order only that client's own offline view until it
 reconnects; the server's order replaces them on admission, and every
 client converges on the serialized result. This dissolves the
