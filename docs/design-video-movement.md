@@ -85,9 +85,23 @@ painted over by that carrier's own poster. The anchored carrier
 therefore suppresses its poster while its player is mounted — the
 player _is_ that carrier's visual — which dissolves the pair's
 ordering question entirely; against every other shape, the shared
-`z-index` alone stacks the player correctly. A browser-level test
-stacks shapes immediately above and below the carrier and asserts
-the player paints exactly where the carrier would.
+`z-index` alone stacks the player correctly.
+
+Painting and hit-testing are separate arrangements, and suppressing
+a poster removes pixels but not a hit box: the carrier's container
+is still the later sibling, so it would swallow clicks aimed at the
+iframe beneath it. Pointer input is therefore held by exactly one of
+the pair at a time, swapped together with the interaction modes
+described under Editing. While the player is idle it is
+`pointer-events: none` and the carrier takes input, so selecting,
+dragging and resizing stay ordinary canvas gestures; while the
+player is interactive the anchored carrier is `pointer-events: none`
+and the player takes input, so the video's own controls are
+reachable. Browser-level tests cover both arrangements: one stacks
+shapes immediately above and below the carrier and asserts the
+player paints exactly where the carrier would; another clicks and
+focuses real iframe controls through the overlapping carrier, and
+drags the carrier while the player is idle.
 
 During a step tween the transform and the width/height interpolate
 between the outgoing and incoming carriers' stored values, opacity and
@@ -189,11 +203,22 @@ granted in priority order: effectively playing, then selected, then
 near the viewport. Everything over the mount budget shows its
 poster.
 
-An effectively playing player is **never unmounted**. Eviction and
-reconstruction cannot preserve what an iframe holds — buffers,
-captions, a live stream's position — and uninterrupted playback is
+An effectively playing player is **never unmounted except where
+restoration is defined**, and the two halves of that sentence are
+the whole contract. For unrestorable content — live, unknown
+duration, a failed seek — it is absolute: nothing but the user's
+explicit Stop removes such a player, because nothing could put it
+back. For restorable content it is a bound rather than a
+prohibition: an unmount may happen only on the named paths below
+(ambiguous-pause slot turnover, strict `pauseOnHidden`), and it
+costs at most the clock's staleness — one settle window of drift,
+since the clock is refreshed on every poll and on every command —
+after which the player remounts and seeks to where it belongs.
+Eviction and reconstruction cannot preserve everything an iframe
+holds, buffers and captions among it, and uninterrupted playback is
 the guarantee this whole design exists for, so the mount budget is
-simply never spent there. The playing limit is enforced ahead of
+never spent on a playing player as a matter of ordinary policy; the
+named paths are failure handling, not capacity management. The playing limit is enforced ahead of
 that moment instead: authoring warns when a step would drive more
 than P simultaneous playing videos, presentation start surfaces the
 same check, and the runtime enforces P by admission, not reaction:
@@ -378,9 +403,11 @@ failed seek — ambiguity always fails closed: the replacement play is
 refused with a surfaced notice or queued, and the existing player is
 never unmounted, because the only thing worse than refusing a new
 video is destroying a live position nothing can restore. If the
-slot is not needed at all, the runtime simply under-admits. Either branch keeps both guarantees: no
-admission ever exceeds P, and no player provably playing is ever
-unmounted. The regression scenario runs an old pause notification,
+slot is not needed at all, the runtime simply under-admits. Either
+branch keeps both guarantees as stated above: no admission ever
+exceeds P, and no player is unmounted except where restoration is
+defined — never an unrestorable one, and a restorable one only for
+a bounded clock loss. The regression scenario runs an old pause notification,
 a later pause command, a buffering-frozen position, and a delayed
 buffering notification, and asserts the slot frees only through
 teardown; its live-stream variant has an unrestorable player never
@@ -1245,14 +1272,16 @@ still playable and interactive while editing, and the other keyframes
 show where it will travel to. Nothing about a shape mounts a player, so
 copies cost nothing.
 
-Interactive does not mean pointer-stealing. The player container is
-`pointer-events: none` while idle, so selecting, dragging and
-resizing the carrier beneath it stay ordinary canvas gestures;
-double-clicking the video enters the shape's editing state — the same
-convention tldraw's own embed shapes use — which makes the player
-interactive until editing ends with a click elsewhere or Escape. In
-presentation mode the default flips: canvas editing is off, and the
-player takes pointer input when the video's `controls` allow it.
+Interactive does not mean pointer-stealing. Input belongs to exactly
+one of the player and its anchored carrier at a time, the other
+being `pointer-events: none` (see "Where the player lives"): while
+idle the carrier holds it, so selecting, dragging and resizing stay
+ordinary canvas gestures; double-clicking the video enters the
+shape's editing state — the same convention tldraw's own embed
+shapes use — which hands input to the player until editing ends with
+a click elsewhere or Escape. In presentation mode the default flips:
+canvas editing is off, and the player holds input whenever the
+video's `controls` allow it.
 
 Authoring a movement keyframe is then the same gesture as for any other
 shape: extend the sequence from the timeline's follow-up-frame button,
