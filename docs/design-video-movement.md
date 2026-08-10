@@ -746,47 +746,47 @@ server-side check could refuse it. The hazard there is accidental
 concurrency — two tabs open on one document, a duplicated tab, a
 reload racing its predecessor — not a hostile sibling, since script
 running on the origin has already won by other means. So siblings
-are coordinated rather than isolated: the queue has a single writer
-at a time, elected through a Web Lock, and only the lock holder
-submits, acknowledges, or retires. When the holder navigates away or
-crashes the lock releases, the next tab takes it and resumes the
-same queue from the same epoch, which is exactly the continuity a
-reload needs.
+are coordinated rather than isolated — and the coordination is
+deliberately not a leader election. Electing one tab as the
+long-lived writer would make every other tab depend on it answering,
+and a backgrounded tab can stay alive while its script is suspended
+or throttled: still holding the lock, no longer replying, and every
+active tab blocked behind it with no crash or navigation to release
+it.
 
-A tab without the lock is not read-only — a user should be able to
-edit in whichever window they are looking at — so it **brokers**:
-the edit is handed to the holder over a same-origin channel, the
-holder assigns it a sequence and persists it in the queue, and only
-that durable confirmation makes the edit committed locally. Until
-the confirmation lands the edit is pending in the originating tab
-and shown as such; it is never applied as though committed, which is
-what would otherwise let a non-holder's edit vanish or arrive as a
-rejected raw diff. Each brokered edit carries a client-minted
-identifier so a retry is idempotent: if the holder crashes
-mid-handoff, the originating tab re-brokers to whoever takes the
-lock next and the identifier keeps it from landing twice. A tab that
-does not yet know who holds the lock simply requests the lock and
-brokers to itself if it wins, so an edit made in the first moments
-after load has a defined path either way. Tests cover simultaneous
-edits from two tabs, an edit brokered into a holder that crashes
-mid-handoff, and an edit initiated before ownership is known.
+The queue is instead a shared resource with **short, per-transaction
+locking**. It belongs to the namespace, not to a tab, and so does
+its epoch; a Web Lock is taken only for the duration of one queue
+transaction — appending an operation with its sequence, or recording
+an outcome — and released immediately. Any tab may therefore write
+directly: the user edits in whichever window they are looking at, the
+edit is appended under the lock in that tab, and it is durable the
+moment that transaction commits, with no hand-off to another tab and
+no confirmation to lose. A suspended tab holds no lock between
+transactions and blocks nothing. Sequence assignment stays
+single-threaded because the append that allocates it is itself the
+critical section, and exactly-once falls out of the same durability:
+the operation exists once in the queue, and the epoch watermark
+already covers retries against the server. Whichever tab holds the
+sync connection drains the queue and records outcomes through the
+same short locks. Tests cover simultaneous edits from two tabs, a
+tab suspended mid-session while another edits, tab duplication, and
+a crash between append and transmission.
 
 Queue, lock and epoch are namespaced by **principal and document
 together**, not by document alone, because the epoch is bound to a
 principal and the two keys must not drift apart. Without that, a
 second user opening the same document in the same browser would
-take the lock, inherit the first user's queue, and either wedge on
-an epoch the server rightly refuses them or — worse — have those
-pending edits resubmitted under their own identity. Namespaced, a
-principal change is simply a change of namespace: the prior one
-stops being processed, is neither discarded nor reissued, and
-resumes untouched if that user signs back in, where their epoch is
-still theirs. Tests cover two tabs on one document, tab
-duplication, reload during pending operations, the crash handoff,
-and sign-out, sign-in and account-switch with committed,
-unacknowledged and unsent operations pending — asserting one writer
-throughout, no watermark advanced by a non-holder, and no operation
-ever attributed to a principal that did not author it. A sequence at or
+reach the first user's queue and either wedge on an epoch the server
+rightly refuses them or — worse — have those pending edits
+resubmitted under their own identity. Namespaced, a principal change
+is simply a change of namespace: the prior one stops being
+processed, is neither discarded nor reissued, and resumes untouched
+if that user signs back in, where their epoch is still theirs. Tests
+cover reload during pending operations, and sign-out, sign-in and
+account-switch with committed, unacknowledged and unsent operations
+pending — asserting no operation is ever attributed to a principal
+that did not author it. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
 already committed; one exactly above advances the watermark.
 Admission is not the only outcome that advances it: a terminal
