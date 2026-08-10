@@ -21,10 +21,10 @@ import {
   usePresentationModeAtom,
 } from "../../media/player-placement";
 import {
-  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
   resolveVideoConfig,
+  updateVideoConfig,
 } from "../../media/video-anchor";
 import {
   MediaControlShapeType,
@@ -315,24 +315,14 @@ function YouTubeUrlForm({ shape }: { shape: YouTubeEmbedShape }) {
           setInvalid(true);
           return;
         }
-        // Submitting a URL edits the VIDEO, so it lands on the carrier
-        // that owns its configuration — never on whichever keyframe the
-        // form happened to be rendered under, which would leave the
-        // video's carriers disagreeing about which video it is.
-        const owner =
-          getConfigOwnerCarrier(
-            groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
-              getVideoKey(shape),
-            ) ?? [shape],
-          ) ?? shape;
-        editor.updateShape<YouTubeEmbedShape>({
-          id: owner.id,
-          type: owner.type,
-          props: {
-            url: value.trim(),
-            videoId: parsed.videoId,
-            start: parsed.start ?? 0,
-          },
+        // Submitting a URL edits the VIDEO, not the keyframe the form
+        // happened to be rendered under, so it reaches every carrier of
+        // it — which is also what keeps the value alive when the
+        // carrier that owns it is deleted.
+        updateVideoConfig(editor, getVideoKey(shape), {
+          url: value.trim(),
+          videoId: parsed.videoId,
+          start: parsed.start ?? 0,
         });
       }}
       style={{

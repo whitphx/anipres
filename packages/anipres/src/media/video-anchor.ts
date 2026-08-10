@@ -236,3 +236,32 @@ export function resolveAnchorCarrier(
   }
   return getDefaultAnchorCarrier(carriers);
 }
+
+/**
+ * Writes a configuration change to every carrier of a video.
+ *
+ * Reading still prefers the owner, so this is not what makes the value
+ * authoritative — it is what keeps losing the owner from losing the
+ * value. A delete-time handoff cannot do that job: in a shared document
+ * no client may write on another's behalf, and even alone the heir is
+ * only known after the batch. Mirroring at edit time is the one moment
+ * when the writer is unambiguous.
+ */
+export function updateVideoConfig(
+  editor: Editor,
+  videoKey: string,
+  patch: Partial<VideoConfig>,
+): void {
+  const carriers =
+    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
+  if (carriers.length === 0) {
+    return;
+  }
+  editor.updateShapes(
+    carriers.map((carrier) => ({
+      id: carrier.id,
+      type: carrier.type,
+      props: { ...patch },
+    })),
+  );
+}

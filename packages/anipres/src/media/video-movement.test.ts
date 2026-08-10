@@ -21,6 +21,7 @@ import {
   resolveAnchorCarrier,
 } from "./video-anchor";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
+import { updateVideoConfig } from "./video-anchor";
 import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
 import {
@@ -532,13 +533,11 @@ describe("configuration survives owner deletion", () => {
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
       editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
-      editor.updateShape({
-        id: videoId,
-        type: video.type,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
+      // The real edit path: a URL edits the VIDEO, so it reaches every
+      // carrier of it.
+      updateVideoConfig(editor, videoId, {
+        url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+        videoId: "M7lc1UVf-VE",
       });
 
       editor.deleteShape(videoId);
@@ -998,17 +997,13 @@ describe("configuration handoff across a batch deletion", () => {
       const keyframeB = createShapeId("zzz-keyframe");
       editor.createShape({ ...video, id: keyframeA, x: 400, meta: undefined });
       editor.createShape({ ...video, id: keyframeB, x: 800, meta: undefined });
-      editor.updateShape({
-        id: videoId,
-        type: video.type,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
+      updateVideoConfig(editor, videoId, {
+        url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+        videoId: "M7lc1UVf-VE",
       });
 
-      // Delete the owner AND the heir that a per-shape handoff would
-      // pick, in one operation, leaving a third carrier behind.
+      // Delete the owner AND the next carrier by id, in one operation,
+      // leaving a third behind.
       editor.deleteShapes([videoId, keyframeA]);
 
       const carriers =
@@ -1049,22 +1044,19 @@ describe("configuration handoff across a batch deletion", () => {
   });
 });
 
-describe("handoff preserves every setting", () => {
-  it("carries a changed start time, not just the video id", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+describe("config edits reach every carrier", () => {
+  it("keeps a later setting change after the owner is deleted", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
     try {
       const videoId = createVideo(editor, "video");
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
       editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
-      // Same video, different settings — a videoId comparison alone
-      // would call this unchanged and silently restore the old ones.
-      editor.updateShape({
-        id: videoId,
-        type: video.type,
-        props: { start: 42, muted: true },
-      });
+      // Changed AFTER the keyframe was created, so its birth snapshot
+      // is already stale — and in a shared document nothing may write a
+      // replacement at deletion time.
+      updateVideoConfig(editor, videoId, { start: 42, muted: true });
 
       editor.deleteShape(videoId);
 

@@ -13,11 +13,9 @@ import {
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import {
-  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
   resolveVideoConfig,
-  type VideoConfig,
 } from "./video-anchor";
 import {
   getVideoKey,
@@ -119,68 +117,6 @@ export function startMarkerParking(editor: Editor): () => void {
  * the React one — the binding util used to carry this, and a schema
  * registration reached both.
  */
-/**
- * The configuration a video had before this operation started deleting
- * its carriers.
- *
- * Captured in a before-delete handler, where the store still holds every
- * carrier, but APPLIED after the batch: tldraw runs all before-delete
- * handlers before removing anything, so an heir chosen there can itself
- * be part of the same deletion — the configuration would land on a
- * doomed record and the real survivor would be left with whatever stale
- * snapshot it happened to carry.
- */
-function captureConfigBeforeDelete(
-  editor: Editor,
-  deletedShapeId: TLShapeId,
-  captured: Map<string, VideoConfig>,
-): void {
-  const deleted = editor.getShape(deletedShapeId);
-  if (!isYouTubeEmbedShape(deleted)) {
-    return;
-  }
-  const videoKey = getVideoKey(deleted);
-  if (captured.has(videoKey)) {
-    return;
-  }
-  const config = resolveVideoConfig(
-    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [],
-  );
-  if (config != null) {
-    captured.set(videoKey, config);
-  }
-}
-
-/**
- * Puts each captured configuration back on the carrier that now owns
- * it, for videos that still have one.
- */
-function applyCapturedConfig(
-  editor: Editor,
-  captured: ReadonlyMap<string, VideoConfig>,
-): void {
-  const carriersByKey = groupCarriersByVideoKey(editor.getCurrentPageShapes());
-  for (const [videoKey, config] of captured) {
-    const carriers = carriersByKey.get(videoKey);
-    if (carriers == null || carriers.length === 0) {
-      // The video itself is gone; its markers follow in the cascade.
-      continue;
-    }
-    const owner = getConfigOwnerCarrier(carriers);
-    if (owner == null) {
-      continue;
-    }
-    // Written unconditionally: `start`, `muted`, `controls`, `url` and
-    // `altText` can all differ while `videoId` matches, so comparing the
-    // video alone would silently restore a survivor's stale settings.
-    editor.updateShape({
-      id: owner.id,
-      type: owner.type,
-      props: { ...config },
-    });
-  }
-}
-
 export interface VideoLifecycleOptions {
   /**
    * Whether this client is the only writer of the document.
@@ -239,21 +175,6 @@ export function installVideoLifecycle(
         : { ...shape, props: { ...shape.props, ...config } };
     },
   );
-  // Configuration handoff is a client-authored guess in a shared room —
-  // another client may be editing the owner, adding a carrier, or
-  // deleting the heir as this runs — so, like the cascade, it is only
-  // performed where this client is the document's sole writer.
-  let capturedConfigs: Map<string, VideoConfig> | null = null;
-  const stopConfigTransfer = editor.sideEffects.registerBeforeDeleteHandler(
-    "shape",
-    (shape) => {
-      if (!soleWriter) {
-        return;
-      }
-      capturedConfigs ??= new Map();
-      captureConfigBeforeDelete(editor, shape.id, capturedConfigs);
-    },
-  );
   const stopParking = startMarkerParking(editor);
   // The cascade is an explicit deletion semantic, not garbage
   // collection: it runs only for an operation that actually removed a
@@ -274,24 +195,15 @@ export function installVideoLifecycle(
   );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
-      const configs = capturedConfigs;
-      capturedConfigs = null;
       const keys = deletedCarrierKeys;
       deletedCarrierKeys = null;
-      if (!soleWriter) {
-        return;
-      }
-      if (configs != null) {
-        applyCapturedConfig(editor, configs);
-      }
-      if (keys != null) {
+      if (keys != null && soleWriter) {
         deleteOrphanedMediaMarkers(editor, keys);
       }
     },
   );
   return () => {
     stopMinting();
-    stopConfigTransfer();
     stopWatchDeletes();
     stopParking();
     stopCleanup();
