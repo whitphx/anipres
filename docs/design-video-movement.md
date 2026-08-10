@@ -217,7 +217,11 @@ throughout. Culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
 mounting is governed by two explicit limits, both host-configurable:
 at most P simultaneously playing players (default 4) and at most M
-mounted players (default 6, always at least P plus headroom),
+mounted players (default 6), the single validated invariant being
+M ≥ P. Headroom above P is what buys the graceful pause-then-evict
+path, so the default provides it; M = P is a supported
+zero-headroom mode whose one named difference is that an overflow
+play is refused outright rather than displacing a player. Mounts are
 granted in priority order: effectively playing, then selected, then
 near the viewport. Everything over the mount budget shows its
 poster.
@@ -281,9 +285,7 @@ can start before any notification lands: P is therefore a hard limit
 for everything the runtime issues and a soft one against native
 controls, transiently exceedable by at most M − P, every excess play
 reverted as its notification arrives. A host that needs an absolute
-cap sets M = P — configuration validation accepts that zero-headroom
-mode explicitly, and in it an overflow play is refused outright
-rather than paused-then-evicted. Tests fire simultaneous
+cap sets M = P, the zero-headroom mode described above. Tests fire simultaneous
 programmatic plays together with several native starts delivered
 before any notification, not only the eventual post-overflow state.
 When M presses, the longest-paused *evictable* player is evicted —
@@ -1192,9 +1194,27 @@ only when a principal's share is exhausted *and* cold storage is
 unavailable — the one state in which that principal's recovery data
 cannot be durably persisted anywhere — does its deferral engage at
 all. Deferred, not refused: policy never takes deletion away, and
-the retry lands the moment either store recovers. A multi-principal
-test churns one principal to its share limit under cold-storage
-failure and proves another principal still deletes successfully. What the room never does is accept a
+the retry lands the moment either store recovers.
+
+Shares are allocated, not assumed, because a finite reserve cannot
+promise every principal a share without bounding how many there are.
+A share is held only by a principal with unspilled recovery
+payloads — the ordinary state is spilled and holding nothing — and
+is sized as the reserve divided by the admitted count, floored at a
+minimum viable share; the reserve therefore admits a bounded number
+of concurrent holders. Allocation is first-come: an existing
+holder's share is never shrunk below the floor to make room, so
+isolation means what it says, and a principal arriving when the
+reserve is fully allotted has *its own* deletions deferred as
+retryable — the same deferral, reached one step earlier, never a
+tax on anyone already holding. Shares are released as payloads
+spill or expire, so the bound is transient by construction: it can
+only be reached while cold storage is down, and it dissolves when
+cold storage returns. Tests churn one principal to its share limit
+under cold-storage failure and prove another still deletes, and
+introduce principals until the reserve is fully allotted, proving
+the newcomer defers while existing holders are unaffected and that
+all of them recover when cold storage does. What the room never does is accept a
 deletion it could not back with recovery data, or shed evidence to
 make one fit. A test fills the room to its actual quota with cold
 storage down, proves the deletion defers with the documented error,
