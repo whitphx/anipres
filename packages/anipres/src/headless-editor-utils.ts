@@ -16,6 +16,7 @@ import type {
 import { deriveTimeline } from "./timeline-model";
 
 import { allShapeUtils, allBindingUtils } from "./shape-utils";
+import { installVideoLifecycle } from "./media/marker-lifecycle";
 
 const defaultTextOptions: TLTextOptions = {
   tipTapConfig: { extensions: tipTapDefaultExtensions },
@@ -61,7 +62,14 @@ export function loadHeadlessEditor(
 
   if (pageId) editor.setCurrentPage(pageId);
 
+  // The same video normalization, marker parking and orphan cleanup the
+  // React mount installs: these used to ride the binding util, which a
+  // headless editor got through the schema, so keeping them reachable
+  // here is what stops the agent path from diverging.
+  const stopVideoLifecycle = installVideoLifecycle(editor);
+
   const dispose = () => {
+    stopVideoLifecycle();
     editor.dispose();
     container.remove();
   };

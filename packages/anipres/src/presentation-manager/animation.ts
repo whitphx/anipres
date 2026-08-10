@@ -11,9 +11,10 @@ import type {
 } from "../timeline-model/runtime-steps";
 import {
   MediaControlShapeType,
-  resolveMediaControlTarget,
+  resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
+import { isYouTubeEmbedShape } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
@@ -42,12 +43,12 @@ async function runFrames(
     const immediate = duration === 0;
 
     if (action.type === "mediaControl") {
-      // The command targets the marker's bound video, not the marker
-      // itself. `duration` still applies below as the wait before the
-      // batch's next frame.
-      const target = resolveMediaControlTarget(editor, shape.id);
-      if (target != null) {
-        YouTubePlayerManager.get(editor).command(target.id, action);
+      // The command targets the video the frame names, not the marker
+      // carrying it. `duration` still applies below as the wait before
+      // the batch's next frame.
+      const videoKey = resolveMediaControlVideoKey(editor, shape.id);
+      if (videoKey != null) {
+        YouTubePlayerManager.get(editor).command(videoKey, action);
       }
     } else if (action.type === "cameraZoom") {
       const { inset = 0, easing = "easeInCubic" } = action;
@@ -73,6 +74,14 @@ async function runFrames(
       // attachCueFrame overwrites any shape's frame without checking
       // the type, so the frame is honored for its `duration` wait
       // below rather than animating a zero-size invisible shape.
+    } else if (action.type === "shapeAnimation" && isYouTubeEmbedShape(shape)) {
+      // A video keyframe keeps its duration and easing — step timing is
+      // untouched — but mints no tween clone: the runtime-owned player
+      // is the video's moving representation, and a cloned poster would
+      // visibly ride the same path beside it. Skipping the clone also
+      // keeps identity clean, since no transient shape carrying a
+      // `videoKey` ever exists for carrier counting to trip over.
+      predecessorShape = shape;
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();

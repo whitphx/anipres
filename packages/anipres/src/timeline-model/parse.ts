@@ -87,6 +87,9 @@ function parseFrameAction(value: unknown): FrameAction | null {
     ) {
       return null;
     }
+    if (value.videoKey !== undefined && typeof value.videoKey !== "string") {
+      return null;
+    }
     if (value.command === "setVolume") {
       if (
         value.volume !== undefined &&

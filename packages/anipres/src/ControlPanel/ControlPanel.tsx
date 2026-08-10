@@ -28,7 +28,6 @@ import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
-import { copyMediaControlBinding } from "../shapes/media-control/MediaControlBinding";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
@@ -43,20 +42,14 @@ const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
 
 /**
  * Whether a frame sequence may grow via the timeline's per-batch "+"
- * buttons, which clone the previous carrier shape. Media events are
- * keyed by ACTION, not carrier type — markers are safe to clone (the
- * group path does), but events are added via "+ Media event" and
- * chained by dragging one onto an earlier step. Videos are keyed by
- * carrier TYPE: a video copy would mount a second live player.
+ * buttons, which clone the previous carrier shape. The exclusion is by
+ * ACTION, not carrier type — markers are safe to clone (the group path
+ * does), but media events are added via "+ Media event" and chained by
+ * dragging one onto an earlier step. A video carrier is now an ordinary
+ * one: cloning it makes a movement keyframe, not a second player.
  */
-function canExtendFrameSequenceFrom(
-  frame: FrameUIData,
-  carrierShapeType: string | undefined,
-): boolean {
-  return (
-    frame.action.type !== "mediaControl" &&
-    carrierShapeType !== YouTubeEmbedShapeType
-  );
+function canExtendFrameSequenceFrom(frame: FrameUIData): boolean {
+  return frame.action.type !== "mediaControl";
 }
 
 export interface ControlPanelProps {
@@ -413,10 +406,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           timelineDoc={doc}
           trackGroups={presentationManager.$getMediaTrackGroups()}
           canExtendFrameSequence={(cueFrame) =>
-            canExtendFrameSequenceFrom(
-              cueFrame,
-              editor.getShape(cueFrame.shapeId as TLShapeId)?.type,
-            )
+            canExtendFrameSequenceFrom(cueFrame)
           }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
@@ -453,7 +443,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               position == null ||
               // The buttons are hidden for these frames; the guard keeps
               // the invariant local to the operation.
-              !canExtendFrameSequenceFrom(prevCueFrame, prevShape.type)
+              !canExtendFrameSequenceFrom(prevCueFrame)
             ) {
               return;
             }
@@ -632,11 +622,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               () => {
                 applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
-                for (const { original, copied } of clonedShapes) {
-                  if (original.type === MediaControlShapeType) {
-                    copyMediaControlBinding(editor, original.id, copied.id);
-                  }
-                }
 
                 const rootCreatedShape = shapesToCreate.find(
                   (s) => s.parentId === editor.getCurrentPageId(),
@@ -661,7 +646,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               plan == null ||
-              !canExtendFrameSequenceFrom(prevFrame, prevShape.type)
+              !canExtendFrameSequenceFrom(prevFrame)
             ) {
               return;
             }

@@ -25,16 +25,16 @@ import {
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
-import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+  YouTubeEmbedShapeType,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
 import {
   MediaControlShapeType,
   resolveMediaControlTarget,
+  resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
-import {
-  bindMediaControlMarker,
-  MediaControlBindingType,
-  type MediaControlBinding,
-} from "../shapes/media-control/MediaControlBinding";
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
@@ -250,26 +250,25 @@ export class PresentationManager {
    */
   attachMediaControlCueFrame(videoShapeId: TLShapeId) {
     const video = this.editor.getShape(videoShapeId);
-    if (video?.type !== YouTubeEmbedShapeType) {
+    if (!isYouTubeEmbedShape(video)) {
       return;
     }
+    const videoKey = getVideoKey(video);
 
     let mediaTrackId: string | null = null;
-    for (const binding of this.editor.getBindingsToShape<MediaControlBinding>(
-      videoShapeId,
-      MediaControlBindingType,
-    )) {
-      const marker = this.editor.getShape(binding.fromId);
-      if (marker?.type !== MediaControlShapeType) {
+    for (const shape of this.editor.getCurrentPageShapes()) {
+      if (shape.type !== MediaControlShapeType) {
         continue;
       }
-      const parsed = parseFrameMeta(marker.meta?.frame);
+      if (resolveMediaControlVideoKey(this.editor, shape.id) !== videoKey) {
+        continue;
+      }
+      const parsed = parseFrameMeta(shape.meta?.frame);
       if (
         parsed.kind === "v2" &&
         parsed.frame.type === "cue" &&
-        // Reuse only the MEDIA track: a marker may also carry a
-        // shapeAnimation frame on the video's own track (the designed
-        // movement-keyframe representation).
+        // Reuse only the MEDIA track: a video's own animation track
+        // belongs to its keyframe carriers, not to its events.
         parsed.frame.action.type === "mediaControl"
       ) {
         mediaTrackId = parsed.frame.trackId;
@@ -286,7 +285,7 @@ export class PresentationManager {
       stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
       // Always starts as "play" (the most common event); the user picks
       // another command in the frame-edit popover.
-      action: { type: "mediaControl", command: "play" },
+      action: { type: "mediaControl", command: "play", videoKey },
     };
     const markerId = createShapeId();
     const videoBounds = this.editor.getShapePageBounds(videoShapeId);
@@ -306,7 +305,6 @@ export class PresentationManager {
           frame: frameToMetaJson(cueFrame),
         },
       });
-      bindMediaControlMarker(this.editor, markerId, videoShapeId);
       this.editor.select(markerId);
     });
   }
@@ -458,11 +456,8 @@ export class PresentationManager {
       // videos the user started by hand (click-to-interact), which no
       // event history accounts for.
       YouTubePlayerManager.get(this.editor).reconcile(
-        foldMediaPlaybackStates(
-          orderedSteps,
-          stepIndex - 1,
-          (markerShapeId) =>
-            resolveMediaControlTarget(this.editor, markerShapeId)?.id ?? null,
+        foldMediaPlaybackStates(orderedSteps, stepIndex - 1, (markerShapeId) =>
+          resolveMediaControlVideoKey(this.editor, markerShapeId),
         ),
       );
     }
@@ -509,7 +504,7 @@ export class PresentationManager {
         orderedSteps,
         this.$currentStepIndex.get(),
         (markerShapeId) =>
-          resolveMediaControlTarget(this.editor, markerShapeId)?.id ?? null,
+          resolveMediaControlVideoKey(this.editor, markerShapeId),
       ),
     );
   }
@@ -586,16 +581,6 @@ export class PresentationManager {
 
       if (frameInfo.stepIndex > currentStepIndex) {
         return [shapeId, "hidden"];
-      }
-
-      // A framed video stays visible from its appearance step on. The
-      // rule below shows only a batch's LAST frame, and the video is
-      // always its batch's cue (frames[0]), so any sub frame chained
-      // onto that batch would hide the video — and unlike an ordinary
-      // shape it can never be replaced by a copy carrying the later
-      // keyframe, since a copy would mount a second player iframe.
-      if (shape.type === YouTubeEmbedShapeType) {
-        return [shapeId, "visible"];
       }
 
       // Only the last frame of the track's latest played batch is visible.

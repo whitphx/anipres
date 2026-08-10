@@ -19,6 +19,10 @@
  *   introduced for).
  * - 3: the `mediaControl` frame action plus the `youtube-embed` and
  *   `media-control` shapes and the `media-control` binding.
+ * - 4: video identity — `youtube-embed` gains `videoKey`, and a
+ *   `mediaControl` action names its target with one. An older build
+ *   rejects the new prop outright, and would read an event whose
+ *   binding is gone as an orphan to clean up.
  *
  * The server gate matches this value exactly. In the deployment this
  * repo ships, the worker serves the app bundle, so both sides move
@@ -27,4 +31,4 @@
  * would need the worker first for a bump that adds record types, since
  * it is the side that has to store them.
  */
-export const SYNC_CLIENT_VERSION = 3;
+export const SYNC_CLIENT_VERSION = 4;

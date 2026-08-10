@@ -1,6 +1,9 @@
 # Moving and resizing a video during a presentation
 
-Status: proposed.
+Status: implemented (single-document behavior). The shared-room
+protocol described under Rollout — the `sync-core` pre-apply hook and
+everything resting on it — is not built; the sync gate moves to 4 and
+the worker and app bundle ship together, as they already do.
 
 ## Goal
 
@@ -198,7 +201,7 @@ a player whose carrier has left the viewport is offscreen, and
 offscreen is a form of hidden: if it plays, or the media-session
 channel restarts it, that is again audio nobody can see or stop. The
 Absent state's rule therefore extends to it, since it is the same
-rule — and it extends by *mounting*, not by play state. Tying the
+rule — and it extends by _mounting_, not by play state. Tying the
 chip to observed playback would leave a paused offscreen player
 chipless, and a media-session restart with its notification withheld
 would then be audible with nothing to stop it; the runtime cannot
@@ -250,7 +253,7 @@ same check, and the runtime enforces P by admission, not reaction:
 every programmatic play — event-driven or UI-driven — synchronously
 reserves a play slot before the command is issued. When the
 reservation needs a slot freed, the least recently started playing
-video is sent its pause *in place* — a pause preserves the iframe
+video is sent its pause _in place_ — a pause preserves the iframe
 and all of its state where an unmount destroys it — but the slot is
 not free yet: `pauseVideo` is a void command to an iframe that
 reports state asynchronously, so the slot stays occupied and the
@@ -270,7 +273,7 @@ notice, never displacing another player. Reversion itself can fail —
 unrestorable player cannot be torn down — so the overflow policy has
 a defined terminal form rather than an assumed convergence: if the
 corrective pause cannot confirm within its bounded retry, enforcement
-escalates to pausing (or, on ambiguity, tearing down) a *restorable*
+escalates to pausing (or, on ambiguity, tearing down) a _restorable_
 playing player instead, restoring the count at the cost the
 restorability predicate already prices; and only when every playing
 player is unrestorable with an unconfirmable pause does the budget
@@ -288,7 +291,7 @@ reverted as its notification arrives. A host that needs an absolute
 cap sets M = P, the zero-headroom mode described above. Tests fire simultaneous
 programmatic plays together with several native starts delivered
 before any notification, not only the eventual post-overflow state.
-When M presses, the longest-paused *evictable* player is evicted —
+When M presses, the longest-paused _evictable_ player is evicted —
 evictable meaning restoration is confirmable: a positive, finite
 duration has been observed and the content seeks. Live streams,
 unknown-duration players, and any player whose restore-seek has
@@ -298,7 +301,7 @@ keeps the poster, with a notice — because refusing a new player is
 recoverable and jumping an unseekable stream is not.
 
 That predicate is retrospective, though: having seen a duration and
-a successful seek does not promise the *restoring* seek will land,
+a successful seek does not promise the _restoring_ seek will land,
 and a teardown that has already happened leaves no copy of the
 position to fall back on. The tempting answer — stage the
 replacement, confirm its position, then destroy the original — is
@@ -377,7 +380,7 @@ it produces — pause predicts paused, play predicts playing — and
 consumes only a notification of exactly that state. Autonomous
 transitions — buffering, ended, errors — update confirmed state and
 are never read as intent or as acknowledgement. A matching
-notification still cannot say *who* caused it, so during pendency
+notification still cannot say _who_ caused it, so during pendency
 native input is actively excluded rather than assumed away: the
 runtime disables pointer input and moves focus off the cross-origin
 iframe onto the player container, so a keyboard pause cannot reach
@@ -389,7 +392,7 @@ pause and proves manual-pause persistence and slot accounting stay
 correct. Two channels remain that no exclusion covers — the
 browser's media session, whose hardware play/pause keys no web page
 can intercept from outside the iframe's origin, and the ordering
-where a native action lands just *before* a same-direction command
+where a native action lands just _before_ a same-direction command
 whose pendency then swallows the notification. Rather than guess at
 attribution in either, the conservative resume rule swallows both:
 **every pause acknowledgement is marked possibly-manual**, because a
@@ -422,7 +425,7 @@ by the same asynchronous message channel as the notifications and
 can only echo what the iframe last sent; treating it as independent
 confirmation would be circular. Before a slot is freed, a
 replacement play issued, or an eviction admitted, the runtime
-demands corroboration that is *temporal*, not cached — and the
+demands corroboration that is _temporal_, not cached — and the
 evidence is asymmetric. An advancing playback position across spaced
 reads proves the player is playing, because a stale cache does not
 keep moving; it always blocks release. A frozen position proves
@@ -436,7 +439,7 @@ observables. Release therefore rests on certainty or does not
 happen — and the design's baseline assumes no unproven primitive.
 **Teardown** — removal of the iframe, causally certain because a DOM
 node that no longer exists cannot play — is the ground of release
-that always exists. How *promptly* removal stops media is a browser
+that always exists. How _promptly_ removal stops media is a browser
 question, not a logical one: detachment may precede the teardown of
 the underlying media pipeline, so the prototype milestone below must
 establish, across supported browsers, when a detached cross-origin
@@ -450,7 +453,7 @@ rather than by assumption. With that, teardown is the release: baseline slot tur
 restorable player attempts the pause for a grace period, then
 transfers the slot by teardown, and the torn-down player resumes by
 its clock exactly as an evicted one does. Pause-in-place with the
-iframe preserved is an *enhancement*, unlocked only if the IFrame
+iframe preserved is an _enhancement_, unlocked only if the IFrame
 API browser prototype — a blocking implementation milestone
 alongside the sync fork's, tasked with naming the exact observable
 that establishes causality, with measuring the teardown drain
@@ -469,7 +472,7 @@ confirmed — the runtime tears it down and takes the certainty
 teardown grants: a bounded, named loss, since a player whose
 playback was unobservable for the whole window loses little and
 remounts later by its clock exactly as an evicted one would. If the
-ambiguous player is *not* restorable — live, unknown duration, a
+ambiguous player is _not_ restorable — live, unknown duration, a
 failed seek — ambiguity always fails closed: the replacement play is
 refused with a surfaced notice or queued, and the existing player is
 never unmounted, because the only thing worse than refusing a new
@@ -519,11 +522,11 @@ hidden — an event browsers do deliver at that moment — the runtime
 reconciles all mounted players and pauses any playback above P. One
 channel remains beyond any page's reach, and the contract says so
 instead of pretending: a native or media-session play that starts
-*after* the page is hidden and whose notification never arrives
+_after_ the page is hidden and whose notification never arrives
 cannot be observed until the next lifecycle event, so background
 overflow from that channel is bounded by the user's return, not by
 the runtime. A host that cannot accept it enables strict
-`pauseOnHidden`: every *restorable* player is unmounted at the hide
+`pauseOnHidden`: every _restorable_ player is unmounted at the hide
 transition, so post-hide native playback is impossible for them
 because no iframe exists to play — a pause command would not close
 the channel, being asynchronous and revocable by a later native
@@ -735,7 +738,7 @@ principal, and requires it on every submission, result
 acknowledgement and retirement, validating it against the persisted
 binding and never against anything the client can name. Sequential
 per-principal numbering orders epochs for retirement; it never
-identifies them. A second *device* under the same account therefore
+identifies them. A second _device_ under the same account therefore
 cannot touch this instance's epoch without stealing the token.
 
 Same-origin sibling tabs are a different matter, and the design does
@@ -881,7 +884,7 @@ way at any step.
 
 That is also what bounds local storage. Per-load databases are not
 retained for the server's year-long replay lease — that lease
-governs how long an *operation* stays replayable, not how long a
+governs how long an _operation_ stays replayable, not how long a
 database must sit on disk — so every load folds its sealed
 predecessors forward into its own database and deletes them, each
 load reducing the backlog rather than adding to it. The steady state
@@ -946,7 +949,7 @@ retryable conditions, a lost connection or a failed transaction,
 leave the watermark standing. A fixture makes sequence N terminally
 invalid and N+1 valid, across reconnect and restart.
 
-The watermark says a sequence was *decided*, never which way, so
+The watermark says a sequence was _decided_, never which way, so
 outcomes outlive it exactly as long as they are unresolved: for each
 sequence above the client's last durably acknowledged result, the
 server retains whether it committed or terminally failed and why,
@@ -969,7 +972,7 @@ client replays everything above the server's watermark straight from
 that queue — there is no allocation apart from the enqueue, so the
 watermark always has a successor. Crash tests cut the process
 between enqueue, transmission, commit, and acknowledgement.
-Retirement *is* the watermark advancing, so there is no
+Retirement _is_ the watermark advancing, so there is no
 forgotten-id window: an acknowledged operation replayed after any
 amount of compaction, reconnection, force-reset (which issues a
 fresh epoch), or server restart is still at or below the watermark
@@ -1208,7 +1211,7 @@ the validation separates forgery from staleness.
 
 First, a claim must be about something that actually happened: the
 claimed key must have a carrier pre-image deleted by this very push,
-and the merged state must have lost its last carrier *because of*
+and the merged state must have lost its last carrier _because of_
 that deletion. Without this, a claim would be a free instruction to
 mint durable evidence — an authenticated editor could submit empty
 claims for keys that never existed, and each one, trivially having
@@ -1217,7 +1220,7 @@ consumed with no carrier creation and no birth-ledger entry behind
 it, and a key poisoned against whoever legitimately mints it later.
 Claims naming a key this push did not empty are rejected outright,
 empty ones included. Second, a claimed marker
-whose pre-image targets a *different* key, or whose removal does not
+whose pre-image targets a _different_ key, or whose removal does not
 arrive in the same push, is forgery: it rejects the whole claim, so
 no client can launder another video's events into a tombstone under
 an unused key. A claimed marker that simply no longer exists is
@@ -1338,7 +1341,7 @@ enforced at admission, not implied by accounting. A principal whose
 churn fills its own share has its deletions deferred as retryable,
 with backpressure surfacing before exhaustion, while every other
 principal's share, and therefore their deletions, remains untouched;
-only when a principal's share is exhausted *and* cold storage is
+only when a principal's share is exhausted _and_ cold storage is
 unavailable — the one state in which that principal's recovery data
 cannot be durably persisted anywhere — does its deferral engage at
 all. Deferred, not refused: policy never takes deletion away, and
@@ -1353,7 +1356,7 @@ minimum viable share; the reserve therefore admits a bounded number
 of concurrent holders. Allocation is first-come: an existing
 holder's share is never shrunk below the floor to make room, so
 isolation means what it says, and a principal arriving when the
-reserve is fully allotted has *its own* deletions deferred as
+reserve is fully allotted has _its own_ deletions deferred as
 retryable — the same deferral, reached one step earlier, never a
 tax on anyone already holding. Shares are released as payloads
 spill or expire, so the bound is transient by construction: it can
@@ -1373,7 +1376,7 @@ that: a filter positive is confirmed against the exact cold-storage
 set before anything is flagged, so a freshly minted video can never
 draw a false revived-without-events warning. A filter false positive
 costs one cold read, never a wrong flag; the filter's error rate is
-a performance knob, not a correctness bound. An *unconfirmable*
+a performance knob, not a correctness bound. An _unconfirmable_
 positive — the cold read failing or timing out — gets the same
 contract as an unreadable tombstone: the push commits nothing and
 returns retryable, because failing open could admit a stale revival
@@ -1601,7 +1604,7 @@ parks just as well as dragging the video does. With several carriers
 per video, parking has one authority, not one reaction per carrier
 racing writes to the same markers: each client runs a single
 reaction per `videoKey`, parking the video's markers at the
-earliest-keyframe carrier's page transform — the player's *default*
+earliest-keyframe carrier's page transform — the player's _default_
 anchor rule, deliberately without the local double-click override
 that can re-anchor the player during editing, because parking must
 be a pure function of the converged document while interaction is
@@ -1724,7 +1727,7 @@ end-to-end test starts a version-6 browser client, rolls the
 deployment back, and proves the session resumes as version 5.
 
 Documents that already hold the binding are normalized on load, not
-stranded. The version gate only refuses *clients*; it does nothing
+stranded. The version gate only refuses _clients_; it does nothing
 for the binding records that existing documents contain, and those
 documents surface in more places than the sole-user framing suggests —
 synced rooms, snapshot files, clipboard payloads, locally cached

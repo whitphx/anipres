@@ -30,6 +30,8 @@ describe("document schema registration", () => {
       props: {
         w: 480,
         h: 270,
+        // The video's own identity, shared by every carrier of it.
+        videoKey: "shape:video",
         url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
         videoId: "M7lc1UVf-VE",
         start: 0,

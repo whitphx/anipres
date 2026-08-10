@@ -8,6 +8,11 @@ import {
   type TLShapeId,
 } from "tldraw";
 import { PresentationManager } from "./presentation-manager";
+import { resolveMediaControlVideoKey } from "../shapes/media-control/MediaControlShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import {
   calculateTotalSteps,
@@ -95,11 +100,22 @@ describe("PresentationManager with grouped shapes", () => {
   });
 });
 
-function getBoundMarkers(editor: Editor, videoId: TLShapeId) {
+// A video's event markers now name it by `videoKey` in their own
+// frames, so they are found by asking each marker what it controls
+// rather than by walking a binding.
+function getVideoMarkers(editor: Editor, videoId: TLShapeId) {
+  const video = editor.getShape(videoId);
+  const videoKey = isYouTubeEmbedShape(video) ? getVideoKey(video) : null;
+  if (videoKey == null) {
+    return [];
+  }
   return editor
-    .getBindingsToShape(videoId, "media-control")
-    .map((binding) => editor.getShape(binding.fromId))
-    .filter((shape) => shape?.type === "media-control");
+    .getCurrentPageShapes()
+    .filter(
+      (shape) =>
+        shape.type === "media-control" &&
+        resolveMediaControlVideoKey(editor, shape.id) === videoKey,
+    );
 }
 
 describe("attachMediaControlCueFrame", () => {
@@ -138,7 +154,7 @@ describe("attachMediaControlCueFrame", () => {
       manager.attachMediaControlCueFrame(videoId);
       manager.attachMediaControlCueFrame(videoId);
 
-      const markerFrames = getBoundMarkers(editor, videoId).map((shape) =>
+      const markerFrames = getVideoMarkers(editor, videoId).map((shape) =>
         parseFrameMeta(shape?.meta?.frame),
       );
       expect(markerFrames).toHaveLength(2);
@@ -163,7 +179,7 @@ describe("attachMediaControlCueFrame", () => {
   it("keeps the marker parked at the video's origin across video moves", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
-      const [marker] = getBoundMarkers(editor, videoId);
+      const [marker] = getVideoMarkers(editor, videoId);
       expect(marker!.x).toBe(0);
       expect(marker!.y).toBe(0);
 
@@ -177,27 +193,21 @@ describe("attachMediaControlCueFrame", () => {
     });
   });
 
-  it("parks a marker bound after being positioned elsewhere", () => {
-    withVideoEditor(({ editor, videoId }) => {
+  it("parks a marker positioned away from its video", () => {
+    withVideoEditor(({ manager, editor, videoId }) => {
       // Away from the origin, so parking at the VIDEO is what the
       // assertion below proves — not a reset to (0, 0).
       editor.updateShape({ id: videoId, type: "youtube-embed", x: 120, y: 90 });
-      // The timeline's group-clone path copies a marker at the clone
-      // offset and binds it afterwards.
-      const clonedMarkerId = createShapeId("cloned-marker");
-      editor.createShape({
-        id: clonedMarkerId,
-        type: "media-control",
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = getVideoMarkers(editor, videoId);
+      editor.updateShape({
+        id: marker!.id,
+        type: marker!.type,
         x: 400,
         y: 250,
       });
-      editor.createBinding({
-        type: "media-control",
-        fromId: clonedMarkerId,
-        toId: videoId,
-      });
 
-      const parked = editor.getShape(clonedMarkerId)!;
+      const parked = editor.getShape(marker!.id)!;
       expect(parked.x).toBe(120);
       expect(parked.y).toBe(90);
     });
@@ -206,7 +216,7 @@ describe("attachMediaControlCueFrame", () => {
   it("re-parks a marker that was moved on its own", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
-      const [marker] = getBoundMarkers(editor, videoId);
+      const [marker] = getVideoMarkers(editor, videoId);
 
       // The strip badge selects the marker, and selection-wide
       // operations (arrow-key nudge, align) do not filter hidden
@@ -219,11 +229,11 @@ describe("attachMediaControlCueFrame", () => {
     });
   });
 
-  it("deletes the markers along with the video (binding cascade)", () => {
+  it("deletes the markers when the video loses its last carrier", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
       manager.attachMediaControlCueFrame(videoId);
       manager.attachMediaControlCueFrame(videoId);
-      const markerIds = getBoundMarkers(editor, videoId).map((s) => s!.id);
+      const markerIds = getVideoMarkers(editor, videoId).map((s) => s!.id);
       expect(markerIds).toHaveLength(2);
 
       editor.deleteShape(videoId);
@@ -256,7 +266,7 @@ describe("attachMediaControlCueFrame", () => {
       manager.attachMediaControlCueFrame(videoId);
 
       const groups = manager.$getMediaTrackGroups();
-      const [marker] = getBoundMarkers(editor, videoId);
+      const [marker] = getVideoMarkers(editor, videoId);
       const parsed = parseFrameMeta(marker?.meta?.frame);
       if (parsed.kind !== "v2" || parsed.frame.type !== "cue") {
         throw new Error("expected a v2 cue frame on the marker");
@@ -729,13 +739,14 @@ describe("video visibility in presentation mode", () => {
     ).toBe("visible");
   });
 
-  it("keeps it visible even when a sub frame is chained onto its batch", () => {
-    // The video is always its batch's cue, so the last-frame-of-batch
-    // rule would hide it; unlike an ordinary shape it cannot be
-    // replaced by a copy carrying the later keyframe, because a copy
-    // would mount a second player iframe.
+  it("follows the latest-frame-of-batch rule like any other shape", () => {
+    // A video used to be exempt: it was always its batch's cue, and
+    // could not be replaced by a copy carrying the later keyframe
+    // because a copy meant a second player iframe. Now that the player
+    // is runtime-owned, copies are ordinary and so is this rule — a sub
+    // frame chained onto the batch hides the cue's carrier.
     expect(
       videoVisibility({ withSubFrameOnItsBatch: true, currentStepIndex: 1 }),
-    ).toBe("visible");
+    ).toBe("hidden");
   });
 });

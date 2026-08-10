@@ -16,6 +16,7 @@
 import { uniqueId, type Editor, type TLShape, type TLShapeId } from "tldraw";
 import type { VecLike } from "tldraw";
 import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
+import { remapDuplicatedVideoKeys } from "./media/remap-video-keys";
 import {
   frameToMetaJson,
   parseFrameMeta,
@@ -130,6 +131,15 @@ export function createDuplicateShapesRemap(
         } finally {
           capturing = null;
         }
+        // A duplicate is an independent video, not another carrier of
+        // the source: mint its own key so the copied events retarget
+        // with the rest of the operation. Derived from the resulting
+        // selection rather than from `created`, because that capture is
+        // fed by the caller's beforeCreate safety net — video identity
+        // must not depend on whether one is installed.
+        remapDuplicatedVideoKeys(editor, [
+          ...editor.getShapeAndDescendantIds(editor.getSelectedShapeIds()),
+        ]);
         if (created.length === 0) {
           return;
         }

@@ -5,15 +5,15 @@ export const MediaControlBindingType = "media-control" as const;
 export type MediaControlBindingProps = Record<string, never>;
 
 /**
- * The one canonical record of "this marker belongs to that video":
- * `fromId` is the marker, `toId` is the video. Modeled as a tldraw
- * binding — not `parentId` — because arbitrary shapes are not containers
- * in tldraw: the editor re-parents children of a non-container shape to
- * the page on the next interaction, silently severing the link. A
- * binding survives that, and the BindingUtil gives the relationship its
- * lifecycle behavior (markers are deleted with their video) in one
- * place. tldraw also remaps bindings on copy/paste/duplicate when both
- * ends are included.
+ * Legacy: how a marker used to record which video its event controls,
+ * `fromId` being the marker and `toId` the video. Nothing writes one any
+ * more — an event names its video by `videoKey` in its own frame, which
+ * a video that is several carriers needs, since a binding to one
+ * keyframe would tie the whole video's events to that keyframe's fate.
+ *
+ * The type stays registered so a document written before the change
+ * still validates, and `normalizeVideoIdentity` reads it once on load to
+ * recover the target key. See `MediaControlBindingUtil`.
  */
 export type MediaControlBinding = TLBaseBinding<
   typeof MediaControlBindingType,
@@ -32,36 +32,4 @@ export function getMediaControlBindingTargetId(
     MediaControlBindingType,
   );
   return binding?.toId ?? null;
-}
-
-/** Binds a marker to a video. */
-export function bindMediaControlMarker(
-  editor: Editor,
-  markerShapeId: TLShapeId,
-  videoShapeId: TLShapeId,
-): void {
-  editor.createBinding<MediaControlBinding>({
-    type: MediaControlBindingType,
-    fromId: markerShapeId,
-    toId: videoShapeId,
-    props: {},
-  });
-}
-
-/**
- * Binds `newMarkerShapeId` to the same video as `sourceMarkerShapeId`.
- * For code paths that clone a marker via `createShape` (e.g. the
- * group-clone path): a raw shape copy carries the frame meta but not the
- * binding, which lives in a separate record.
- */
-export function copyMediaControlBinding(
-  editor: Editor,
-  sourceMarkerShapeId: TLShapeId,
-  newMarkerShapeId: TLShapeId,
-): void {
-  const targetId = getMediaControlBindingTargetId(editor, sourceMarkerShapeId);
-  if (targetId == null) {
-    return;
-  }
-  bindMediaControlMarker(editor, newMarkerShapeId, targetId);
 }

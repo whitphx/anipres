@@ -37,13 +37,14 @@ import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { MediaControlShapeType } from "./shapes/media-control/MediaControlShape";
-import { getMediaControlBindingTargetId } from "./shapes/media-control/MediaControlBinding";
 import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
 import { PresentationModeContext } from "./presentation-mode-context";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
+import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
+import { installVideoLifecycle } from "./media/marker-lifecycle";
 import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
 import { YouTubePlayerManager } from "./media/youtube-player-manager";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
@@ -229,6 +230,7 @@ const createComponents = (signals: {
 }): TLComponents => {
   const { $currentStepIndex, $presentationMode } = signals;
   return {
+    OnTheCanvas: createVideoPlayerLayer($presentationMode),
     TopPanel: () => {
       const editor = useEditor();
       const presentationManager = PresentationManager.get(editor);
@@ -336,22 +338,9 @@ const Inner = (props: InnerProps) => {
       $currentStepIndex,
     );
 
-    // Markers whose binding is gone (legacy documents, external
-    // content) are invisible and their events silently no-op; delete
-    // them instead of letting them accumulate.
-    const orphanedMarkerIds = editor
-      .getCurrentPageShapes()
-      .filter(
-        (shape) =>
-          shape.type === MediaControlShapeType &&
-          getMediaControlBindingTargetId(editor, shape.id) == null,
-      )
-      .map((shape) => shape.id);
-    if (orphanedMarkerIds.length > 0) {
-      editor.deleteShapes(orphanedMarkerIds);
-    }
-
     const stopHandlers: (() => void)[] = [];
+
+    stopHandlers.push(installVideoLifecycle(editor));
 
     // Existing-frame-id set for the beforeCreate safety net below. It is
     // O(page) to build, and editor.duplicateShapes of N framed shapes
