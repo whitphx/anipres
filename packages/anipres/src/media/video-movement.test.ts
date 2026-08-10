@@ -1510,6 +1510,41 @@ describe("a legacy video keeps its identity through a group keyframe", () => {
   });
 });
 
+describe("a deleted video's events in a shared document", () => {
+  it("stops occupying steps, and comes back with the video", () => {
+    // Shared, so the marker records themselves must stay: claiming a
+    // carrier was the last one is not this client's call to make.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const withVideo = manager.$getTotalSteps();
+      expect(markersOf(editor, videoId)).toHaveLength(1);
+
+      editor.deleteShapes([videoId]);
+
+      expect(markersOf(editor, videoId)).toHaveLength(1);
+      // The event is still on the page and still names its video, but
+      // the video is gone, so it is no longer part of the presentation
+      // and leaves no empty step behind.
+      expect(manager.$getTotalSteps()).toBe(withVideo - 1);
+
+      // A carrier of the same video returning — an undo here, a peer's
+      // record in a real room — restores the events with it.
+      editor.createShape({ ...video, id: createShapeId("returned") });
+      expect(manager.$getTotalSteps()).toBe(withVideo);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("deleting the carrier that won a property", () => {
   it("keeps the edit when a stale carrier from a peer is all that survives", () => {
     // The document is shared, so nothing here may assume this client is

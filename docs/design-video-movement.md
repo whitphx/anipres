@@ -22,10 +22,22 @@ another may be adding one, and honoring the removals then would strip a
 surviving video of its events. With no room server to arbitrate, the
 implementation does not gamble — the cascade runs only where this
 client is the document's sole writer. A synced document takes the
-recoverable failure instead: the markers stay, invisible and inert,
-where the events they carry cannot be reconstructed if destroyed. That
-leaves stray records behind a deleted video in a shared room, which the
-server arbitration described below is what finally removes.
+recoverable failure instead: the markers stay, where the events they
+carry cannot be reconstructed if destroyed. That leaves stray records
+behind a deleted video in a shared room, which the server arbitration
+described below is what finally removes.
+
+Staying is not the same as counting. Whether an event is part of the
+presentation is settled at read time, by the timeline derivation, which
+drops a media event whose video has no carrier on the page. Deciding it
+there rather than by deleting the record needs no arbitration at all —
+every client sees the same carriers and drops the same events, no
+client writes anything, and nothing has to be settled before the
+answer is correct. It is also what keeps the retained record honest: a
+deleted video leaves no run of empty waits behind, and a carrier of
+that video returning, by undo or from a peer, brings its events back
+with it. The cascade is therefore only ever storage cleanup, which is
+why withholding it costs a shared document nothing a user can see.
 
 The configuration transfer that shares that batch is gated on nothing:
 it runs wherever a carrier is deleted. It removes no record and mints
