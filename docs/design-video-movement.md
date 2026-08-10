@@ -195,7 +195,12 @@ through three states:
   placement of nothing, which unmounts the iframe and remounts it at
   the destination, at every handoff, losing the position this exists
   to carry. Interpolation clamps at its end, so a tween waiting to be
-  settled simply holds the player at the destination.
+  settled simply holds the player at the destination. A step with no
+  duration takes an anchor too, for the same reason: it animates
+  nothing, but the destination carrier is still hidden before the
+  frame runs and revealed a turn later, and a player with nothing to
+  anchor to in between is a player that gets unmounted across a
+  handoff that was supposed to be instant.
 - **Editing.** Every carrier is visible, so a fixed rule takes over:
   the anchor is the carrier of the sequence's earliest keyframe — the
   video's starting position — and an unanimated video is its only
@@ -715,8 +720,8 @@ regression guard, and the pre-release's stamping.
 
 A counter is read only when it is a non-negative integer strictly
 below a ceiling set far above any editing history and far below the
-safe-integer limit, and a write clamps what it emits to stay under
-that ceiling. Both halves are needed together, because the accepted
+safe-integer limit, and a write holds what it emits inside that same
+range. Both halves are needed together, because the accepted
 range has to be closed under the increment a write performs: a
 counter is data, arriving in unvalidated meta from a paste or a
 peer, so a record claiming a magnitude at which `highest + 1` no
@@ -726,7 +731,13 @@ stamp one past what a read accepts — an edit whose stamp cannot be
 read carries no ordering evidence, so the claimant would win again.
 A counter at or above the ceiling is therefore not evidence of
 anything, and the client that reaches for it loses to any carrier
-that can still be read. A fresh identity minted from clipboard
+that can still be read. At the very top of the range an edit can only
+tie the counter it found, leaving the session id to decide it — the
+one case a client cannot settle alone, and one more reason the room
+server is where stamps are meant to be issued. Starting the counter
+over instead would be worse than the tie, since a carrier this client
+has never seen can still merge holding the high counter and would
+outrank the restart, reverting the property an edit had just changed. A fresh identity minted from clipboard
 content starts with no revision map at all, since a new video is not
 heir to the history of the one it was copied from.
 

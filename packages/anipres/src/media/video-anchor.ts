@@ -369,18 +369,17 @@ export function updateVideoConfig(
         highest = stamp.c;
       }
     }
-    // At the top of the range there is no higher counter to take, so
-    // the property starts again from the bottom rather than write one
-    // that does not advance. A stamp that only ties the one it found
-    // is ordered by session id alone, which is a coin toss over which
-    // value the user sees, and the edit is what the user just asked
-    // for. Starting over is safe because this write reaches every
-    // carrier, leaving the counter it replaces on none of them. Only a
-    // record from outside arrives here — the ceiling sits far above
-    // any editing history.
-    const next = highest + 1;
+    // Held inside the range a read accepts, so an edit always carries
+    // ordering evidence. At the very top it can only tie the counter
+    // it found, leaving the session id to decide — the one case a
+    // client cannot settle on its own, and the reason the room server
+    // is the design's authority for stamps. Starting the counter over
+    // instead would be worse than the tie: a carrier this client has
+    // never seen can still merge holding the high counter, and would
+    // then outrank the restart and revert the property. No honest
+    // history reaches here; the ceiling sits far above any of them.
     stamps[key] = {
-      c: next < CONFIG_STAMP_CEILING ? next : 1,
+      c: Math.min(highest, CONFIG_STAMP_CEILING - 2) + 1,
       s: session,
     };
   }

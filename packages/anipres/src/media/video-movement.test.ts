@@ -916,21 +916,29 @@ describe("cross-document copy", () => {
 });
 
 describe("transition hygiene", () => {
-  it("stores no transition for an immediate step", () => {
+  it("anchors an immediate step instead of leaving the player adrift", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
       const videoId = createVideo(editor, "video");
-      // Nothing schedules removal for a zero-duration tween, and a
-      // stored one outranks presentation visibility — so a later rewind
-      // past the video's cue would keep the player up forever.
-      getVideoTransitions(editor).start(videoId, {
+      const toShapeId = createShapeId("destination");
+      const transitions = getVideoTransitions(editor);
+      // The step hides the destination carrier and reveals it a turn
+      // later; with nothing stored in between, neither carrier is
+      // visible and the player has no anchor at all.
+      transitions.start(videoId, {
         fromShapeId: videoId,
-        toShapeId: videoId,
+        toShapeId,
         startedAt: Date.now(),
         durationMs: 0,
         easing: "linear",
       });
-      expect(getVideoTransitions(editor).$transitions.get().size).toBe(0);
+      const stored = transitions.$transitions.get().get(videoId);
+      expect(stored?.toShapeId).toBe(toShapeId);
+      // Nothing to animate: parked at the destination from the start.
+      expect(stored != null && transitionProgress(stored, Date.now())).toBe(1);
+
+      transitions.settle(videoId);
+      expect(transitions.$transitions.get().size).toBe(0);
     } finally {
       dispose();
     }

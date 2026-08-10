@@ -71,14 +71,14 @@ class VideoTransitionStore {
   }
 
   start(videoKey: string, transition: VideoTransition): void {
-    // A zero-duration step has nothing to animate, and storing one
-    // would leave it here forever: nothing schedules its removal, while
-    // the placement read gives any stored transition precedence over
-    // presentation visibility — so a later rewind past the video's cue
-    // would still find this destination carrier and keep the player up.
-    if (transition.durationMs <= 0) {
-      return;
-    }
+    // A zero-duration step is stored too, though it animates nothing.
+    // The step hides the destination carrier before running the frame
+    // and reveals it a turn later, so between those two moments a
+    // player with no transition has no anchor at all — neither carrier
+    // is visible — and would be unmounted and remounted across a
+    // handoff that was supposed to be instant. Interpolation is
+    // already complete at zero, so this anchors the player at the
+    // destination and waits there to be settled.
     const next = new Map(this.$transitions.get());
     next.set(videoKey, transition);
     this.$transitions.set(next);
