@@ -22,6 +22,7 @@ import {
 import { normalizeVideoIdentity } from "./normalize-video-identity";
 import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
+import { remapContentVideoKeys } from "./remap-video-keys";
 import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
@@ -440,6 +441,108 @@ describe("one video, one configuration", () => {
         groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
         [];
       expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("copy/paste identity", () => {
+  it("mints a fresh key for pasted content and retargets its events", () => {
+    const content = {
+      shapes: [
+        {
+          id: "shape:src-video",
+          type: "youtube-embed",
+          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+        },
+        {
+          id: "shape:src-marker",
+          type: "media-control",
+          meta: {
+            frame: frameToMetaJson({
+              v: 2,
+              id: "f1",
+              type: "cue",
+              trackId: "T",
+              stepId: "s",
+              stepOrderKey: "a1",
+              action: {
+                type: "mediaControl",
+                command: "play",
+                videoKey: "shape:src-video",
+              },
+            }),
+          },
+        },
+      ],
+    };
+
+    let n = 0;
+    const pasted = remapContentVideoKeys(
+      content,
+      "duplicate",
+      () => `minted-${++n}`,
+    );
+
+    const video = pasted.shapes[0] as { props: { videoKey: string } };
+    expect(video.props.videoKey).toBe("minted-1");
+    const marker = pasted.shapes[1] as { meta: { frame: unknown } };
+    const parsed = parseFrameMeta(marker.meta.frame);
+    if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+      throw new Error("expected a mediaControl cue frame");
+    }
+    // The copy's event follows the copy, not the source video.
+    expect(parsed.frame.action.videoKey).toBe("minted-1");
+  });
+
+  it("keeps the key when the paste is a move", () => {
+    const content = {
+      shapes: [
+        {
+          id: "shape:src-video",
+          type: "youtube-embed",
+          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+        },
+      ],
+    };
+    const moved = remapContentVideoKeys(content, "move", () => "minted");
+    const video = moved.shapes[0] as { props: { videoKey: string } };
+    // A cut/paste is the same video changing place.
+    expect(video.props.videoKey).toBe("shape:src-video");
+  });
+});
+
+describe("configuration survives owner deletion", () => {
+  it("carries the config to the survivor when the owner is deleted", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // The keyframe predates the URL, so its own props are blank —
+      // exactly the state that would blank the video if ownership moved
+      // without the configuration.
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      editor.deleteShape(videoId);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id)).toEqual([keyframeId]);
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
+      expect(readPlacements(editor, false)).toHaveLength(1);
     } finally {
       dispose();
     }

@@ -13,10 +13,15 @@ import {
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import {
+  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
+  resolveVideoConfig,
 } from "./video-anchor";
-import { isYouTubeEmbedShape } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
 
 interface MarkerPlacement {
@@ -113,6 +118,50 @@ export function startMarkerParking(editor: Editor): () => void {
  * the React one — the binding util used to carry this, and a schema
  * registration reached both.
  */
+/**
+ * Carries a video's configuration off a carrier that is about to be
+ * deleted, when that carrier is the one the configuration resolves
+ * from.
+ *
+ * Ownership falls back to the smallest surviving carrier, and a
+ * survivor's own media props can be an arbitrarily stale snapshot — a
+ * keyframe added before the URL was ever submitted still carries a
+ * blank `videoId`. Without this, deleting the original carrier would
+ * make the video answer "no video" and its live player disappear even
+ * though carriers and events remain.
+ */
+function transferConfigBeforeDelete(
+  editor: Editor,
+  deletedShapeId: TLShapeId,
+): void {
+  const deleted = editor.getShape(deletedShapeId);
+  if (!isYouTubeEmbedShape(deleted)) {
+    return;
+  }
+  const videoKey = getVideoKey(deleted);
+  const carriers =
+    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
+  if (getConfigOwnerCarrier(carriers)?.id !== deletedShapeId) {
+    return;
+  }
+  const survivors = carriers.filter((carrier) => carrier.id !== deletedShapeId);
+  const heir = getConfigOwnerCarrier(survivors);
+  if (heir == null) {
+    // The video itself is going away; its markers follow in the
+    // post-batch sweep.
+    return;
+  }
+  const config = resolveVideoConfig(carriers);
+  if (config == null) {
+    return;
+  }
+  editor.updateShape({
+    id: heir.id,
+    type: heir.type,
+    props: { ...config },
+  });
+}
+
 export function installVideoLifecycle(editor: Editor): () => void {
   // The load-side normalization authority for an unsynced document:
   // legacy videos get their `videoKey`, legacy events get the target key
@@ -131,6 +180,12 @@ export function installVideoLifecycle(editor: Editor): () => void {
         ? { ...shape, props: { ...shape.props, videoKey: shape.id } }
         : shape,
   );
+  const stopConfigTransfer = editor.sideEffects.registerBeforeDeleteHandler(
+    "shape",
+    (shape) => {
+      transferConfigBeforeDelete(editor, shape.id);
+    },
+  );
   const stopParking = startMarkerParking(editor);
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
@@ -139,6 +194,7 @@ export function installVideoLifecycle(editor: Editor): () => void {
   );
   return () => {
     stopMinting();
+    stopConfigTransfer();
     stopParking();
     stopCleanup();
   };

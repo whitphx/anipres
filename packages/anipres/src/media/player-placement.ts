@@ -215,7 +215,14 @@ export function useIsPlayerAnchor(
               )?.$getShapeVisibilitiesInPresentationMode()
             : undefined,
         });
-      return anchor?.id === shape.id && anchor.props.videoId !== "";
+      // Resolved config, not the anchor's own props: a carrier added
+      // before the URL was submitted has a blank `videoId` of its own,
+      // and checking that would leave its poster painted over the live
+      // player it is supposed to be yielding to.
+      return (
+        anchor?.id === shape.id &&
+        (resolveVideoConfig(carriers)?.videoId ?? "") !== ""
+      );
     },
     [editor, presentationMode, shape],
   );
