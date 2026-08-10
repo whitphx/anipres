@@ -126,7 +126,8 @@ describe("attachMediaControlCueFrame", () => {
       videoId: TLShapeId;
     }) => T,
   ): T {
-    const [editor, dispose] = loadHeadlessEditor();
+    // These exercise the cleanup that needs a whole-document view.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
     try {
       const manager = PresentationManager.create(
         editor,

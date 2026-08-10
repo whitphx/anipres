@@ -18,6 +18,13 @@ export type SnapshotInput = Partial<TLEditorSnapshot> | TLStoreSnapshot;
 
 export interface EditSnapshotOptions {
   snapshot: SnapshotInput;
+  /**
+   * Whether the result replaces the source document rather than merging
+   * into one that others may also be editing. Enables cleanup that
+   * needs a whole-document view — see anipres' `soleWriter`. Defaults
+   * to false.
+   */
+  soleWriter?: boolean;
   prompt: string;
   env: AgentEnv;
   modelName?: string;
@@ -61,7 +68,12 @@ export async function editSnapshot(
   // default. Idempotent install — safe to call repeatedly.
   installDomGlobals();
 
-  const [editor, dispose] = loadHeadlessEditor({ snapshot: opts.snapshot });
+  const [editor, dispose] = loadHeadlessEditor({
+    snapshot: opts.snapshot,
+    // The caller hands back a whole snapshot to replace the document
+    // with, so this editor is its only writer for the edit's duration.
+    soleWriter: opts.soleWriter ?? false,
+  });
   const transcript: AgentAction[] = [];
   try {
     const prompt = buildPromptFromEditor(editor, opts.prompt);

@@ -180,7 +180,8 @@ describe("video identity", () => {
 
 describe("marker lifecycle without the binding", () => {
   it("keeps a video's events when one keyframe of it is deleted", () => {
-    const [editor, dispose] = loadHeadlessEditor();
+    // The cascade needs the whole-document view, so it is claimed.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
     try {
       const videoId = createVideo(editor, "video");
       const manager = PresentationManager.create(
@@ -211,7 +212,7 @@ describe("marker lifecycle without the binding", () => {
   });
 
   it("deletes the events when every carrier goes in one operation", () => {
-    const [editor, dispose] = loadHeadlessEditor();
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
     try {
       const videoId = createVideo(editor, "video");
       const manager = PresentationManager.create(
