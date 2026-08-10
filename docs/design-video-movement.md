@@ -746,10 +746,28 @@ reload racing its predecessor — not a hostile sibling, since script
 running on the origin has already won by other means. So siblings
 are coordinated rather than isolated: the queue has a single writer
 at a time, elected through a Web Lock, and only the lock holder
-submits, acknowledges, or retires. A tab without the lock observes
-and defers; when the holder navigates away or crashes the lock
-releases, the next tab takes it and resumes the same queue from the
-same epoch, which is exactly the continuity a reload needs.
+submits, acknowledges, or retires. When the holder navigates away or
+crashes the lock releases, the next tab takes it and resumes the
+same queue from the same epoch, which is exactly the continuity a
+reload needs.
+
+A tab without the lock is not read-only — a user should be able to
+edit in whichever window they are looking at — so it **brokers**:
+the edit is handed to the holder over a same-origin channel, the
+holder assigns it a sequence and persists it in the queue, and only
+that durable confirmation makes the edit committed locally. Until
+the confirmation lands the edit is pending in the originating tab
+and shown as such; it is never applied as though committed, which is
+what would otherwise let a non-holder's edit vanish or arrive as a
+rejected raw diff. Each brokered edit carries a client-minted
+identifier so a retry is idempotent: if the holder crashes
+mid-handoff, the originating tab re-brokers to whoever takes the
+lock next and the identifier keeps it from landing twice. A tab that
+does not yet know who holds the lock simply requests the lock and
+brokers to itself if it wins, so an edit made in the first moments
+after load has a defined path either way. Tests cover simultaneous
+edits from two tabs, an edit brokered into a holder that crashes
+mid-handoff, and an edit initiated before ownership is known.
 
 Queue, lock and epoch are namespaced by **principal and document
 together**, not by document alone, because the epoch is bound to a
@@ -1036,7 +1054,19 @@ removed. Intent is per marker, not per key, because one batch can mix
 both kinds: a user may explicitly delete an event in the same
 operation that removes the video's last carrier. A claim is
 validated against server-side pre-images before it is honored, and
-the validation separates forgery from staleness. A claimed marker
+the validation separates forgery from staleness.
+
+First, a claim must be about something that actually happened: the
+claimed key must have a carrier pre-image deleted by this very push,
+and the merged state must have lost its last carrier *because of*
+that deletion. Without this, a claim would be a free instruction to
+mint durable evidence — an authenticated editor could submit empty
+claims for keys that never existed, and each one, trivially having
+no surviving carrier, would leave a tombstone: recovery storage
+consumed with no carrier creation and no birth-ledger entry behind
+it, and a key poisoned against whoever legitimately mints it later.
+Claims naming a key this push did not empty are rejected outright,
+empty ones included. Second, a claimed marker
 whose pre-image targets a *different* key, or whose removal does not
 arrive in the same push, is forgery: it rejects the whole claim, so
 no client can launder another video's events into a tombstone under
@@ -1052,7 +1082,9 @@ to be already gone. Adversarial fixtures claim a nonexistent key and
 claim markers belonging to another video; a race fixture has one
 client explicitly delete a marker and another land a stale
 last-carrier cascade naming it, asserting the tombstone exists with
-its configuration intact. Only the claimed
+its configuration intact; adversarial fixtures also submit an empty
+claim and a claim for a key this push did not empty, asserting no
+tombstone and no retained evidence result. Only the claimed
 marker ids are arbitrated; every other marker removal, an explicit
 event deletion batched with anything at all — including a cascade of
 its own video — applies as pushed whether or not the claim survives.
