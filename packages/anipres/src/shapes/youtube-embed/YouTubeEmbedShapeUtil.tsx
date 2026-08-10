@@ -21,8 +21,10 @@ import {
   usePresentationModeAtom,
 } from "../../media/player-placement";
 import {
+  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
+  resolveVideoConfig,
 } from "../../media/video-anchor";
 import {
   MediaControlShapeType,
@@ -103,7 +105,22 @@ export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
 
 // eslint-disable-next-line react-refresh/only-export-components
 function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
-  const { w, h, videoId, altText } = shape.props;
+  const editor = useEditor();
+  const { w, h } = shape.props;
+  // One configuration per video: a keyframe added before the URL was
+  // submitted must still show that video's poster, not an empty form.
+  const config = useValue(
+    "video config",
+    () =>
+      resolveVideoConfig(
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+          getVideoKey(shape),
+        ) ?? [shape],
+      ),
+    [editor, shape],
+  );
+  const videoId = config?.videoId ?? "";
+  const altText = config?.altText ?? "";
   const $presentationMode = usePresentationModeAtom();
   // The carrier currently anchoring the live player draws nothing: the
   // player *is* its visual. `OnTheCanvas` renders before the shapes in
@@ -298,9 +315,19 @@ function YouTubeUrlForm({ shape }: { shape: YouTubeEmbedShape }) {
           setInvalid(true);
           return;
         }
+        // Submitting a URL edits the VIDEO, so it lands on the carrier
+        // that owns its configuration — never on whichever keyframe the
+        // form happened to be rendered under, which would leave the
+        // video's carriers disagreeing about which video it is.
+        const owner =
+          getConfigOwnerCarrier(
+            groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+              getVideoKey(shape),
+            ) ?? [shape],
+          ) ?? shape;
         editor.updateShape<YouTubeEmbedShape>({
-          id: shape.id,
-          type: shape.type,
+          id: owner.id,
+          type: owner.type,
           props: {
             url: value.trim(),
             videoId: parsed.videoId,

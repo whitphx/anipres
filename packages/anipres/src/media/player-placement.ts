@@ -6,7 +6,11 @@ import type { Atom, Editor, TLShapeId } from "tldraw";
 import { useContext } from "react";
 import { PresentationModeContext } from "../presentation-mode-context";
 import { PresentationManager } from "../presentation-manager";
-import { groupCarriersByVideoKey, resolveAnchorCarrier } from "./video-anchor";
+import {
+  groupCarriersByVideoKey,
+  resolveAnchorCarrier,
+  resolveVideoConfig,
+} from "./video-anchor";
 import {
   getVideoKey,
   type YouTubeEmbedShape,
@@ -39,14 +43,22 @@ export function readPlacements(
   editor: Editor,
   presentationMode: boolean,
 ): AnchorPlacement[] {
-  // The page's sorted order is what the renderer itself is fed, and it
-  // is defined for every shape whether or not it currently renders — so
-  // hiding a carrier does not unmoor the player's layering.
   const sorted = editor.getCurrentPageShapesSorted();
-  const zIndexByShapeId = new Map<string, number>();
-  sorted.forEach((shape, index) => {
-    zIndexByShapeId.set(shape.id, index);
-  });
+  // tldraw's own rendering metadata, so the player stacks and fades the
+  // way its carrier would: `index` is the renderer-assigned z-order
+  // (hierarchy-aware, not a flat position in the page array) and
+  // `opacity` is already multiplied through the ancestors, which a
+  // video inside a translucent group depends on.
+  const renderingByShapeId = new Map<
+    string,
+    { index: number; opacity: number }
+  >();
+  for (const rendering of editor.getRenderingShapes()) {
+    renderingByShapeId.set(rendering.id, {
+      index: rendering.index,
+      opacity: rendering.opacity,
+    });
+  }
 
   const presentationManager = PresentationManager.get(editor);
   const visibilities = presentationMode
@@ -83,7 +95,13 @@ export function readPlacements(
     // Absent: no anchor means no mounted iframe at all. Nothing mounted
     // is nothing that the media-session channel can restart unseen,
     // which is the invariant the design holds continuously.
-    if (anchor == null || anchor.props.videoId === "") {
+    // One configuration per video, read from its owner rather than from
+    // whichever carrier the presentation happens to stand on. Reading
+    // the anchor would let a keyframe added before the URL was
+    // submitted answer "no video" at a step boundary, unmounting the
+    // live player and losing its position.
+    const config = resolveVideoConfig(carriers);
+    if (anchor == null || config == null || config.videoId === "") {
       continue;
     }
     const transform = editor.getShapePageTransform(anchor.id);
@@ -121,11 +139,11 @@ export function readPlacements(
     placements.push({
       videoKey,
       anchorShapeId: anchor.id,
-      videoId: anchor.props.videoId,
-      muted: anchor.props.muted,
-      start: anchor.props.start,
-      controls: anchor.props.controls,
-      altText: anchor.props.altText,
+      videoId: config.videoId,
+      muted: config.muted,
+      start: config.start,
+      controls: config.controls,
+      altText: config.altText,
       transform: placementTransform,
       width:
         tweening && from != null
@@ -138,8 +156,8 @@ export function readPlacements(
       clipPath: tweening
         ? "none"
         : (editor.getShapeClipPath(anchor.id) ?? "none"),
-      opacity: anchor.opacity,
-      zIndex: zIndexByShapeId.get(anchor.id) ?? 0,
+      opacity: renderingByShapeId.get(anchor.id)?.opacity ?? anchor.opacity,
+      zIndex: renderingByShapeId.get(anchor.id)?.index ?? 0,
       // Input belongs to exactly one of the player and its anchored
       // carrier at a time. Presenting, the player holds it whenever the
       // video's own controls are enabled; editing, only while the user
@@ -148,9 +166,7 @@ export function readPlacements(
       // to.
       interactive:
         !tweening &&
-        (presentationMode
-          ? anchor.props.controls
-          : editingShapeId === anchor.id),
+        (presentationMode ? config.controls : editingShapeId === anchor.id),
     });
   }
   return placements;

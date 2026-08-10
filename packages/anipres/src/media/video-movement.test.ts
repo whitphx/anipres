@@ -21,6 +21,7 @@ import {
 } from "./video-anchor";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
 import { readPlacements } from "./player-placement";
+import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
 import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
@@ -377,6 +378,68 @@ describe("movement keeps one player", () => {
       manager.cancelActiveRun();
 
       expect(getVideoTransitions(editor).$transitions.get().size).toBe(0);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("one video, one configuration", () => {
+  it("keeps the player mounted when a keyframe predates the URL", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // A blank video, keyframed before a URL was ever submitted — then
+      // the URL lands on the owner.
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      // Both carriers answer with the same video, so reaching the
+      // keyframe at a step boundary cannot unmount the live player.
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
+      expect(getConfigOwnerCarrier(carriers)?.id).toBe(videoId);
+      const placements = readPlacements(editor, false);
+      expect(placements).toHaveLength(1);
+      expect(placements[0]!.videoId).toBe("M7lc1UVf-VE");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("resolves the same config from whichever carrier anchors", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      // A stale keyframe naming a different video must not be able to
+      // seat its own answer.
+      editor.updateShape({
+        id: keyframeId,
+        type: video.type,
+        props: { videoId: "STALE_ID", url: "" },
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
     } finally {
       dispose();
     }

@@ -84,6 +84,71 @@ export function getDefaultAnchorCarrier(
   return best;
 }
 
+/** The media properties that describe the video, not a keyframe. */
+export interface VideoConfig {
+  videoId: string;
+  url: string;
+  start: number;
+  muted: boolean;
+  controls: boolean;
+  altText: string;
+}
+
+/**
+ * The carrier that owns a video's configuration: the one whose id is
+ * the `videoKey` — the shape that placed the video — while it lives,
+ * and the smallest surviving id otherwise.
+ *
+ * Deliberately independent of the anchor. The anchor moves with the
+ * presentation and with which keyframe a user is editing; the
+ * configuration must not, or the same video would answer differently
+ * about which video it *is* depending on where the presentation stands.
+ */
+export function getConfigOwnerCarrier(
+  carriers: YouTubeEmbedShape[],
+): YouTubeEmbedShape | null {
+  if (carriers.length === 0) {
+    return null;
+  }
+  const keyNamed = carriers.find(
+    (carrier) => carrier.id === getVideoKey(carrier),
+  );
+  if (keyNamed != null) {
+    return keyNamed;
+  }
+  return carriers.reduce((best, carrier) =>
+    carrier.id < best.id ? carrier : best,
+  );
+}
+
+/**
+ * One configuration per video, read from its owner.
+ *
+ * Sharing an identity means sharing a configuration: `url`, `videoId`,
+ * `start`, `muted`, `controls` and `altText` describe the video, and two
+ * carriers of one `videoKey` disagreeing about `videoId` is incoherent.
+ * Resolving at read time rather than mirroring values between records
+ * keeps a stale keyframe from ever seating its own snapshot — and keeps
+ * the player from being torn down and rebuilt because the carrier under
+ * it happened to answer differently.
+ */
+export function resolveVideoConfig(
+  carriers: YouTubeEmbedShape[],
+): VideoConfig | null {
+  const owner = getConfigOwnerCarrier(carriers);
+  if (owner == null) {
+    return null;
+  }
+  return {
+    videoId: owner.props.videoId,
+    url: owner.props.url,
+    start: owner.props.start,
+    muted: owner.props.muted,
+    controls: owner.props.controls,
+    altText: owner.props.altText,
+  };
+}
+
 /**
  * The carrier the player should follow right now.
  *
