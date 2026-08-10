@@ -7,10 +7,14 @@ pill needing an acceptance-only Stage A to deploy safely; putting the
 key where frames already live avoids that entirely, since tldraw does
 not validate `meta` and an older build simply ignores it. What an older
 build still gets wrong is deleting a binding-less marker as an orphan,
-which the version gate covers. The shared-room protocol
-described below — the `sync-core` pre-apply hook and everything resting
-on it — is **not** built; the sync gate moves to 4 and the worker and
-app bundle ship together, as they already do.
+which the version gate covers. Configuration is resolved by the per-property Lamport stamps described
+below, so concurrent edits converge without reading structure; what is
+**not** built is the server half — the `sync-core` pre-apply hook that
+re-stamps admitted writes and arbitrates the last-carrier cascade.
+Client stamps are therefore taken on trust, which is sound between
+cooperating builds and is what the version gate protects. The sync gate
+moves to 4 and the worker and app bundle ship together, as they already
+do.
 
 The consequence the design argues at length is the last-carrier
 cascade: a client cannot settle "this was the final carrier" while

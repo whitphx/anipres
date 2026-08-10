@@ -1197,3 +1197,154 @@ describe("a follow-up keyframe stays the same video", () => {
     }
   });
 });
+
+describe("configuration converges under concurrent carriers", () => {
+  function setup() {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    const videoId = createVideo(editor, "video");
+    const video = editor.getShape(videoId);
+    if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+    updateVideoConfig(editor, videoId, {
+      url: "https://www.youtube.com/watch?v=NEW",
+      videoId: "NEW",
+      start: 30,
+    });
+    return { editor, dispose, videoId, video };
+  }
+
+  function configOf(editor: Editor, videoKey: string) {
+    return resolveVideoConfig(
+      groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ??
+        [],
+    );
+  }
+
+  it("outranks a stale carrier that arrives after the edit", () => {
+    const { editor, dispose, videoId, video } = setup();
+    try {
+      // How a merge delivers another client's carrier: as an insert,
+      // which store side effects see — so it is brought up to date on
+      // arrival rather than contradicting the video it joins.
+      const staleId = createShapeId("zzz-stale");
+      editor.createShape({
+        ...video,
+        id: staleId,
+        x: 900,
+        meta: { videoKey: videoId },
+        props: { ...video.props, videoId: "OLD", url: "old", start: 0 },
+      });
+
+      expect(configOf(editor, videoId)?.videoId).toBe("NEW");
+
+      // And still, once the carriers that were edited are gone: a rule
+      // reading structure would promote the newcomer and restore its
+      // values.
+      editor.deleteShape(videoId);
+      expect(configOf(editor, videoId)?.videoId).toBe("NEW");
+      expect(configOf(editor, videoId)?.start).toBe(30);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("outranks a stale value written onto an existing carrier", () => {
+    const { editor, dispose, videoId, video } = setup();
+    try {
+      const otherId = createShapeId("zzz-other");
+      editor.createShape({
+        ...video,
+        id: otherId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      // An unstamped write, which is what an edit that did not go
+      // through the config path looks like once merged.
+      editor.updateShape({
+        id: otherId,
+        type: video.type,
+        props: { videoId: "OLD" },
+      });
+
+      // The stamped edit wins wherever it still lives, so the video
+      // does not start answering with the unstamped value.
+      expect(configOf(editor, videoId)?.videoId).toBe("NEW");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("prefers the newest stamp over the structurally favoured carrier", () => {
+    const { editor, dispose, videoId, video } = setup();
+    try {
+      const otherId = createShapeId("zzz-other");
+      editor.createShape({
+        ...video,
+        id: otherId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      const owner = editor.getShape(videoId)!;
+      const other = editor.getShape(otherId)!;
+      // A merge settles per record, so one carrier can end up holding a
+      // newer edit than the carrier structure would favour. Reading the
+      // owner would answer with the older value while the document as a
+      // whole says otherwise.
+      editor.updateShape({
+        id: owner.id,
+        type: owner.type,
+        props: { videoId: "OLDER" },
+        meta: { ...owner.meta, videoConfigRev: { videoId: { c: 1, s: "a" } } },
+      });
+      editor.updateShape({
+        id: other.id,
+        type: other.type,
+        props: { videoId: "NEWER" },
+        meta: { ...other.meta, videoConfigRev: { videoId: { c: 2, s: "a" } } },
+      });
+
+      expect(configOf(editor, videoId)?.videoId).toBe("NEWER");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("breaks an equal-counter tie the same way for every client", () => {
+    const { editor, dispose, videoId, video } = setup();
+    try {
+      const otherId = createShapeId("zzz-other");
+      editor.createShape({
+        ...video,
+        id: otherId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      const owner = editor.getShape(videoId)!;
+      const other = editor.getShape(otherId)!;
+      // Two clients editing from the same counter write the same
+      // number; only the session id separates them, and every client
+      // separates them identically.
+      editor.updateShape({
+        id: owner.id,
+        type: owner.type,
+        props: { videoId: "FROM-A" },
+        meta: {
+          ...owner.meta,
+          videoConfigRev: { videoId: { c: 7, s: "aaa" } },
+        },
+      });
+      editor.updateShape({
+        id: other.id,
+        type: other.type,
+        props: { videoId: "FROM-B" },
+        meta: {
+          ...other.meta,
+          videoConfigRev: { videoId: { c: 7, s: "bbb" } },
+        },
+      });
+
+      expect(configOf(editor, videoId)?.videoId).toBe("FROM-B");
+    } finally {
+      dispose();
+    }
+  });
+});

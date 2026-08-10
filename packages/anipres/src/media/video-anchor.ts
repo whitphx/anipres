@@ -7,6 +7,7 @@
 // reading rendered visibility would lose the anchor exactly when the
 // player must keep moving.
 
+import { uniqueId } from "tldraw";
 import type { Editor, TLShape, TLShapeId } from "tldraw";
 import {
   getVideoKey,
@@ -122,15 +123,72 @@ export function getConfigOwnerCarrier(
 }
 
 /**
- * One configuration per video, read from its owner.
+ * A per-property Lamport stamp: a counter, plus the id of the editing
+ * session that wrote it so equal counters still order totally.
+ */
+export interface ConfigStamp {
+  c: number;
+  s: string;
+  // Meta is JSON, and tldraw's JsonObject requires an index signature.
+  [key: string]: number | string;
+}
+
+const VIDEO_CONFIG_KEYS = [
+  "videoId",
+  "url",
+  "start",
+  "muted",
+  "controls",
+  "altText",
+] as const;
+type VideoConfigKey = (typeof VIDEO_CONFIG_KEYS)[number];
+
+function readStamps(
+  carrier: YouTubeEmbedShape,
+): Partial<Record<VideoConfigKey, ConfigStamp>> {
+  const raw = carrier.meta?.videoConfigRev;
+  if (raw == null || typeof raw !== "object") {
+    return {};
+  }
+  const stamps: Partial<Record<VideoConfigKey, ConfigStamp>> = {};
+  for (const key of VIDEO_CONFIG_KEYS) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (
+      value != null &&
+      typeof value === "object" &&
+      typeof (value as ConfigStamp).c === "number" &&
+      typeof (value as ConfigStamp).s === "string"
+    ) {
+      stamps[key] = value as ConfigStamp;
+    }
+  }
+  return stamps;
+}
+
+/** Later wins; equal counters are broken by session id, so the order is total. */
+function stampBeats(a: ConfigStamp, b: ConfigStamp | undefined): boolean {
+  if (b == null) return true;
+  return a.c !== b.c ? a.c > b.c : a.s > b.s;
+}
+
+/**
+ * One configuration per video, resolved **per property**.
  *
  * Sharing an identity means sharing a configuration: `url`, `videoId`,
  * `start`, `muted`, `controls` and `altText` describe the video, and two
  * carriers of one `videoKey` disagreeing about `videoId` is incoherent.
- * Resolving at read time rather than mirroring values between records
- * keeps a stale keyframe from ever seating its own snapshot — and keeps
- * the player from being torn down and rebuilt because the carrier under
- * it happened to answer differently.
+ *
+ * Which carrier answers is decided by the stamp each property carries,
+ * not by which record happens to hold it. That is what converges under
+ * concurrency: a carrier another client created from an older view of
+ * the video arrives with older stamps (or none) and loses, where a rule
+ * reading structure — "the owner", "the smallest id" — would promote it
+ * the moment the edited carriers went away.
+ *
+ * Properties nothing has ever stamped fall back to the owner, then to
+ * any carrier that knows the video: unstamped values are birth copies,
+ * identical wherever they sit, except for a carrier that predates the
+ * video being configured at all.
  */
 export function resolveVideoConfig(
   carriers: YouTubeEmbedShape[],
@@ -139,26 +197,38 @@ export function resolveVideoConfig(
   if (preferred == null) {
     return null;
   }
-  // The owner answers unless it has nothing to say. A carrier that
-  // knows the video is better than one that does not, whoever owns the
-  // configuration: without this, deleting the owner would leave a
-  // surviving keyframe whose own blank props make the whole video
-  // disappear — and in a shared document nothing is allowed to write a
-  // replacement, so read-time robustness is the only thing that can
-  // save it.
-  const owner =
+  // The unstamped fallback: the owner answers unless it has nothing to
+  // say, in which case any carrier that knows the video is better than
+  // one that does not.
+  const fallback =
     preferred.props.videoId !== ""
       ? preferred
       : ([...carriers]
           .sort((a, b) => (a.id < b.id ? -1 : 1))
           .find((carrier) => carrier.props.videoId !== "") ?? preferred);
+
+  const winners = new Map<VideoConfigKey, YouTubeEmbedShape>();
+  const best = new Map<VideoConfigKey, ConfigStamp>();
+  for (const carrier of carriers) {
+    const stamps = readStamps(carrier);
+    for (const key of VIDEO_CONFIG_KEYS) {
+      const stamp = stamps[key];
+      if (stamp != null && stampBeats(stamp, best.get(key))) {
+        best.set(key, stamp);
+        winners.set(key, carrier);
+      }
+    }
+  }
+
+  const pick = <K extends VideoConfigKey>(key: K): VideoConfig[K] =>
+    (winners.get(key) ?? fallback).props[key];
   return {
-    videoId: owner.props.videoId,
-    url: owner.props.url,
-    start: owner.props.start,
-    muted: owner.props.muted,
-    controls: owner.props.controls,
-    altText: owner.props.altText,
+    videoId: pick("videoId"),
+    url: pick("url"),
+    start: pick("start"),
+    muted: pick("muted"),
+    controls: pick("controls"),
+    altText: pick("altText"),
   };
 }
 
@@ -238,14 +308,15 @@ export function resolveAnchorCarrier(
 }
 
 /**
- * Writes a configuration change to every carrier of a video.
+ * Writes a configuration change to every carrier of a video, stamping
+ * each changed property.
  *
- * Reading still prefers the owner, so this is not what makes the value
- * authoritative — it is what keeps losing the owner from losing the
- * value. A delete-time handoff cannot do that job: in a shared document
- * no client may write on another's behalf, and even alone the heir is
- * only known after the batch. Mirroring at edit time is the one moment
- * when the writer is unambiguous.
+ * Mirroring alone does not converge — the design says so — because two
+ * clients writing the same property to different records leaves nothing
+ * to order them. The stamp is what orders them, so mirroring becomes
+ * safe: every carrier ends up holding the value *and* the stamp that
+ * says how recent it is, and a carrier created concurrently from an
+ * older view loses on read no matter which records survive.
  */
 export function updateVideoConfig(
   editor: Editor,
@@ -257,11 +328,51 @@ export function updateVideoConfig(
   if (carriers.length === 0) {
     return;
   }
+  const changed = VIDEO_CONFIG_KEYS.filter((key) => patch[key] !== undefined);
+  if (changed.length === 0) {
+    return;
+  }
+  const session = getEditSessionId(editor);
+  const stamps: Partial<Record<VideoConfigKey, ConfigStamp>> = {};
+  for (const key of changed) {
+    // One past the highest this video has seen, so the edit wins every
+    // value it is replacing.
+    let highest = 0;
+    for (const carrier of carriers) {
+      const stamp = readStamps(carrier)[key];
+      if (stamp != null && stamp.c > highest) {
+        highest = stamp.c;
+      }
+    }
+    stamps[key] = { c: highest + 1, s: session };
+  }
   editor.updateShapes(
     carriers.map((carrier) => ({
       id: carrier.id,
       type: carrier.type,
       props: { ...patch },
+      meta: {
+        ...carrier.meta,
+        videoConfigRev: {
+          ...(typeof carrier.meta?.videoConfigRev === "object" &&
+          carrier.meta.videoConfigRev != null
+            ? carrier.meta.videoConfigRev
+            : {}),
+          ...stamps,
+        },
+      },
     })),
   );
+}
+
+// One id per editor instance, so two clients editing the same property
+// from the same counter still order deterministically everywhere.
+const editSessionIds = new WeakMap<Editor, string>();
+function getEditSessionId(editor: Editor): string {
+  let id = editSessionIds.get(editor);
+  if (id == null) {
+    id = uniqueId();
+    editSessionIds.set(editor, id);
+  }
+  return id;
 }
