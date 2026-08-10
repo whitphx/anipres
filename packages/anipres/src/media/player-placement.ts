@@ -2,7 +2,7 @@
 // layer and by the carriers that must yield their poster to it.
 
 import { Mat, shortAngleDist, useEditor, useValue } from "tldraw";
-import type { Atom, Editor, TLShapeId } from "tldraw";
+import type { Atom, Editor } from "tldraw";
 import { useContext } from "react";
 import { PresentationModeContext } from "../presentation-mode-context";
 import { PresentationManager } from "../presentation-manager";
@@ -24,7 +24,6 @@ function lerp(from: number, to: number, progress: number): number {
 /** Everything the player container mirrors from its anchor carrier. */
 export interface AnchorPlacement {
   videoKey: string;
-  anchorShapeId: TLShapeId;
   videoId: string;
   muted: boolean;
   start: number;
@@ -202,7 +201,6 @@ export function readPlacements(
         : Mat.toCssString(transform);
     placements.push({
       videoKey,
-      anchorShapeId: anchor.id,
       videoId: config.videoId,
       muted: config.muted,
       start: config.start,

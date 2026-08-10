@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   findFramePosition,
   followupActionFrom,
-  oneCarrierPerVideo,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -522,25 +521,5 @@ describe("followupActionFrom", () => {
         duration: 500,
       }),
     ).toEqual({ type: "mediaControl", command: "setVolume", volume: 30 });
-  });
-});
-
-describe("oneCarrierPerVideo", () => {
-  it("keeps the first carrier of each video, in order", () => {
-    const carriers = [
-      { id: "a", videoKey: "one" },
-      { id: "b", videoKey: "two" },
-      { id: "c", videoKey: "one" },
-    ];
-    expect(
-      oneCarrierPerVideo(carriers, (carrier) => carrier.videoKey).map(
-        (carrier) => carrier.id,
-      ),
-    ).toEqual(["a", "b"]);
-  });
-
-  it("leaves carriers of different videos alone", () => {
-    const carriers = [{ videoKey: "one" }, { videoKey: "two" }];
-    expect(oneCarrierPerVideo(carriers, (c) => c.videoKey)).toHaveLength(2);
   });
 });

@@ -36,7 +36,6 @@ import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
   followupActionFrom,
-  oneCarrierPerVideo,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -394,10 +393,16 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             className={styles.playButton}
             title="Add a playback event (play, pause, …) for the selected video as a new step"
             onClick={() => {
-              oneCarrierPerVideo(
-                selectedYouTubeEmbedShapes,
-                getVideoKey,
-              ).forEach((shape) => {
+              // One event per video, not per carrier: a video that
+              // moves is several carriers, and selecting two of them is
+              // still one request about one video.
+              const byVideo = new Map(
+                selectedYouTubeEmbedShapes.map((shape) => [
+                  getVideoKey(shape),
+                  shape,
+                ]),
+              );
+              byVideo.forEach((shape) => {
                 presentationManager.attachMediaControlCueFrame(shape.id);
               });
             }}

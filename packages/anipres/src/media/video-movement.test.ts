@@ -69,6 +69,14 @@ function createVideo(
   return videoId;
 }
 
+function anchorCarrierIds(editor: Editor, presentationMode: boolean) {
+  return editor
+    .getCurrentPageShapes()
+    .filter(isYouTubeEmbedShape)
+    .filter((carrier) => isPlayerAnchor(editor, carrier, presentationMode))
+    .map((carrier) => carrier.id);
+}
+
 function markersOf(editor: Editor, videoKey: string) {
   return editor
     .getCurrentPageShapes()
@@ -441,7 +449,7 @@ describe("movement keeps one player", () => {
       expect(placement).toBeDefined();
       // One player, keyed by the video — not two, and not none.
       expect(placement!.videoKey).toBe(videoId);
-      expect(placement!.anchorShapeId).toBe(laterId);
+      expect(anchorCarrierIds(editor, true)).toEqual([laterId]);
       // Somewhere between the two carriers, not parked on either.
       const x = Number(
         /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
@@ -1976,27 +1984,15 @@ describe("editing a carrier", () => {
         meta: { videoKey: videoId },
       });
 
-      const anchoredCarriers = () =>
-        editor
-          .getCurrentPageShapes()
-          .filter(isYouTubeEmbedShape)
-          .filter((carrier) => isPlayerAnchor(editor, carrier, false))
-          .map((carrier) => carrier.id);
-
       // While nobody is editing, the video's starting position holds
       // the player.
-      expect(readPlacements(editor, false)[0]?.anchorShapeId).toBe(videoId);
-      expect(anchoredCarriers()).toEqual([videoId]);
+      expect(anchorCarrierIds(editor, false)).toEqual([videoId]);
 
       // Double-clicking a carrier brings the player to it, before any
       // pointer input can reach the player.
       editor.setEditingShape(keyframeId);
 
-      expect(readPlacements(editor, false)[0]?.anchorShapeId).toBe(keyframeId);
-      // And the poster suppression each carrier computes for itself
-      // follows, or the edited one paints over the player while the
-      // other blanks itself with no player on it.
-      expect(anchoredCarriers()).toEqual([keyframeId]);
+      expect(anchorCarrierIds(editor, false)).toEqual([keyframeId]);
     } finally {
       dispose();
     }

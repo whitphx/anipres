@@ -41,14 +41,14 @@ interface TimelineShape {
  * editor resolves the legacy binding through the store and a snapshot
  * has to read the binding records itself.
  */
-export function timelineShapesOf<T extends TimelineShape>(
+function timelineShapesOf<T extends TimelineShape>(
   shapes: readonly T[],
   markerVideoKey: (shape: T) => string | null,
 ): T[] {
   const liveVideoKeys = new Set(
     shapes
       .filter((shape) => shape.type === YouTubeEmbedShapeType)
-      .map((shape) => videoKeyOfRecord(shape)),
+      .map((shape) => getVideoKey(shape)),
   );
   return shapes.filter((shape) => {
     if (shape.type !== MediaControlShapeType) {
@@ -81,7 +81,7 @@ export function timelineShapesOfRecords<T extends TimelineShape>(
   const videoKeyById = new Map(
     shapes
       .filter((shape) => shape.type === YouTubeEmbedShapeType)
-      .map((shape) => [shape.id, videoKeyOfRecord(shape)] as const),
+      .map((shape) => [shape.id, getVideoKey(shape)] as const),
   );
   return timelineShapesOf(shapes, (shape) => {
     const parsed = parseFrameMeta(shape.meta?.frame);
@@ -98,16 +98,4 @@ export function timelineShapesOfRecords<T extends TimelineShape>(
     );
     return binding != null ? (videoKeyById.get(binding.toId) ?? null) : null;
   });
-}
-
-/**
- * A carrier's video key read off the bare record, which is what
- * `getVideoKey` does — the same fallback to the shape's own id for a
- * video that has never been copied — without needing the shape typed.
- */
-function videoKeyOfRecord(shape: TimelineShape): string {
-  return getVideoKey({
-    id: shape.id,
-    meta: shape.meta,
-  } as Parameters<typeof getVideoKey>[0]);
 }

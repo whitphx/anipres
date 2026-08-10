@@ -56,7 +56,10 @@ export const youTubeEmbedShapeProps: RecordProps<YouTubeEmbedShape> = {
  * answers with its own shape id: correct, because a video was exactly
  * one shape until it was.
  */
-export function getVideoKey(shape: YouTubeEmbedShape): string {
+export function getVideoKey(shape: {
+  id: string;
+  meta?: Record<string, unknown>;
+}): string {
   const videoKey = shape.meta?.videoKey;
   return typeof videoKey === "string" && videoKey !== "" ? videoKey : shape.id;
 }

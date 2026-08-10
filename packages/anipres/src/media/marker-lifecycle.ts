@@ -103,7 +103,7 @@ function computeMarkerPlacements(editor: Editor): MarkerPlacement[] {
  * group, resizing an enclosing frame, reparenting) park just as well as
  * dragging the video does.
  */
-export function startMarkerParking(editor: Editor): () => void {
+function startMarkerParking(editor: Editor): () => void {
   return react("park media-control markers", () => {
     const placements = computeMarkerPlacements(editor);
     if (placements.length === 0) {
@@ -226,14 +226,13 @@ export interface VideoLifecycleOptions {
    * takes the recoverable failure instead: the markers are left in
    * place, invisible and inert, rather than destroyed.
    */
-  soleWriter?: boolean;
+  soleWriter: boolean;
 }
 
 export function installVideoLifecycle(
   editor: Editor,
-  options: VideoLifecycleOptions = {},
+  { soleWriter }: VideoLifecycleOptions,
 ): () => void {
-  const soleWriter = options.soleWriter ?? true;
   // The load-side normalization authority for an unsynced document:
   // legacy videos get their `videoKey`, legacy events get the target key
   // that used to live in a binding.
@@ -487,7 +486,7 @@ function repointLegacyBindings(
   }
 }
 
-export function deleteOrphanedMediaMarkers(
+function deleteOrphanedMediaMarkers(
   editor: Editor,
   /** Only these videos are considered; others are none of this
    * operation's business. */
