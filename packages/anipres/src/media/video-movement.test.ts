@@ -855,3 +855,64 @@ describe("cross-document copy", () => {
     }
   });
 });
+
+describe("transition hygiene", () => {
+  it("stores no transition for an immediate step", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      // Nothing schedules removal for a zero-duration tween, and a
+      // stored one outranks presentation visibility — so a later rewind
+      // past the video's cue would keep the player up forever.
+      getVideoTransitions(editor).start(videoId, {
+        fromShapeId: videoId,
+        toShapeId: videoId,
+        startedAt: Date.now(),
+        durationMs: 0,
+        easing: "linear",
+      });
+      expect(getVideoTransitions(editor).$transitions.get().size).toBe(0);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("normalization covers every page", () => {
+  it("normalizes a legacy video on a page that is not open", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const otherPageId = editor.getPages()[0]!.id;
+      editor.createPage({ name: "second" });
+      const secondPageId = editor
+        .getPages()
+        .find((page) => page.id !== otherPageId)!.id;
+      editor.setCurrentPage(secondPageId);
+      const videoId = createShapeId("legacy-elsewhere");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: { videoId: "M7lc1UVf-VE" },
+      });
+      editor.updateShape({
+        id: videoId,
+        type: "youtube-embed",
+        props: { videoKey: undefined },
+      });
+      // Back to the first page, so the legacy record is off-screen —
+      // which is exactly where an unnormalized key would later split a
+      // video in two the first time it was animated.
+      editor.setCurrentPage(otherPageId);
+
+      normalizeVideoIdentity(editor);
+
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      expect(video.props.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});

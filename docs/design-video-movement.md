@@ -1,9 +1,20 @@
 # Moving and resizing a video during a presentation
 
-Status: implemented (single-document behavior). The shared-room
-protocol described under Rollout — the `sync-core` pre-apply hook and
-everything resting on it — is not built; the sync gate moves to 4 and
-the worker and app bundle ship together, as they already do.
+Status: implemented for a single document. The shared-room protocol
+described below — the `sync-core` pre-apply hook and everything resting
+on it — is **not** built; the sync gate moves to 4 and the worker and
+app bundle ship together, as they already do.
+
+One consequence is worth naming because the design argues it at length:
+the last-carrier cascade runs client-side, so a client that deletes what
+it sees as a video's final carrier removes that video's event markers
+from its own view of the document. If another client is concurrently
+adding a carrier for the same `videoKey`, the merge keeps that carrier
+and loses the events. Nothing here arbitrates the claim, which is what
+the room server was to do. This is not a regression — the binding's
+own delete cascade behaved the same way — but it is the sharpest reason
+the sync work is a prerequisite for shared rooms rather than an
+optional follow-up.
 
 ## Goal
 

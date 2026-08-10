@@ -71,14 +71,18 @@ class VideoTransitionStore {
   }
 
   start(videoKey: string, transition: VideoTransition): void {
+    // A zero-duration step has nothing to animate, and storing one
+    // would leave it here forever: nothing schedules its removal, while
+    // the placement read gives any stored transition precedence over
+    // presentation visibility — so a later rewind past the video's cue
+    // would still find this destination carrier and keep the player up.
+    if (transition.durationMs <= 0) {
+      return;
+    }
     const next = new Map(this.$transitions.get());
     next.set(videoKey, transition);
     this.$transitions.set(next);
-    // A zero-duration step has nothing to animate: the placement read
-    // resolves it as complete on its next pass.
-    if (transition.durationMs > 0) {
-      this.schedule();
-    }
+    this.schedule();
   }
 
   /**

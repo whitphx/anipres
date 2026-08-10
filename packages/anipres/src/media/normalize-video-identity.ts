@@ -30,7 +30,13 @@ import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
  * idempotent: running it again changes nothing.
  */
 export function normalizeVideoIdentity(editor: Editor): void {
-  const shapes = editor.getCurrentPageShapes();
+  // Every page, not just the open one: a legacy video left unnormalized
+  // on another page would have a follow-up keyframe copied from it mint
+  // a NEW key — splitting one video in two the first time it is
+  // animated — and its events would stay tied to the old binding.
+  const shapes = editor.store
+    .allRecords()
+    .filter((record): record is TLShape => record.typeName === "shape");
 
   const videosNeedingKey: YouTubeEmbedShape[] = [];
   for (const shape of shapes) {

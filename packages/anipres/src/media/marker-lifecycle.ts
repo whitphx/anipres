@@ -188,14 +188,36 @@ export function installVideoLifecycle(editor: Editor): () => void {
     },
   );
   const stopParking = startMarkerParking(editor);
+  // The cascade is an explicit deletion semantic, not garbage
+  // collection: it runs only for an operation that actually removed a
+  // carrier, and asks the store once afterwards. Sweeping on every
+  // completed operation would make an unrelated edit able to remove
+  // markers, which is a wider claim than "this operation deleted the
+  // video".
+  let deletedCarrierKeys: Set<string> | null = null;
+  const stopWatchDeletes = editor.sideEffects.registerAfterDeleteHandler(
+    "shape",
+    (shape) => {
+      if (!isYouTubeEmbedShape(shape)) {
+        return;
+      }
+      deletedCarrierKeys ??= new Set();
+      deletedCarrierKeys.add(getVideoKey(shape));
+    },
+  );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
-      deleteOrphanedMediaMarkers(editor);
+      const keys = deletedCarrierKeys;
+      deletedCarrierKeys = null;
+      if (keys != null) {
+        deleteOrphanedMediaMarkers(editor, keys);
+      }
     },
   );
   return () => {
     stopMinting();
     stopConfigTransfer();
+    stopWatchDeletes();
     stopParking();
     stopCleanup();
   };
@@ -212,7 +234,15 @@ export function installVideoLifecycle(editor: Editor): () => void {
  * of an animated video correspondingly leaves the events alone — which
  * the binding's per-shape cascade got wrong.
  */
-export function deleteOrphanedMediaMarkers(editor: Editor): void {
+export function deleteOrphanedMediaMarkers(
+  editor: Editor,
+  /** Only these videos are considered; others are none of this
+   * operation's business. */
+  videoKeys: ReadonlySet<string>,
+): void {
+  if (videoKeys.size === 0) {
+    return;
+  }
   const shapes = editor.getCurrentPageShapes();
   const liveKeys = new Set(groupCarriersByVideoKey(shapes).keys());
   const orphaned: TLShapeId[] = [];
@@ -222,12 +252,12 @@ export function deleteOrphanedMediaMarkers(editor: Editor): void {
     }
     const videoKey = resolveMediaControlVideoKey(editor, shape.id);
     // A marker naming no video at all is a degraded record, not an
-    // orphan of this operation: normalization owns those at load. This
-    // sweep implements one explicit semantic — the video's last carrier
-    // went away — and must not become garbage collection, or a marker
-    // would vanish in the window between being created and being given
-    // its frame.
-    if (videoKey != null && !liveKeys.has(videoKey)) {
+    // orphan of this operation: normalization owns those at load.
+    if (
+      videoKey != null &&
+      videoKeys.has(videoKey) &&
+      !liveKeys.has(videoKey)
+    ) {
       orphaned.push(shape.id);
     }
   }
