@@ -984,3 +984,72 @@ describe("shared documents keep events recoverable", () => {
     }
   });
 });
+
+describe("configuration handoff across a batch deletion", () => {
+  it("lands on a survivor, not on another shape being deleted", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // Owner holds the real config; two later keyframes are blank.
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeA = createShapeId("aaa-keyframe");
+      const keyframeB = createShapeId("zzz-keyframe");
+      editor.createShape({ ...video, id: keyframeA, x: 400, meta: undefined });
+      editor.createShape({ ...video, id: keyframeB, x: 800, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      // Delete the owner AND the heir that a per-shape handoff would
+      // pick, in one operation, leaving a third carrier behind.
+      editor.deleteShapes([videoId, keyframeA]);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id)).toEqual([keyframeB]);
+      // The configuration reached the actual survivor.
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not hand off configuration in a shared document", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      editor.deleteShape(videoId);
+
+      // A client-authored handoff races collaborators editing the owner
+      // or deleting the heir, so it is withheld; the server arbitration
+      // the design specifies is what performs it.
+      const keyframe = editor.getShape(keyframeId);
+      if (!isYouTubeEmbedShape(keyframe)) throw new Error("expected a video");
+      expect(keyframe.props.videoId).toBe("");
+    } finally {
+      dispose();
+    }
+  });
+});

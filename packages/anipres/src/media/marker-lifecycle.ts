@@ -17,6 +17,7 @@ import {
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
   resolveVideoConfig,
+  type VideoConfig,
 } from "./video-anchor";
 import {
   getVideoKey,
@@ -119,47 +120,65 @@ export function startMarkerParking(editor: Editor): () => void {
  * registration reached both.
  */
 /**
- * Carries a video's configuration off a carrier that is about to be
- * deleted, when that carrier is the one the configuration resolves
- * from.
+ * The configuration a video had before this operation started deleting
+ * its carriers.
  *
- * Ownership falls back to the smallest surviving carrier, and a
- * survivor's own media props can be an arbitrarily stale snapshot — a
- * keyframe added before the URL was ever submitted still carries a
- * blank `videoId`. Without this, deleting the original carrier would
- * make the video answer "no video" and its live player disappear even
- * though carriers and events remain.
+ * Captured in a before-delete handler, where the store still holds every
+ * carrier, but APPLIED after the batch: tldraw runs all before-delete
+ * handlers before removing anything, so an heir chosen there can itself
+ * be part of the same deletion — the configuration would land on a
+ * doomed record and the real survivor would be left with whatever stale
+ * snapshot it happened to carry.
  */
-function transferConfigBeforeDelete(
+function captureConfigBeforeDelete(
   editor: Editor,
   deletedShapeId: TLShapeId,
+  captured: Map<string, VideoConfig>,
 ): void {
   const deleted = editor.getShape(deletedShapeId);
   if (!isYouTubeEmbedShape(deleted)) {
     return;
   }
   const videoKey = getVideoKey(deleted);
-  const carriers =
-    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
-  if (getConfigOwnerCarrier(carriers)?.id !== deletedShapeId) {
+  if (captured.has(videoKey)) {
     return;
   }
-  const survivors = carriers.filter((carrier) => carrier.id !== deletedShapeId);
-  const heir = getConfigOwnerCarrier(survivors);
-  if (heir == null) {
-    // The video itself is going away; its markers follow in the
-    // post-batch sweep.
-    return;
+  const config = resolveVideoConfig(
+    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [],
+  );
+  if (config != null) {
+    captured.set(videoKey, config);
   }
-  const config = resolveVideoConfig(carriers);
-  if (config == null) {
-    return;
+}
+
+/**
+ * Puts each captured configuration back on the carrier that now owns
+ * it, for videos that still have one.
+ */
+function applyCapturedConfig(
+  editor: Editor,
+  captured: ReadonlyMap<string, VideoConfig>,
+): void {
+  const carriersByKey = groupCarriersByVideoKey(editor.getCurrentPageShapes());
+  for (const [videoKey, config] of captured) {
+    const carriers = carriersByKey.get(videoKey);
+    if (carriers == null || carriers.length === 0) {
+      // The video itself is gone; its markers follow in the cascade.
+      continue;
+    }
+    const owner = getConfigOwnerCarrier(carriers);
+    if (
+      owner == null ||
+      resolveVideoConfig(carriers)?.videoId === config.videoId
+    ) {
+      continue;
+    }
+    editor.updateShape({
+      id: owner.id,
+      type: owner.type,
+      props: { ...config },
+    });
   }
-  editor.updateShape({
-    id: heir.id,
-    type: heir.type,
-    props: { ...config },
-  });
 }
 
 export interface VideoLifecycleOptions {
@@ -201,10 +220,19 @@ export function installVideoLifecycle(
         ? { ...shape, props: { ...shape.props, videoKey: shape.id } }
         : shape,
   );
+  // Configuration handoff is a client-authored guess in a shared room —
+  // another client may be editing the owner, adding a carrier, or
+  // deleting the heir as this runs — so, like the cascade, it is only
+  // performed where this client is the document's sole writer.
+  let capturedConfigs: Map<string, VideoConfig> | null = null;
   const stopConfigTransfer = editor.sideEffects.registerBeforeDeleteHandler(
     "shape",
     (shape) => {
-      transferConfigBeforeDelete(editor, shape.id);
+      if (!soleWriter) {
+        return;
+      }
+      capturedConfigs ??= new Map();
+      captureConfigBeforeDelete(editor, shape.id, capturedConfigs);
     },
   );
   const stopParking = startMarkerParking(editor);
@@ -227,9 +255,17 @@ export function installVideoLifecycle(
   );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
+      const configs = capturedConfigs;
+      capturedConfigs = null;
       const keys = deletedCarrierKeys;
       deletedCarrierKeys = null;
-      if (keys != null && soleWriter) {
+      if (!soleWriter) {
+        return;
+      }
+      if (configs != null) {
+        applyCapturedConfig(editor, configs);
+      }
+      if (keys != null) {
         deleteOrphanedMediaMarkers(editor, keys);
       }
     },
