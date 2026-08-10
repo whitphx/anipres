@@ -162,7 +162,27 @@ function transferConfigBeforeDelete(
   });
 }
 
-export function installVideoLifecycle(editor: Editor): () => void {
+export interface VideoLifecycleOptions {
+  /**
+   * Whether this client is the only writer of the document.
+   *
+   * The last-carrier cascade is a claim a client cannot settle when it
+   * is not: another client may be adding a carrier for the same video at
+   * that moment, and the merge would keep that carrier while keeping
+   * these deletions — a video surviving without its events, which no
+   * later pass can reconstruct. Arbitrating it needs the room server
+   * (see the design's Rollout), which is not built, so a shared document
+   * takes the recoverable failure instead: the markers are left in
+   * place, invisible and inert, rather than destroyed.
+   */
+  soleWriter?: boolean;
+}
+
+export function installVideoLifecycle(
+  editor: Editor,
+  options: VideoLifecycleOptions = {},
+): () => void {
+  const soleWriter = options.soleWriter ?? true;
   // The load-side normalization authority for an unsynced document:
   // legacy videos get their `videoKey`, legacy events get the target key
   // that used to live in a binding.
@@ -209,7 +229,7 @@ export function installVideoLifecycle(editor: Editor): () => void {
     () => {
       const keys = deletedCarrierKeys;
       deletedCarrierKeys = null;
-      if (keys != null) {
+      if (keys != null && soleWriter) {
         deleteOrphanedMediaMarkers(editor, keys);
       }
     },

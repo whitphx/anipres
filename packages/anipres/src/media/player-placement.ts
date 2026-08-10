@@ -1,7 +1,7 @@
 // Reading the anchor carrier's rendering context, shared by the player
 // layer and by the carriers that must yield their poster to it.
 
-import { Mat, useEditor, useValue } from "tldraw";
+import { Mat, shortAngleDist, useEditor, useValue } from "tldraw";
 import type { Atom, Editor, TLShapeId } from "tldraw";
 import { useContext } from "react";
 import { PresentationModeContext } from "../presentation-mode-context";
@@ -130,8 +130,16 @@ export function readPlacements(
                 lerp(fromTransform.e, transform.e, progress),
                 lerp(fromTransform.f, transform.f, progress),
               ),
+              // Shortest path: matrix angles wrap at ±π, so lerping them
+              // numerically would take a video turning 179°→-179° all
+              // the way round instead of the 2° it actually moved.
               Mat.Rotate(
-                lerp(fromTransform.rotation(), transform.rotation(), progress),
+                fromTransform.rotation() +
+                  shortAngleDist(
+                    fromTransform.rotation(),
+                    transform.rotation(),
+                  ) *
+                    progress,
               ),
             ),
           )

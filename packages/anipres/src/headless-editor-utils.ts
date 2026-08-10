@@ -26,6 +26,8 @@ const defaultTextOptions: TLTextOptions = {
 interface LoadHeadlessEditorOptions {
   snapshot?: Partial<TLEditorSnapshot> | TLStoreSnapshot;
   pageId?: TLPageId;
+  /** See VideoLifecycleOptions; defaults to true for a local store. */
+  soleWriter?: boolean;
 }
 export function loadHeadlessEditor(
   opts: LoadHeadlessEditorOptions = {},
@@ -66,7 +68,11 @@ export function loadHeadlessEditor(
   // React mount installs: these used to ride the binding util, which a
   // headless editor got through the schema, so keeping them reachable
   // here is what stops the agent path from diverging.
-  const stopVideoLifecycle = installVideoLifecycle(editor);
+  // A headless editor owns its store unless the caller says a synced
+  // one is behind it (see VideoLifecycleOptions).
+  const stopVideoLifecycle = installVideoLifecycle(editor, {
+    soleWriter: opts.soleWriter ?? true,
+  });
 
   const dispose = () => {
     stopVideoLifecycle();

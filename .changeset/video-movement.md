@@ -8,4 +8,4 @@ A video shape no longer mounts a player. Shapes render a poster and the runtime 
 
 Carriers of one video are tied together by a new `videoKey` prop rather than by the `media-control` binding, which a media event now names directly; existing documents are normalized on load.
 
-Videos remain single-document only: the shared-room arbitration this needs is designed but not built, so a concurrent last-carrier deletion can still drop a video's events (as the previous binding cascade could).
+The shared-room arbitration for deleting a video's last carrier is designed but not built, so that cleanup runs only where the client is the document's sole writer; in a synced document the event markers of a deleted video are left in place rather than risking their loss to a concurrent edit.

@@ -348,7 +348,14 @@ const Inner = (props: InnerProps) => {
 
     const stopHandlers: (() => void)[] = [];
 
-    stopHandlers.push(installVideoLifecycle(editor));
+    stopHandlers.push(
+      installVideoLifecycle(editor, {
+        // A `store` prop is how a synced document is handed in, and the
+        // last-carrier cascade is a claim no client can settle against
+        // concurrent editors — see VideoLifecycleOptions.
+        soleWriter: store == null,
+      }),
+    );
 
     // Existing-frame-id set for the beforeCreate safety net below. It is
     // O(page) to build, and editor.duplicateShapes of N framed shapes

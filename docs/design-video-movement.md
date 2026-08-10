@@ -5,16 +5,16 @@ described below — the `sync-core` pre-apply hook and everything resting
 on it — is **not** built; the sync gate moves to 4 and the worker and
 app bundle ship together, as they already do.
 
-One consequence is worth naming because the design argues it at length:
-the last-carrier cascade runs client-side, so a client that deletes what
-it sees as a video's final carrier removes that video's event markers
-from its own view of the document. If another client is concurrently
-adding a carrier for the same `videoKey`, the merge keeps that carrier
-and loses the events. Nothing here arbitrates the claim, which is what
-the room server was to do. This is not a regression — the binding's
-own delete cascade behaved the same way — but it is the sharpest reason
-the sync work is a prerequisite for shared rooms rather than an
-optional follow-up.
+The consequence the design argues at length is the last-carrier
+cascade: a client cannot settle "this was the final carrier" while
+another may be adding one, and honoring the removals then would strip a
+surviving video of its events. With no room server to arbitrate, the
+implementation does not gamble — the cascade runs only where this
+client is the document's sole writer. A synced document takes the
+recoverable failure instead: the markers stay, invisible and inert,
+where the events they carry cannot be reconstructed if destroyed. That
+leaves stray records behind a deleted video in a shared room, which the
+server arbitration described below is what finally removes.
 
 ## Goal
 

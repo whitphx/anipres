@@ -916,3 +916,71 @@ describe("normalization covers every page", () => {
     }
   });
 });
+
+describe("rotation tween", () => {
+  it("takes the short way across the angle boundary", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const laterId = createShapeId("later");
+      editor.createShape({ ...video, id: laterId, meta: undefined });
+      // 179° → -179°: two degrees apart, but numerically 358.
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        rotation: (179 * Math.PI) / 180,
+      });
+      editor.updateShape({
+        id: laterId,
+        type: video.type,
+        rotation: (-179 * Math.PI) / 180,
+      });
+      getVideoTransitions(editor).start(videoId, {
+        fromShapeId: videoId,
+        toShapeId: laterId,
+        startedAt: Date.now() - 5_000,
+        durationMs: 10_000,
+        easing: "linear",
+      });
+
+      const [placement] = readPlacements(editor, false);
+      expect(placement).toBeDefined();
+      // Halfway along the SHORT arc sits just past ±180°, so the
+      // matrix's cosine is still near -1. The long way round would be
+      // at 0°, with a cosine near +1.
+      const cos = Number(
+        /matrix\(\s*([-\d.e]+)/.exec(placement!.transform)?.[1],
+      );
+      expect(cos).toBeLessThan(-0.9);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("shared documents keep events recoverable", () => {
+  it("does not delete markers when this client is not the only writer", () => {
+    // The shape a synced document takes: "this was the last carrier" is
+    // a claim that cannot be settled locally.
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const markerIds = markersOf(editor, videoId).map((m) => m.id);
+      expect(markerIds).toHaveLength(1);
+
+      editor.deleteShape(videoId);
+      // Left in place rather than destroyed: an invisible orphan can be
+      // cleaned up later, lost events cannot be reconstructed.
+      expect(editor.getShape(markerIds[0]!)).toBeDefined();
+    } finally {
+      dispose();
+    }
+  });
+});
