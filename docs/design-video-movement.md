@@ -797,9 +797,27 @@ duplicate submissions meet the epoch watermark and are rejected as
 the replays they are. And because adoption is off the critical path,
 a read that does queue behind a frozen tab's transaction delays only
 that recovery — new edits in the adopting tab persist and submit
-regardless. A drained, fully acknowledged queue's database is
-deleted by whichever context finishes it, retried later if that
-deletion is blocked, so per-load databases do not accumulate.
+regardless.
+
+Deleting a drained database is the one mutation adoption involves,
+and observing a log drained is not license to perform it: the
+original may be alive and about to append, and a deletion scheduled
+on that observation would take the new operation with it. Retirement
+comes first and comes from the server. The adopter asks the room to
+retire the source epoch, which makes further submissions under it
+refusable rather than silently acceptable; then it rescans the log
+and checks every persisted sequence against that epoch's final
+watermark and retained outcomes; only then is the database deleted,
+and only if the rescan found nothing outstanding. A live original
+that appends afterwards is not lost, because a retired epoch already
+has a defined path: its submission is refused, the client resolves
+against the final watermark, and anything never applied is
+resubmitted under a fresh epoch. Anything left unresolved by all of
+that is retained through the replay lease and collected there, so
+per-load databases do not accumulate. A test drains a queue as the
+adopter, appends from the original afterwards, and lets a pending
+deletion resume when the original closes, asserting the late
+operation still reaches the server.
 
 Tests cover simultaneous edits from two tabs, a crash between append
 and transmission, adoption of an orphaned queue by two tabs at once,
