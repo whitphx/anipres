@@ -4,10 +4,21 @@ Status: implemented for a single document, with one deliberate
 departure: `videoKey` is carried in `shape.meta`, not in a validated
 prop. The design argues at length that the prop is a rollback poison
 pill needing an acceptance-only Stage A to deploy safely; putting the
-key where frames already live avoids that entirely, since tldraw does
-not validate `meta` and an older build simply ignores it. What an older
-build still gets wrong is deleting a binding-less marker as an orphan,
-which the version gate covers. Configuration is resolved by the per-property Lamport stamps described
+key where frames already live removes that failure, since tldraw does
+not validate `meta` and an older build simply ignores it, so no
+document is ever left unloadable. What an older build still gets wrong
+is deleting a binding-less marker as an orphan, which the version gate
+covers, and rendering: it knows nothing of one video spread across
+carriers, so it mounts a player per carrier and keeps them all visible,
+and a moving video comes up as several independent players. The version
+gate keeps such a client away from such a document only while the two
+sides disagree. Rolling the whole deployment back to a release that
+predates this one puts them back in agreement, and that release will
+misrender any presentation authored since — which the staged rollout
+below, with its floors and its document-gated server, is what finally
+closes. The stages are not built; the exposure is accepted for now, and
+it is a misrender rather than a loss, since the records the older build
+cannot interpret are still there when it rolls forward. Configuration is resolved by the per-property Lamport stamps described
 below, so concurrent edits converge without reading structure; what is
 **not** built is the server half — the `sync-core` pre-apply hook that
 re-stamps admitted writes and arbitrates the last-carrier cascade.

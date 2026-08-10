@@ -1553,6 +1553,37 @@ describe("a tween outliving its own clock", () => {
   });
 });
 
+describe("a carrier arriving from a peer", () => {
+  it("is stored as sent, not corrected towards this client's view", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      updateVideoConfig(editor, videoId, { videoId: "MINE" });
+
+      const peerId = createShapeId("zzz-peer");
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...video,
+            id: peerId,
+            x: 900,
+            props: { ...video.props, videoId: "THEIRS" },
+            meta: { videoKey: videoId },
+          },
+        ]);
+      });
+
+      const peer = editor.getShape(peerId);
+      if (!isYouTubeEmbedShape(peer)) throw new Error("expected the peer's");
+      expect(peer.props.videoId).toBe("THEIRS");
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a deleted video's events in a shared document", () => {
   it("stops occupying steps, and comes back with the video", () => {
     // Shared, so the marker records themselves must stay: claiming a

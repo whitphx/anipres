@@ -125,30 +125,6 @@ export function startMarkerParking(editor: Editor): () => void {
  * the React one — the binding util used to carry this, and a schema
  * registration reached both.
  */
-/**
- * Whether the store is currently applying records from a peer.
- *
- * A side effect handler runs for a record arriving over sync exactly as
- * it does for a local edit, and tldraw does not tell the handler which
- * it is looking at — only a store listener is given the source. Without
- * the distinction, this client would rewrite a record another client
- * authored, and rewrite it towards its own view of a video: two clients
- * would then hold different props under one record id and each would
- * keep correcting the other, which is precisely what the revision
- * stamps exist to avoid. A peer has already run this logic on its own
- * side, so the answer to a remote record is to store it as sent.
- *
- * The flag is the store's own, and not public API. Should a future
- * tldraw drop it, this reads `false` and the handler goes back to
- * treating every record as local, which is the behavior without this
- * guard rather than a new failure mode.
- */
-function isMergingRemoteChanges(editor: Editor): boolean {
-  return (
-    (editor.store as unknown as { isMergingRemoteChanges?: boolean })
-      .isMergingRemoteChanges === true
-  );
-}
 
 export interface VideoLifecycleOptions {
   /**
@@ -183,8 +159,13 @@ export function installVideoLifecycle(
   // keep it here — the duplicate path mints them a fresh one.
   const stopMinting = editor.sideEffects.registerBeforeCreateHandler(
     "shape",
-    (shape) => {
-      if (!isYouTubeEmbedShape(shape) || isMergingRemoteChanges(editor)) {
+    (shape, source) => {
+      // A record arriving from a peer is stored as sent. Correcting it
+      // towards this client's view of the video would leave two
+      // clients holding different props under one record id, each
+      // correcting the other — the outcome the revision stamps exist
+      // to prevent — and the peer has already run this on its side.
+      if (source === "remote" || !isYouTubeEmbedShape(shape)) {
         return shape;
       }
       const carrierKey = shape.meta?.videoKey;
