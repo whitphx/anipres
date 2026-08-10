@@ -18,7 +18,7 @@ import { parseFrameMeta } from "../timeline-model/parse";
 
 /** Every carrier on the page, grouped by the video they belong to. */
 export function groupCarriersByVideoKey(
-  shapes: TLShape[],
+  shapes: readonly TLShape[],
 ): Map<string, YouTubeEmbedShape[]> {
   const groups = new Map<string, YouTubeEmbedShape[]>();
   for (const shape of shapes) {
@@ -468,9 +468,10 @@ export function restoreStampedVideoConfig(
   editor: Editor,
   videoKey: string,
   captured: StampedVideoConfig,
+  /** The page the deletion happened on, which need not be the open one. */
+  shapes: readonly TLShape[],
 ): void {
-  const carriers =
-    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
+  const carriers = groupCarriersByVideoKey(shapes).get(videoKey) ?? [];
   const updates = carriers.flatMap((carrier) => {
     const held = readStamps(carrier);
     // Property by property, and only where the captured stamp outranks

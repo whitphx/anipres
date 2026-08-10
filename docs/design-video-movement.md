@@ -50,6 +50,24 @@ that video returning, by undo or from a peer, brings its events back
 with it. The cascade is therefore only ever storage cleanup, which is
 why withholding it costs a shared document nothing a user can see.
 
+A video is page-scoped: its carriers, and the markers of its events,
+resolve against one page's shapes. So a deletion repairs the page the
+deleted record was on, read while it is still resolvable, and not
+whichever page happens to be open — a carrier deleted on a page the
+user is not looking at would otherwise be repaired against a page that
+holds none of its video, which repairs nothing and leaves a survivor
+on the real page holding whatever it last saw. `videoKey` itself is
+the exception, being document-wide: normalization walks every page,
+since a legacy video left unnormalized elsewhere would have a
+follow-up keyframe mint a new key and split it in two.
+
+An event's target key is read as absent when it is present but empty.
+An empty key names no video, and normalization takes any key that is
+present as already migrated, so carrying it would strand an event a
+legacy binding could still have recovered. Rejecting the frame instead
+would be worse: an unreadable frame is offered a repair that clears
+it.
+
 Cutting a video is the one place that retention is visible to the
 user rather than only to the store. A copy of a video carries its
 event markers, which the user never selected; a cut removes what was

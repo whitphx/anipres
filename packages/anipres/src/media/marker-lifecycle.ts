@@ -7,7 +7,13 @@
 // would cascade-delete a video's events when that one keyframe is
 // deleted.
 
-import { react, type Editor, type TLShapeId } from "tldraw";
+import {
+  react,
+  type Editor,
+  type TLPageId,
+  type TLShape,
+  type TLShapeId,
+} from "tldraw";
 import {
   MediaControlShapeType,
   resolveMediaControlVideoKey,
@@ -126,6 +132,26 @@ export function startMarkerParking(editor: Editor): () => void {
  * registration reached both.
  */
 
+/**
+ * The shapes sharing a page with this one.
+ *
+ * A video's carriers, and the markers of its events, are page-scoped:
+ * everything that resolves one video reads a page's shapes. Deleting a
+ * carrier on a page the user is not looking at has to repair that
+ * page, not whichever one happens to be open — an off-page deletion
+ * repaired against the current page repairs nothing and reads a video
+ * that is not there.
+ */
+function shapesOnSamePage(editor: Editor, shape: TLShape): TLShape[] {
+  const pageId = editor.getAncestorPageId(shape);
+  if (pageId == null) {
+    return [];
+  }
+  return [...editor.getPageShapeIds(pageId)]
+    .map((shapeId) => editor.getShape(shapeId))
+    .filter((pageShape) => pageShape != null);
+}
+
 export interface VideoLifecycleOptions {
   /**
    * Whether this client is the only writer of the document.
@@ -179,7 +205,7 @@ export function installVideoLifecycle(
       // the video is. Nothing else can repair that in a shared document,
       // where no client may write on another's behalf.
       const carriers = groupCarriersByVideoKey(
-        editor.getCurrentPageShapes(),
+        shapesOnSamePage(editor, shape),
       ).get(carrierKey);
       const config =
         carriers != null && carriers.length > 0
@@ -198,6 +224,10 @@ export function installVideoLifecycle(
   // markers, which is a wider claim than "this operation deleted the
   // video".
   let deletedCarrierKeys: Set<string> | null = null;
+  // The pages the deletions touched, read while the records are still
+  // resolvable: by the time the operation completes they are gone, and
+  // with them any way to ask which page they were on.
+  let deletedPageIds: Set<TLPageId> | null = null;
   const capturedConfigs = new Map<string, StampedVideoConfig>();
   // Read while every carrier is still present: the stamps that won a
   // property may live only on the record about to go.
@@ -207,13 +237,19 @@ export function installVideoLifecycle(
       if (!isYouTubeEmbedShape(shape)) {
         return;
       }
+      const pageId = editor.getAncestorPageId(shape);
+      if (pageId != null) {
+        deletedPageIds ??= new Set();
+        deletedPageIds.add(pageId);
+      }
       const videoKey = getVideoKey(shape);
       if (capturedConfigs.has(videoKey)) {
         return;
       }
       const captured = readStampedVideoConfig(
-        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ??
-          [],
+        groupCarriersByVideoKey(shapesOnSamePage(editor, shape)).get(
+          videoKey,
+        ) ?? [],
       );
       if (captured != null) {
         capturedConfigs.set(videoKey, captured);
@@ -237,23 +273,30 @@ export function installVideoLifecycle(
       if (keys == null) {
         return;
       }
-      // Safe in any document: the heir is a pure function of the
-      // survivors, so concurrent clients repoint identically.
-      repointLegacyBindings(editor, keys);
-      // Also safe in any document: it re-imposes values that had
-      // already won, carrying the stamps that won them, onto every
-      // survivor rather than onto one chosen record a concurrent push
-      // could delete out from under it. Two clients performing it
-      // write the same pairs, so it converges, and a later edit
-      // outranks it. Withholding it is what is unsafe — deleting the
-      // carrier whose stamps won a property would drop the video back
-      // to whatever a stale carrier happened to be holding, with
-      // nothing left to say the configuration had ever been edited.
-      for (const [videoKey, captured] of capturedConfigs) {
-        restoreStampedVideoConfig(editor, videoKey, captured);
-      }
-      if (soleWriter) {
-        deleteOrphanedMediaMarkers(editor, keys);
+      const pageIds = deletedPageIds ?? new Set<TLPageId>();
+      deletedPageIds = null;
+      for (const pageId of pageIds) {
+        const shapes = [...editor.getPageShapeIds(pageId)]
+          .map((shapeId) => editor.getShape(shapeId))
+          .filter((shape) => shape != null);
+        // Safe in any document: the heir is a pure function of the
+        // survivors, so concurrent clients repoint identically.
+        repointLegacyBindings(editor, keys, shapes);
+        // Also safe in any document: it re-imposes values that had
+        // already won, carrying the stamps that won them, onto every
+        // survivor rather than onto one chosen record a concurrent push
+        // could delete out from under it. Two clients performing it
+        // write the same pairs, so it converges, and a later edit
+        // outranks it. Withholding it is what is unsafe — deleting the
+        // carrier whose stamps won a property would drop the video back
+        // to whatever a stale carrier happened to be holding, with
+        // nothing left to say the configuration had ever been edited.
+        for (const [videoKey, captured] of capturedConfigs) {
+          restoreStampedVideoConfig(editor, videoKey, captured, shapes);
+        }
+        if (soleWriter) {
+          deleteOrphanedMediaMarkers(editor, keys, shapes);
+        }
       }
       capturedConfigs.clear();
     },
@@ -292,11 +335,11 @@ export function installVideoLifecycle(
 function repointLegacyBindings(
   editor: Editor,
   videoKeys: ReadonlySet<string>,
+  shapes: readonly TLShape[],
 ): void {
   if (videoKeys.size === 0) {
     return;
   }
-  const shapes = editor.getCurrentPageShapes();
   const carriersByKey = groupCarriersByVideoKey(shapes);
   for (const shape of shapes) {
     if (shape.type !== MediaControlShapeType) {
@@ -324,11 +367,11 @@ export function deleteOrphanedMediaMarkers(
   /** Only these videos are considered; others are none of this
    * operation's business. */
   videoKeys: ReadonlySet<string>,
+  shapes: readonly TLShape[],
 ): void {
   if (videoKeys.size === 0) {
     return;
   }
-  const shapes = editor.getCurrentPageShapes();
   const liveKeys = new Set(groupCarriersByVideoKey(shapes).keys());
   const orphaned: TLShapeId[] = [];
   for (const shape of shapes) {

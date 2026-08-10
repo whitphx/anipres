@@ -102,6 +102,18 @@ function parseFrameAction(value: unknown): FrameAction | null {
     } else if (value.volume !== undefined) {
       return null;
     }
+    // An empty key names no video. Read as absent rather than carried,
+    // so the event falls back to its legacy binding the way one written
+    // before keys existed does — normalization takes any key that is
+    // present as already migrated, and would otherwise leave an event
+    // that binding could still have recovered pointing at nothing. It
+    // is not grounds for rejecting the frame, whose offered repair
+    // clears it.
+    if (value.videoKey === "") {
+      const rest = { ...value };
+      delete rest.videoKey;
+      return rest as FrameAction;
+    }
     return value as FrameAction;
   }
   if (

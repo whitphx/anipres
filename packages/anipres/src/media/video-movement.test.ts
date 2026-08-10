@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
+import { PageRecordType } from "tldraw";
 import { loadHeadlessEditor } from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
 import { transitionProgress } from "./video-transition";
@@ -251,6 +252,60 @@ describe("marker lifecycle without the binding", () => {
 });
 
 describe("normalizeVideoIdentity", () => {
+  it("recovers an event whose target key came through empty", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createShapeId("legacy-video");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+      const markerId = createShapeId("legacy-marker");
+      editor.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            // A malformed import, or data degraded in storage: a key
+            // that is present but names nothing.
+            action: { type: "mediaControl", command: "play", videoKey: "" },
+          }),
+        },
+      });
+      editor.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
+      });
+
+      normalizeVideoIdentity(editor);
+
+      // Read as no key at all, so the binding still recovers it rather
+      // than the event pointing at a video that cannot exist.
+      const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+        throw new Error("expected a mediaControl cue frame");
+      }
+      expect(parsed.frame.action.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+
   it("rewrites a legacy binding into the event's own target key", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
@@ -1593,6 +1648,64 @@ describe("cutting and pasting a video whose markers stayed behind", () => {
   });
 });
 
+describe("deleting a carrier on a page that is not open", () => {
+  it("repairs that page rather than the one being looked at", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const otherPageId = PageRecordType.createId("other");
+      editor.createPage({ id: otherPageId, name: "Other" });
+      editor.setCurrentPage(otherPageId);
+
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("zzz-keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+      expect(markersOf(editor, videoId)).toHaveLength(1);
+
+      // Look somewhere else, then delete the carrier the edit was
+      // stamped on and the one keyframe left holding the video.
+      const [firstPage] = editor.getPages();
+      editor.setCurrentPage(firstPage.id);
+      editor.deleteShapes([videoId]);
+
+      const shapesOnOtherPage = () =>
+        [...editor.getPageShapeIds(otherPageId)]
+          .map((shapeId) => editor.getShape(shapeId))
+          .filter((shape) => shape != null);
+      const markersOnOtherPage = () =>
+        shapesOnOtherPage().filter(
+          (shape) =>
+            shape.type === MediaControlShapeType &&
+            resolveMediaControlVideoKey(editor, shape.id) === videoId,
+        );
+
+      const survivors =
+        groupCarriersByVideoKey(shapesOnOtherPage()).get(videoId);
+      expect(resolveVideoConfig(survivors ?? [])?.videoId).toBe("EDITED");
+      expect(markersOnOtherPage()).toHaveLength(1);
+
+      // And the events go when the video's last carrier does, on that
+      // page too.
+      editor.deleteShapes([keyframeId]);
+      expect(markersOnOtherPage()).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
@@ -1865,7 +1978,12 @@ describe("deleting the carrier that won a property", () => {
       updateVideoConfig(editor, videoId, { videoId: "NEWER" });
 
       // Replaying the capture must not undo what happened after it.
-      restoreStampedVideoConfig(editor, videoId, captured);
+      restoreStampedVideoConfig(
+        editor,
+        videoId,
+        captured,
+        editor.getCurrentPageShapes(),
+      );
 
       const carriers =
         groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
