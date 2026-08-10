@@ -28,11 +28,9 @@ import { SlideShapeType } from "../shapes/slide/SlideShape";
 import {
   getVideoKey,
   isYouTubeEmbedShape,
-  YouTubeEmbedShapeType,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import {
   MediaControlShapeType,
-  resolveMediaControlTarget,
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import { foldMediaPlaybackStates } from "../media/media-state";
@@ -341,12 +339,15 @@ export class PresentationManager {
         if (carrier == null) {
           continue;
         }
-        if (carrier.type === YouTubeEmbedShapeType) {
-          groups[batch.trackId] = carrier.id;
+        // Keyed by the VIDEO, not by a carrier: a moved video has one
+        // track per keyframe carrier, and grouping by shape id would
+        // scatter one logical video across several timeline rows.
+        if (isYouTubeEmbedShape(carrier)) {
+          groups[batch.trackId] = getVideoKey(carrier);
         } else if (carrier.type === MediaControlShapeType) {
-          const target = resolveMediaControlTarget(this.editor, carrier.id);
-          if (target != null) {
-            groups[batch.trackId] = target.id;
+          const videoKey = resolveMediaControlVideoKey(this.editor, carrier.id);
+          if (videoKey != null) {
+            groups[batch.trackId] = videoKey;
           }
         }
       }

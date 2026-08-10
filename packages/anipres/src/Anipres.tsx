@@ -45,7 +45,7 @@ import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
 import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
 import { installVideoLifecycle } from "./media/marker-lifecycle";
-import { remapContentVideoKeys } from "./media/remap-video-keys";
+import { applyPasteRemapToContent } from "./media/remap-video-keys";
 import {
   groupCarriersByVideoKey,
   resolveVideoConfig,
@@ -728,36 +728,17 @@ const Inner = (props: InnerProps) => {
             operation,
             mintId: uniqueId,
           });
-          // A pasted video is an independent video, not another carrier
-          // of the source: without this, same-document copy/paste would
-          // join the copies to the original's group, giving both one
-          // shared player.
-          content = remapContentVideoKeys(
-            content,
+          existingStepKeyUpdates = remap.existingStepKeyUpdates;
+          content = applyPasteRemapToContent(content, remap.updatedFrames, {
             operation,
-            uniqueId,
-            (videoKey) =>
+            mintKey: uniqueId,
+            resolveSourceConfig: (videoKey) =>
               resolveVideoConfig(
                 groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
                   videoKey,
                 ) ?? [],
               ),
-          );
-          existingStepKeyUpdates = remap.existingStepKeyUpdates;
-          if (remap.updatedFrames.size > 0) {
-            content = {
-              ...content,
-              shapes: content.shapes.map((shape) => {
-                const frame = remap.updatedFrames.get(shape.id);
-                return frame != null
-                  ? {
-                      ...shape,
-                      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
-                    }
-                  : shape;
-              }),
-            };
-          }
+          });
         } catch (e) {
           console.warn("anipres: paste frame preprocessing failed:", e);
           existingStepKeyUpdates = [];

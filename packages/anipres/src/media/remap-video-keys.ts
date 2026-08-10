@@ -18,6 +18,7 @@ import {
   type VideoConfig,
 } from "./video-anchor";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
+import type { Frame } from "../timeline-model/types";
 
 /**
  * Rewrites the `videoKey` of every video among `createdShapeIds`, and
@@ -226,4 +227,53 @@ export function remapContentVideoKeys<
       };
     }),
   };
+}
+
+/**
+ * The complete content transformation the paste path applies: timeline
+ * frame identities first, then video identities.
+ *
+ * The order is load-bearing and easy to get backwards. Frame remapping
+ * replaces a marker's whole frame with one derived from the ORIGINAL
+ * payload, so rewriting video keys before it would see them restored to
+ * the source video's — leaving a pasted copy driving the original, or,
+ * for an external paste, holding events for a video that is not there.
+ */
+export function applyPasteRemapToContent<
+  T extends {
+    shapes: { id: string; type: string; props?: unknown; meta?: unknown }[];
+  },
+>(
+  content: T,
+  updatedFrames: ReadonlyMap<string, Frame>,
+  options: {
+    operation: string;
+    mintKey: () => string;
+    resolveSourceConfig?: (videoKey: string) => VideoConfig | null;
+  },
+): T {
+  const withFrames =
+    updatedFrames.size === 0
+      ? content
+      : {
+          ...content,
+          shapes: content.shapes.map((shape) => {
+            const frame = updatedFrames.get(shape.id);
+            return frame != null
+              ? {
+                  ...shape,
+                  meta: {
+                    ...(shape.meta as object | undefined),
+                    frame: frameToMetaJson(frame),
+                  },
+                }
+              : shape;
+          }),
+        };
+  return remapContentVideoKeys(
+    withFrames as T,
+    options.operation,
+    options.mintKey,
+    options.resolveSourceConfig,
+  );
 }

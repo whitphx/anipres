@@ -23,7 +23,10 @@ import {
 import { normalizeVideoIdentity } from "./normalize-video-identity";
 import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
-import { remapContentVideoKeys } from "./remap-video-keys";
+import {
+  applyPasteRemapToContent,
+  remapContentVideoKeys,
+} from "./remap-video-keys";
 import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
@@ -629,6 +632,130 @@ describe("ancestor visibility", () => {
         visibilities: { [groupId]: "hidden", [videoId]: "visible" },
       });
       expect(anchor).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("paste applies both remaps in the right order", () => {
+  it("keeps the fresh video key after frame remapping rewrites the frame", () => {
+    const markerId = "shape:src-marker";
+    const content = {
+      shapes: [
+        {
+          id: "shape:src-video",
+          type: "youtube-embed",
+          props: { videoKey: "shape:src-video", videoId: "M7lc1UVf-VE" },
+        },
+        {
+          id: markerId,
+          type: "media-control",
+          meta: {
+            frame: frameToMetaJson({
+              v: 2,
+              id: "f1",
+              type: "cue",
+              trackId: "T",
+              stepId: "s",
+              stepOrderKey: "a1",
+              action: {
+                type: "mediaControl",
+                command: "play",
+                videoKey: "shape:src-video",
+              },
+            }),
+          },
+        },
+      ],
+    };
+    // What the frame remap produces: a whole frame rebuilt from the
+    // ORIGINAL payload, still naming the source video.
+    const updatedFrames = new Map([
+      [
+        markerId,
+        {
+          v: 2 as const,
+          id: "f1-fresh",
+          type: "cue" as const,
+          trackId: "T-fresh",
+          stepId: "s-fresh",
+          stepOrderKey: "a2",
+          action: {
+            type: "mediaControl" as const,
+            command: "play" as const,
+            videoKey: "shape:src-video",
+          },
+        },
+      ],
+    ]);
+
+    const pasted = applyPasteRemapToContent(content, updatedFrames, {
+      operation: "duplicate",
+      mintKey: () => "minted",
+    });
+
+    const video = pasted.shapes[0] as { props: { videoKey: string } };
+    expect(video.props.videoKey).toBe("minted");
+    const marker = pasted.shapes[1] as { meta: { frame: unknown } };
+    const parsed = parseFrameMeta(marker.meta.frame);
+    if (
+      parsed.kind !== "v2" ||
+      parsed.frame.type !== "cue" ||
+      parsed.frame.action.type !== "mediaControl"
+    ) {
+      throw new Error("expected a mediaControl cue frame");
+    }
+    // The remapped frame's identities survive...
+    expect(parsed.frame.trackId).toBe("T-fresh");
+    // ...and so does the copy's own video key, rather than the source's.
+    expect(parsed.frame.action.videoKey).toBe("minted");
+  });
+});
+
+describe("timeline grouping", () => {
+  it("puts a moved video's tracks and its events on one row", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-a", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      // A second carrier on its own track — the movement keyframe.
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: {
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-b", stepId: "s1", stepOrderKey: "a2" }),
+          ),
+        },
+      });
+      manager.attachMediaControlCueFrame(videoId);
+
+      const groups = manager.$getMediaTrackGroups();
+      // One logical video, so every track it owns shares a row.
+      expect(groups["T-a"]).toBe(videoId);
+      expect(groups["T-b"]).toBe(videoId);
+      const mediaTrackIds = Object.keys(groups).filter(
+        (trackId) => trackId !== "T-a" && trackId !== "T-b",
+      );
+      expect(mediaTrackIds).toHaveLength(1);
+      expect(groups[mediaTrackIds[0]!]).toBe(videoId);
     } finally {
       dispose();
     }
