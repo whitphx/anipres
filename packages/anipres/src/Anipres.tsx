@@ -48,6 +48,7 @@ import { installVideoLifecycle } from "./media/marker-lifecycle";
 import { ensureVideoKeyMaterialized } from "./media/normalize-video-identity";
 import {
   applyPasteRemapToContent,
+  dropContentAlreadyInDocument,
   canonicalizeContentVideoConfig,
 } from "./media/remap-video-keys";
 import {
@@ -634,14 +635,20 @@ const Inner = (props: InnerProps) => {
       editorWithInternal.getContentFromCurrentPage = (
         shapes: TLShapeId[] | TLShape[],
       ) => {
+        const requestedShapeIds = shapes.map((shape) =>
+          typeof shape === "string" ? shape : shape.id,
+        );
         ensureVideoKeyMaterialized(editor, [
-          ...editor.getShapeAndDescendantIds(
-            shapes.map((shape) =>
-              typeof shape === "string" ? shape : shape.id,
-            ),
-          ),
+          ...editor.getShapeAndDescendantIds(requestedShapeIds),
         ]);
-        const content = originalGetContent(shapes);
+        // Copying a video must carry its media events; see
+        // expandShapeIdsWithMediaControlMarkers. The ids asked for are
+        // recorded separately below, since what is added here has a
+        // lifetime of its own — a cut deletes the carrier and leaves
+        // the markers, which would read as content from elsewhere.
+        const content = originalGetContent(
+          expandShapeIdsWithMediaControlMarkers(editor, shapes),
+        );
         if (!content) return content;
         augmentContentWithThemeImageAssets(content, (id) =>
           editor.getAsset(id),
@@ -659,7 +666,11 @@ const Inner = (props: InnerProps) => {
               ) ?? [],
             ),
         );
-        return attachCopyProvenance(canonicalized, copySourceToken);
+        return attachCopyProvenance(
+          canonicalized,
+          copySourceToken,
+          requestedShapeIds,
+        );
       };
     } else {
       console.warn(
@@ -669,27 +680,6 @@ const Inner = (props: InnerProps) => {
           "external pastes, the safe fallback). " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
-      );
-    }
-
-    // Copying a video must carry its media events; see
-    // expandShapeIdsWithMediaControlMarkers.
-    const editorWithGet = editor as Editor & {
-      getContentFromCurrentPage?: (
-        shapes: TLShapeId[] | TLShape[],
-      ) => TLContent | undefined;
-    };
-    if (typeof editorWithGet.getContentFromCurrentPage === "function") {
-      const originalGetContent =
-        editorWithGet.getContentFromCurrentPage.bind(editor);
-      editorWithGet.getContentFromCurrentPage = (shapes) =>
-        originalGetContent(
-          expandShapeIdsWithMediaControlMarkers(editor, shapes),
-        );
-    } else {
-      console.warn(
-        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
-          "Copying a video will not carry its media events.",
       );
     }
 
@@ -748,6 +738,12 @@ const Inner = (props: InnerProps) => {
             shapeExistsInDocument: (shapeId) =>
               editor.getShape(shapeId as TLShapeId) != null,
           });
+          if (operation === "move") {
+            content = dropContentAlreadyInDocument(
+              content,
+              (shapeId) => editor.getShape(shapeId as TLShapeId) != null,
+            );
+          }
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({
               shapeId: shape.id,

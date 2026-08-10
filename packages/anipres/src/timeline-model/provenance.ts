@@ -51,6 +51,18 @@ import type { RemapOperation } from "./duplicate";
 export interface AnipresCopyProvenance {
   /** Opaque token of the editor instance the content was copied from. */
   sourceDocumentToken: string;
+  /**
+   * The shapes the copy actually asked for, before anything was added
+   * to the payload on their behalf. Copying a video pulls in its
+   * invisible event markers, and a cut deletes only what was selected —
+   * so the markers outlive the carrier, and reading presence off the
+   * payload would see one id gone and another still there and call an
+   * ordinary cut and paste an import from somewhere else.
+   *
+   * Absent on a payload from a build that predates this, where the
+   * classification falls back to the payload's own ids.
+   */
+  requestedShapeIds?: readonly string[];
 }
 
 /** Property name carrying the provenance on a `TLContent` object. */
@@ -60,10 +72,11 @@ export const COPY_PROVENANCE_KEY = "anipresCopyProvenance";
 export function attachCopyProvenance<T extends object>(
   content: T,
   sourceDocumentToken: string,
+  requestedShapeIds?: readonly string[],
 ): T {
   return {
     ...content,
-    [COPY_PROVENANCE_KEY]: { sourceDocumentToken },
+    [COPY_PROVENANCE_KEY]: { sourceDocumentToken, requestedShapeIds },
   };
 }
 
@@ -80,8 +93,14 @@ export function readCopyProvenance(
     value != null &&
     typeof (value as Record<string, unknown>).sourceDocumentToken === "string"
   ) {
+    const requestedShapeIds = (value as Record<string, unknown>)
+      .requestedShapeIds;
     return {
       sourceDocumentToken: (value as AnipresCopyProvenance).sourceDocumentToken,
+      ...(Array.isArray(requestedShapeIds) &&
+      requestedShapeIds.every((id) => typeof id === "string")
+        ? { requestedShapeIds: requestedShapeIds as string[] }
+        : {}),
     };
   }
   return null;
@@ -119,13 +138,21 @@ export function classifyRemapOperation(input: {
   if (provenance?.sourceDocumentToken !== localDocumentToken) {
     return "external-paste";
   }
-  if (sourceShapeIds.length === 0) {
+  // What the copy asked for, not what the payload ended up carrying:
+  // anything added on the caller's behalf has its own lifetime and
+  // would otherwise read as mixed presence.
+  const requested =
+    provenance.requestedShapeIds != null &&
+    provenance.requestedShapeIds.length > 0
+      ? provenance.requestedShapeIds
+      : sourceShapeIds;
+  if (requested.length === 0) {
     return "external-paste";
   }
-  const existing = sourceShapeIds.filter((shapeId) =>
+  const existing = requested.filter((shapeId) =>
     input.shapeExistsInDocument(shapeId),
   ).length;
-  if (existing === sourceShapeIds.length) {
+  if (existing === requested.length) {
     return "duplicate";
   }
   if (existing === 0) {

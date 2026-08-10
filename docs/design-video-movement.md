@@ -50,6 +50,20 @@ that video returning, by undo or from a peer, brings its events back
 with it. The cascade is therefore only ever storage cleanup, which is
 why withholding it costs a shared document nothing a user can see.
 
+Cutting a video is the one place that retention is visible to the
+user rather than only to the store. A copy of a video carries its
+event markers, which the user never selected; a cut removes what was
+selected, so where the marker cleanup is withheld the markers outlive
+the carrier. Two things follow, and the paste path does both. The
+operation is classified from the ids the copy asked for, recorded on
+the payload, rather than from the ids the payload ended up carrying —
+otherwise one id gone and another still present reads as mixed
+presence, and an ordinary cut and paste is taken for an import from
+another document, which mints a fresh key and splits the video in two.
+And a move lays down only what it removed: a payload shape whose
+record is still there is dropped, with any binding that pointed at it,
+so the video does not end up with two records of every event.
+
 The configuration transfer that shares that batch is gated on nothing:
 it runs wherever a carrier is deleted. It removes no record and mints
 no authority, only re-imposing values that had already won along with

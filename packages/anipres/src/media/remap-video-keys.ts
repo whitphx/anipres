@@ -240,6 +240,47 @@ export function remapContentVideoKeys<
 }
 
 /**
+ * Drops from a move's payload the shapes it never actually removed.
+ *
+ * A copy of a video carries its event markers, which the user never
+ * selected. A cut deletes what was selected, and where the marker
+ * cleanup is withheld — a shared document, where claiming a video lost
+ * its last carrier is not one client's call — the markers outlive the
+ * carrier. Pasting the payload whole would then lay a second copy of
+ * each marker beside the one that never left, giving the video two
+ * records of every event.
+ *
+ * A move re-creates what it removed and nothing else, so a shape whose
+ * source record is still there is dropped, along with any binding that
+ * pointed at it.
+ */
+export function dropContentAlreadyInDocument<
+  T extends {
+    shapes: { id: string }[];
+    bindings?: { fromId: string; toId: string }[];
+  },
+>(content: T, shapeExistsInDocument: (shapeId: string) => boolean): T {
+  const dropped = new Set(
+    content.shapes.map((shape) => shape.id).filter(shapeExistsInDocument),
+  );
+  if (dropped.size === 0) {
+    return content;
+  }
+  return {
+    ...content,
+    shapes: content.shapes.filter((shape) => !dropped.has(shape.id)),
+    ...(content.bindings != null
+      ? {
+          bindings: content.bindings.filter(
+            (binding) =>
+              !dropped.has(binding.fromId) && !dropped.has(binding.toId),
+          ),
+        }
+      : {}),
+  };
+}
+
+/**
  * The complete content transformation the paste path applies: timeline
  * frame identities first, then video identities.
  *

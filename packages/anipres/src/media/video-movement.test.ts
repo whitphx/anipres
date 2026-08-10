@@ -39,6 +39,7 @@ import {
   applyPasteRemapToContent,
   canonicalizeContentVideoConfig,
   remapContentVideoKeys,
+  dropContentAlreadyInDocument,
 } from "./remap-video-keys";
 import { youTubeEmbedShapeProps } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { getVideoTransitions } from "./video-transition";
@@ -1558,6 +1559,37 @@ describe("a tween outliving its own clock", () => {
       globalThis.requestAnimationFrame = realRaf;
       dispose();
     }
+  });
+});
+
+describe("cutting and pasting a video whose markers stayed behind", () => {
+  it("lays down only what the cut removed", () => {
+    // What a cut leaves behind in a shared document: the carrier is
+    // gone, its auto-included event marker is not.
+    const content = {
+      shapes: [
+        { id: "shape:video", type: "youtube-embed" },
+        { id: "shape:marker", type: "media-control" },
+      ],
+      bindings: [
+        { fromId: "shape:marker", toId: "shape:video", type: "media-control" },
+      ],
+    };
+
+    const pasted = dropContentAlreadyInDocument(
+      content,
+      (shapeId) => shapeId === "shape:marker",
+    );
+
+    expect(pasted.shapes.map((shape) => shape.id)).toEqual(["shape:video"]);
+    // The binding went with it, rather than pointing at a marker the
+    // payload no longer carries.
+    expect(pasted.bindings).toEqual([]);
+  });
+
+  it("leaves a payload alone when nothing survived the cut", () => {
+    const content = { shapes: [{ id: "shape:video", type: "youtube-embed" }] };
+    expect(dropContentAlreadyInDocument(content, () => false)).toBe(content);
   });
 });
 

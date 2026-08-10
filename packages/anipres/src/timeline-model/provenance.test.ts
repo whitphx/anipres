@@ -218,3 +218,66 @@ describe("classifyRemapOperation (provenance + source-shape existence)", () => {
     ).toBe("external-paste");
   });
 });
+
+describe("shapes added to a payload on the caller's behalf", () => {
+  const TOKEN = "doc-token";
+
+  it("classifies a cut and paste by what the copy asked for", () => {
+    // Copying a video pulls in its event markers. A cut deletes the
+    // carrier that was selected; in a shared document the markers stay.
+    const provenance = {
+      sourceDocumentToken: TOKEN,
+      requestedShapeIds: ["shape:video"],
+    };
+    expect(
+      classifyRemapOperation({
+        provenance,
+        localDocumentToken: TOKEN,
+        sourceShapeIds: ["shape:video", "shape:marker"],
+        shapeExistsInDocument: (shapeId) => shapeId === "shape:marker",
+      }),
+    ).toBe("move");
+  });
+
+  it("still calls a copy and paste a duplicate", () => {
+    const provenance = {
+      sourceDocumentToken: TOKEN,
+      requestedShapeIds: ["shape:video"],
+    };
+    expect(
+      classifyRemapOperation({
+        provenance,
+        localDocumentToken: TOKEN,
+        sourceShapeIds: ["shape:video", "shape:marker"],
+        shapeExistsInDocument: () => true,
+      }),
+    ).toBe("duplicate");
+  });
+
+  it("falls back to the payload's ids when the copy recorded none", () => {
+    expect(
+      classifyRemapOperation({
+        provenance: { sourceDocumentToken: TOKEN },
+        localDocumentToken: TOKEN,
+        sourceShapeIds: ["shape:video"],
+        shapeExistsInDocument: () => false,
+      }),
+    ).toBe("move");
+  });
+
+  it("round-trips the requested ids through a payload", () => {
+    const content = attachCopyProvenance({ shapes: [] }, TOKEN, [
+      "shape:video",
+    ]);
+    expect(readCopyProvenance(content)?.requestedShapeIds).toEqual([
+      "shape:video",
+    ]);
+    // A payload from a build that did not record them reads as absent
+    // rather than as an empty selection.
+    expect(
+      readCopyProvenance({
+        anipresCopyProvenance: { sourceDocumentToken: TOKEN },
+      })?.requestedShapeIds,
+    ).toBeUndefined();
+  });
+});
