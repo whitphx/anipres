@@ -405,17 +405,28 @@ notification over a buffering-frozen position is observationally
 identical to a real pause, and no prototype can split identical
 observables. Release therefore rests on certainty or does not
 happen — and the design's baseline assumes no unproven primitive.
-**Teardown** — synchronous removal of the iframe, causally certain
-because a DOM node that no longer exists cannot play — is the ground
-of release that always exists: baseline slot turnover for a
+**Teardown** — removal of the iframe, causally certain because a DOM
+node that no longer exists cannot play — is the ground of release
+that always exists. How *promptly* removal stops media is a browser
+question, not a logical one: detachment may precede the teardown of
+the underlying media pipeline, so the prototype milestone below must
+establish, across supported browsers, when a detached cross-origin
+iframe actually goes silent. Until it does, the slot released by a
+teardown passes through a **retiring** state for a conservative
+drain interval before it is granted, so a replacement play cannot
+overlap a still-sounding predecessor; if the prototype shows
+cessation is prompt, the drain collapses to zero and the release is
+immediate. Either way the hard-P contract is kept by construction
+rather than by assumption. With that, teardown is the release: baseline slot turnover for a
 restorable player attempts the pause for a grace period, then
 transfers the slot by teardown, and the torn-down player resumes by
 its clock exactly as an evicted one does. Pause-in-place with the
 iframe preserved is an *enhancement*, unlocked only if the IFrame
 API browser prototype — a blocking implementation milestone
 alongside the sync fork's, tasked with naming the exact observable
-that establishes causality — proves a genuinely command-correlated
-acknowledgement exists. If it finds none, the baseline stands
+that establishes causality and with measuring the teardown drain
+above across supported browsers — proves a genuinely
+command-correlated acknowledgement exists. If it finds none, the baseline stands
 complete on teardown and under-admission alone, and the continuity
 guarantees are read against that baseline. When evidence stays ambiguous past the settle
 window, the runtime does not guess — and teardown obeys the same
@@ -703,15 +714,28 @@ concurrency — two tabs open on one document, a duplicated tab, a
 reload racing its predecessor — not a hostile sibling, since script
 running on the origin has already won by other means. So siblings
 are coordinated rather than isolated: the queue has a single writer
-at a time, elected through a Web Lock held for the document, and
-only the lock holder submits, acknowledges, or retires. A tab
-without the lock observes and defers; when the holder navigates away
-or crashes the lock releases, the next tab takes it and resumes the
-same queue from the same epoch, which is exactly the continuity a
-reload needs. Tests cover two tabs on one document, tab
-duplication, reload during pending operations, and the crash
-handoff, asserting one writer throughout and no watermark advanced
-by a non-holder. A sequence at or
+at a time, elected through a Web Lock, and only the lock holder
+submits, acknowledges, or retires. A tab without the lock observes
+and defers; when the holder navigates away or crashes the lock
+releases, the next tab takes it and resumes the same queue from the
+same epoch, which is exactly the continuity a reload needs.
+
+Queue, lock and epoch are namespaced by **principal and document
+together**, not by document alone, because the epoch is bound to a
+principal and the two keys must not drift apart. Without that, a
+second user opening the same document in the same browser would
+take the lock, inherit the first user's queue, and either wedge on
+an epoch the server rightly refuses them or — worse — have those
+pending edits resubmitted under their own identity. Namespaced, a
+principal change is simply a change of namespace: the prior one
+stops being processed, is neither discarded nor reissued, and
+resumes untouched if that user signs back in, where their epoch is
+still theirs. Tests cover two tabs on one document, tab
+duplication, reload during pending operations, the crash handoff,
+and sign-out, sign-in and account-switch with committed,
+unacknowledged and unsent operations pending — asserting one writer
+throughout, no watermark advanced by a non-holder, and no operation
+ever attributed to a principal that did not author it. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
 already committed; one exactly above advances the watermark.
 Admission is not the only outcome that advances it: a terminal
