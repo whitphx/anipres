@@ -462,36 +462,56 @@ export function restoreStampedVideoConfig(
 ): void {
   const carriers =
     groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
-  const stale = carriers.filter((carrier) => {
-    const stamps = readStamps(carrier);
-    return VIDEO_CONFIG_KEYS.some((key) => {
-      if (carrier.props[key] !== captured.config[key]) {
-        return true;
-      }
+  const updates = carriers.flatMap((carrier) => {
+    const held = readStamps(carrier);
+    // Property by property, and only where the captured stamp outranks
+    // what the survivor holds. The capture is taken before the record
+    // goes, and an edit can land between then and here — the same
+    // operation may delete a carrier and then edit a surviving one —
+    // so the snapshot is not automatically the newer of the two.
+    // Writing it wholesale would drag every property back to the
+    // moment of capture, which is the loss this repair exists to
+    // prevent, in the other direction.
+    const props: Record<string, unknown> = {};
+    const revised: Record<string, ConfigStamp> = {};
+    for (const key of VIDEO_CONFIG_KEYS) {
       const winning = captured.stamps[key];
-      if (winning == null) {
-        return false;
+      const current = held[key];
+      const behind =
+        winning != null
+          ? // Whole stamps, session id included: two clients editing
+            // one property offline from the same counter both write
+            // that counter plus one, so a survivor can hold the
+            // winning value under the losing session, and a record
+            // arriving later whose session sorts between the two would
+            // outrank it though it lost to the record just deleted.
+            current == null || stampBeats(winning, current)
+          : current == null && carrier.props[key] !== captured.config[key];
+      if (!behind) {
+        continue;
       }
-      const held = stamps[key];
-      // The whole stamp, session id included. Two clients editing one
-      // property offline from the same counter both write that counter
-      // plus one, so a survivor can hold the winning value under a
-      // losing session — and a record arriving later whose session
-      // falls between the two would then outrank the survivor and
-      // revert the property, though it lost to the record just
-      // deleted.
-      return held == null || held.c !== winning.c || held.s !== winning.s;
-    });
+      props[key] = captured.config[key];
+      if (winning != null) {
+        revised[key] = winning;
+      }
+    }
+    if (Object.keys(props).length === 0) {
+      return [];
+    }
+    return [
+      {
+        id: carrier.id,
+        type: carrier.type,
+        props,
+        meta: {
+          ...carrier.meta,
+          videoConfigRev: { ...held, ...revised },
+        },
+      },
+    ];
   });
-  if (stale.length === 0) {
+  if (updates.length === 0) {
     return;
   }
-  editor.updateShapes(
-    stale.map((carrier) => ({
-      id: carrier.id,
-      type: carrier.type,
-      props: { ...captured.config },
-      meta: { ...carrier.meta, videoConfigRev: { ...captured.stamps } },
-    })),
-  );
+  editor.updateShapes(updates);
 }

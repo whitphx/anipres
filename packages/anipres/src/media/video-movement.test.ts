@@ -31,6 +31,8 @@ import { readPlacements } from "./player-placement";
 import {
   resolveVideoConfig,
   getConfigOwnerCarrier,
+  readStampedVideoConfig,
+  restoreStampedVideoConfig,
   CONFIG_STAMP_CEILING,
 } from "./video-anchor";
 import {
@@ -1685,6 +1687,45 @@ describe("deleting the carrier that won a property", () => {
         groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
         [];
       expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not regress a survivor that moved on after the capture", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+      const survivorId = createShapeId("zzz-survivor");
+      editor.createShape({
+        ...original,
+        id: survivorId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+
+      updateVideoConfig(editor, videoId, { videoId: "OLD", start: 5 });
+      // What a deletion would have captured before the record went.
+      const captured = readStampedVideoConfig(
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+          [],
+      );
+      if (captured == null) throw new Error("expected a captured config");
+
+      editor.deleteShapes([videoId]);
+      updateVideoConfig(editor, videoId, { videoId: "NEWER" });
+
+      // Replaying the capture must not undo what happened after it.
+      restoreStampedVideoConfig(editor, videoId, captured);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      const config = resolveVideoConfig(carriers);
+      expect(config?.videoId).toBe("NEWER");
+      expect(config?.start).toBe(5);
     } finally {
       dispose();
     }
