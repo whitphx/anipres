@@ -12,6 +12,11 @@ import {
   YouTubeEmbedShapeType,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
+import {
+  groupCarriersByVideoKey,
+  resolveVideoConfig,
+  type VideoConfig,
+} from "./video-anchor";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 
 /**
@@ -55,16 +60,46 @@ export function remapDuplicatedVideoKeys(
     }
   }
 
+  // The source video's configuration lives on ONE of its carriers, and
+  // the copied selection need not include it — duplicating a later
+  // keyframe copies a record whose own media props may be blank or
+  // superseded. Resolve the source's configuration while the source is
+  // still in hand and stamp it onto the copies, or the new independent
+  // video would be born wrong.
+  const created = new Set<string>(createdShapeIds);
+  const sourceConfigByOldKey = new Map<string, VideoConfig>();
+  const sourceCarriers = groupCarriersByVideoKey(
+    editor.getCurrentPageShapes().filter((shape) => !created.has(shape.id)),
+  );
+  for (const oldKey of carriersByOldKey.keys()) {
+    const config = resolveVideoConfig(sourceCarriers.get(oldKey) ?? []);
+    if (config != null) {
+      sourceConfigByOldKey.set(oldKey, config);
+    }
+  }
+
   for (const [oldKey, carrierIds] of carriersByOldKey) {
     const newKey = newKeyByOldKey.get(oldKey);
-    if (newKey == null || newKey === oldKey) {
+    if (newKey == null) {
+      continue;
+    }
+    const config = sourceConfigByOldKey.get(oldKey);
+    const ownerId = carrierIds.includes(newKey as TLShapeId)
+      ? (newKey as TLShapeId)
+      : null;
+    if (newKey === oldKey && config == null) {
       continue;
     }
     editor.updateShapes(
       carrierIds.map((id) => ({
         id,
         type: YouTubeEmbedShapeType,
-        props: { videoKey: newKey },
+        props: {
+          ...(newKey !== oldKey ? { videoKey: newKey } : {}),
+          // Only the copy's own owner needs the configuration; the
+          // others resolve through it.
+          ...(config != null && id === ownerId ? config : {}),
+        },
       })),
     );
   }
@@ -113,7 +148,18 @@ export function remapContentVideoKeys<
   T extends {
     shapes: { id: string; type: string; props?: unknown; meta?: unknown }[];
   },
->(content: T, operation: string, mintKey: () => string): T {
+>(
+  content: T,
+  operation: string,
+  mintKey: () => string,
+  /**
+   * The source video's configuration, when the source document is this
+   * one — a same-document copy of a later keyframe carries that
+   * keyframe's own props, which may be blank or superseded. An external
+   * paste has no source to ask, so the payload's own values stand.
+   */
+  resolveSourceConfig?: (videoKey: string) => VideoConfig | null,
+): T {
   if (operation === "move") {
     return content;
   }
@@ -146,9 +192,14 @@ export function remapContentVideoKeys<
             ? props.videoKey
             : shape.id;
         const newKey = newKeyByOldKey.get(oldKey);
-        return newKey == null
-          ? shape
-          : { ...shape, props: { ...(props ?? {}), videoKey: newKey } };
+        if (newKey == null) {
+          return shape;
+        }
+        const config = resolveSourceConfig?.(oldKey) ?? null;
+        return {
+          ...shape,
+          props: { ...(props ?? {}), ...(config ?? {}), videoKey: newKey },
+        };
       }
       if (shape.type !== MediaControlShapeType) {
         return shape;

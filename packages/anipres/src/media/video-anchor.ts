@@ -150,6 +150,35 @@ export function resolveVideoConfig(
 }
 
 /**
+ * Whether a carrier is actually on stage, ancestors included.
+ *
+ * A shape-owned player used to inherit its parent's hiding through the
+ * DOM for free. The runtime player is rendered outside that hierarchy,
+ * so a carrier inside a hidden group or frame would otherwise keep a
+ * visible, audible player before its container ever appears — the
+ * ancestor chain has to be walked explicitly.
+ */
+function isEffectivelyVisible(
+  editor: Editor,
+  shapeId: TLShapeId,
+  visibilities: Record<string, "visible" | "hidden" | "inherit">,
+): boolean {
+  let current: TLShapeId | undefined = shapeId;
+  while (current != null) {
+    if (visibilities[current] === "hidden") {
+      return false;
+    }
+    const parent: TLShape | undefined = editor.getShape(current);
+    const parentId: string | undefined = parent?.parentId;
+    current =
+      parentId != null && parentId.startsWith("shape:")
+        ? (parentId as TLShapeId)
+        : undefined;
+  }
+  return true;
+}
+
+/**
  * The carrier the player should follow right now.
  *
  * While presenting, the visibility rule already answers it — the anchor
@@ -175,8 +204,8 @@ export function resolveAnchorCarrier(
     if (visibilities == null) {
       return getDefaultAnchorCarrier(carriers);
     }
-    const shown = carriers.filter(
-      (carrier) => visibilities[carrier.id] !== "hidden",
+    const shown = carriers.filter((carrier) =>
+      isEffectivelyVisible(editor, carrier.id, visibilities),
     );
     // No shown carrier means the video is not on stage yet (before its
     // cue step, or rewound past it): Absent, and the caller unmounts.

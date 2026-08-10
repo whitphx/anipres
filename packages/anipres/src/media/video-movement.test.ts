@@ -18,6 +18,7 @@ import {
 import {
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
+  resolveAnchorCarrier,
 } from "./video-anchor";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
 import { readPlacements } from "./player-placement";
@@ -543,6 +544,91 @@ describe("configuration survives owner deletion", () => {
       expect(carriers.map((c) => c.id)).toEqual([keyframeId]);
       expect(resolveVideoConfig(carriers)?.videoId).toBe("M7lc1UVf-VE");
       expect(readPlacements(editor, false)).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("copies of a stale keyframe carry the real configuration", () => {
+  it("duplicating a later keyframe yields a working video", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // The keyframe predates the URL, so its own props are blank while
+      // the owner holds the real configuration.
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      createDuplicateShapesRemap(editor, () =>
+        manager.$getTimelineDoc(),
+      ).install();
+      // Duplicate ONLY the blank keyframe, not the owner.
+      editor.select(keyframeId);
+      editor.duplicateShapes([keyframeId], { x: 0, y: 200 });
+
+      const copy = editor
+        .getCurrentPageShapes()
+        .filter(isYouTubeEmbedShape)
+        .find((v) => v.id !== videoId && v.id !== keyframeId)!;
+      const copyCarriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+          getVideoKey(copy),
+        ) ?? [];
+      // An independent video, born with the source's real config rather
+      // than the blank keyframe's snapshot.
+      expect(getVideoKey(copy)).not.toBe(videoId);
+      expect(resolveVideoConfig(copyCarriers)?.videoId).toBe("M7lc1UVf-VE");
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("ancestor visibility", () => {
+  it("does not place a player under a hidden ancestor", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const siblingId = createShapeId("sibling");
+      editor.createShape({
+        id: siblingId,
+        type: "geo",
+        x: 600,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      // Two children, so tldraw keeps the group (it discards one with
+      // fewer).
+      const groupId = createShapeId("group");
+      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([videoId, siblingId], groupId);
+
+      // The carrier itself is not hidden; its container is. A player
+      // rendered outside the carrier's DOM does not inherit that.
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      const anchor = resolveAnchorCarrier(editor, carriers, {
+        presentationMode: true,
+        visibilities: { [groupId]: "hidden", [videoId]: "visible" },
+      });
+      expect(anchor).toBeNull();
     } finally {
       dispose();
     }

@@ -46,6 +46,10 @@ import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape"
 import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
 import { installVideoLifecycle } from "./media/marker-lifecycle";
 import { remapContentVideoKeys } from "./media/remap-video-keys";
+import {
+  groupCarriersByVideoKey,
+  resolveVideoConfig,
+} from "./media/video-anchor";
 import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
 import { YouTubePlayerManager } from "./media/youtube-player-manager";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
@@ -728,7 +732,17 @@ const Inner = (props: InnerProps) => {
           // of the source: without this, same-document copy/paste would
           // join the copies to the original's group, giving both one
           // shared player.
-          content = remapContentVideoKeys(content, operation, uniqueId);
+          content = remapContentVideoKeys(
+            content,
+            operation,
+            uniqueId,
+            (videoKey) =>
+              resolveVideoConfig(
+                groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+                  videoKey,
+                ) ?? [],
+              ),
+          );
           existingStepKeyUpdates = remap.existingStepKeyUpdates;
           if (remap.updatedFrames.size > 0) {
             content = {
