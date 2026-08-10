@@ -754,38 +754,44 @@ or throttled: still holding the lock, no longer replying, and every
 active tab blocked behind it with no crash or navigation to release
 it.
 
-Nor is it a lock of our own, for the same reason at smaller scale: a
-Web Lock is held until its callback settles, so a tab frozen inside
-the critical section holds it indefinitely and blocks every sibling
-just as a frozen leader would. The mutual exclusion is instead the
-storage layer's. The queue belongs to the namespace, not to a tab,
-and so does its epoch; appending an operation with its sequence, or
-recording an outcome, is **one read-write transaction** over the
-queue store, and the store already serializes those across contexts
-and aborts one that cannot finish. Sequence allocation is therefore
-single-threaded because the allocating read and the insert are the
-same transaction, and a tab frozen mid-transaction has that
-transaction rolled back rather than leaving a held lock: siblings
-proceed, and no sequence is allocated twice.
+Nor is it a lock of our own, nor a shared storage transaction. A Web
+Lock is held until its callback settles, and an IndexedDB
+transaction holds its object-store scope until its requests finish,
+with no abort merely because the page froze — so any construct a
+frozen tab can hold blocks every sibling behind it, which is the
+leader failure again at smaller scale. The design therefore removes
+the shared write path rather than guarding it: **each tab keeps its
+own queue and its own epoch**, and no tab ever writes to another's.
 
-Any tab may write directly on that basis — the user edits in
-whichever window they are looking at, the edit is appended in that
-tab, and it is durable the moment its transaction commits, with no
-hand-off and no confirmation to lose. Exactly-once falls out of the
-same durability: the operation exists once in the queue, and the
-epoch watermark already covers retries against the server. Whichever
-tab holds the sync connection drains the queue and records outcomes
-through the same transactions. Tests cover simultaneous edits from
-two tabs, tab duplication, a crash between append and transmission,
-and — the case a lock could not survive — a tab frozen after
-beginning a queue transaction, asserting another tab still makes
-progress with no duplicate sequence.
+Nothing is lost by that, because the server already treats
+concurrent epochs under one principal as ordinary — it is exactly
+the multi-device case — and per-epoch watermarks with retained
+outcomes make draining a queue idempotent. Two tabs editing the same
+property is two clients editing it, resolved by the same
+serialization at the room server as any other concurrency, with no
+client-side coordination to get wrong. A tab frozen anywhere in its
+own append path delays only itself.
 
-Queue and epoch are namespaced by **principal and document
+A queue outlives its tab, so ownership is by durable identity rather
+than by liveness: the queue is keyed to a session id held in
+per-tab storage, which a reload keeps, and on load a tab resumes
+that queue with its epoch and pending operations intact. A queue
+whose session never returns — a closed tab with unsent operations, a
+duplicated tab carrying a copy of the id — is adopted and drained by
+any tab of the same namespace after an idle threshold. Adoption
+needs no exclusivity precisely because draining is idempotent:
+should two tabs drain the same queue, the watermark rejects the
+second submission as the replay it is. Tests cover simultaneous
+edits from two tabs, tab duplication, a crash between append and
+transmission, adoption of an orphaned queue by two tabs at once,
+and — the case no lock survives — a tab frozen mid-append,
+asserting every sibling continues to persist and submit edits.
+
+Queues and epochs are namespaced by **principal and document
 together**, not by document alone, because the epoch is bound to a
 principal and the two keys must not drift apart. Without that, a
 second user opening the same document in the same browser would
-reach the first user's queue and either wedge on an epoch the server
+adopt the first user's queue and either wedge on an epoch the server
 rightly refuses them or — worse — have those pending edits
 resubmitted under their own identity. Namespaced, a principal change
 is simply a change of namespace: the prior one stops being
