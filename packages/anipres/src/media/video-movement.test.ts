@@ -27,7 +27,11 @@ import {
 import { updateVideoConfig } from "./video-anchor";
 import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
 import { readPlacements } from "./player-placement";
-import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
+import {
+  resolveVideoConfig,
+  getConfigOwnerCarrier,
+  CONFIG_STAMP_CEILING,
+} from "./video-anchor";
 import {
   applyPasteRemapToContent,
   canonicalizeContentVideoConfig,
@@ -1547,6 +1551,49 @@ describe("imported revision stamps cannot pin a configuration", () => {
       const carriers =
         groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
         [];
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps a local edit authoritative against a carrier at the ceiling", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+
+      // A carrier reaching this client from a peer, holding the largest
+      // counter a read could plausibly be asked to accept. It arrives
+      // through the remote path, which is what a synced document does
+      // and which the create-time lifecycle never sees.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...video,
+            id: createShapeId("zzz-stale"),
+            x: 900,
+            props: { ...video.props, videoId: "STALE" },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: {
+                videoId: { c: CONFIG_STAMP_CEILING, s: "\uffff" },
+              },
+            },
+          },
+        ]);
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.props.videoId).sort()).toEqual([
+        "EDITED",
+        "STALE",
+      ]);
       expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
     } finally {
       dispose();

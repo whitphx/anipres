@@ -675,6 +675,23 @@ copies, identical wherever they sit. The same total order governs
 reads, transfers, undo's still-resolves check, the server's
 regression guard, and the pre-release's stamping.
 
+A counter is read only when it is a non-negative integer strictly
+below a ceiling set far above any editing history and far below the
+safe-integer limit, and a write clamps what it emits to stay under
+that ceiling. Both halves are needed together, because the accepted
+range has to be closed under the increment a write performs: a
+counter is data, arriving in unvalidated meta from a paste or a
+peer, so a record claiming a magnitude at which `highest + 1` no
+longer advances would otherwise outrank every later edit for good,
+and a record claiming the ceiling exactly would push the next local
+stamp one past what a read accepts — an edit whose stamp cannot be
+read carries no ordering evidence, so the claimant would win again.
+A counter at or above the ceiling is therefore not evidence of
+anything, and the client that reaches for it loses to any carrier
+that can still be read. A fresh identity minted from clipboard
+content starts with no revision map at all, since a new video is not
+heir to the history of the one it was copied from.
+
 In a shared room, client-authored stamps are provisional, not
 authoritative. The pre-apply hook is a single serialization point,
 and it re-stamps every admitted media-prop **edit** with a
@@ -697,7 +714,16 @@ them to the video's currently resolved configuration before
 admitting the record, discarding the client's snapshot entirely.
 Nothing is lost, since that snapshot is only a courtesy to raw
 readers, and the creation path stops being a channel through which
-any value can enter. Fixtures land a delayed same-key creation
+any value can enter. Rewriting is the hook's prerogative alone: the
+client performs the same snapshot for a carrier it creates itself,
+and skips it entirely for a record arriving from a peer, which the
+hook has already admitted. A client that corrected an admitted
+record towards its own view of the video would leave two clients
+holding different props under one record id, each correcting the
+other — the outcome the stamps exist to prevent. tldraw runs a side
+effect for a remote record exactly as for a local edit and tells the
+handler nothing about which it is, so the client reads the store's
+own merge flag to tell them apart. Fixtures land a delayed same-key creation
 carrying superseded values, and an adversarial one where the
 key-named carrier is gone and a lower-id carrier arrives with
 mismatched revision-zero props; in both the resolved configuration

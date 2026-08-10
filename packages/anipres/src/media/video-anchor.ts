@@ -133,9 +133,20 @@ export interface ConfigStamp {
   [key: string]: number | string;
 }
 
-// Far above any editing history, and far below the safe-integer limit,
-// so `highest + 1` always advances.
-const MAX_CONFIG_STAMP_COUNTER = 1_000_000_000;
+/**
+ * Exclusive: a counter at or above this is not ordering evidence.
+ *
+ * Far above any editing history and far below the safe-integer limit,
+ * so `highest + 1` always advances. The ceiling is exclusive on both
+ * sides — nothing readable reaches it and nothing written approaches it
+ * — because the accepted range has to be closed under the increment
+ * `updateVideoConfig` performs. Were the ceiling itself accepted, a
+ * carrier holding it would push the next local stamp one past what a
+ * read allows, and an edit whose stamp cannot be read carries no
+ * ordering evidence at all: the carrier at the ceiling would win again,
+ * which is exactly what bounding the counter is meant to prevent.
+ */
+export const CONFIG_STAMP_CEILING = 1_000_000_000;
 
 const VIDEO_CONFIG_KEYS = [
   "videoId",
@@ -167,7 +178,7 @@ function readStamps(
       typeof value === "object" &&
       Number.isSafeInteger((value as ConfigStamp).c) &&
       (value as ConfigStamp).c >= 0 &&
-      (value as ConfigStamp).c <= MAX_CONFIG_STAMP_COUNTER &&
+      (value as ConfigStamp).c < CONFIG_STAMP_CEILING &&
       typeof (value as ConfigStamp).s === "string"
     ) {
       stamps[key] = {
@@ -358,7 +369,12 @@ export function updateVideoConfig(
         highest = stamp.c;
       }
     }
-    stamps[key] = { c: highest + 1, s: session };
+    // Clamped so the counter written stays inside the range a read
+    // accepts, whatever a carrier claims to have reached.
+    stamps[key] = {
+      c: Math.min(highest, CONFIG_STAMP_CEILING - 2) + 1,
+      s: session,
+    };
   }
   editor.updateShapes(
     carriers.map((carrier) => ({
