@@ -291,12 +291,29 @@ unknown-duration players, and any player whose restore-seek has
 previously failed are not evictable and stay mounted; if M presses
 with no evictable candidate, the new mount is refused — its carrier
 keeps the poster, with a notice — because refusing a new player is
-recoverable and jumping an unseekable stream is not. Should a
-restoration seek fail despite the check, the player resumes at the
-position the content offers, a live stream's edge included, with the
-discontinuity surfaced rather than silent. For an evictable player,
-eviction is safe precisely because it is paused: its clock holds
-exactly. The
+recoverable and jumping an unseekable stream is not.
+
+That predicate is retrospective, though: having seen a duration and
+a successful seek does not promise the *restoring* seek will land,
+and a teardown that has already happened leaves no copy of the
+position to fall back on. So a restorable player is never destroyed
+before its replacement exists. Every transition that would remount a
+player is a **verified handoff** run in a reserved staging mount —
+one slot above M, the reason M is a budget rather than a hard
+ceiling on allocation: the replacement is mounted, seeked to the
+saved position, and confirmed there before the original is torn
+down. A handoff that cannot confirm is abandoned, the original kept
+and the transition refused, so a failed seek costs a refused
+eviction instead of a lost position. Only where no replacement is
+being made can a handoff not apply — strict `pauseOnHidden`, which
+tears down to keep a hidden page silent — and there the narrowing is
+explicit: strict mode's restorable players restore by clock on
+return and may land imprecisely if that seek fails, which is part of
+what a host opts into when enabling it. When any seek does fail, the
+player resumes at the position the content offers, with the
+discontinuity surfaced rather than silent. Given a confirmed
+handoff, the transition is safe precisely because the original was
+paused and its clock held exactly. The
 testable contract is stated once, without an absolute it cannot
 keep: runtime-issued playback never exceeds P; native playback may
 exceed P, bounded by M − P, and every excess reverts as its
@@ -424,9 +441,13 @@ its clock exactly as an evicted one does. Pause-in-place with the
 iframe preserved is an *enhancement*, unlocked only if the IFrame
 API browser prototype — a blocking implementation milestone
 alongside the sync fork's, tasked with naming the exact observable
-that establishes causality and with measuring the teardown drain
-above across supported browsers — proves a genuinely
-command-correlated acknowledgement exists. If it finds none, the baseline stands
+that establishes causality, with measuring the teardown drain
+above across supported browsers, and with exercising remount-and-seek
+across content states so the handoff's confirmation step rests on
+measured behavior — proves a genuinely command-correlated
+acknowledgement exists. Failure injection covers metadata that
+changed between mount and remount, a remount whose seek fails, and
+a saved position the content will not accept. If it finds none, the baseline stands
 complete on teardown and under-admission alone, and the continuity
 guarantees are read against that baseline. When evidence stays ambiguous past the settle
 window, the runtime does not guess — and teardown obeys the same
