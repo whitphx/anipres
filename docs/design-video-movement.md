@@ -802,22 +802,29 @@ regardless.
 Deleting a drained database is the one mutation adoption involves,
 and observing a log drained is not license to perform it: the
 original may be alive and about to append, and a deletion scheduled
-on that observation would take the new operation with it. Retirement
-comes first and comes from the server. The adopter asks the room to
-retire the source epoch, which makes further submissions under it
-refusable rather than silently acceptable; then it rescans the log
-and checks every persisted sequence against that epoch's final
-watermark and retained outcomes; only then is the database deleted,
-and only if the rescan found nothing outstanding. A live original
-that appends afterwards is not lost, because a retired epoch already
-has a defined path: its submission is refused, the client resolves
-against the final watermark, and anything never applied is
-resubmitted under a fresh epoch. Anything left unresolved by all of
-that is retained through the replay lease and collected there, so
-per-load databases do not accumulate. A test drains a queue as the
-adopter, appends from the original afterwards, and lets a pending
-deletion resume when the original closes, asserting the late
-operation still reaches the server.
+on that observation would take the new operation with it. Nor can a
+rescan close that window, since the append can follow the rescan,
+and nor can sealing the source — forcing connections shut through a
+version change is precisely what a frozen tab may never honor. The
+design does not race the writer at all: **a queue's database is
+never deleted while it might still be written**, and the only sound
+statement of "might" already exists in this design, the replay
+lease. A drained orphan is left in place, costing an empty database,
+and collected when its lease expires — the same boundary past which
+no legitimate producer of an old operation remains, stated once and
+used everywhere.
+
+Emptiness is therefore never a trigger, and a late append is not a
+hazard but an ordinary case: every load re-adopts any non-empty
+orphan in the namespace, so an operation appended after one
+adopter's pass is found by the next, and drained-then-appended is
+just a log that has grown since it was last read. Server-side
+retirement still happens when an epoch goes idle, which is what
+bounds the retained watermarks and outcomes; it simply is not the
+thing that authorizes deletion. A failure-injection test appends
+from the original after the adopter's final pass and crashes it
+before submission, asserting the edit survives cleanup and reaches
+the server on a later load.
 
 Tests cover simultaneous edits from two tabs, a crash between append
 and transmission, adoption of an orphaned queue by two tabs at once,
