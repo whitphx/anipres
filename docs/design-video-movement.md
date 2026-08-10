@@ -18,7 +18,20 @@ misrender any presentation authored since — which the staged rollout
 below, with its floors and its document-gated server, is what finally
 closes. The stages are not built; the exposure is accepted for now, and
 it is a misrender rather than a loss, since the records the older build
-cannot interpret are still there when it rolls forward. Configuration is resolved by the per-property Lamport stamps described
+cannot interpret are still there when it rolls forward.
+
+Two further parts of what follows describe the player rather than the
+document, and are also not built. The Absent lifecycle below — pausing
+a restorable player and waiting for the acknowledgement before tearing
+it down, keeping an unrestorable one reachable behind a control — is
+described but not implemented: a placement that goes away destroys the
+iframe, as it did before this change, and the change's contribution is
+that a moving video no longer produces one. Neither are the mount and
+play budgets: every placement mounts, and every play command is issued.
+Both are properties of the player manager, which this change does not
+touch, and neither is a regression — the count of live players goes
+down, one per video rather than one per carrier — but the document
+below states them as though they hold, and they do not yet. Configuration is resolved by the per-property Lamport stamps described
 below, so concurrent edits converge without reading structure; what is
 **not** built is the server half — the `sync-core` pre-apply hook that
 re-stamps admitted writes and arbitrates the last-carrier cascade.

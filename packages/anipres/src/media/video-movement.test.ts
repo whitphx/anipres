@@ -1816,6 +1816,43 @@ describe("one batch deleting carriers on two pages", () => {
   });
 });
 
+describe("a marker whose carrier went and came back", () => {
+  it("gets its compatibility binding written again", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = markersOf(editor, videoId);
+      expect(getMediaControlBindingTargetId(editor, marker.id)).toBe(videoId);
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+
+      // A cut in a shared document: the carrier goes, its marker stays,
+      // and tldraw takes the binding with the record it pointed at.
+      editor.deleteShapes([videoId]);
+      expect(markersOf(editor, videoId)).toHaveLength(1);
+      expect(getMediaControlBindingTargetId(editor, marker.id)).toBeNull();
+
+      // The paste lands the carrier again.
+      const restoredId = createShapeId("restored");
+      editor.createShape({ ...video, id: restoredId });
+
+      // An older build resolves an event only through this binding and
+      // deletes a marker without one as an orphan, so the event would
+      // be lost on a version skew without it.
+      expect(getMediaControlBindingTargetId(editor, marker.id)).toBe(
+        restoredId,
+      );
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

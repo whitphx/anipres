@@ -142,14 +142,15 @@ export function startMarkerParking(editor: Editor): () => void {
  * repaired against the current page repairs nothing and reads a video
  * that is not there.
  */
-function shapesOnSamePage(editor: Editor, shape: TLShape): TLShape[] {
-  const pageId = editor.getAncestorPageId(shape);
-  if (pageId == null) {
-    return [];
-  }
+function shapesOnPage(editor: Editor, pageId: TLPageId): TLShape[] {
   return [...editor.getPageShapeIds(pageId)]
     .map((shapeId) => editor.getShape(shapeId))
-    .filter((pageShape) => pageShape != null);
+    .filter((shape) => shape != null);
+}
+
+function shapesOnSamePage(editor: Editor, shape: TLShape): TLShape[] {
+  const pageId = editor.getAncestorPageId(shape);
+  return pageId == null ? [] : shapesOnPage(editor, pageId);
 }
 
 export interface VideoLifecycleOptions {
@@ -229,6 +230,11 @@ export function installVideoLifecycle(
   // from whichever capture came first, writing one page's settings
   // over the other's.
   let deletedByPage: Map<TLPageId, Set<string>> | null = null;
+  // Carriers that arrived, which the compatibility bindings care about
+  // as much as ones that left: a marker whose binding went with the
+  // carrier it pointed at — a cut, a delete and undo — has one written
+  // again as soon as the video has a carrier to point at.
+  let createdByPage: Map<TLPageId, Set<string>> | null = null;
   const capturedByPage = new Map<TLPageId, Map<string, StampedVideoConfig>>();
   // Read while every carrier is still present: the stamps that won a
   // property may live only on the record about to go. The page has to
@@ -268,18 +274,42 @@ export function installVideoLifecycle(
       }
     },
   );
+  const stopWatchCreates = editor.sideEffects.registerAfterCreateHandler(
+    "shape",
+    (shape) => {
+      if (!isYouTubeEmbedShape(shape)) {
+        return;
+      }
+      const pageId = editor.getAncestorPageId(shape);
+      if (pageId == null) {
+        return;
+      }
+      createdByPage ??= new Map();
+      const keys = createdByPage.get(pageId) ?? new Set<string>();
+      keys.add(getVideoKey(shape));
+      createdByPage.set(pageId, keys);
+    },
+  );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
       const byPage = deletedByPage;
+      const created = createdByPage;
       deletedByPage = null;
+      createdByPage = null;
+      if (created != null) {
+        for (const [pageId, keys] of created) {
+          // Safe in any document, and idempotent: a marker that still
+          // has a binding keeps it, and the heir is a pure function of
+          // the survivors, so concurrent clients write the same one.
+          repointLegacyBindings(editor, keys, shapesOnPage(editor, pageId));
+        }
+      }
       if (byPage == null) {
         capturedByPage.clear();
         return;
       }
       for (const [pageId, keys] of byPage) {
-        const shapes = [...editor.getPageShapeIds(pageId)]
-          .map((shapeId) => editor.getShape(shapeId))
-          .filter((shape) => shape != null);
+        const shapes = shapesOnPage(editor, pageId);
         // Safe in any document: the heir is a pure function of the
         // survivors, so concurrent clients repoint identically.
         repointLegacyBindings(editor, keys, shapes);
@@ -306,6 +336,7 @@ export function installVideoLifecycle(
   return () => {
     stopMinting();
     stopCaptureConfigs();
+    stopWatchCreates();
     stopParking();
     stopCleanup();
   };
