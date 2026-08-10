@@ -788,7 +788,20 @@ An epoch is server-issued, so a queue minted offline starts
 **unbound**: it accepts appends immediately, numbering them from its
 own local sequence, and durability never waits on connectivity —
 delaying persistence until a connection exists would be exactly the
-edit-losing behavior the queue is for. Binding happens once, before
+edit-losing behavior the queue is for. What it does wait on is
+identity, because a queue is namespaced by principal and an
+unbound queue has no server round-trip to establish one. The
+ordinary offline case supplies it locally: a user who was
+authenticated before losing connectivity has a persisted session
+whose principal is recoverable without the network, and that is the
+namespace. Where no principal can be recovered unambiguously — a
+genuinely cold start, or a session that expired — queued editing is
+not silently attributed to whoever authenticates next: those edits
+are held in a quarantined unattributed queue and admitted only once
+the user signs in and confirms the account they belong to, or
+discarded at their word. Cold-start and account-switch tests
+enqueue with no principal available and assert no edit is ever
+attributed to a principal that did not author it. Binding happens once, before
 the first submission: the tab acquires an epoch and writes it into
 the queue in one transaction, after which the local sequence
 numbers are that epoch's. A queue is never rebound; if binding is
@@ -834,14 +847,26 @@ the producing side rather than assumed: a tab checks its own
 queue's lease before every enqueue, and one that has expired —
 a tab suspended past it and later resumed — rotates to a fresh
 queue and epoch before accepting the edit, so no operation is ever
-appended to a queue that can no longer be replayed. The collection
-side is correspondingly patient: a deletion request blocked by a
-still-open connection stays pending rather than being forced, the
-resuming tab closes its old connection on `versionchange`, and the
-deletion completes then. Tests wake a tab after its lease has
-expired, and after a deletion request for its queue is already
-pending, asserting the edit lands in a fresh queue and the old
-database is collected without loss.
+appended to a queue that can no longer be replayed.
+
+Collection is then ordered against that fence rather than against an
+earlier observation, because a producer may legitimately append
+right up to expiry and crash before submitting. Expiry fences the
+producer first; a deletion request blocked by a still-open
+connection stays pending rather than being forced, and the resuming
+tab closes its connection on `versionchange`. Only once no
+connection remains does the collector make a **final read pass**,
+and what it finds decides the outcome: operations still replayable
+are migrated into a live queue and submitted from there, and
+operations past the server's own watermark retention — the ones the
+design already says cannot be replayed — leave a durable notice so
+that outcome can be surfaced to the user rather than vanishing with
+the database. Deletion happens after that pass, never before it.
+Tests wake a tab after its lease has expired and after a deletion
+request is already pending, and append immediately before expiry
+then crash before submission and reload only after collection has
+begun, asserting in each case that the edit is migrated or reported,
+never silently lost.
 
 Emptiness is therefore never a trigger, and a late append is not a
 hazard but an ordinary case: every load re-adopts any non-empty
