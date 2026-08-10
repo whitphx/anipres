@@ -777,12 +777,27 @@ inherit the predecessor's queue and claim it — is the same trap one
 level down: the claim is itself a write to the inherited queue, so a
 frozen predecessor holding that scope can block the claim, and the
 new tab never even reaches the fallback. There is no ownership
-protocol here at all, therefore. **Every load mints a fresh queue
-and epoch, in its own newly created database.** A tab's write path
-exists before it has looked at anything else, cannot be contended,
-and cannot be blocked by any predecessor, duplicate or sibling —
-separate databases are opened independently, with no shared version
-upgrade to wait behind either.
+protocol here at all, therefore. **Every load mints a fresh queue in
+its own newly created database.** A tab's write path exists before
+it has looked at anything else, cannot be contended, and cannot be
+blocked by any predecessor, duplicate or sibling — separate
+databases are opened independently, with no shared version upgrade
+to wait behind either.
+
+An epoch is server-issued, so a queue minted offline starts
+**unbound**: it accepts appends immediately, numbering them from its
+own local sequence, and durability never waits on connectivity —
+delaying persistence until a connection exists would be exactly the
+edit-losing behavior the queue is for. Binding happens once, before
+the first submission: the tab acquires an epoch and writes it into
+the queue in one transaction, after which the local sequence
+numbers are that epoch's. A queue is never rebound; if binding is
+somehow interrupted after any operation could have been
+transmitted, the queue is adopted as an orphan by a freshly bound
+one rather than reused, which is the same read-only path everything
+else recovers through. A test cold-loads offline, edits, crashes,
+reloads, authenticates, and asserts every offline edit reaches the
+server exactly once.
 
 Continuity across a reload is then a matter of **adoption**, not
 resumption, and adoption is strictly read-only: a tab reads its
@@ -813,6 +828,20 @@ lease. A drained orphan is left in place, costing an empty database,
 and collected when its lease expires — the same boundary past which
 no legitimate producer of an old operation remains, stated once and
 used everywhere.
+
+That boundary holds only if producers honor it, so it is fenced on
+the producing side rather than assumed: a tab checks its own
+queue's lease before every enqueue, and one that has expired —
+a tab suspended past it and later resumed — rotates to a fresh
+queue and epoch before accepting the edit, so no operation is ever
+appended to a queue that can no longer be replayed. The collection
+side is correspondingly patient: a deletion request blocked by a
+still-open connection stays pending rather than being forced, the
+resuming tab closes its old connection on `versionchange`, and the
+deletion completes then. Tests wake a tab after its lease has
+expired, and after a deletion request for its queue is already
+pending, asserting the edit lands in a fresh queue and the old
+database is collected without loss.
 
 Emptiness is therefore never a trigger, and a late append is not a
 hazard but an ordinary case: every load re-adopts any non-empty
