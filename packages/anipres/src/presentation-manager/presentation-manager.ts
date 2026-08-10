@@ -37,6 +37,7 @@ import {
 } from "../shapes/media-control/MediaControlShape";
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
+import { getVideoTransitions } from "../media/video-transition";
 import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
@@ -139,6 +140,9 @@ export class PresentationManager {
     this.runInFlight = false;
     this.editor.stopCameraAnimation();
     clearHiddenDuringAnimationFlags(this.editor);
+    // A cancel reconciles straight to the folded target, so no player
+    // is left mid-flight between two carriers.
+    getVideoTransitions(this.editor).clear();
   }
 
   private nextRunGeneration(): number {
@@ -498,6 +502,7 @@ export class PresentationManager {
     this.supersedeActiveRun();
     this.runInFlight = false;
     clearHiddenDuringAnimationFlags(this.editor);
+    getVideoTransitions(this.editor).clear();
     const orderedSteps = this.$getOrderedSteps();
     YouTubePlayerManager.get(this.editor).reconcile(
       foldMediaPlaybackStates(

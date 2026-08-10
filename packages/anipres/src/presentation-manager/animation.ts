@@ -14,7 +14,11 @@ import {
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
-import { isYouTubeEmbedShape } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { getVideoTransitions } from "../media/video-transition";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
@@ -81,7 +85,29 @@ async function runFrames(
       // visibly ride the same path beside it. Skipping the clone also
       // keeps identity clean, since no transient shape carrying a
       // `videoKey` ever exists for carrier counting to trip over.
-      predecessorShape = shape;
+      //
+      // The player travels instead, on runtime state the placement read
+      // consults ahead of the visibility rule. Without it the tween
+      // would find no visible carrier — both are hidden while it runs —
+      // and would unmount the iframe and remount it at the destination,
+      // losing exactly the playback position this exists to preserve.
+      if (predecessorShape != null && predecessorShape.id !== shape.id) {
+        const { easing = "easeInCubic" } = action;
+        const transitions = getVideoTransitions(editor);
+        transitions.start(getVideoKey(shape), {
+          fromShapeId: predecessorShape.id,
+          toShapeId: shape.id,
+          startedAt: Date.now(),
+          durationMs: duration,
+          easing,
+        });
+        // A superseded run must not leave the player mid-flight: the
+        // successor reconciles to the folded target with no tween.
+        const unregister = presentationManager.registerRunEffect(() => {
+          transitions.clear();
+        });
+        setTimeout(unregister, duration);
+      }
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();

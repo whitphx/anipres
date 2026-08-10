@@ -20,6 +20,8 @@ import {
   groupCarriersByVideoKey,
 } from "./video-anchor";
 import { normalizeVideoIdentity } from "./normalize-video-identity";
+import { readPlacements } from "./player-placement";
+import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
   editor: Editor,
@@ -298,6 +300,83 @@ describe("normalizeVideoIdentity", () => {
       normalizeVideoIdentity(editor);
 
       expect(editor.getShape(markerId)).toBeUndefined();
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("movement keeps one player", () => {
+  it("moves the same player across a step instead of unmounting it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const laterId = createShapeId("later");
+      editor.createShape({ ...video, id: laterId, x: 400, meta: undefined });
+
+      // Mid-step, BOTH carriers are hidden — the incoming one
+      // explicitly, the outgoing one by no longer being current — so a
+      // placement derived from visibility alone would find no anchor,
+      // unmount the iframe, and lose the playback position.
+      editor.updateShapes([
+        {
+          id: videoId,
+          type: video.type,
+          meta: { hiddenDuringAnimation: true },
+        },
+        {
+          id: laterId,
+          type: video.type,
+          meta: { hiddenDuringAnimation: true },
+        },
+      ]);
+      getVideoTransitions(editor).start(videoId, {
+        fromShapeId: videoId,
+        toShapeId: laterId,
+        startedAt: Date.now(),
+        durationMs: 10_000,
+        easing: "linear",
+      });
+
+      const [placement] = readPlacements(editor, true);
+      expect(placement).toBeDefined();
+      // One player, keyed by the video — not two, and not none.
+      expect(placement!.videoKey).toBe(videoId);
+      expect(placement!.anchorShapeId).toBe(laterId);
+      // Somewhere between the two carriers, not parked on either.
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement!.transform,
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(400);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("drops the tween when a run is cancelled", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      getVideoTransitions(editor).start(videoId, {
+        fromShapeId: videoId,
+        toShapeId: videoId,
+        startedAt: Date.now(),
+        durationMs: 10_000,
+        easing: "linear",
+      });
+
+      manager.cancelActiveRun();
+
+      expect(getVideoTransitions(editor).$transitions.get().size).toBe(0);
     } finally {
       dispose();
     }

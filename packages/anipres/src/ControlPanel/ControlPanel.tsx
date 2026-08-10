@@ -521,10 +521,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 );
               const shouldCopyThisShape =
                 original.type === GroupShapeUtil.type ||
-                // Never copy a video as a keyframe carrier: the copy
-                // would mount a second live player.
-                (isShapeLastSelectedFrameInItsTrack &&
-                  original.type !== YouTubeEmbedShapeType);
+                isShapeLastSelectedFrameInItsTrack;
 
               if (shouldCopyThisShape) {
                 const newShapeId = createShapeId();

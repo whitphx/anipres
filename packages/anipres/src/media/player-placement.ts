@@ -11,6 +11,11 @@ import {
   getVideoKey,
   type YouTubeEmbedShape,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { getVideoTransitions, transitionProgress } from "./video-transition";
+
+function lerp(from: number, to: number, progress: number): number {
+  return from + (to - from) * progress;
+}
 
 /** Everything the player container mirrors from its anchor carrier. */
 export interface AnchorPlacement {
@@ -49,13 +54,32 @@ export function readPlacements(
     : undefined;
   const editingShapeId = editor.getEditingShapeId();
 
+  const transitionStore = getVideoTransitions(editor);
+  const transitions = transitionStore.$transitions.get();
+  if (transitions.size > 0) {
+    // Subscribing to the clock is what makes an in-flight tween
+    // recompute this placement per frame.
+    transitionStore.$clock.get();
+  }
+  const now = Date.now();
+
   const placements: AnchorPlacement[] = [];
   for (const [videoKey, carriers] of groupCarriersByVideoKey(sorted)) {
-    const anchor = resolveAnchorCarrier(editor, carriers, {
-      presentationMode,
-      visibilities,
-      editingShapeId,
-    });
+    const transition = transitions.get(videoKey);
+    // A tween outranks the visibility rule, because during one BOTH
+    // carriers are hidden: the incoming one explicitly for the length of
+    // the animation, the outgoing one by no longer being current. The
+    // player is the video's visible representation while its carriers
+    // are not.
+    const anchor =
+      (transition != null
+        ? carriers.find((carrier) => carrier.id === transition.toShapeId)
+        : null) ??
+      resolveAnchorCarrier(editor, carriers, {
+        presentationMode,
+        visibilities,
+        editingShapeId,
+      });
     // Absent: no anchor means no mounted iframe at all. Nothing mounted
     // is nothing that the media-session channel can restart unseen,
     // which is the invariant the design holds continuously.
@@ -66,6 +90,34 @@ export function readPlacements(
     if (transform == null) {
       continue;
     }
+    // Transform and size interpolate between the two carriers' STORED
+    // values — never rendered state, which is hidden on both sides.
+    // Clip is dropped for the duration and opacity follows the incoming
+    // carrier's own composition, exactly as the page-level tween clone
+    // an ordinary shape gets travels outside any frame's mask.
+    const from =
+      transition != null
+        ? carriers.find((carrier) => carrier.id === transition.fromShapeId)
+        : null;
+    const progress =
+      transition != null ? transitionProgress(transition, now) : 1;
+    const fromTransform =
+      from != null ? editor.getShapePageTransform(from.id) : null;
+    const tweening = transition != null && from != null && progress < 1;
+    const placementTransform =
+      tweening && fromTransform != null
+        ? Mat.toCssString(
+            Mat.Compose(
+              Mat.Translate(
+                lerp(fromTransform.e, transform.e, progress),
+                lerp(fromTransform.f, transform.f, progress),
+              ),
+              Mat.Rotate(
+                lerp(fromTransform.rotation(), transform.rotation(), progress),
+              ),
+            ),
+          )
+        : Mat.toCssString(transform);
     placements.push({
       videoKey,
       anchorShapeId: anchor.id,
@@ -74,19 +126,31 @@ export function readPlacements(
       start: anchor.props.start,
       controls: anchor.props.controls,
       altText: anchor.props.altText,
-      transform: Mat.toCssString(transform),
-      width: anchor.props.w,
-      height: anchor.props.h,
-      clipPath: editor.getShapeClipPath(anchor.id) ?? "none",
+      transform: placementTransform,
+      width:
+        tweening && from != null
+          ? lerp(from.props.w, anchor.props.w, progress)
+          : anchor.props.w,
+      height:
+        tweening && from != null
+          ? lerp(from.props.h, anchor.props.h, progress)
+          : anchor.props.h,
+      clipPath: tweening
+        ? "none"
+        : (editor.getShapeClipPath(anchor.id) ?? "none"),
       opacity: anchor.opacity,
       zIndex: zIndexByShapeId.get(anchor.id) ?? 0,
       // Input belongs to exactly one of the player and its anchored
       // carrier at a time. Presenting, the player holds it whenever the
       // video's own controls are enabled; editing, only while the user
-      // has entered the carrier's editing state.
-      interactive: presentationMode
-        ? anchor.props.controls
-        : editingShapeId === anchor.id,
+      // has entered the carrier's editing state. A player in flight
+      // holds none of it: it is passing over shapes it does not belong
+      // to.
+      interactive:
+        !tweening &&
+        (presentationMode
+          ? anchor.props.controls
+          : editingShapeId === anchor.id),
     });
   }
   return placements;
@@ -120,14 +184,21 @@ export function useIsPlayerAnchor(
       if (carriers == null) {
         return false;
       }
-      const anchor = resolveAnchorCarrier(editor, carriers, {
-        presentationMode,
-        visibilities: presentationMode
-          ? PresentationManager.get(
-              editor,
-            )?.$getShapeVisibilitiesInPresentationMode()
-          : undefined,
-      });
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(getVideoKey(shape));
+      const anchor =
+        (transition != null
+          ? carriers.find((carrier) => carrier.id === transition.toShapeId)
+          : null) ??
+        resolveAnchorCarrier(editor, carriers, {
+          presentationMode,
+          visibilities: presentationMode
+            ? PresentationManager.get(
+                editor,
+              )?.$getShapeVisibilitiesInPresentationMode()
+            : undefined,
+        });
       return anchor?.id === shape.id && anchor.props.videoId !== "";
     },
     [editor, presentationMode, shape],
