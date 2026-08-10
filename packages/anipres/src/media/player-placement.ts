@@ -39,6 +39,76 @@ export interface AnchorPlacement {
   interactive: boolean;
 }
 
+/**
+ * The carrier a video's player sits on, or null if it has none.
+ *
+ * Both readers of this answer go through here — the placement the
+ * runtime mounts, and the suppression each carrier applies to its own
+ * poster — because they have to agree: a carrier that hides its poster
+ * while the player sits elsewhere leaves a hole, and one that paints it
+ * while the player sits on it paints over the video.
+ */
+function anchorCarrierFor(
+  editor: Editor,
+  videoKey: string,
+  carriers: YouTubeEmbedShape[],
+  presentationMode: boolean,
+): YouTubeEmbedShape | null {
+  // A tween outranks the visibility rule, because during one BOTH
+  // carriers are hidden: the incoming one explicitly for the length of
+  // the animation, the outgoing one by no longer being current. The
+  // player is the video's visible representation while its carriers
+  // are not.
+  const transition = getVideoTransitions(editor)
+    .$transitions.get()
+    .get(videoKey);
+  const travellingTo =
+    transition != null
+      ? carriers.find((carrier) => carrier.id === transition.toShapeId)
+      : null;
+  return (
+    travellingTo ??
+    resolveAnchorCarrier(editor, carriers, {
+      presentationMode,
+      visibilities: presentationMode
+        ? PresentationManager.get(
+            editor,
+          )?.$getShapeVisibilitiesInPresentationMode()
+        : undefined,
+    }) ??
+    null
+  );
+}
+
+/**
+ * Whether this carrier is the one the player sits on, and so the one
+ * whose poster gives way to it.
+ */
+export function isPlayerAnchor(
+  editor: Editor,
+  shape: YouTubeEmbedShape,
+  presentationMode: boolean,
+): boolean {
+  const videoKey = getVideoKey(shape);
+  // Only this shape's own video is resolved: asking for every
+  // placement would make each carrier's render walk every video on
+  // the page.
+  const carriers = groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+    videoKey,
+  );
+  if (carriers == null) {
+    return false;
+  }
+  // Resolved config, not the anchor's own props: a carrier added
+  // before the URL was submitted has a blank `videoId` of its own,
+  // and checking that would leave its poster painted over the live
+  // player it is supposed to be yielding to.
+  return (
+    anchorCarrierFor(editor, videoKey, carriers, presentationMode)?.id ===
+      shape.id && (resolveVideoConfig(carriers)?.videoId ?? "") !== ""
+  );
+}
+
 export function readPlacements(
   editor: Editor,
   presentationMode: boolean,
@@ -60,12 +130,6 @@ export function readPlacements(
     });
   }
 
-  const presentationManager = PresentationManager.get(editor);
-  const visibilities = presentationMode
-    ? presentationManager?.$getShapeVisibilitiesInPresentationMode()
-    : undefined;
-  const editingShapeId = editor.getEditingShapeId();
-
   const transitionStore = getVideoTransitions(editor);
   const transitions = transitionStore.$transitions.get();
   if (transitions.size > 0) {
@@ -78,20 +142,12 @@ export function readPlacements(
   const placements: AnchorPlacement[] = [];
   for (const [videoKey, carriers] of groupCarriersByVideoKey(sorted)) {
     const transition = transitions.get(videoKey);
-    // A tween outranks the visibility rule, because during one BOTH
-    // carriers are hidden: the incoming one explicitly for the length of
-    // the animation, the outgoing one by no longer being current. The
-    // player is the video's visible representation while its carriers
-    // are not.
-    const anchor =
-      (transition != null
-        ? carriers.find((carrier) => carrier.id === transition.toShapeId)
-        : null) ??
-      resolveAnchorCarrier(editor, carriers, {
-        presentationMode,
-        visibilities,
-        editingShapeId,
-      });
+    const anchor = anchorCarrierFor(
+      editor,
+      videoKey,
+      carriers,
+      presentationMode,
+    );
     // Absent: no anchor means no mounted iframe at all. Nothing mounted
     // is nothing that the media-session channel can restart unseen,
     // which is the invariant the design holds continuously.
@@ -174,7 +230,9 @@ export function readPlacements(
       // to.
       interactive:
         !tweening &&
-        (presentationMode ? config.controls : editingShapeId === anchor.id),
+        (presentationMode
+          ? config.controls
+          : editor.getEditingShapeId() === anchor.id),
     });
   }
   return placements;
@@ -198,40 +256,7 @@ export function useIsPlayerAnchor(
   );
   return useValue(
     "is player anchor",
-    () => {
-      // Only this shape's own video is resolved: asking for every
-      // placement would make each carrier's render walk every video on
-      // the page.
-      const carriers = groupCarriersByVideoKey(
-        editor.getCurrentPageShapes(),
-      ).get(getVideoKey(shape));
-      if (carriers == null) {
-        return false;
-      }
-      const transition = getVideoTransitions(editor)
-        .$transitions.get()
-        .get(getVideoKey(shape));
-      const anchor =
-        (transition != null
-          ? carriers.find((carrier) => carrier.id === transition.toShapeId)
-          : null) ??
-        resolveAnchorCarrier(editor, carriers, {
-          presentationMode,
-          visibilities: presentationMode
-            ? PresentationManager.get(
-                editor,
-              )?.$getShapeVisibilitiesInPresentationMode()
-            : undefined,
-        });
-      // Resolved config, not the anchor's own props: a carrier added
-      // before the URL was submitted has a blank `videoId` of its own,
-      // and checking that would leave its poster painted over the live
-      // player it is supposed to be yielding to.
-      return (
-        anchor?.id === shape.id &&
-        (resolveVideoConfig(carriers)?.videoId ?? "") !== ""
-      );
-    },
+    () => isPlayerAnchor(editor, shape, presentationMode),
     [editor, presentationMode, shape],
   );
 }

@@ -73,6 +73,15 @@ export function resolveMediaControlVideoKey(
 /**
  * A representative carrier of the video a marker controls — its default
  * anchor — or null when the video has no carrier left.
+ *
+ * A video that moves is several carriers, so there is no one shape that
+ * *is* the video and this answer names a stand-in for it. The choice is
+ * a pure function of the carriers present, so two readers of the same
+ * document get the same shape; it moves only when the video's own
+ * starting keyframe changes. Callers wanting to say something about the
+ * video itself should carry its `videoKey`, which
+ * `resolveMediaControlVideoKey` gives them, rather than treat this id
+ * as the video's identity.
  */
 export function resolveMediaControlTarget(
   editor: Editor,

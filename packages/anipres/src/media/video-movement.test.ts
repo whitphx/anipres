@@ -1,5 +1,5 @@
 /** @vitest-environment happy-dom */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { PageRecordType } from "tldraw";
@@ -29,7 +29,7 @@ import {
 } from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
 import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
-import { readPlacements } from "./player-placement";
+import { isPlayerAnchor, readPlacements } from "./player-placement";
 import {
   resolveVideoConfig,
   getConfigOwnerCarrier,
@@ -893,6 +893,9 @@ describe("legacy records without the prop", () => {
       });
       // Strip the key the minting handler wrote, leaving the record in
       // the shape a pre-change document has.
+      const minted = editor.getShape(videoId);
+      if (minted == null) throw new Error("expected a video");
+      editor.store.put([{ ...minted, meta: {} }]);
 
       // Merely opening a document must leave its records alone: this
       // pass rewrites frames, which live in unvalidated meta, and never
@@ -1875,6 +1878,154 @@ describe("a copied event whose video was not copied with it", () => {
       expect(getMediaControlBindingTargetId(editor, copyId)).toBe(videoId);
     } finally {
       dispose();
+    }
+  });
+});
+
+describe("materializing a video's key", () => {
+  it("reaches a locked carrier", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const minted = editor.getShape(videoId);
+      if (minted == null) throw new Error("expected a video");
+      editor.store.put([{ ...minted, meta: {}, isLocked: true }]);
+
+      ensureVideoKeyMaterialized(editor, [videoId]);
+
+      // Without the key the follow-up keyframe cloned from this
+      // carrier would fall back to its own id and split the video.
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      expect(video.meta.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("gives a locked video's copy an identity of its own", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      // tldraw refuses to duplicate a locked shape outright, but copies
+      // one that sits inside a group being duplicated.
+      editor.store.put([{ ...video, isLocked: true }]);
+      const companionId = createShapeId("companion");
+      editor.createShape({
+        id: companionId,
+        type: "geo",
+        x: 300,
+        y: 0,
+        props: { w: 50, h: 50 },
+      });
+      const groupId = createShapeId("group");
+      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
+      editor.reparentShapes([videoId, companionId], groupId);
+
+      createDuplicateShapesRemap(editor, () =>
+        manager.$getTimelineDoc(),
+      ).install();
+      editor.select(groupId);
+      editor.duplicateShapes([groupId], { x: 1000, y: 0 });
+
+      const copy = editor
+        .getCurrentPageShapes()
+        .filter(isYouTubeEmbedShape)
+        .find((shape) => shape.id !== videoId);
+      if (copy == null) throw new Error("expected a copy");
+      expect(copy.isLocked).toBe(true);
+      // A copy that kept the source's key would join the source video
+      // and share its one runtime player.
+      expect(getVideoKey(copy)).not.toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("editing a carrier", () => {
+  it("moves the poster suppression to wherever the player goes", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("zzz-keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+
+      const anchoredCarriers = () =>
+        editor
+          .getCurrentPageShapes()
+          .filter(isYouTubeEmbedShape)
+          .filter((carrier) => isPlayerAnchor(editor, carrier, false))
+          .map((carrier) => carrier.id);
+
+      // While nobody is editing, the video's starting position holds
+      // the player.
+      expect(readPlacements(editor, false)[0]?.anchorShapeId).toBe(videoId);
+      expect(anchoredCarriers()).toEqual([videoId]);
+
+      // Double-clicking a carrier brings the player to it, before any
+      // pointer input can reach the player.
+      editor.setEditingShape(keyframeId);
+
+      expect(readPlacements(editor, false)[0]?.anchorShapeId).toBe(keyframeId);
+      // And the poster suppression each carrier computes for itself
+      // follows, or the edited one paints over the player while the
+      // other blanks itself with no player on it.
+      expect(anchoredCarriers()).toEqual([keyframeId]);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("a video's first keyframe in a batch", () => {
+  it("sets the starting pose without spending the step's duration", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      editor.updateShape({
+        id: videoId,
+        type: "youtube-embed",
+        meta: {
+          ...editor.getShape(videoId)?.meta,
+          frame: frameToMetaJson(
+            videoCue({
+              trackId: "T-video",
+              stepId: "s0",
+              action: { type: "shapeAnimation", duration: 5000 },
+            }),
+          ),
+        },
+      });
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", -1),
+      );
+
+      manager.moveTo(0);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Nothing to travel from, so nothing to wait for: the carrier is
+      // revealed at once, as it is for every other animated shape whose
+      // first keyframe only says where it starts.
+      expect(editor.getShape(videoId)?.meta.hiddenDuringAnimation).toBeFalsy();
+    } finally {
+      dispose();
+      vi.useRealTimers();
     }
   });
 });

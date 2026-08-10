@@ -5,15 +5,25 @@ export const MediaControlBindingType = "media-control" as const;
 export type MediaControlBindingProps = Record<string, never>;
 
 /**
- * Legacy: how a marker used to record which video its event controls,
- * `fromId` being the marker and `toId` the video. Nothing writes one any
- * more — an event names its video by `videoKey` in its own frame, which
- * a video that is several carriers needs, since a binding to one
- * keyframe would tie the whole video's events to that keyframe's fate.
+ * How a marker records which video its event controls, `fromId` being
+ * the marker and `toId` the video. Nothing in this build resolves an
+ * event through it — an event names its video by `videoKey` in its own
+ * frame, which a video that is several carriers needs, since a binding
+ * to one keyframe would tie the whole video's events to that
+ * keyframe's fate.
  *
- * The type stays registered so a document written before the change
- * still validates, and `normalizeVideoIdentity` reads it once on load to
- * recover the target key. See `MediaControlBindingUtil`.
+ * It is still written, and still read in two places, so neither the
+ * writer nor the reader is dead code:
+ *
+ * - `writeLegacyMediaControlBinding` below writes it beside every
+ *   event, and the video lifecycle repoints it as carriers come and
+ *   go, for an older build that resolves an event only this way.
+ * - `getMediaControlBindingTargetId` below reads it as the fallback in
+ *   `resolveMediaControlVideoKey`, which is how a document written
+ *   before `videoKey` existed still resolves, and how
+ *   `normalizeVideoIdentity` recovers the target key on load.
+ *
+ * See `MediaControlBindingUtil` for why the type stays registered.
  */
 export type MediaControlBinding = TLBaseBinding<
   typeof MediaControlBindingType,

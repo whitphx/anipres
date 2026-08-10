@@ -6,11 +6,18 @@ import {
 } from "./MediaControlBinding";
 
 /**
- * Inert. Nothing writes this binding any more — a media event names its
- * video through the `videoKey` in its own frame, which is both remapped
- * on copy the way `trackId` already is and correct for a video that is
- * several carriers, where a binding to one keyframe would cascade its
- * deletion onto the whole video's events.
+ * The util no longer carries lifecycle callbacks: nothing about this
+ * binding decides what a media event controls any more, since an event
+ * names its video through the `videoKey` in its own frame, which is
+ * remapped on copy the way `trackId` already is and is what a video of
+ * several carriers needs — a binding to one keyframe would cascade that
+ * keyframe's deletion onto the whole video's events.
+ *
+ * The binding itself is still written, by `writeLegacyMediaControlBinding`,
+ * and repointed as carriers come and go by the video lifecycle. That is
+ * for an older build's sake, which resolves an event only through the
+ * binding and deletes a marker that has none. Do not take the missing
+ * callbacks here for a dead record type.
  *
  * The util survives because on the client it *is* the schema
  * registration: the `bindingUtils` array is what the store's schema is

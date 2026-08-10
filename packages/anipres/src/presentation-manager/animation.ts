@@ -79,6 +79,13 @@ async function runFrames(
       // the type, so the frame is honored for its `duration` wait
       // below rather than animating a zero-size invisible shape.
     } else if (action.type === "shapeAnimation" && isYouTubeEmbedShape(shape)) {
+      // A batch's first keyframe sets the starting pose and waits for
+      // nothing, the same as every other animated shape: the frame has
+      // no predecessor to have travelled from.
+      if (predecessorShape == null) {
+        predecessorShape = shape;
+        continue;
+      }
       // A video keyframe keeps its duration and easing — step timing is
       // untouched — but mints no tween clone: the runtime-owned player
       // is the video's moving representation, and a cloned poster would
@@ -91,7 +98,7 @@ async function runFrames(
       // would find no visible carrier — both are hidden while it runs —
       // and would unmount the iframe and remount it at the destination,
       // losing exactly the playback position this exists to preserve.
-      if (predecessorShape != null && predecessorShape.id !== shape.id) {
+      if (predecessorShape.id !== shape.id) {
         const { easing = "easeInCubic" } = action;
         const transitions = getVideoTransitions(editor);
         transitions.start(getVideoKey(shape), {

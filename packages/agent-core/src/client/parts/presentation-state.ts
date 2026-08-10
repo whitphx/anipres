@@ -45,9 +45,12 @@ function summarise(editor: Editor): {
     batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
       frames: batch.frames.map((frame) => {
-        // A mediaControl frame's carrier is a marker shape; the video
-        // it controls is the marker's binding target, which the agent
-        // can't resolve itself (markers aren't in its shape vocabulary).
+        // A mediaControl frame's carrier is a marker shape, which the
+        // agent can't resolve itself — markers aren't in its shape
+        // vocabulary. A video that moves is several carriers, so this
+        // names a representative one of them rather than the video,
+        // deterministically, so the agent can talk about which video a
+        // command belongs to.
         const target =
           frame.action.type === "mediaControl"
             ? resolveMediaControlTarget(editor, frame.shapeId)

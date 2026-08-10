@@ -91,17 +91,27 @@ export function remapDuplicatedVideoKeys(
     if (newKey === oldKey && config == null) {
       continue;
     }
-    editor.updateShapes(
-      carrierIds.map((id) => ({
-        id,
-        type: YouTubeEmbedShapeType,
-        ...(newKey !== oldKey
-          ? { meta: { ...editor.getShape(id)?.meta, videoKey: newKey } }
-          : {}),
-        // Only the copy's own owner needs the configuration; the others
-        // resolve through it.
-        ...(config != null && id === ownerId ? { props: { ...config } } : {}),
-      })),
+    // Locked too: tldraw copies `isLocked` with the shape, and a copy
+    // that kept the source's key would join the source video instead
+    // of being the independent one a duplicate is.
+    editor.run(
+      () => {
+        editor.updateShapes(
+          carrierIds.map((id) => ({
+            id,
+            type: YouTubeEmbedShapeType,
+            ...(newKey !== oldKey
+              ? { meta: { ...editor.getShape(id)?.meta, videoKey: newKey } }
+              : {}),
+            // Only the copy's own owner needs the configuration; the
+            // others resolve through it.
+            ...(config != null && id === ownerId
+              ? { props: { ...config } }
+              : {}),
+          })),
+        );
+      },
+      { ignoreShapeLock: true },
     );
   }
 

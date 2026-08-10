@@ -301,7 +301,6 @@ export function resolveAnchorCarrier(
   options: {
     presentationMode: boolean;
     visibilities?: Record<string, "visible" | "hidden" | "inherit">;
-    editingShapeId?: TLShapeId | null;
   },
 ): YouTubeEmbedShape | null {
   if (carriers.length === 0) {
@@ -322,7 +321,9 @@ export function resolveAnchorCarrier(
     }
     return getDefaultAnchorCarrier(shown);
   }
-  const editingShapeId = options.editingShapeId ?? editor.getEditingShapeId();
+  // Entering a carrier's editing state brings the player to it, before
+  // any pointer input can reach the player.
+  const editingShapeId = editor.getEditingShapeId();
   if (editingShapeId != null) {
     const editing = carriers.find((carrier) => carrier.id === editingShapeId);
     if (editing != null) {

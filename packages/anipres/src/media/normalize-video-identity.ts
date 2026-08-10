@@ -142,11 +142,21 @@ export function ensureVideoKeyMaterialized(
   if (pending.length === 0) {
     return;
   }
-  editor.updateShapes(
-    pending.map((video) => ({
-      id: video.id,
-      type: YouTubeEmbedShapeType,
-      meta: { ...video.meta, videoKey: getVideoKey(video) },
-    })),
+  // Normalization, not a user edit, so it is scoped the way the load
+  // pass is: an undo that stripped the key would leave the next copy
+  // minting a different one for the same video, and a locked carrier
+  // must still get it — a lock says the shape may not be moved, not
+  // that it has stopped being the video a copy is about to inherit.
+  editor.run(
+    () => {
+      editor.updateShapes(
+        pending.map((video) => ({
+          id: video.id,
+          type: YouTubeEmbedShapeType,
+          meta: { ...video.meta, videoKey: getVideoKey(video) },
+        })),
+      );
+    },
+    { history: "ignore", ignoreShapeLock: true },
   );
 }
