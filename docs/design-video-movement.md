@@ -1435,11 +1435,21 @@ everything that reads frames.
 
 The persisted vocabulary changes: the `mediaControl` action gains its
 target key, `youtube-embed` gains `videoKey`, and the `media-control`
-binding stops being written. `SYNC_CLIENT_VERSION` moves twice — the
-acceptance stage described below keeps 3, the rollback pre-release
-takes 4, the main release 5 — and the gate becomes two-sided: a
-server refuses clients newer than itself as well as older. One number
-per release keeps each client's vocabulary matched to the assets that
+binding stops being written. `SYNC_CLIENT_VERSION` moves three times
+— the acceptance stage described below takes 4, the rollback
+pre-release 5, the main release 6, leaving 3 to the release
+currently deployed — and the gate becomes two-sided: a server
+refuses clients newer than itself as well as older. Every stage
+takes its own number, the acceptance stage included, precisely
+because it is not behaviorally the current release: it carries the
+widened validators and the compatibility behavior a
+future-vocabulary room needs, and letting it share version 3 would
+make a dormant pre-stage tab indistinguishable from it — free to
+connect, after a rollback, to a room it would reject the vocabulary
+of. Numbered separately, that tab is refused and reloads. A rollback
+test parks a version-3 tab through stage B's promotion and
+reconnects it only after the rollback to stage A. One number per
+release keeps each client's vocabulary matched to the assets that
 serve it; the server side needs no such split, because every release
 in the sequence ships the same forked room server — arbitration,
 tombstones, stamps and all, gated by the document's vocabulary as
@@ -1452,7 +1462,7 @@ last-carrier deletion made just before a rollback reload therefore
 keeps its claim, and a concurrent extension still wins add-wins
 arbitration instead of meeting bare, claimless removals; an
 end-to-end fixture deletes a last carrier, withholds the
-acknowledgement, forces the version-5-to-version-4 reload while
+acknowledgement, forces the version-6-to-version-5 reload while
 another client adds a carrier, and verifies every marker survives.
 Refusal alone swaps no JavaScript, so the client
 defines the transition: on the incompatible-version response it stops
@@ -1460,8 +1470,8 @@ reconnecting, forces an asset reload that bypasses caches, and — if
 the fetched bundle still reports the refused version, as it briefly
 can while a rollback propagates — backs off behind a visible
 "deployment changed, reloading" notice rather than spinning. An
-end-to-end test starts a version-5 browser client, rolls the
-deployment back, and proves the session resumes as version 4.
+end-to-end test starts a version-6 browser client, rolls the
+deployment back, and proves the session resumes as version 5.
 
 Documents that already hold the binding are normalized on load, not
 stranded. The version gate only refuses *clients*; it does nothing
