@@ -149,6 +149,15 @@ sitting where it started, and would lay a second copy of the same event
 beside it — one more per round trip, each live the moment the video
 returns.
 
+An event pasted from another document without its video is dropped
+rather than laid down. Its key names a video in the document it was
+copied from, and where this document was forked from that one the same
+key names a video edited apart from it since, so the event would
+silently drive the wrong one; keeping it inert instead would leave an
+invisible record behind. Copying an event alone within one document is
+a different request, for another event on the video it already names,
+and is left alone.
+
 A paste from elsewhere takes the configuration its payload carries,
 canonicalized where it was copied, and never this document's answer for
 the same key. Two documents forked from one snapshot hold the same key

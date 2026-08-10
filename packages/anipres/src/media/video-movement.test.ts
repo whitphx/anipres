@@ -2263,6 +2263,50 @@ describe("what a move counts as already here", () => {
   });
 });
 
+describe("pasting an event without its video", () => {
+  const eventContent = (videoKey: string) => ({
+    shapes: [
+      {
+        id: "shape:marker",
+        type: "media-control",
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "event-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play", videoKey },
+          }),
+        },
+      },
+    ],
+  });
+
+  it("drops it when the payload came from another document", () => {
+    // Both documents descend from one snapshot, so this key names a
+    // video here too — one edited apart from the copied event's.
+    const pasted = remapContentVideoKeys(
+      eventContent("shape:shared"),
+      "external-paste",
+      () => "minted",
+    );
+    expect(pasted.shapes).toEqual([]);
+  });
+
+  it("keeps it when the copy is from this document", () => {
+    // Copying an event alone here is a request for another event on
+    // the video it already names.
+    const pasted = remapContentVideoKeys(
+      eventContent("shape:shared"),
+      "duplicate",
+      () => "minted",
+    );
+    expect(pasted.shapes).toHaveLength(1);
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

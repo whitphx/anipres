@@ -212,6 +212,20 @@ function contentVideoKey(shape: { id: string; meta?: unknown }): string {
   return typeof key === "string" && key !== "" ? key : shape.id;
 }
 
+/** Whether a pasted event's video travelled with it. */
+function isTargetInPayload(
+  shape: { id: string; meta?: unknown },
+  keysInPayload: ReadonlyMap<string, string>,
+): boolean {
+  const frameMeta = (shape.meta as { frame?: unknown } | undefined)?.frame;
+  const parsed = parseFrameMeta(frameMeta);
+  if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+    return true;
+  }
+  const videoKey = parsed.frame.action.videoKey;
+  return videoKey != null && keysInPayload.has(videoKey);
+}
+
 /**
  * Fresh identities for the videos in a pasted `TLContent` payload.
  *
@@ -264,6 +278,22 @@ export function remapContentVideoKeys<
     if (!newKeyByOldKey.has(oldKey)) {
       newKeyByOldKey.set(oldKey, mintKey());
     }
+  }
+  if (operation === "external-paste") {
+    // An event whose video did not come with it has nothing to
+    // control here. Its key names a video in the document it was
+    // copied from, and if this document was forked from that one the
+    // same key names a video that has been edited apart since — so a
+    // pasted event would silently drive the wrong one. Dropping it
+    // leaves no invisible record behind either.
+    content = {
+      ...content,
+      shapes: content.shapes.filter(
+        (shape) =>
+          shape.type !== MediaControlShapeType ||
+          isTargetInPayload(shape, newKeyByOldKey),
+      ),
+    };
   }
   if (newKeyByOldKey.size === 0) {
     return content;
