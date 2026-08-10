@@ -376,3 +376,72 @@ function getEditSessionId(editor: Editor): string {
   }
   return id;
 }
+
+export interface StampedVideoConfig {
+  config: VideoConfig;
+  stamps: Record<string, ConfigStamp>;
+}
+
+/**
+ * A video's resolved configuration together with the stamps that won
+ * it, read while every carrier is still present.
+ *
+ * A stamp only orders the records that hold it, so deleting the
+ * carriers an edit reached takes that edit's evidence with them — a
+ * carrier created concurrently from an older view would then be the
+ * only account left, and the video would quietly revert. This has to be
+ * read before the deletion applies, which is why it is split from
+ * writing it back.
+ */
+export function readStampedVideoConfig(
+  carriers: YouTubeEmbedShape[],
+): StampedVideoConfig | null {
+  const config = resolveVideoConfig(carriers);
+  if (config == null) {
+    return null;
+  }
+  const stamps: Record<string, ConfigStamp> = {};
+  for (const key of VIDEO_CONFIG_KEYS) {
+    let best: ConfigStamp | undefined;
+    for (const carrier of carriers) {
+      const stamp = readStamps(carrier)[key];
+      if (stamp != null && stampBeats(stamp, best)) {
+        best = stamp;
+      }
+    }
+    if (best != null) {
+      stamps[key] = best;
+    }
+  }
+  return { config, stamps };
+}
+
+/** Writes a captured configuration onto every surviving carrier. */
+export function restoreStampedVideoConfig(
+  editor: Editor,
+  videoKey: string,
+  captured: StampedVideoConfig,
+): void {
+  const carriers =
+    groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
+  const stale = carriers.filter((carrier) => {
+    const stamps = readStamps(carrier);
+    return VIDEO_CONFIG_KEYS.some(
+      (key) =>
+        carrier.props[key] !== captured.config[key] ||
+        (captured.stamps[key] != null &&
+          stamps[key]?.c !== captured.stamps[key].c),
+    );
+  });
+  if (stale.length === 0) {
+    return;
+  }
+  editor.updateShapes(
+    stale.map((carrier) => ({
+      id: carrier.id,
+      type: carrier.type,
+      props: { ...captured.config },
+      meta: { ...carrier.meta, videoConfigRev: { ...captured.stamps } },
+    })),
+  );
+}

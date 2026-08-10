@@ -13,10 +13,18 @@ import {
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import {
+  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
+  readStampedVideoConfig,
   resolveVideoConfig,
+  restoreStampedVideoConfig,
+  type StampedVideoConfig,
 } from "./video-anchor";
+import {
+  getMediaControlBindingTargetId,
+  writeLegacyMediaControlBinding,
+} from "../shapes/media-control/MediaControlBinding";
 import {
   getVideoKey,
   isYouTubeEmbedShape,
@@ -184,6 +192,28 @@ export function installVideoLifecycle(
   // markers, which is a wider claim than "this operation deleted the
   // video".
   let deletedCarrierKeys: Set<string> | null = null;
+  const capturedConfigs = new Map<string, StampedVideoConfig>();
+  // Read while every carrier is still present: the stamps that won a
+  // property may live only on the record about to go.
+  const stopCaptureConfigs = editor.sideEffects.registerBeforeDeleteHandler(
+    "shape",
+    (shape) => {
+      if (!soleWriter || !isYouTubeEmbedShape(shape)) {
+        return;
+      }
+      const videoKey = getVideoKey(shape);
+      if (capturedConfigs.has(videoKey)) {
+        return;
+      }
+      const captured = readStampedVideoConfig(
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ??
+          [],
+      );
+      if (captured != null) {
+        capturedConfigs.set(videoKey, captured);
+      }
+    },
+  );
   const stopWatchDeletes = editor.sideEffects.registerAfterDeleteHandler(
     "shape",
     (shape) => {
@@ -198,13 +228,24 @@ export function installVideoLifecycle(
     () => {
       const keys = deletedCarrierKeys;
       deletedCarrierKeys = null;
-      if (keys != null && soleWriter) {
+      if (keys == null) {
+        return;
+      }
+      // Safe in any document: the heir is a pure function of the
+      // survivors, so concurrent clients repoint identically.
+      repointLegacyBindings(editor, keys);
+      if (soleWriter) {
+        for (const [videoKey, captured] of capturedConfigs) {
+          restoreStampedVideoConfig(editor, videoKey, captured);
+        }
         deleteOrphanedMediaMarkers(editor, keys);
       }
+      capturedConfigs.clear();
     },
   );
   return () => {
     stopMinting();
+    stopCaptureConfigs();
     stopWatchDeletes();
     stopParking();
     stopCleanup();
@@ -222,6 +263,47 @@ export function installVideoLifecycle(
  * of an animated video correspondingly leaves the events alone — which
  * the binding's per-shape cascade got wrong.
  */
+/**
+ * Repoints the compatibility bindings whose video carrier just went
+ * away, for videos that still have one.
+ *
+ * The binding exists so an older build can still resolve an event —
+ * it deletes a marker that has none as an orphan. tldraw removes a
+ * binding with its endpoint, so deleting any one carrier would strip
+ * that protection from the video's events while the video itself lives
+ * on. Repointing is a pure function of the surviving carriers, so every
+ * client computes the same answer and repeating it changes nothing.
+ */
+function repointLegacyBindings(
+  editor: Editor,
+  videoKeys: ReadonlySet<string>,
+): void {
+  if (videoKeys.size === 0) {
+    return;
+  }
+  const shapes = editor.getCurrentPageShapes();
+  const carriersByKey = groupCarriersByVideoKey(shapes);
+  for (const shape of shapes) {
+    if (shape.type !== MediaControlShapeType) {
+      continue;
+    }
+    const videoKey = resolveMediaControlVideoKey(editor, shape.id);
+    if (videoKey == null || !videoKeys.has(videoKey)) {
+      continue;
+    }
+    const carriers = carriersByKey.get(videoKey);
+    const heir = carriers != null ? getConfigOwnerCarrier(carriers) : null;
+    if (heir == null) {
+      // No carrier left: the marker goes too, bindings with it.
+      continue;
+    }
+    if (getMediaControlBindingTargetId(editor, shape.id) != null) {
+      continue;
+    }
+    writeLegacyMediaControlBinding(editor, shape.id, heir.id);
+  }
+}
+
 export function deleteOrphanedMediaMarkers(
   editor: Editor,
   /** Only these videos are considered; others are none of this

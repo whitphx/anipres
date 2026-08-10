@@ -25,6 +25,7 @@ import {
   normalizeVideoIdentity,
 } from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
+import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
 import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
 import {
@@ -1343,6 +1344,81 @@ describe("configuration converges under concurrent carriers", () => {
       });
 
       expect(configOf(editor, videoId)?.videoId).toBe("FROM-B");
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("deleting carriers does not rewrite history", () => {
+  it("keeps the winning value when every edited carrier is deleted", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      updateVideoConfig(editor, videoId, { videoId: "NEW", start: 30 });
+
+      // Arrives afterwards holding an older account of the video, with
+      // no stamps of its own — and is then the ONLY carrier left.
+      const staleId = createShapeId("zzz-stale");
+      editor.createShape({
+        ...video,
+        id: staleId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      editor.updateShape({
+        id: staleId,
+        type: video.type,
+        props: { videoId: "OLD", start: 0 },
+        meta: { videoKey: videoId },
+      });
+
+      editor.deleteShape(videoId);
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id)).toEqual([staleId]);
+      // The survivor was re-stamped while the winning values were still
+      // readable, so the deletion did not revert the video.
+      const config = resolveVideoConfig(carriers);
+      expect(config?.videoId).toBe("NEW");
+      expect(config?.start).toBe(30);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps an older build able to resolve events after a carrier goes", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const [marker] = markersOf(editor, videoId);
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
+
+      // tldraw removes a binding with its endpoint, so deleting the
+      // bound carrier would leave the marker unbound — which an older
+      // build sweeps up as an orphan even though the video survives.
+      editor.deleteShape(videoId);
+
+      expect(getMediaControlBindingTargetId(editor, marker!.id)).toBe(
+        keyframeId,
+      );
     } finally {
       dispose();
     }
