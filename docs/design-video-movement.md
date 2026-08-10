@@ -691,13 +691,27 @@ principal, and requires it on every submission, result
 acknowledgement and retirement, validating it against the persisted
 binding and never against anything the client can name. Sequential
 per-principal numbering orders epochs for retirement; it never
-identifies them. A sibling tab or a second device under the same
-account therefore cannot advance, acknowledge, or retire another
-instance's epoch — which would otherwise let one client burn the
-victim's next sequence on a terminal rejection and have the
-victim's real operation come back rejected as a replay. Cross-tab
-tests attempt each of those three operations against another
-instance's epoch under one principal and must be refused. A sequence at or
+identifies them. A second *device* under the same account therefore
+cannot touch this instance's epoch without stealing the token.
+
+Same-origin sibling tabs are a different matter, and the design does
+not pretend otherwise: the durable intent queue lives in origin
+storage that every tab can read, so a sibling presenting the token
+is indistinguishable from the owner at the server, and no
+server-side check could refuse it. The hazard there is accidental
+concurrency — two tabs open on one document, a duplicated tab, a
+reload racing its predecessor — not a hostile sibling, since script
+running on the origin has already won by other means. So siblings
+are coordinated rather than isolated: the queue has a single writer
+at a time, elected through a Web Lock held for the document, and
+only the lock holder submits, acknowledges, or retires. A tab
+without the lock observes and defers; when the holder navigates away
+or crashes the lock releases, the next tab takes it and resumes the
+same queue from the same epoch, which is exactly the continuity a
+reload needs. Tests cover two tabs on one document, tab
+duplication, reload during pending operations, and the crash
+handoff, asserting one writer throughout and no watermark advanced
+by a non-holder. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
 already committed; one exactly above advances the watermark.
 Admission is not the only outcome that advances it: a terminal
