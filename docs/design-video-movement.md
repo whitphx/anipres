@@ -772,20 +772,39 @@ serialization at the room server as any other concurrency, with no
 client-side coordination to get wrong. A tab frozen anywhere in its
 own append path delays only itself.
 
-A queue outlives its tab, so ownership is by durable identity rather
-than by liveness: the queue is keyed to a session id held in
-per-tab storage, which a reload keeps, and on load a tab resumes
-that queue with its epoch and pending operations intact. A queue
-whose session never returns — a closed tab with unsent operations, a
-duplicated tab carrying a copy of the id — is adopted and drained by
-any tab of the same namespace after an idle threshold. Adoption
-needs no exclusivity precisely because draining is idempotent:
-should two tabs drain the same queue, the watermark rejects the
-second submission as the replay it is. Tests cover simultaneous
-edits from two tabs, tab duplication, a crash between append and
-transmission, adoption of an orphaned queue by two tabs at once,
-and — the case no lock survives — a tab frozen mid-append,
-asserting every sibling continues to persist and submit edits.
+A queue outlives its tab, so ownership needs care: per-tab storage
+alone will not do it, because duplicating a tab copies that storage
+and two live tabs would address one queue — sharing a write scope
+again, and with it the frozen-tab blocking this design is trying to
+be rid of. Ownership is therefore claimed, not inherited. Each tab
+mints an **incarnation** at load and claims the queue named in its
+per-tab storage by writing that incarnation into the queue's owner
+record, a single compare-and-set; the winner resumes the queue with
+its epoch and pending operations, which is what makes a reload
+continuous, and a loser — the duplicate, whose original still holds
+a live claim — mints a fresh queue and epoch of its own instead.
+Claims are refreshed while the tab lives, so staleness is
+observable.
+
+Each queue also lives in its **own** store, so the scopes are
+physically disjoint: a transaction frozen in one tab's queue cannot
+block another tab's, whatever the storage layer does about
+liveness. That is the property a shared queue could not offer at any
+level of locking.
+
+Adoption of a queue whose claim has gone stale — a closed tab with
+unsent operations — is deliberately the weakest possible operation:
+the adopter treats the orphan as an **immutable log**, reading and
+submitting from it and recording its own progress in its own store,
+never mutating the orphan in place. Two adopters racing therefore
+cannot corrupt anything, and neither can an original that wakes up
+and resumes; duplicate submissions meet the epoch watermark and are
+rejected as the replays they are. Tests cover simultaneous edits
+from two tabs, a crash between append and transmission, adoption of
+an orphaned queue by two tabs at once, an original waking after
+adoption, and — the cases no lock survives — a duplicated tab whose
+two sides both stay active while one freezes mid-append, asserting
+the other keeps persisting and submitting edits throughout.
 
 Queues and epochs are namespaced by **principal and document
 together**, not by document alone, because the epoch is bound to a
