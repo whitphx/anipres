@@ -827,46 +827,56 @@ a read that does queue behind a frozen tab's transaction delays only
 that recovery — new edits in the adopting tab persist and submit
 regardless.
 
-Deleting a drained database is the one mutation adoption involves,
-and observing a log drained is not license to perform it: the
-original may be alive and about to append, and a deletion scheduled
-on that observation would take the new operation with it. Nor can a
-rescan close that window, since the append can follow the rescan,
-and nor can sealing the source — forcing connections shut through a
-version change is precisely what a frozen tab may never honor. The
-design does not race the writer at all: **a queue's database is
-never deleted while it might still be written**, and the only sound
-statement of "might" already exists in this design, the replay
-lease. A drained orphan is left in place, costing an empty database,
-and collected when its lease expires — the same boundary past which
-no legitimate producer of an old operation remains, stated once and
-used everywhere.
+Retiring a per-load database is the one mutation adoption involves,
+and it is sequenced through operations IndexedDB can actually
+serialize, because "read it one last time, then delete it" is not
+one of them: once the blocking connections close, a pending
+`deleteDatabase` proceeds without handing the data back, and
+cancelling it to reopen, read and re-request opens a gap another
+producer can write into. The sound primitive is the **version-change
+upgrade**, which is exclusive by definition. A collector opens the
+orphan at a higher version; open connections receive `versionchange`
+and close, and the upgrade transaction that follows is the only
+access to that database. Inside it the collector writes a `sealed`
+marker and reads whatever operations remain; a producer that later
+reopens sees `sealed` and refuses to append, rotating to a fresh
+queue exactly as an expired one does, so the seal outlives the
+collector's connection. The operations are then written into the
+destination described below, and only once that write is durable
+does the collector close and delete. A blocked upgrade is simply
+retried; nothing is destroyed while it waits.
 
-That boundary holds only if producers honor it, so it is fenced on
-the producing side rather than assumed: a tab checks its own
-queue's lease before every enqueue, and one that has expired —
-a tab suspended past it and later resumed — rotates to a fresh
-queue and epoch before accepting the edit, so no operation is ever
-appended to a queue that can no longer be replayed.
+Producers are fenced on their own side too, so nothing depends on
+the collector reaching them: a tab checks its queue's `sealed`
+marker and its lease before every enqueue, and one that finds either
+— a tab suspended past the boundary and later resumed — rotates to a
+fresh queue and epoch before accepting the edit. No operation is
+ever appended to a queue that cannot be replayed, and none is
+appended after a seal.
 
-Collection is then ordered against that fence rather than against an
-earlier observation, because a producer may legitimately append
-right up to expiry and crash before submitting. Expiry fences the
-producer first; a deletion request blocked by a still-open
-connection stays pending rather than being forced, and the resuming
-tab closes its connection on `versionchange`. Only once no
-connection remains does the collector make a **final read pass**,
-and what it finds decides the outcome: operations still replayable
-are migrated into a live queue and submitted from there, and
-operations past the server's own watermark retention — the ones the
-design already says cannot be replayed — leave a durable notice so
-that outcome can be surfaced to the user rather than vanishing with
-the database. Deletion happens after that pass, never before it.
-Tests wake a tab after its lease has expired and after a deletion
-request is already pending, and append immediately before expiry
-then crash before submission and reload only after collection has
-begun, asserting in each case that the edit is migrated or reported,
-never silently lost.
+The destination is a single durable **recovery database** per
+namespace, which is also what keeps local storage bounded. Per-load
+databases are not retained for the server's year-long replay lease —
+that lease governs how long an *operation* stays replayable, not how
+long a database must sit on disk — so every load compacts drained
+and sealed predecessors into the recovery database and deletes them.
+The steady state is therefore one database per live tab plus one
+recovery database per namespace, whatever the reload, crash or
+refresh-loop churn, and the lease applies to records inside the
+recovery database, where operations past the server's watermark
+retention leave a durable notice so the "could not be replayed"
+outcome can be surfaced rather than vanishing. Should a quota or
+creation failure occur anyway, the tab surfaces it and refuses to
+accept queued edits it cannot persist rather than accepting them
+into memory it will lose.
+
+Tests wake a tab after its lease has expired and after its queue has
+been sealed; append immediately before expiry, crash before
+submission, and reload only after collection has begun; and churn
+repeated reloads with drained and undrained queues, asserting in
+each case that the edit is migrated or reported, never silently
+lost, and that database count, storage use and startup time stay
+bounded.
 
 Emptiness is therefore never a trigger, and a late append is not a
 hazard but an ordinary case: every load re-adopts any non-empty
