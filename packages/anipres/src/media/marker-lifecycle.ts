@@ -357,6 +357,20 @@ export function installVideoLifecycle(
       const keys = createdByPage.get(pageId) ?? new Set<string>();
       keys.add(videoKey);
       createdByPage.set(pageId, keys);
+
+      if (!isYouTubeEmbedShape(shape)) {
+        return;
+      }
+      // The other arrival order: a binding that landed while its video
+      // had not, so nothing could resolve the key when it was created.
+      // Now that the video is here, the events bound to it can say
+      // what they control.
+      for (const binding of editor.getBindingsToShape(
+        shape.id,
+        MediaControlBindingType,
+      )) {
+        materializeMarkerVideoKey(editor, binding.fromId);
+      }
     },
   );
   const stopWatchBindings = editor.sideEffects.registerAfterCreateHandler(

@@ -98,9 +98,10 @@ the exception, being document-wide: normalization walks every page,
 since a legacy video left unnormalized elsewhere would have a
 follow-up keyframe mint a new key and split it in two.
 
-A legacy event's target key is written into its own frame the moment a
-binding says what it controls, rather than only by the pass that runs
-when the lifecycle is installed. A shared room delivers records in
+A legacy event's target key is written into its own frame the moment
+there is both a binding saying what it controls and a video for it to
+name — whichever of the two arrives second — rather than only by the
+pass that runs when the lifecycle is installed. A shared room delivers records in
 whatever order it likes, so a marker can arrive ahead of both its
 binding and its video; resolution falls back to the binding as soon as
 that lands, and the event works, but nothing has recorded the key.

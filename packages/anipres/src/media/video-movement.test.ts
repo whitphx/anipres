@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
-import { PageRecordType } from "tldraw";
+import { createBindingId, PageRecordType } from "tldraw";
 import type { TLPageId } from "tldraw";
 import {
   calculateTotalSteps,
@@ -2158,6 +2158,80 @@ describe("duplicating a later keyframe of a video with events", () => {
 });
 
 describe("a legacy event delivered before its video", () => {
+  it("survives it when the binding arrived before the video", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const markerId = createShapeId("legacy-marker");
+      const videoId = createShapeId("video");
+      editor.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
+      });
+      // The binding lands from a peer while its target is still on the
+      // way, so nothing can resolve the key when it is created.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            id: createBindingId("legacy-binding"),
+            typeName: "binding",
+            type: "media-control",
+            fromId: markerId,
+            toId: videoId,
+            meta: {},
+            props: {},
+          } as never,
+        ]);
+      });
+      expect(
+        editor.getBindingsFromShape(markerId, "media-control"),
+      ).toHaveLength(1);
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("zzz-keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+      expect(manager.$getTotalSteps()).toBe(1);
+
+      editor.deleteShapes([videoId]);
+
+      expect(manager.$getTotalSteps()).toBe(1);
+      expect(getMediaControlBindingTargetId(editor, markerId)).toBe(keyframeId);
+    } finally {
+      dispose();
+    }
+  });
+
   it("survives the deletion of the carrier it was bound to", () => {
     // A shared room delivers records in whatever order it likes, and
     // the lifecycle normalizes once, when it is installed.
