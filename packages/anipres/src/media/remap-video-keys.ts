@@ -5,7 +5,7 @@
 // the opposite: Cmd+D and paste yield an INDEPENDENT video with its own
 // player, which is what the gesture implies. Both run through this.
 
-import { type Editor, type TLShapeId } from "tldraw";
+import { type Editor, type JsonObject, type TLShapeId } from "tldraw";
 import {
   getVideoKey,
   isYouTubeEmbedShape,
@@ -19,6 +19,25 @@ import {
 } from "./video-anchor";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 import type { Frame } from "../timeline-model/types";
+
+/**
+ * A carrier's metadata under a newly minted identity.
+ *
+ * The revision history goes with the old key: a new video is not heir
+ * to the edits of the one it was copied from. Nothing observable turns
+ * on it today, since an edit rewrites the stamp on every carrier it
+ * can see and so outranks whatever was inherited, but the same rule
+ * governs content arriving through the clipboard and one identity
+ * rule beats two.
+ */
+function freshIdentityMeta(
+  meta: Partial<JsonObject> | undefined,
+  videoKey: string,
+): Partial<JsonObject> {
+  const next = { ...meta };
+  delete next.videoConfigRev;
+  return { ...next, videoKey };
+}
 
 /**
  * Rewrites the `videoKey` of every video among `createdShapeIds`, and
@@ -101,7 +120,7 @@ export function remapDuplicatedVideoKeys(
             id,
             type: YouTubeEmbedShapeType,
             ...(newKey !== oldKey
-              ? { meta: { ...editor.getShape(id)?.meta, videoKey: newKey } }
+              ? { meta: freshIdentityMeta(editor.getShape(id)?.meta, newKey) }
               : {}),
             // Only the copy's own owner needs the configuration; the
             // others resolve through it.
