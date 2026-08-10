@@ -198,13 +198,21 @@ a player whose carrier has left the viewport is offscreen, and
 offscreen is a form of hidden: if it plays, or the media-session
 channel restarts it, that is again audio nobody can see or stop. The
 Absent state's rule therefore extends to it, since it is the same
-rule. A player that is playing while its carrier is out of view
-raises the same compact viewport chip, with the same pause and
-**Stop** actions, held until the carrier returns or playback stops —
-so "no audible player without a reachable control" holds
-continuously, whatever put the player out of sight. A browser test
-scrolls a playing carrier off-viewport, fires a media-session play
-with its notification withheld, and asserts a control is reachable
+rule — and it extends by *mounting*, not by play state. Tying the
+chip to observed playback would leave a paused offscreen player
+chipless, and a media-session restart with its notification withheld
+would then be audible with nothing to stop it; the runtime cannot
+learn it needs a control until after the harm. So every mounted
+player whose carrier is out of view carries the compact viewport
+chip for its entire offscreen lifetime, paused or playing, with the
+same pause and **Stop** actions, dismissed only when the carrier
+returns or the player is torn down. Several offscreen at once
+collapse into one grouped chip, so the cost is a single small
+affordance rather than clutter. The invariant "no mounted player
+without a reachable control" then holds continuously and without
+needing to know what the player is doing. A browser test starts from
+a paused, offscreen player, fires a media-session play with its
+notification withheld, and asserts a control was reachable
 throughout. Culling answers visibility, not cost. One player per video still
 means a document with many videos could mount many iframes, so
 mounting is governed by two explicit limits, both host-configurable:
@@ -676,7 +684,20 @@ logical media write therefore carries an operation identity — a
 server-issued client-instance epoch plus a sequence number the
 instance increments monotonically — and the hook persists, in the
 same transaction as the write, each instance's contiguous
-acknowledgement watermark rather than every id. A sequence at or
+acknowledgement watermark rather than every id. An epoch is an
+unguessable **capability**, not an address: the server mints it as a
+high-entropy token at issuance, binds it to the authenticated
+principal, and requires it on every submission, result
+acknowledgement and retirement, validating it against the persisted
+binding and never against anything the client can name. Sequential
+per-principal numbering orders epochs for retirement; it never
+identifies them. A sibling tab or a second device under the same
+account therefore cannot advance, acknowledge, or retire another
+instance's epoch — which would otherwise let one client burn the
+victim's next sequence on a terminal rejection and have the
+victim's real operation come back rejected as a replay. Cross-tab
+tests attempt each of those three operations against another
+instance's epoch under one principal and must be refused. A sequence at or
 below its instance's watermark is rejected as a replay, its effect
 already committed; one exactly above advances the watermark.
 Admission is not the only outcome that advances it: a terminal
