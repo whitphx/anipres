@@ -229,10 +229,12 @@ duration, a failed seek — it is absolute: nothing but the user's
 explicit Stop removes such a player, because nothing could put it
 back. For restorable content it is a bound rather than a
 prohibition: an unmount may happen only on the named paths below
-(ambiguous-pause slot turnover, strict `pauseOnHidden`), and it
-costs at most the clock's staleness — one settle window of drift,
-since the clock is refreshed on every poll and on every command —
-after which the player remounts and seeks to where it belongs.
+(ambiguous-pause slot turnover, strict `pauseOnHidden`), never to
+make room, and it costs at most the clock's staleness — one settle
+window of drift, since the clock is refreshed on every poll and on
+every command — after which the player remounts and seeks back,
+landing exactly where the seek succeeds and approximately where it
+does not.
 Eviction and reconstruction cannot preserve everything an iframe
 holds, buffers and captions among it, and uninterrupted playback is
 the guarantee this whole design exists for, so the mount budget is
@@ -296,24 +298,32 @@ recoverable and jumping an unseekable stream is not.
 That predicate is retrospective, though: having seen a duration and
 a successful seek does not promise the *restoring* seek will land,
 and a teardown that has already happened leaves no copy of the
-position to fall back on. So a restorable player is never destroyed
-before its replacement exists. Every transition that would remount a
-player is a **verified handoff** run in a reserved staging mount —
-one slot above M, the reason M is a budget rather than a hard
-ceiling on allocation: the replacement is mounted, seeked to the
-saved position, and confirmed there before the original is torn
-down. A handoff that cannot confirm is abandoned, the original kept
-and the transition refused, so a failed seek costs a refused
-eviction instead of a lost position. Only where no replacement is
-being made can a handoff not apply — strict `pauseOnHidden`, which
-tears down to keep a hidden page silent — and there the narrowing is
-explicit: strict mode's restorable players restore by clock on
-return and may land imprecisely if that seek fails, which is part of
-what a host opts into when enabling it. When any seek does fail, the
-player resumes at the position the content offers, with the
-discontinuity surfaced rather than silent. Given a confirmed
-handoff, the transition is safe precisely because the original was
-paused and its clock held exactly. The
+position to fall back on. The tempting answer — stage the
+replacement, confirm its position, then destroy the original — is
+not available here, because a staging iframe is a mounted iframe:
+it would sit unanchored, with no carrier to show and no control to
+reach, and the media-session channel can restart any mounted iframe
+without notification. That is precisely the hidden, uncontrollable
+playback the design forbids, and it would put two live players
+behind one video. No property of the embed API can rule it out, so
+the concurrent handoff is rejected rather than papered over.
+
+What follows is that destruction is never a way to make room, and
+the resolution order says so: refusal first, destruction only where
+refusal is not available. When M presses, an ambiguous or
+unrestorable candidate means the new mount is refused and the
+runtime under-admits — the poster stays, with a notice — rather than
+trading a live position for capacity. Teardown is left to the two
+places where nothing else will do: an ambiguous pause holding a slot
+the user's own action needs, and strict `pauseOnHidden`, which
+exists to silence a hidden page. In both, restoration is by clock
+and therefore best-effort: the remount seeks to the saved position,
+and where that seek does not land the player resumes at the position
+the content offers, with the discontinuity surfaced rather than
+silent. That is the honest bound — exact where the player was
+paused and the seek lands, approximate when it does not, never
+applied to unrestorable content at all — and it is what "restoration
+is defined" means in the invariant above. The
 testable contract is stated once, without an absolute it cannot
 keep: runtime-issued playback never exceeds P; native playback may
 exceed P, bounded by M − P, and every excess reverts as its
@@ -443,8 +453,8 @@ API browser prototype — a blocking implementation milestone
 alongside the sync fork's, tasked with naming the exact observable
 that establishes causality, with measuring the teardown drain
 above across supported browsers, and with exercising remount-and-seek
-across content states so the handoff's confirmation step rests on
-measured behavior — proves a genuinely command-correlated
+across content states so the clock-guided restore's accuracy rests
+on measured behavior — proves a genuinely command-correlated
 acknowledgement exists. Failure injection covers metadata that
 changed between mount and remount, a remount whose seek fails, and
 a saved position the content will not accept. If it finds none, the baseline stands
