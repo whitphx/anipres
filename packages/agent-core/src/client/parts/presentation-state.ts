@@ -1,5 +1,9 @@
 import type { Editor } from "tldraw";
-import { deriveTimeline, type FrameAction } from "anipres/models";
+import {
+  deriveTimeline,
+  timelineShapesOf,
+  type FrameAction,
+} from "anipres/models";
 import { resolveMediaControlTarget } from "anipres/schema";
 import {
   FocusedEasingSchema,
@@ -28,12 +32,17 @@ function summarise(editor: Editor): {
   totalSteps: number;
   steps: PresentationStatePart["steps"];
 } {
-  const shapes = editor.getCurrentPageShapes();
+  // The same shapes the runtime derives its own timeline from, so the
+  // step numbers the agent reasons about are the ones the user sees: a
+  // media event whose video has no carrier left occupies no step, and
+  // counting it would shift every later step out of line.
   const doc = deriveTimeline({
-    shapes: shapes.map((shape) => ({
-      shapeId: shape.id,
-      frameMeta: shape.meta?.frame,
-    })),
+    shapes: timelineShapesOf(editor, editor.getCurrentPageShapes()).map(
+      (shape) => ({
+        shapeId: shape.id,
+        frameMeta: shape.meta?.frame,
+      }),
+    ),
   });
 
   // The timeline labels steps from 0, where the label counts

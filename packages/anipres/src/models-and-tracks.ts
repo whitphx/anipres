@@ -6,3 +6,4 @@ export * from "./timeline-model";
 
 export { SYNC_CLIENT_VERSION } from "./sync-client-version";
 export { newTrackId } from "./models";
+export { timelineShapesOf } from "./media/live-media-events";

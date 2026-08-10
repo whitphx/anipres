@@ -37,6 +37,7 @@ import { writeLegacyMediaControlBinding } from "../shapes/media-control/MediaCon
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { getVideoTransitions } from "../media/video-transition";
+import { timelineShapesOf } from "../media/live-media-events";
 import { clearHiddenDuringAnimationFlags, runStep } from "./animation";
 
 type ShapeVisibility = NonNullable<
@@ -181,28 +182,11 @@ export class PresentationManager {
 
   /** The single derivation everything else consumes. Total: never throws. */
   @computed $getTimelineDoc(): TimelineDoc {
-    const shapes = this.$getCurrentPageDescendantShapes();
-    // A media event whose video has no carrier left is not part of the
-    // presentation. Its marker record may well still be here — deleting
-    // one is a claim about the last carrier that a client sharing the
-    // document cannot make — but an event with nothing to control must
-    // not go on occupying a step, which would leave a deleted video
-    // behind as a run of empty waits. Deciding it by reading the store
-    // costs no write and no arbitration: every client sees the same
-    // carriers and drops the same events, and should the video come
-    // back, by undo or from a peer, its events come back with it.
-    const liveVideoKeys = new Set(
-      shapes.filter(isYouTubeEmbedShape).map(getVideoKey),
-    );
-    const present = shapes.filter((shape) => {
-      if (shape.type !== MediaControlShapeType) {
-        return true;
-      }
-      const videoKey = resolveMediaControlVideoKey(this.editor, shape.id);
-      return videoKey != null && liveVideoKeys.has(videoKey);
-    });
     return deriveTimeline({
-      shapes: present.map((shape) => ({
+      shapes: timelineShapesOf(
+        this.editor,
+        this.$getCurrentPageDescendantShapes(),
+      ).map((shape) => ({
         shapeId: shape.id,
         frameMeta: shape.meta?.frame,
       })),

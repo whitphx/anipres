@@ -53,7 +53,12 @@ described below is what finally removes.
 
 Staying is not the same as counting. Whether an event is part of the
 presentation is settled at read time, by the timeline derivation, which
-drops a media event whose video has no carrier on the page. Deciding it
+drops a media event whose video has no carrier on the page. Everything
+that derives a timeline goes through the same rule, the agent's
+perception of the deck as much as the runtime's own: a reader counting
+the steps this one drops would number every later step differently from
+the steps the user sees and the presentation plays, and an instruction
+naming a step by number would land on the wrong one. Deciding it
 there rather than by deleting the record needs no arbitration at all —
 every client sees the same carriers and drops the same events, no
 client writes anything, and nothing has to be settled before the
