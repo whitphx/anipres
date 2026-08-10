@@ -33,6 +33,7 @@ import {
   MediaControlShapeType,
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
+import { writeLegacyMediaControlBinding } from "../shapes/media-control/MediaControlBinding";
 import { foldMediaPlaybackStates } from "../media/media-state";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
 import { getVideoTransitions } from "../media/video-transition";
@@ -307,6 +308,10 @@ export class PresentationManager {
           frame: frameToMetaJson(cueFrame),
         },
       });
+      // Compatibility only: an older build resolves an event through
+      // this binding and deletes a marker that has none. Nothing in
+      // this build reads it.
+      writeLegacyMediaControlBinding(this.editor, markerId, videoShapeId);
       this.editor.select(markerId);
     });
   }

@@ -33,3 +33,25 @@ export function getMediaControlBindingTargetId(
   );
   return binding?.toId ?? null;
 }
+
+/**
+ * Records a marker's video the way releases before `videoKey` did.
+ *
+ * Nothing here reads it — an event names its video in its own frame —
+ * but an older build resolves events only through this binding and
+ * deletes a marker without one as an orphan. Writing it anyway is what
+ * keeps a document opened by such a build from silently losing every
+ * event this one authored.
+ */
+export function writeLegacyMediaControlBinding(
+  editor: Editor,
+  markerShapeId: TLShapeId,
+  videoShapeId: TLShapeId,
+): void {
+  editor.createBinding({
+    type: MediaControlBindingType,
+    fromId: markerShapeId,
+    toId: videoShapeId,
+    props: {},
+  });
+}

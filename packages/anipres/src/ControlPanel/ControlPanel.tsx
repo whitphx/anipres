@@ -467,13 +467,19 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.run(
               () => {
                 applyStepKeyUpdates(insertion.updates);
+                // The source has to be carrying its identity before it
+                // is copied, and the copy has to keep it: this is a new
+                // carrier of the same video, not a new video.
+                ensureVideoKeyMaterialized(editor, [prevShape.id]);
+                const source = editor.getShape(prevShape.id) ?? prevShape;
                 const newShapeId = createShapeId();
                 editor.createShape({
-                  ...prevShape,
+                  ...source,
                   id: newShapeId,
-                  x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-                  y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+                  x: source.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                  y: source.y + COPIED_SHAPE_POSITION_OFFSET.y,
                   meta: {
+                    ...source.meta,
                     frame: frameToMetaJson(newCueFrame),
                   },
                 });
@@ -682,13 +688,16 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   });
                 }
               }
+              ensureVideoKeyMaterialized(editor, [prevShape.id]);
+              const source = editor.getShape(prevShape.id) ?? prevShape;
               const newShapeId = createShapeId();
               editor.createShape({
-                ...prevShape,
+                ...source,
                 id: newShapeId,
-                x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-                y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+                x: source.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                y: source.y + COPIED_SHAPE_POSITION_OFFSET.y,
                 meta: {
+                  ...source.meta,
                   frame: frameToMetaJson(newSubFrame),
                 },
               });

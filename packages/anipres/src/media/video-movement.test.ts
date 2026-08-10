@@ -1156,3 +1156,43 @@ describe("config edits reach every carrier", () => {
     }
   });
 });
+
+describe("a follow-up keyframe stays the same video", () => {
+  it("keeps the identity when the copy replaces the frame in meta", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+
+      // What the timeline's "add after" buttons do: copy the carrier and
+      // give the copy the next frame. The identity lives in meta beside
+      // that frame, so a copy that replaces meta wholesale would become
+      // an independent video — and the player would stop moving between
+      // them.
+      ensureVideoKeyMaterialized(editor, [videoId]);
+      const source = editor.getShape(videoId)!;
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({
+        ...source,
+        id: keyframeId,
+        x: 400,
+        meta: {
+          ...source.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T", stepId: "s1", stepOrderKey: "a2" }),
+          ),
+        },
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id).sort()).toEqual(
+        [videoId, keyframeId].sort(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+});
