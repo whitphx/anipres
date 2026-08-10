@@ -176,6 +176,15 @@ through three states:
   video's visible representation while its carriers are not.
   Cancelling, jumping, or navigating away mid-tween drops the anchor
   to the folded target directly, per the reconciliation rule below.
+  The tween ends when the step reveals the carrier it was travelling
+  to, not when its own clock runs out. Those two moments are near
+  simultaneous but separately scheduled, an animation frame against a
+  timer, and in the order that ends the tween first the player would
+  have neither a tween nor a visible carrier to anchor to — a
+  placement of nothing, which unmounts the iframe and remounts it at
+  the destination, at every handoff, losing the position this exists
+  to carry. Interpolation clamps at its end, so a tween waiting to be
+  settled simply holds the player at the destination.
 - **Editing.** Every carrier is visible, so a fixed rule takes over:
   the anchor is the carrier of the sequence's earliest keyframe — the
   video's starting position — and an unanimated video is its only

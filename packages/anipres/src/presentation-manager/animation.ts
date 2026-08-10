@@ -103,10 +103,12 @@ async function runFrames(
         });
         // A superseded run must not leave the player mid-flight: the
         // successor reconciles to the folded target with no tween.
-        const unregister = presentationManager.registerRunEffect(() => {
+        // Nothing unregisters it: clearing an already settled
+        // transition does nothing, and the run's effects are dropped
+        // wholesale when the next one starts.
+        presentationManager.registerRunEffect(() => {
           transitions.clear();
         });
-        setTimeout(unregister, duration);
       }
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
@@ -320,6 +322,14 @@ export function runStep(
         },
         { history: "ignore", ignoreShapeLock: true },
       );
+      // Now that the destination carrier is visible again, and in the
+      // same turn, so no read falls between the two and finds neither.
+      const transitions = getVideoTransitions(editor);
+      for (const shape of frameShapes) {
+        if (isYouTubeEmbedShape(shape)) {
+          transitions.settle(getVideoKey(shape));
+        }
+      }
       editor.bailToMark(markBeforeAnimation);
     });
     promises.push(promise);

@@ -43,22 +43,22 @@ class VideoTransitionStore {
   private tick = () => {
     this.rafId = null;
     const now = Date.now();
-    const transitions = this.$transitions.get();
-    const settled: string[] = [];
-    for (const [videoKey, transition] of transitions) {
-      if (now - transition.startedAt >= transition.durationMs) {
-        settled.push(videoKey);
-      }
-    }
-    if (settled.length > 0) {
-      const next = new Map(transitions);
-      for (const videoKey of settled) {
-        next.delete(videoKey);
-      }
-      this.$transitions.set(next);
-    }
     this.$clock.set(this.$clock.get() + 1);
-    if (this.$transitions.get().size > 0) {
+    // A transition outlives its own duration: it ends when the step
+    // reveals the carrier it was travelling to, not when its clock runs
+    // out. The two are near-simultaneous but independently scheduled —
+    // an animation frame against a timer — and dropping it first would
+    // leave the player with no transition and no visible carrier for
+    // however long the gap is, which is a placement of nothing: the
+    // iframe would be unmounted and remounted at the destination, at
+    // every handoff, losing the playback position the whole design
+    // exists to carry. Interpolation clamps at 1, so the player simply
+    // waits at the destination. Ticking stops meanwhile, since a
+    // settled transition has nothing left to advance.
+    const stillMoving = [...this.$transitions.get().values()].some(
+      (transition) => now - transition.startedAt < transition.durationMs,
+    );
+    if (stillMoving) {
       this.schedule();
     }
   };
@@ -83,6 +83,20 @@ class VideoTransitionStore {
     next.set(videoKey, transition);
     this.$transitions.set(next);
     this.schedule();
+  }
+
+  /**
+   * Ends one video's tween, the step having revealed the carrier it was
+   * travelling to. A key with no transition is already settled.
+   */
+  settle(videoKey: string): void {
+    const transitions = this.$transitions.get();
+    if (!transitions.has(videoKey)) {
+      return;
+    }
+    const next = new Map(transitions);
+    next.delete(videoKey);
+    this.$transitions.set(next);
   }
 
   /**

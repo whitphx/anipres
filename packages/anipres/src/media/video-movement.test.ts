@@ -4,6 +4,7 @@ import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { loadHeadlessEditor } from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
+import { transitionProgress } from "./video-transition";
 import { createDuplicateShapesRemap } from "../duplicate-shapes-remap";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model";
 import type { CueFrame } from "../timeline-model";
@@ -1505,6 +1506,46 @@ describe("a legacy video keeps its identity through a group keyframe", () => {
         [videoId, copyId].sort(),
       );
     } finally {
+      dispose();
+    }
+  });
+});
+
+describe("a tween outliving its own clock", () => {
+  it("holds the player at the destination until the step settles it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    const realRaf = globalThis.requestAnimationFrame;
+    const pendingTicks: FrameRequestCallback[] = [];
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      pendingTicks.push(callback);
+      return 1;
+    }) as typeof globalThis.requestAnimationFrame;
+    try {
+      const transitions = getVideoTransitions(editor);
+      const transition = {
+        fromShapeId: createShapeId("from"),
+        toShapeId: createShapeId("to"),
+        startedAt: Date.now() - 1000,
+        durationMs: 100,
+        easing: "easeInCubic" as const,
+      };
+      transitions.start("video-key", transition);
+
+      // The animation frame that lands after the tween's clock has run
+      // out, but before the step reveals the destination carrier.
+      pendingTicks.at(-1)?.(0);
+
+      // Still anchored, and parked at the destination.
+      expect(transitions.$transitions.get().get("video-key")).toEqual(
+        transition,
+      );
+      expect(transitionProgress(transition, Date.now())).toBe(1);
+
+      // The reveal is what ends it.
+      transitions.settle("video-key");
+      expect(transitions.$transitions.get().has("video-key")).toBe(false);
+    } finally {
+      globalThis.requestAnimationFrame = realRaf;
       dispose();
     }
   });
