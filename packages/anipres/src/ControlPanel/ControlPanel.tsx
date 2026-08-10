@@ -27,6 +27,7 @@ import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { ensureVideoKeyMaterialized } from "../media/normalize-video-identity";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import type { PresentationManager } from "../presentation-manager";
 import {
@@ -618,6 +619,12 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.run(
               () => {
                 applyStepKeyUpdates(insertion.updates);
+                // A keyframe is a copy of the video, so the source has
+                // to be carrying its identity before the copy is made.
+                ensureVideoKeyMaterialized(
+                  editor,
+                  clonedShapes.map(({ original }) => original.id),
+                );
                 editor.createShapes(shapesToCreate);
 
                 const rootCreatedShape = shapesToCreate.find(

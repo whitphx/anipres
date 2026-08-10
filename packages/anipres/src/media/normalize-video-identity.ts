@@ -14,17 +14,23 @@ import {
   getVideoKey,
   isYouTubeEmbedShape,
   YouTubeEmbedShapeType,
-  type YouTubeEmbedShape,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 
 /**
- * Materializes `videoKey` on every legacy video and fills in the target
- * key of every legacy `mediaControl` frame, deleting markers whose
- * target cannot be resolved at all — the same recovery the mount path
- * used to perform for unbound markers.
+ * Fills in the target key of every legacy `mediaControl` frame, and
+ * deletes markers whose target cannot be resolved at all — the same
+ * recovery the mount path used to perform for unbound markers.
+ *
+ * Deliberately does NOT write the `videoKey` prop. Frames live in
+ * `shape.meta`, which tldraw does not validate, so an older build
+ * ignores the extra key and the document still loads; the prop is a
+ * different matter — an older validator rejects it outright. Writing it
+ * merely because a document was opened would make every opened document
+ * unloadable after a rollback, so it is materialized lazily instead,
+ * when a video is first copied (see `ensureVideoKeyMaterialized`).
  *
  * Reads only what is in the store, so it is deterministic and
  * idempotent: running it again changes nothing.
@@ -37,16 +43,6 @@ export function normalizeVideoIdentity(editor: Editor): void {
   const shapes = editor.store
     .allRecords()
     .filter((record): record is TLShape => record.typeName === "shape");
-
-  const videosNeedingKey: YouTubeEmbedShape[] = [];
-  for (const shape of shapes) {
-    if (
-      isYouTubeEmbedShape(shape) &&
-      (shape.props.videoKey == null || shape.props.videoKey === "")
-    ) {
-      videosNeedingKey.push(shape);
-    }
-  }
 
   const markerUpdates: { shape: TLShape; videoKey: string }[] = [];
   const orphanedMarkerIds: TLShapeId[] = [];
@@ -72,25 +68,12 @@ export function normalizeVideoIdentity(editor: Editor): void {
     markerUpdates.push({ shape, videoKey: getVideoKey(target) });
   }
 
-  if (
-    videosNeedingKey.length === 0 &&
-    markerUpdates.length === 0 &&
-    orphanedMarkerIds.length === 0
-  ) {
+  if (markerUpdates.length === 0 && orphanedMarkerIds.length === 0) {
     return;
   }
 
   editor.run(
     () => {
-      if (videosNeedingKey.length > 0) {
-        editor.updateShapes(
-          videosNeedingKey.map((video) => ({
-            id: video.id,
-            type: YouTubeEmbedShapeType,
-            props: { videoKey: getVideoKey(video) },
-          })),
-        );
-      }
       for (const { shape, videoKey } of markerUpdates) {
         const parsed = parseFrameMeta(shape.meta?.frame);
         if (
@@ -118,5 +101,38 @@ export function normalizeVideoIdentity(editor: Editor): void {
     // Normalization is not a user edit: it must not land on the undo
     // stack, where an undo would re-strand the document it just fixed.
     { history: "ignore" },
+  );
+}
+
+/**
+ * Writes a video's `videoKey` into the record, if it is not there yet.
+ *
+ * Called at the moment a video is about to be copied — a movement
+ * keyframe, a duplicate, a clipboard read — which is the first moment
+ * the key has to be stored: a copy made from a video whose key was
+ * never written would fall back to its OWN new shape id, splitting one
+ * video into two identities. Deferring to here rather than doing it on
+ * load is what keeps merely opening a document from writing a property
+ * an older build would refuse.
+ */
+export function ensureVideoKeyMaterialized(
+  editor: Editor,
+  shapeIds: readonly TLShapeId[],
+): void {
+  const pending = shapeIds
+    .map((shapeId) => editor.getShape(shapeId))
+    .filter(isYouTubeEmbedShape)
+    .filter(
+      (video) => video.props.videoKey == null || video.props.videoKey === "",
+    );
+  if (pending.length === 0) {
+    return;
+  }
+  editor.updateShapes(
+    pending.map((video) => ({
+      id: video.id,
+      type: YouTubeEmbedShapeType,
+      props: { videoKey: getVideoKey(video) },
+    })),
   );
 }

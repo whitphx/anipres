@@ -45,6 +45,7 @@ import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
 import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
 import { installVideoLifecycle } from "./media/marker-lifecycle";
+import { ensureVideoKeyMaterialized } from "./media/normalize-video-identity";
 import {
   applyPasteRemapToContent,
   canonicalizeContentVideoConfig,
@@ -633,6 +634,13 @@ const Inner = (props: InnerProps) => {
       editorWithInternal.getContentFromCurrentPage = (
         shapes: TLShapeId[] | TLShape[],
       ) => {
+        ensureVideoKeyMaterialized(editor, [
+          ...editor.getShapeAndDescendantIds(
+            shapes.map((shape) =>
+              typeof shape === "string" ? shape : shape.id,
+            ),
+          ),
+        ]);
         const content = originalGetContent(shapes);
         if (!content) return content;
         augmentContentWithThemeImageAssets(content, (id) =>

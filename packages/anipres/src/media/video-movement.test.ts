@@ -20,7 +20,10 @@ import {
   groupCarriersByVideoKey,
   resolveAnchorCarrier,
 } from "./video-anchor";
-import { normalizeVideoIdentity } from "./normalize-video-identity";
+import {
+  ensureVideoKeyMaterialized,
+  normalizeVideoIdentity,
+} from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
 import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
@@ -773,7 +776,7 @@ describe("legacy records without the prop", () => {
     ).not.toThrow();
   });
 
-  it("normalizes a video whose key is absent, not just empty", () => {
+  it("materializes an absent key when the video is about to be copied", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
       const videoId = createShapeId("legacy");
@@ -792,7 +795,18 @@ describe("legacy records without the prop", () => {
         props: { videoKey: undefined },
       });
 
+      // Merely opening the document must not write the prop — an older
+      // build's validator rejects it, and that would make every opened
+      // document unloadable after a rollback.
       normalizeVideoIdentity(editor);
+      expect(editor.getShape(videoId)?.props).not.toHaveProperty(
+        "videoKey",
+        videoId,
+      );
+
+      // Copying is the first moment the key has to exist, or the copy
+      // would fall back to its own id and become a different video.
+      ensureVideoKeyMaterialized(editor, [videoId]);
 
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
@@ -878,7 +892,7 @@ describe("transition hygiene", () => {
 });
 
 describe("normalization covers every page", () => {
-  it("normalizes a legacy video on a page that is not open", () => {
+  it("rewrites a legacy event's target on a page that is not open", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {
       const otherPageId = editor.getPages()[0]!.id;
@@ -887,29 +901,40 @@ describe("normalization covers every page", () => {
         .getPages()
         .find((page) => page.id !== otherPageId)!.id;
       editor.setCurrentPage(secondPageId);
-      const videoId = createShapeId("legacy-elsewhere");
+      const videoId = createVideo(editor, "legacy-elsewhere");
+      const markerId = createShapeId("legacy-marker-elsewhere");
       editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
+        id: markerId,
+        type: "media-control",
         x: 0,
         y: 0,
-        props: { videoId: "M7lc1UVf-VE" },
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame-elsewhere",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
       });
-      editor.updateShape({
-        id: videoId,
-        type: "youtube-embed",
-        props: { videoKey: undefined },
+      editor.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
       });
-      // Back to the first page, so the legacy record is off-screen —
-      // which is exactly where an unnormalized key would later split a
-      // video in two the first time it was animated.
+      // Back to the first page, so the legacy records are off-screen.
       editor.setCurrentPage(otherPageId);
 
       normalizeVideoIdentity(editor);
 
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      expect(video.props.videoKey).toBe(videoId);
+      const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+        throw new Error("expected a mediaControl cue frame");
+      }
+      expect(parsed.frame.action.videoKey).toBe(videoId);
     } finally {
       dispose();
     }

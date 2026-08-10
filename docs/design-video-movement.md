@@ -1,9 +1,11 @@
 # Moving and resizing a video during a presentation
 
-Status: implemented for a single document, and **forward-only** —
-opening a document writes `videoKey`, which the previous release's
-validator rejects, so the acceptance-only Stage A below is a
-prerequisite for a safe rollback and has not been built. The shared-room protocol
+Status: implemented for a single document. The `videoKey` prop is
+written lazily — only when a video is first copied — so opening a
+document leaves it byte-identical and rollback-safe; a document that
+has actually used the feature is not, since the previous release's
+validator rejects the prop. The acceptance-only Stage A below, which
+would remove even that, has not been built. The shared-room protocol
 described below — the `sync-core` pre-apply hook and everything resting
 on it — is **not** built; the sync gate moves to 4 and the worker and
 app bundle ship together, as they already do.
