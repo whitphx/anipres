@@ -277,3 +277,40 @@ export function applyPasteRemapToContent<
     options.resolveSourceConfig,
   );
 }
+
+/**
+ * Writes each copied video's canonical configuration into clipboard
+ * content, on the source side where the source document is still in
+ * hand.
+ *
+ * A video's configuration lives on one owner carrier, and a copy need
+ * not include it — copying a later keyframe copies a record whose own
+ * media props may be blank or superseded. The destination of an
+ * external paste has no source to ask, so if the payload leaves without
+ * the real values they are simply gone, and the paste creates a video
+ * that names nothing.
+ */
+export function canonicalizeContentVideoConfig<
+  T extends {
+    shapes: { id: string; type: string; props?: unknown }[];
+  },
+>(content: T, resolveConfig: (videoKey: string) => VideoConfig | null): T {
+  let changed = false;
+  const shapes = content.shapes.map((shape) => {
+    if (shape.type !== YouTubeEmbedShapeType) {
+      return shape;
+    }
+    const props = shape.props as { videoKey?: string } | undefined;
+    const videoKey =
+      props?.videoKey != null && props.videoKey !== ""
+        ? props.videoKey
+        : shape.id;
+    const config = resolveConfig(videoKey);
+    if (config == null) {
+      return shape;
+    }
+    changed = true;
+    return { ...shape, props: { ...(props ?? {}), ...config } };
+  });
+  return changed ? { ...content, shapes } : content;
+}

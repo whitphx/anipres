@@ -34,7 +34,10 @@ export function normalizeVideoIdentity(editor: Editor): void {
 
   const videosNeedingKey: YouTubeEmbedShape[] = [];
   for (const shape of shapes) {
-    if (isYouTubeEmbedShape(shape) && shape.props.videoKey === "") {
+    if (
+      isYouTubeEmbedShape(shape) &&
+      (shape.props.videoKey == null || shape.props.videoKey === "")
+    ) {
       videosNeedingKey.push(shape);
     }
   }

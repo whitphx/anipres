@@ -45,7 +45,10 @@ import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
 import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
 import { installVideoLifecycle } from "./media/marker-lifecycle";
-import { applyPasteRemapToContent } from "./media/remap-video-keys";
+import {
+  applyPasteRemapToContent,
+  canonicalizeContentVideoConfig,
+} from "./media/remap-video-keys";
 import {
   groupCarriersByVideoKey,
   resolveVideoConfig,
@@ -625,7 +628,20 @@ const Inner = (props: InnerProps) => {
         augmentContentWithThemeImageAssets(content, (id) =>
           editor.getAsset(id),
         );
-        return attachCopyProvenance(content, copySourceToken);
+        // Stamp each copied video's real configuration while the source
+        // document is still here to ask: a copy of a later keyframe
+        // carries that keyframe's own props, which may be blank, and a
+        // paste into another document has nothing to recover them from.
+        const canonicalized = canonicalizeContentVideoConfig(
+          content,
+          (videoKey) =>
+            resolveVideoConfig(
+              groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+                videoKey,
+              ) ?? [],
+            ),
+        );
+        return attachCopyProvenance(canonicalized, copySourceToken);
       };
     } else {
       console.warn(

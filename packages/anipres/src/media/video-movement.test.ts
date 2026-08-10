@@ -25,8 +25,10 @@ import { readPlacements } from "./player-placement";
 import { resolveVideoConfig, getConfigOwnerCarrier } from "./video-anchor";
 import {
   applyPasteRemapToContent,
+  canonicalizeContentVideoConfig,
   remapContentVideoKeys,
 } from "./remap-video-keys";
+import { youTubeEmbedShapeProps } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
@@ -756,6 +758,98 @@ describe("timeline grouping", () => {
       );
       expect(mediaTrackIds).toHaveLength(1);
       expect(groups[mediaTrackIds[0]!]).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("legacy records without the prop", () => {
+  it("validates a youtube-embed persisted before videoKey existed", () => {
+    // The store validates a snapshot while it is being created, long
+    // before any normalization can touch it — so a required prop here
+    // would reject the very documents this change means to upgrade.
+    expect(() =>
+      youTubeEmbedShapeProps.videoKey!.validate(undefined),
+    ).not.toThrow();
+  });
+
+  it("normalizes a video whose key is absent, not just empty", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createShapeId("legacy");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        x: 0,
+        y: 0,
+        props: { videoId: "M7lc1UVf-VE" },
+      });
+      // Strip the key the minting handler wrote, leaving the record in
+      // the shape a pre-change document has.
+      editor.updateShape({
+        id: videoId,
+        type: "youtube-embed",
+        props: { videoKey: undefined },
+      });
+
+      normalizeVideoIdentity(editor);
+
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      expect(video.props.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("cross-document copy", () => {
+  it("carries the video's real config out of the source document", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createShapeId("video");
+      editor.createShape({ id: videoId, type: "youtube-embed", x: 0, y: 0 });
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({ ...video, id: keyframeId, x: 400, meta: undefined });
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+      });
+
+      // Clipboard content holding only the BLANK later keyframe.
+      const keyframe = editor.getShape(keyframeId);
+      if (!isYouTubeEmbedShape(keyframe)) throw new Error("expected a video");
+      expect(keyframe.props.videoId).toBe("");
+      const content = {
+        shapes: [
+          {
+            id: keyframe.id as string,
+            type: keyframe.type,
+            props: keyframe.props,
+          },
+        ],
+      };
+
+      const canonical = canonicalizeContentVideoConfig(content, (videoKey) =>
+        resolveVideoConfig(
+          groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+            videoKey,
+          ) ?? [],
+        ),
+      );
+
+      // The payload leaves with the video's real configuration, so a
+      // paste into a document that has never seen the source still
+      // yields a working video.
+      const copied = canonical.shapes[0] as { props: { videoId: string } };
+      expect(copied.props.videoId).toBe("M7lc1UVf-VE");
     } finally {
       dispose();
     }

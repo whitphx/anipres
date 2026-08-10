@@ -176,7 +176,8 @@ export function installVideoLifecycle(editor: Editor): () => void {
   const stopMinting = editor.sideEffects.registerBeforeCreateHandler(
     "shape",
     (shape) =>
-      isYouTubeEmbedShape(shape) && shape.props.videoKey === ""
+      isYouTubeEmbedShape(shape) &&
+      (shape.props.videoKey == null || shape.props.videoKey === "")
         ? { ...shape, props: { ...shape.props, videoKey: shape.id } }
         : shape,
   );

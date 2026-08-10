@@ -12,10 +12,12 @@ export interface YouTubeEmbedShapeProps {
    * with one key. Media events target this key rather than a shape id,
    * and the runtime mounts exactly one player per key.
    *
-   * "" on records written before the prop existed; read it through
+   * Absent on records written before the prop existed — validated as
+   * optional so such a document loads at all, since the store validates
+   * a snapshot before any normalization can touch it. Read it through
    * {@link getVideoKey}, which falls back to the shape's own id.
    */
-  videoKey: string;
+  videoKey?: string;
   /** The URL the user pasted, kept for display and re-editing. */
   url: string;
   /** Extracted YouTube video id; "" while the shape has no video yet. */
@@ -41,7 +43,7 @@ export type YouTubeEmbedShape = TLBaseShape<
 export const youTubeEmbedShapeProps: RecordProps<YouTubeEmbedShape> = {
   w: T.nonZeroNumber,
   h: T.nonZeroNumber,
-  videoKey: T.string,
+  videoKey: T.string.optional(),
   url: T.string,
   videoId: T.string,
   start: T.positiveNumber,
@@ -57,7 +59,8 @@ export const youTubeEmbedShapeProps: RecordProps<YouTubeEmbedShape> = {
  * copied — and is what normalization materializes.
  */
 export function getVideoKey(shape: YouTubeEmbedShape): string {
-  return shape.props.videoKey !== "" ? shape.props.videoKey : shape.id;
+  const videoKey = shape.props.videoKey;
+  return videoKey != null && videoKey !== "" ? videoKey : shape.id;
 }
 
 export function isYouTubeEmbedShape(
