@@ -1853,6 +1853,32 @@ describe("a marker whose carrier went and came back", () => {
   });
 });
 
+describe("a copied event whose video was not copied with it", () => {
+  it("is bound to a live carrier of the video it names", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlCueFrame(videoId);
+      const [source] = markersOf(editor, videoId);
+
+      // A clone of the event alone — the video it controls stayed put.
+      const copyId = createShapeId("copied-marker");
+      editor.createShape({ ...source, id: copyId });
+
+      // An older build resolves an event only through this binding and
+      // deletes a marker without one, so a newly authored event has to
+      // carry it whatever created the marker.
+      expect(getMediaControlBindingTargetId(editor, copyId)).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

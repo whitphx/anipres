@@ -39,6 +39,28 @@ export function followupActionFrom(prevAction: FrameAction): FrameAction {
   return { type: prevAction.type, duration: 1000 };
 }
 
+/**
+ * One carrier per video, keeping the order they came in.
+ *
+ * A video that moves is several carriers, and a request made with more
+ * than one of them selected — adding a playback event, say — is still
+ * one request about one video.
+ */
+export function oneCarrierPerVideo<T>(
+  carriers: readonly T[],
+  videoKeyOf: (carrier: T) => string,
+): T[] {
+  const seen = new Set<string>();
+  return carriers.filter((carrier) => {
+    const videoKey = videoKeyOf(carrier);
+    if (seen.has(videoKey)) {
+      return false;
+    }
+    seen.add(videoKey);
+    return true;
+  });
+}
+
 export interface FramePosition {
   stepIndex: number;
   batch: BatchData;

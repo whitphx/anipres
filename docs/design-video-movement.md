@@ -63,6 +63,17 @@ that video returning, by undo or from a peer, brings its events back
 with it. The cascade is therefore only ever storage cleanup, which is
 why withholding it costs a shared document nothing a user can see.
 
+A newly created media event is bound the way a returning carrier is,
+whatever created it — a clone of a frame's shapes can produce a marker
+while the video it names stays outside the clone. The compatibility
+binding is written for any marker that arrives without one, so an
+older build, which resolves an event only through the binding and
+deletes a marker that has none, never meets an event it will discard.
+
+A request made with several carriers of one video selected is one
+request about one video: adding a playback event with two keyframes
+selected adds one event, not one per carrier.
+
 A video is page-scoped: its carriers, and the markers of its events,
 resolve against one page's shapes. So a deletion repairs the page the
 deleted record was on, read while it is still resolvable, and the

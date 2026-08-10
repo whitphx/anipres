@@ -277,7 +277,16 @@ export function installVideoLifecycle(
   const stopWatchCreates = editor.sideEffects.registerAfterCreateHandler(
     "shape",
     (shape) => {
-      if (!isYouTubeEmbedShape(shape)) {
+      // A marker as much as a carrier: a copied event has to be bound
+      // as well as a returning video, and the copy that produced it may
+      // not have brought a carrier along — cloning a frame's shapes
+      // where the video itself sits outside the clone.
+      const videoKey = isYouTubeEmbedShape(shape)
+        ? getVideoKey(shape)
+        : shape.type === MediaControlShapeType
+          ? resolveMediaControlVideoKey(editor, shape.id)
+          : null;
+      if (videoKey == null) {
         return;
       }
       const pageId = editor.getAncestorPageId(shape);
@@ -286,7 +295,7 @@ export function installVideoLifecycle(
       }
       createdByPage ??= new Map();
       const keys = createdByPage.get(pageId) ?? new Set<string>();
-      keys.add(getVideoKey(shape));
+      keys.add(videoKey);
       createdByPage.set(pageId, keys);
     },
   );

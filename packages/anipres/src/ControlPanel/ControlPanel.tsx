@@ -26,13 +26,17 @@ import type { FrameUIData } from "../Timeline/frame-ui-data";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
-import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { ensureVideoKeyMaterialized } from "../media/normalize-video-identity";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
   followupActionFrom,
+  oneCarrierPerVideo,
   planDetachedReattach,
   planSameTrackSplitMaterialization,
   planStepKeyAlignment,
@@ -103,9 +107,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     };
   });
 
-  const selectedYouTubeEmbedShapes = selectedShapes.filter(
-    (shape) => shape.type === YouTubeEmbedShapeType,
-  );
+  const selectedYouTubeEmbedShapes = selectedShapes.filter(isYouTubeEmbedShape);
 
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {
@@ -392,7 +394,10 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             className={styles.playButton}
             title="Add a playback event (play, pause, …) for the selected video as a new step"
             onClick={() => {
-              selectedYouTubeEmbedShapes.forEach((shape) => {
+              oneCarrierPerVideo(
+                selectedYouTubeEmbedShapes,
+                getVideoKey,
+              ).forEach((shape) => {
                 presentationManager.attachMediaControlCueFrame(shape.id);
               });
             }}
