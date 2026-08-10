@@ -1550,6 +1550,70 @@ describe("deleting the carrier that won a property", () => {
     }
   });
 
+  it("carries the winning session id, not just its counter", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+
+      // Two clients edited this property offline from the same
+      // counter, reaching the same value under different sessions. The
+      // survivor holds the losing one.
+      const survivorId = createShapeId("zzz-survivor");
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...original,
+            id: survivorId,
+            x: 900,
+            props: { ...original.props, videoId: "EDITED" },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: { videoId: { c: 7, s: "aaa" } },
+            },
+          },
+        ]);
+        editor.store.put([
+          {
+            ...editor.getShape(videoId)!,
+            props: { ...original.props, videoId: "EDITED" },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: { videoId: { c: 7, s: "zzz" } },
+            },
+          },
+        ]);
+      });
+
+      editor.deleteShapes([videoId]);
+
+      // A third client's record, ordered behind the deleted winner but
+      // ahead of the survivor's own session, arrives afterwards.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...original,
+            id: createShapeId("zzz-late"),
+            x: 1800,
+            props: { ...original.props, videoId: "STALE" },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: { videoId: { c: 7, s: "mmm" } },
+            },
+          },
+        ]);
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+
   it("leaves a property the survivor has already moved past", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
     try {

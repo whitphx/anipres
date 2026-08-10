@@ -369,10 +369,18 @@ export function updateVideoConfig(
         highest = stamp.c;
       }
     }
-    // Clamped so the counter written stays inside the range a read
-    // accepts, whatever a carrier claims to have reached.
+    // At the top of the range there is no higher counter to take, so
+    // the property starts again from the bottom rather than write one
+    // that does not advance. A stamp that only ties the one it found
+    // is ordered by session id alone, which is a coin toss over which
+    // value the user sees, and the edit is what the user just asked
+    // for. Starting over is safe because this write reaches every
+    // carrier, leaving the counter it replaces on none of them. Only a
+    // record from outside arrives here — the ceiling sits far above
+    // any editing history.
+    const next = highest + 1;
     stamps[key] = {
-      c: Math.min(highest, CONFIG_STAMP_CEILING - 2) + 1,
+      c: next < CONFIG_STAMP_CEILING ? next : 1,
       s: session,
     };
   }
@@ -456,12 +464,24 @@ export function restoreStampedVideoConfig(
     groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoKey) ?? [];
   const stale = carriers.filter((carrier) => {
     const stamps = readStamps(carrier);
-    return VIDEO_CONFIG_KEYS.some(
-      (key) =>
-        carrier.props[key] !== captured.config[key] ||
-        (captured.stamps[key] != null &&
-          stamps[key]?.c !== captured.stamps[key].c),
-    );
+    return VIDEO_CONFIG_KEYS.some((key) => {
+      if (carrier.props[key] !== captured.config[key]) {
+        return true;
+      }
+      const winning = captured.stamps[key];
+      if (winning == null) {
+        return false;
+      }
+      const held = stamps[key];
+      // The whole stamp, session id included. Two clients editing one
+      // property offline from the same counter both write that counter
+      // plus one, so a survivor can hold the winning value under a
+      // losing session — and a record arriving later whose session
+      // falls between the two would then outrank the survivor and
+      // revert the property, though it lost to the record just
+      // deleted.
+      return held == null || held.c !== winning.c || held.s !== winning.s;
+    });
   });
   if (stale.length === 0) {
     return;
