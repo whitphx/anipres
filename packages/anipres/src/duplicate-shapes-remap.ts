@@ -125,6 +125,9 @@ export function createDuplicateShapesRemap(
           shapes.map((shape) => (typeof shape === "string" ? shape : shape.id)),
         ),
       ]);
+      const shapeIdsBeforeCall = new Set(
+        editor.getCurrentPageShapes().map((shape) => shape.id),
+      );
       const currentDoc = getTimelineDoc();
       const created: TLShapeId[] = [];
       let result: Editor = editor;
@@ -142,13 +145,23 @@ export function createDuplicateShapesRemap(
         }
         // A duplicate is an independent video, not another carrier of
         // the source: mint its own key so the copied events retarget
-        // with the rest of the operation. Derived from the resulting
-        // selection rather than from `created`, because that capture is
-        // fed by the caller's beforeCreate safety net — video identity
-        // must not depend on whether one is installed.
-        remapDuplicatedVideoKeys(editor, [
-          ...editor.getShapeAndDescendantIds(editor.getSelectedShapeIds()),
-        ]);
+        // with the rest of the operation.
+        //
+        // The set is the ids that did not exist before the call, not
+        // the resulting selection: tldraw returns without creating
+        // anything — and without changing the selection — when it
+        // refuses (the page's shape limit, say), and remapping the
+        // selection then would hand the ORIGINAL carrier a new
+        // identity, splitting it off from its own video. It is also not
+        // `created`, which is fed by the caller's beforeCreate safety
+        // net: identity must not depend on whether one is installed.
+        remapDuplicatedVideoKeys(
+          editor,
+          editor
+            .getCurrentPageShapes()
+            .map((shape) => shape.id)
+            .filter((id) => !shapeIdsBeforeCall.has(id)),
+        );
         if (created.length === 0) {
           return;
         }

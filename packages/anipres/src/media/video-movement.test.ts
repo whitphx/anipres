@@ -1424,3 +1424,48 @@ describe("deleting carriers does not rewrite history", () => {
     }
   });
 });
+
+describe("a refused duplicate leaves the original alone", () => {
+  it("does not re-key the selected carrier when nothing is created", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const keyframeId = createShapeId("keyframe");
+      editor.createShape({
+        ...video,
+        id: keyframeId,
+        x: 400,
+        meta: { videoKey: getVideoKey(video) },
+      });
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      createDuplicateShapesRemap(editor, () =>
+        manager.$getTimelineDoc(),
+      ).install();
+
+      // tldraw refuses over the page's shape limit and returns without
+      // creating anything — or changing the selection. Reading the
+      // selection then would hand this ORIGINAL keyframe a new
+      // identity, splitting it off from its own video.
+      editor.updateInstanceState({ isReadonly: true });
+      editor.select(keyframeId);
+      const before = JSON.stringify(editor.getShape(keyframeId));
+      editor.duplicateShapes([keyframeId], { x: 0, y: 200 });
+      editor.updateInstanceState({ isReadonly: false });
+
+      expect(JSON.stringify(editor.getShape(keyframeId))).toBe(before);
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers.map((c) => c.id).sort()).toEqual(
+        [videoId, keyframeId].sort(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+});
