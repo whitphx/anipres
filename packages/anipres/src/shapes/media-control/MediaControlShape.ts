@@ -5,11 +5,6 @@ import type {
   TLShape,
   TLShapeId,
 } from "tldraw";
-import {
-  getVideoKey,
-  isYouTubeEmbedShape,
-} from "../youtube-embed/YouTubeEmbedShape";
-import { getMediaControlBindingTargetId } from "./MediaControlBinding";
 import { parseFrameMeta } from "../../timeline-model/parse";
 import {
   getDefaultAnchorCarrier,
@@ -65,9 +60,7 @@ export function resolveMediaControlVideoKey(
   ) {
     return parsed.frame.action.videoKey;
   }
-  const targetId = getMediaControlBindingTargetId(editor, marker.id);
-  const target = targetId != null ? editor.getShape(targetId) : null;
-  return isYouTubeEmbedShape(target) ? getVideoKey(target) : null;
+  return null;
 }
 
 /**

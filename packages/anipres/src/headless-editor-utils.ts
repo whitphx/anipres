@@ -5,7 +5,6 @@ import {
   tipTapDefaultExtensions,
 } from "tldraw";
 import type {
-  TLBinding,
   TLStoreSnapshot,
   TLEditorSnapshot,
   TLPageId,
@@ -161,23 +160,6 @@ function resolvePageId(
   )[0].id;
 }
 
-/** The snapshot's binding records, for resolving a legacy marker. */
-function getBindingRecordsFromSnapshot(
-  snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
-): { type: string; fromId: string; toId: string }[] {
-  const storeSnapshot: TLStoreSnapshot | undefined =
-    "store" in snapshot && snapshot.store != null
-      ? (snapshot as TLStoreSnapshot)
-      : (snapshot as Partial<TLEditorSnapshot>).document;
-  if (storeSnapshot?.store == null) {
-    return [];
-  }
-  return Object.values(storeSnapshot.store).filter(
-    (record): record is TLBinding =>
-      (record as { typeName?: string }).typeName === "binding",
-  );
-}
-
 export function calculateTotalSteps(
   snapshot: Partial<TLEditorSnapshot> | TLStoreSnapshot,
   options: { pageId?: string } = {},
@@ -205,7 +187,6 @@ export function calculateTotalSteps(
   }
   const shapes = timelineShapesOfRecords(
     allShapes.filter((shape) => onPage.has(shape.id)),
-    getBindingRecordsFromSnapshot(snapshot),
   );
   const doc = deriveTimeline({
     shapes: shapes.map((shape) => ({

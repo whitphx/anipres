@@ -7,8 +7,7 @@ pill needing an acceptance-only Stage A to deploy safely; putting the
 key where frames already live removes that failure, since tldraw does
 not validate `meta` and an older build simply ignores it, so no
 document is ever left unloadable. What an older build still gets wrong
-is deleting a binding-less marker as an orphan, which the version gate
-covers, and rendering: it knows nothing of one video spread across
+is rendering: it knows nothing of one video spread across
 carriers, so it mounts a player per carrier and keeps them all visible,
 and a moving video comes up as several independent players. The version
 gate keeps such a client away from such a document only while the two
@@ -19,6 +18,20 @@ below, with its floors and its document-gated server, is what finally
 closes. The stages are not built; the exposure is accepted for now, and
 it is a misrender rather than a loss, since the records the older build
 cannot interpret are still there when it rolls forward.
+
+What the design describes as a compatibility binding written beside
+every event is not built either, and deliberately so. Nothing writes
+the `media-control` binding and nothing resolves an event through one:
+a document that predates `videoKey` is converted off-line, once, by
+`convertLegacyVideoIdentity` — which reads the binding, writes the key
+into the event's own frame, and deletes the binding — and the type
+stays registered only so an unconverted document loads far enough to
+be converted. Keeping the binding alive alongside the key meant two
+records of the same fact, and every path that created, copied, moved
+or deleted a carrier had to keep them in step; each of those paths was
+a defect before it was a feature. The sections below that describe
+dual-writing, repointing and binding-less orphan recovery describe a
+design that was tried and dropped.
 
 Two further parts of what follows describe the player rather than the
 document, and are also not built. The Absent lifecycle below — pausing
@@ -60,9 +73,9 @@ without an editor — because a reader counting the steps this one drops
 numbers every later step differently from the steps the user sees and
 the presentation plays: an instruction naming a step lands on the wrong
 one, and a deck allocating its clicks from that count spends one going
-nowhere. How a marker names its video is the only part that differs, a
-live editor resolving the legacy binding through the store where a
-snapshot reads the binding records itself. Deciding it
+nowhere. How a marker names its video is the only part that
+differs, a live editor having a store to ask where a bare snapshot has
+only the records. Deciding it
 there rather than by deleting the record needs no arbitration at all —
 every client sees the same carriers and drops the same events, no
 client writes anything, and nothing has to be settled before the
@@ -94,36 +107,15 @@ whichever page happens to be open — a carrier deleted on a page the
 user is not looking at would otherwise be repaired against a page that
 holds none of its video, which repairs nothing and leaves a survivor
 on the real page holding whatever it last saw. `videoKey` itself is
-the exception, being document-wide: normalization walks every page,
-since a legacy video left unnormalized elsewhere would have a
-follow-up keyframe mint a new key and split it in two.
-
-A legacy event's target key is written into its own frame the moment
-there is both a binding saying what it controls and a video for it to
-name — whichever of the two arrives second — rather than only by the
-pass that runs when the lifecycle is installed. A shared room delivers records in
-whatever order it likes, so a marker can arrive ahead of both its
-binding and its video; resolution falls back to the binding as soon as
-that lands, and the event works, but nothing has recorded the key.
-tldraw takes a binding away with the record it points at, so deleting
-that carrier while another carrier of the same video survives would
-leave the event naming nothing, resolvable by no route, and it would
-drop out of the presentation for good. The write is deterministic —
-read off a binding every client already has — so a shared document is
-safe.
-
-Deleting a legacy event that resolves to nothing is gated the way the
-cascade is. Unresolvable now is not unresolvable for good: in a shared
-document the video, or the binding, may simply not have arrived, and a
-peer's undo can bring either back. The record stays, and stays inert,
-until it resolves or a client that owns the document settles it.
+the exception, being document-wide: conversion walks every page, since
+a legacy video left unconverted elsewhere would have a follow-up
+keyframe mint a new key and split it in two.
 
 An event's target key is read as absent when it is present but empty.
-An empty key names no video, and normalization takes any key that is
-present as already migrated, so carrying it would strand an event a
-legacy binding could still have recovered. Rejecting the frame instead
-would be worse: an unreadable frame is offered a repair that clears
-it.
+An empty key names no video, and conversion takes any key that is
+present as already converted, so carrying it would strand an event the
+binding could still have recovered. Rejecting the frame instead would
+be worse: an unreadable frame is offered a repair that clears it.
 
 Cutting a video is the one place that retention is visible to the
 user rather than only to the store. A copy of a video carries its

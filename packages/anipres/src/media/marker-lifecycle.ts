@@ -19,7 +19,6 @@ import {
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import {
-  getConfigOwnerCarrier,
   getDefaultAnchorCarrier,
   groupCarriersByVideoKey,
   readStampedVideoConfig,
@@ -28,16 +27,9 @@ import {
   type StampedVideoConfig,
 } from "./video-anchor";
 import {
-  getMediaControlBindingTargetId,
-  MediaControlBindingType,
-  writeLegacyMediaControlBinding,
-} from "../shapes/media-control/MediaControlBinding";
-import {
   getVideoKey,
   isYouTubeEmbedShape,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
-import { normalizeVideoIdentity } from "./normalize-video-identity";
-import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 
 interface MarkerPlacement {
   markerId: TLShapeId;
@@ -155,64 +147,6 @@ function shapesOnSamePage(editor: Editor, shape: TLShape): TLShape[] {
   return pageId == null ? [] : shapesOnPage(editor, pageId);
 }
 
-/**
- * Writes a legacy event's target key into its own frame, once there is
- * a binding that says what it controls.
- *
- * Normalization runs when the lifecycle is installed, which in a shared
- * room is before the document has finished arriving: a marker can be
- * delivered ahead of its binding and its video. Resolution falls back
- * to the binding as soon as it lands, so the event works — but nothing
- * has written the key, and tldraw removes a binding along with the
- * record it points at. Deleting that carrier while another carrier of
- * the same video survives would then leave the marker naming nothing at
- * all, resolvable by no route, and the event would drop out of the
- * presentation for good.
- *
- * Deterministic, so a shared document is safe: the key is read off the
- * binding every client already has, and every client writes the same
- * one.
- */
-function materializeMarkerVideoKey(
-  editor: Editor,
-  markerShapeId: TLShapeId,
-): void {
-  const marker = editor.getShape(markerShapeId);
-  if (marker?.type !== MediaControlShapeType) {
-    return;
-  }
-  const parsed = parseFrameMeta(marker.meta?.frame);
-  if (
-    parsed.kind !== "v2" ||
-    parsed.frame.action.type !== "mediaControl" ||
-    parsed.frame.action.videoKey != null
-  ) {
-    return;
-  }
-  const videoKey = resolveMediaControlVideoKey(editor, markerShapeId);
-  if (videoKey == null) {
-    return;
-  }
-  editor.run(
-    () => {
-      editor.updateShape({
-        id: marker.id,
-        type: marker.type,
-        meta: {
-          ...marker.meta,
-          frame: frameToMetaJson({
-            ...parsed.frame,
-            action: { ...parsed.frame.action, videoKey },
-          }),
-        },
-      });
-    },
-    // Normalization, not a user edit — the same scope the load-time
-    // pass uses, for the same reason.
-    { history: "ignore", ignoreShapeLock: true },
-  );
-}
-
 export interface VideoLifecycleOptions {
   /**
    * Whether this client is the only writer of the document.
@@ -236,7 +170,6 @@ export function installVideoLifecycle(
   // The load-side normalization authority for an unsynced document:
   // legacy videos get their `videoKey`, legacy events get the target key
   // that used to live in a binding.
-  normalizeVideoIdentity(editor, { soleWriter });
   // A placed video mints its identity as its own id. Written at
   // creation rather than left to the read-time fallback: a follow-up
   // keyframe copied from a video whose key was never stored would fall
@@ -289,11 +222,6 @@ export function installVideoLifecycle(
   // from whichever capture came first, writing one page's settings
   // over the other's.
   let deletedByPage: Map<TLPageId, Set<string>> | null = null;
-  // Carriers that arrived, which the compatibility bindings care about
-  // as much as ones that left: a marker whose binding went with the
-  // carrier it pointed at — a cut, a delete and undo — has one written
-  // again as soon as the video has a carrier to point at.
-  let createdByPage: Map<TLPageId, Set<string>> | null = null;
   const capturedByPage = new Map<TLPageId, Map<string, StampedVideoConfig>>();
   // Read while every carrier is still present: the stamps that won a
   // property may live only on the record about to go. The page has to
@@ -333,78 +261,17 @@ export function installVideoLifecycle(
       }
     },
   );
-  const stopWatchCreates = editor.sideEffects.registerAfterCreateHandler(
-    "shape",
-    (shape) => {
-      // A marker as much as a carrier: a copied event has to be bound
-      // as well as a returning video, and the copy that produced it may
-      // not have brought a carrier along — cloning a frame's shapes
-      // where the video itself sits outside the clone.
-      const videoKey = isYouTubeEmbedShape(shape)
-        ? getVideoKey(shape)
-        : shape.type === MediaControlShapeType
-          ? resolveMediaControlVideoKey(editor, shape.id)
-          : null;
-      if (videoKey == null) {
-        return;
-      }
-      const pageId = editor.getAncestorPageId(shape);
-      if (pageId == null) {
-        return;
-      }
-      createdByPage ??= new Map();
-      const keys = createdByPage.get(pageId) ?? new Set<string>();
-      keys.add(videoKey);
-      createdByPage.set(pageId, keys);
-
-      if (!isYouTubeEmbedShape(shape)) {
-        return;
-      }
-      // The other arrival order: a binding that landed while its video
-      // had not, so nothing could resolve the key when it was created.
-      // Now that the video is here, the events bound to it can say
-      // what they control.
-      for (const binding of editor.getBindingsToShape(
-        shape.id,
-        MediaControlBindingType,
-      )) {
-        materializeMarkerVideoKey(editor, binding.fromId);
-      }
-    },
-  );
-  const stopWatchBindings = editor.sideEffects.registerAfterCreateHandler(
-    "binding",
-    (binding) => {
-      if (binding.type !== MediaControlBindingType) {
-        return;
-      }
-      materializeMarkerVideoKey(editor, binding.fromId);
-    },
-  );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
       const byPage = deletedByPage;
-      const created = createdByPage;
       deletedByPage = null;
-      createdByPage = null;
-      if (created != null) {
-        for (const [pageId, keys] of created) {
-          // Safe in any document, and idempotent: a marker that still
-          // has a binding keeps it, and the heir is a pure function of
-          // the survivors, so concurrent clients write the same one.
-          repointLegacyBindings(editor, keys, shapesOnPage(editor, pageId));
-        }
-      }
       if (byPage == null) {
         capturedByPage.clear();
         return;
       }
       for (const [pageId, keys] of byPage) {
         const shapes = shapesOnPage(editor, pageId);
-        // Safe in any document: the heir is a pure function of the
-        // survivors, so concurrent clients repoint identically.
-        repointLegacyBindings(editor, keys, shapes);
-        // Also safe in any document: it re-imposes values that had
+        // Safe in any document: it re-imposes values that had
         // already won, carrying the stamps that won them, onto every
         // survivor rather than onto one chosen record a concurrent push
         // could delete out from under it. Two clients performing it
@@ -427,8 +294,6 @@ export function installVideoLifecycle(
   return () => {
     stopMinting();
     stopCaptureConfigs();
-    stopWatchCreates();
-    stopWatchBindings();
     stopParking();
     stopCleanup();
   };
@@ -445,46 +310,6 @@ export function installVideoLifecycle(
  * of an animated video correspondingly leaves the events alone — which
  * the binding's per-shape cascade got wrong.
  */
-/**
- * Repoints the compatibility bindings whose video carrier just went
- * away, for videos that still have one.
- *
- * The binding exists so an older build can still resolve an event —
- * it deletes a marker that has none as an orphan. tldraw removes a
- * binding with its endpoint, so deleting any one carrier would strip
- * that protection from the video's events while the video itself lives
- * on. Repointing is a pure function of the surviving carriers, so every
- * client computes the same answer and repeating it changes nothing.
- */
-function repointLegacyBindings(
-  editor: Editor,
-  videoKeys: ReadonlySet<string>,
-  shapes: readonly TLShape[],
-): void {
-  if (videoKeys.size === 0) {
-    return;
-  }
-  const carriersByKey = groupCarriersByVideoKey(shapes);
-  for (const shape of shapes) {
-    if (shape.type !== MediaControlShapeType) {
-      continue;
-    }
-    const videoKey = resolveMediaControlVideoKey(editor, shape.id);
-    if (videoKey == null || !videoKeys.has(videoKey)) {
-      continue;
-    }
-    const carriers = carriersByKey.get(videoKey);
-    const heir = carriers != null ? getConfigOwnerCarrier(carriers) : null;
-    if (heir == null) {
-      // No carrier left: the marker goes too, bindings with it.
-      continue;
-    }
-    if (getMediaControlBindingTargetId(editor, shape.id) != null) {
-      continue;
-    }
-    writeLegacyMediaControlBinding(editor, shape.id, heir.id);
-  }
-}
 
 function deleteOrphanedMediaMarkers(
   editor: Editor,

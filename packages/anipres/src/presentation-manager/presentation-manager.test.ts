@@ -299,7 +299,12 @@ describe("step run cancellation", () => {
       stepId: "s1",
       stepOrderKey: "a1",
       // The duration is the wait before the batch's next frame.
-      action: { type: "mediaControl", command: "play", duration: 3000 },
+      action: {
+        type: "mediaControl",
+        command: "play",
+        duration: 3000,
+        videoKey: videoId,
+      },
     };
     const sub: SubFrame = {
       v: 2,
@@ -307,7 +312,7 @@ describe("step run cancellation", () => {
       type: "sub",
       cueFrameId: "mc-cue",
       orderKey: "a1",
-      action: { type: "mediaControl", command: "pause" },
+      action: { type: "mediaControl", command: "pause", videoKey: videoId },
     };
     // A second step so tests can advance past the play/pause batch.
     const followUpCue: CueFrame = {
@@ -317,7 +322,7 @@ describe("step run cancellation", () => {
       trackId: "T-media",
       stepId: "s2",
       stepOrderKey: "a2",
-      action: { type: "mediaControl", command: "mute" },
+      action: { type: "mediaControl", command: "mute", videoKey: videoId },
     };
     const markerCueId = createShapeId("marker-cue");
     const markerSubId = createShapeId("marker-sub");
@@ -343,13 +348,6 @@ describe("step run cancellation", () => {
       y: 300,
       meta: { frame: frameToMetaJson(followUpCue) },
     });
-    for (const markerId of [markerCueId, markerSubId, markerFollowUpId]) {
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-    }
     return { videoId };
   }
 

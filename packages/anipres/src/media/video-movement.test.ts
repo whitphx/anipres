@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { atom, createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
-import { createBindingId, PageRecordType } from "tldraw";
+import { PageRecordType } from "tldraw";
 import type { TLPageId } from "tldraw";
 import {
   calculateTotalSteps,
@@ -28,10 +28,10 @@ import {
 } from "./video-anchor";
 import {
   ensureVideoKeyMaterialized,
-  normalizeVideoIdentity,
+  convertLegacyVideoIdentity,
+  convertLegacyVideoIdentityInSnapshot,
 } from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
-import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
 import { isPlayerAnchor, readPlacements } from "./player-placement";
 import {
   resolveVideoConfig,
@@ -305,7 +305,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      normalizeVideoIdentity(editor, { soleWriter: true });
+      convertLegacyVideoIdentity(editor);
 
       // Read as no key at all, so the binding still recovers it rather
       // than the event pointing at a video that cannot exist.
@@ -360,7 +360,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      normalizeVideoIdentity(editor, { soleWriter: true });
+      convertLegacyVideoIdentity(editor);
 
       // The event's target is filled in from the binding; the video's
       // own key is not written, because merely opening a document must
@@ -397,7 +397,7 @@ describe("normalizeVideoIdentity", () => {
         },
       });
 
-      normalizeVideoIdentity(editor, { soleWriter: true });
+      convertLegacyVideoIdentity(editor);
 
       expect(editor.getShape(markerId)).toBeUndefined();
     } finally {
@@ -913,7 +913,7 @@ describe("legacy records without the prop", () => {
       // pass rewrites frames, which live in unvalidated meta, and never
       // reaches for a video's own record.
       const before = JSON.stringify(editor.getShape(videoId));
-      normalizeVideoIdentity(editor, { soleWriter: true });
+      convertLegacyVideoIdentity(editor);
       expect(JSON.stringify(editor.getShape(videoId))).toBe(before);
 
       // Copying is the first moment the key has to exist, or the copy
@@ -1054,7 +1054,7 @@ describe("normalization covers every page", () => {
       // Back to the first page, so the legacy records are off-screen.
       editor.setCurrentPage(otherPageId);
 
-      normalizeVideoIdentity(editor, { soleWriter: true });
+      convertLegacyVideoIdentity(editor);
 
       const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
       if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
@@ -1477,39 +1477,6 @@ describe("deleting carriers does not rewrite history", () => {
       dispose();
     }
   });
-
-  it("keeps an older build able to resolve events after a carrier goes", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
-    try {
-      const videoId = createVideo(editor, "video");
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      manager.attachMediaControlCueFrame(videoId);
-      const [marker] = markersOf(editor, videoId);
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      const keyframeId = createShapeId("keyframe");
-      editor.createShape({
-        ...video,
-        id: keyframeId,
-        x: 400,
-        meta: { videoKey: getVideoKey(video) },
-      });
-
-      // tldraw removes a binding with its endpoint, so deleting the
-      // bound carrier would leave the marker unbound — which an older
-      // build sweeps up as an orphan even though the video survives.
-      editor.deleteShape(videoId);
-
-      expect(getMediaControlBindingTargetId(editor, marker!.id)).toBe(
-        keyframeId,
-      );
-    } finally {
-      dispose();
-    }
-  });
 });
 
 describe("a refused duplicate leaves the original alone", () => {
@@ -1730,15 +1697,67 @@ describe("deleting a carrier on a page that is not open", () => {
   });
 });
 
-describe("an unresolvable legacy event in a shared document", () => {
-  it("is kept, inert, until its video arrives", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+describe("converting a stored snapshot", () => {
+  it("takes a legacy snapshot in and gives a converted one back", () => {
+    const [source, disposeSource] = loadHeadlessEditor();
+    let legacy;
     try {
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      // A marker whose binding target has not arrived yet.
+      const videoId = createVideo(source, "video");
+      const markerId = createShapeId("marker");
+      source.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 300,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
+      });
+      source.createBinding({
+        type: "media-control",
+        fromId: markerId,
+        toId: videoId,
+      });
+      legacy = source.getSnapshot();
+    } finally {
+      disposeSource();
+    }
+
+    // What the off-line tool does: read the JSON, pass it through,
+    // write it back.
+    const converted = convertLegacyVideoIdentityInSnapshot(
+      JSON.parse(JSON.stringify(legacy)),
+    );
+
+    const records = Object.values(converted.document.store);
+    expect(records.filter((r) => r.typeName === "binding")).toHaveLength(0);
+    const marker = records.find(
+      (r) => r.typeName === "shape" && r.type === "media-control",
+    );
+    const parsed = parseFrameMeta(marker?.meta?.frame);
+    if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+      throw new Error("expected a mediaControl cue frame");
+    }
+    expect(parsed.frame.action.videoKey).toBe(createShapeId("video"));
+    // And the converted deck counts the step the legacy one could not.
+    expect(calculateTotalSteps(converted)).toBe(1);
+  });
+});
+
+describe("converting a legacy document", () => {
+  it("takes out an event whose target cannot be resolved at all", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      // No binding, no key: nothing the document contains says what
+      // this event controls, and no later record can supply it.
       const markerId = createShapeId("legacy-marker");
       editor.createShape({
         id: markerId,
@@ -1758,23 +1777,54 @@ describe("an unresolvable legacy event in a shared document", () => {
         },
       });
 
-      normalizeVideoIdentity(editor, { soleWriter: false });
+      convertLegacyVideoIdentity(editor);
 
-      // Kept, because absence now is not absence for good — but inert,
-      // so it occupies no step while it names no live video.
-      expect(editor.getShape(markerId)).not.toBeUndefined();
-      expect(manager.$getTotalSteps()).toBe(0);
+      expect(editor.getShape(markerId)).toBeUndefined();
+    } finally {
+      dispose();
+    }
+  });
 
-      // The video and its binding arrive from the peer.
+  it("drops the bindings once the events name their videos", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
       const videoId = createVideo(editor, "video");
+      const markerId = createShapeId("legacy-marker");
+      editor.createShape({
+        id: markerId,
+        type: "media-control",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "legacy-frame",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s-media",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "play" },
+          }),
+        },
+      });
       editor.createBinding({
         type: "media-control",
         fromId: markerId,
         toId: videoId,
       });
-      normalizeVideoIdentity(editor, { soleWriter: false });
 
-      expect(manager.$getTotalSteps()).toBe(1);
+      convertLegacyVideoIdentity(editor);
+
+      expect(resolveMediaControlVideoKey(editor, markerId)).toBe(videoId);
+      // One record of what an event controls, not two to keep in step.
+      expect(
+        editor.getBindingsFromShape(markerId, "media-control"),
+      ).toHaveLength(0);
+
+      // Idempotent: a converted document comes out unchanged.
+      const before = JSON.stringify(editor.getSnapshot());
+      convertLegacyVideoIdentity(editor);
+      expect(JSON.stringify(editor.getSnapshot())).toBe(before);
     } finally {
       dispose();
     }
@@ -1833,69 +1883,6 @@ describe("one batch deleting carriers on two pages", () => {
 
       expect(configOn(firstPage.id)).toBe("FIRST");
       expect(configOn(secondPageId)).toBe("SECOND");
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("a marker whose carrier went and came back", () => {
-  it("gets its compatibility binding written again", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
-    try {
-      const videoId = createVideo(editor, "video");
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      manager.attachMediaControlCueFrame(videoId);
-      const [marker] = markersOf(editor, videoId);
-      expect(getMediaControlBindingTargetId(editor, marker.id)).toBe(videoId);
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-
-      // A cut in a shared document: the carrier goes, its marker stays,
-      // and tldraw takes the binding with the record it pointed at.
-      editor.deleteShapes([videoId]);
-      expect(markersOf(editor, videoId)).toHaveLength(1);
-      expect(getMediaControlBindingTargetId(editor, marker.id)).toBeNull();
-
-      // The paste lands the carrier again.
-      const restoredId = createShapeId("restored");
-      editor.createShape({ ...video, id: restoredId });
-
-      // An older build resolves an event only through this binding and
-      // deletes a marker without one as an orphan, so the event would
-      // be lost on a version skew without it.
-      expect(getMediaControlBindingTargetId(editor, marker.id)).toBe(
-        restoredId,
-      );
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("a copied event whose video was not copied with it", () => {
-  it("is bound to a live carrier of the video it names", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
-    try {
-      const videoId = createVideo(editor, "video");
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      manager.attachMediaControlCueFrame(videoId);
-      const [source] = markersOf(editor, videoId);
-
-      // A clone of the event alone — the video it controls stayed put.
-      const copyId = createShapeId("copied-marker");
-      editor.createShape({ ...source, id: copyId });
-
-      // An older build resolves an event only through this binding and
-      // deletes a marker without one, so a newly authored event has to
-      // carry it whatever created the marker.
-      expect(getMediaControlBindingTargetId(editor, copyId)).toBe(videoId);
     } finally {
       dispose();
     }
@@ -2102,192 +2089,6 @@ describe("pasting from a document forked from this one", () => {
 
     const video = pasted.shapes[0] as { props: { videoId: string } };
     expect(video.props.videoId).toBe("FROM_THE_SOURCE");
-  });
-});
-
-describe("duplicating a later keyframe of a video with events", () => {
-  it("binds the copied event to a carrier of the copy", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createVideo(editor, "video");
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      manager.attachMediaControlCueFrame(videoId);
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      const keyframeId = createShapeId("keyframe");
-      editor.createShape({
-        ...video,
-        id: keyframeId,
-        x: 900,
-        meta: { videoKey: videoId },
-      });
-
-      createDuplicateShapesRemap(editor, () =>
-        manager.$getTimelineDoc(),
-      ).install();
-      // The later keyframe alone, so the carrier the source event is
-      // bound to is not part of the copy.
-      editor.select(keyframeId);
-      editor.duplicateShapes([keyframeId], { x: 100, y: 0 });
-
-      const copiedVideos = editor
-        .getCurrentPageShapes()
-        .filter(isYouTubeEmbedShape)
-        .filter((shape) => shape.id !== videoId && shape.id !== keyframeId);
-      expect(copiedVideos).toHaveLength(1);
-      const copyKey = getVideoKey(copiedVideos[0]);
-      const [copiedMarker] = markersOf(editor, copyKey);
-      expect(copiedMarker).not.toBeUndefined();
-
-      // An older build resolves an event only through this binding, so
-      // one pointing at the source video would have the copy's event
-      // drive the original, and none at all would have it deleted.
-      const boundTo = getMediaControlBindingTargetId(editor, copiedMarker.id);
-      expect(copiedVideos.map((shape) => shape.id)).toContain(boundTo);
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("a legacy event delivered before its video", () => {
-  it("survives it when the binding arrived before the video", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
-    try {
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      const markerId = createShapeId("legacy-marker");
-      const videoId = createShapeId("video");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-      // The binding lands from a peer while its target is still on the
-      // way, so nothing can resolve the key when it is created.
-      editor.store.mergeRemoteChanges(() => {
-        editor.store.put([
-          {
-            id: createBindingId("legacy-binding"),
-            typeName: "binding",
-            type: "media-control",
-            fromId: markerId,
-            toId: videoId,
-            meta: {},
-            props: {},
-          } as never,
-        ]);
-      });
-      expect(
-        editor.getBindingsFromShape(markerId, "media-control"),
-      ).toHaveLength(1);
-      editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
-        x: 0,
-        y: 0,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
-      });
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      const keyframeId = createShapeId("zzz-keyframe");
-      editor.createShape({
-        ...video,
-        id: keyframeId,
-        x: 900,
-        meta: { videoKey: videoId },
-      });
-      expect(manager.$getTotalSteps()).toBe(1);
-
-      editor.deleteShapes([videoId]);
-
-      expect(manager.$getTotalSteps()).toBe(1);
-      expect(getMediaControlBindingTargetId(editor, markerId)).toBe(keyframeId);
-    } finally {
-      dispose();
-    }
-  });
-
-  it("survives the deletion of the carrier it was bound to", () => {
-    // A shared room delivers records in whatever order it likes, and
-    // the lifecycle normalizes once, when it is installed.
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
-    try {
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      const markerId = createShapeId("legacy-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            // Pre-videoKey: the binding is the only record of what
-            // this event controls.
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-
-      // Then the video, a second carrier of it, and the binding.
-      const videoId = createVideo(editor, "video");
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      const keyframeId = createShapeId("zzz-keyframe");
-      editor.createShape({
-        ...video,
-        id: keyframeId,
-        x: 900,
-        meta: { videoKey: videoId },
-      });
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-      expect(manager.$getTotalSteps()).toBe(1);
-
-      // tldraw takes a binding away with the record it points at, so
-      // an event that named its video only through the binding would
-      // be left naming nothing, resolvable by no route at all.
-      editor.deleteShapes([videoId]);
-
-      expect(editor.getShape(markerId)).not.toBeUndefined();
-      expect(manager.$getTotalSteps()).toBe(1);
-      // And rebound to the carrier that survived, for an older build.
-      expect(getMediaControlBindingTargetId(editor, markerId)).toBe(keyframeId);
-    } finally {
-      dispose();
-    }
   });
 });
 

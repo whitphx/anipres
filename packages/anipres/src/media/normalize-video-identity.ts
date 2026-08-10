@@ -1,44 +1,49 @@
-// Brings a document up to the videoKey vocabulary: videos carry their
-// own identity, and media events name that identity instead of relying
-// on a `media-control` binding to say what they control.
+// Converting a document written before videos carried their own
+// identity, when a `media-control` binding was what said which video an
+// event controlled.
 //
-// This is normalization, not a schema migration. A tldraw migration
-// would stamp new sequence versions into persisted snapshots, and every
-// release that might reopen such a snapshot would then have to know
-// those versions or refuse the document. Running it as an idempotent
-// pass over the store instead keeps the persisted schema additive —
-// only optional props — so no snapshot is ever stranded.
+// Run once, off-line, over a document that is all there — not on mount.
+// A room populates its store after the editor exists, so a pass at
+// mount would look at an empty document and find nothing to convert,
+// and a document half-converted is worse than one not converted at all.
+//
+// Not a tldraw migration either: a migration stamps new sequence
+// versions into persisted snapshots, and every release that might
+// reopen such a snapshot would then have to know those versions or
+// refuse the document. A pass over the records keeps the persisted
+// schema additive, so no snapshot is stranded.
 
-import type { Editor, TLShape, TLShapeId } from "tldraw";
+import type {
+  Editor,
+  TLBinding,
+  TLEditorSnapshot,
+  TLShape,
+  TLShapeId,
+  TLStoreSnapshot,
+} from "tldraw";
+import { loadHeadlessEditor } from "../headless-editor-utils";
 import {
   getVideoKey,
   isYouTubeEmbedShape,
   YouTubeEmbedShapeType,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
-import { getMediaControlBindingTargetId } from "../shapes/media-control/MediaControlBinding";
+import {
+  getMediaControlBindingTargetId,
+  MediaControlBindingType,
+} from "../shapes/media-control/MediaControlBinding";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model/parse";
 
 /**
- * Fills in the target key of every legacy `mediaControl` frame, and
- * deletes markers whose target cannot be resolved at all — the same
- * recovery the mount path used to perform for unbound markers.
- *
- * Deliberately does NOT write the `videoKey` prop. Frames live in
- * `shape.meta`, which tldraw does not validate, so an older build
- * ignores the extra key and the document still loads; the prop is a
- * different matter — an older validator rejects it outright. Writing it
- * merely because a document was opened would make every opened document
- * unloadable after a rollback, so it is materialized lazily instead,
- * when a video is first copied (see `ensureVideoKeyMaterialized`).
+ * Fills in the target key of every legacy `mediaControl` frame, drops
+ * the bindings once the keys are written, and removes the markers whose
+ * target cannot be resolved at all.
  *
  * Reads only what is in the store, so it is deterministic and
- * idempotent: running it again changes nothing.
+ * idempotent: running it again changes nothing. A document already in
+ * the current vocabulary comes out byte-identical.
  */
-export function normalizeVideoIdentity(
-  editor: Editor,
-  options: { soleWriter: boolean },
-): void {
+export function convertLegacyVideoIdentity(editor: Editor): void {
   // Every page, not just the open one: a legacy video left unnormalized
   // on another page would have a follow-up keyframe copied from it mint
   // a NEW key — splitting one video in two the first time it is
@@ -65,23 +70,35 @@ export function normalizeVideoIdentity(
     const targetId = getMediaControlBindingTargetId(editor, shape.id);
     const target = targetId != null ? editor.getShape(targetId) : null;
     if (!isYouTubeEmbedShape(target)) {
-      // Unresolvable now is not unresolvable for good: in a shared
-      // document the target, or the binding, may simply not have
-      // arrived, and a peer's undo can bring either back. Deleting on
-      // that evidence destroys an event that cannot be reconstructed,
-      // which is the same claim the last-carrier cascade declines to
-      // make. The record stays instead, and stays inert — the timeline
-      // derivation drops an event naming no live video — until it
-      // resolves or an authoritative cleanup settles it.
-      if (options.soleWriter) {
-        orphanedMarkerIds.push(shape.id);
-      }
+      // An event with no binding and no resolvable target names
+      // nothing and never will: no later record can supply what was
+      // already missing when the document was handed over. Conversion
+      // owns the document, so it takes them out rather than leaving
+      // records nothing can interpret.
+      orphanedMarkerIds.push(shape.id);
       continue;
     }
     markerUpdates.push({ shape, videoKey: getVideoKey(target) });
   }
 
-  if (markerUpdates.length === 0 && orphanedMarkerIds.length === 0) {
+  // The bindings go once the keys are written. Nothing resolves an
+  // event through one any more, so leaving them would leave a second,
+  // silent answer to what an event controls — the one every path that
+  // creates, copies, moves or deletes a carrier then had to keep in
+  // step with the first.
+  const staleBindings = editor.store
+    .allRecords()
+    .filter(
+      (record): record is TLBinding =>
+        record.typeName === "binding" &&
+        (record as TLBinding).type === MediaControlBindingType,
+    );
+
+  if (
+    markerUpdates.length === 0 &&
+    orphanedMarkerIds.length === 0 &&
+    staleBindings.length === 0
+  ) {
     return;
   }
 
@@ -106,6 +123,9 @@ export function normalizeVideoIdentity(
             }),
           },
         });
+      }
+      if (staleBindings.length > 0) {
+        editor.deleteBindings(staleBindings);
       }
       if (orphanedMarkerIds.length > 0) {
         editor.deleteShapes(orphanedMarkerIds);
@@ -159,4 +179,21 @@ export function ensureVideoKeyMaterialized(
     },
     { history: "ignore", ignoreShapeLock: true },
   );
+}
+
+/**
+ * The same conversion over a stored snapshot, which is how a deck's
+ * saved documents are converted: read the JSON, pass it through, write
+ * it back.
+ */
+export function convertLegacyVideoIdentityInSnapshot(
+  snapshot: TLEditorSnapshot | TLStoreSnapshot,
+): TLEditorSnapshot {
+  const [editor, dispose] = loadHeadlessEditor({ snapshot });
+  try {
+    convertLegacyVideoIdentity(editor);
+    return editor.getSnapshot();
+  } finally {
+    dispose();
+  }
 }

@@ -7,7 +7,6 @@ import {
   MediaControlShapeType,
   resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
-import { MediaControlBindingType } from "../shapes/media-control/MediaControlBinding";
 import { parseFrameMeta } from "../timeline-model/parse";
 
 /** The least a record has to be for the rule below to read it. */
@@ -37,9 +36,8 @@ interface TimelineShape {
  * drops would number every later step differently from the steps the
  * user sees and the presentation plays.
  *
- * How a marker names its video is the caller's to answer, since a live
- * editor resolves the legacy binding through the store and a snapshot
- * has to read the binding records itself.
+ * How a marker names its video is the caller's to answer, a live editor
+ * having a store to ask where a bare snapshot has only the records.
  */
 function timelineShapesOf<T extends TimelineShape>(
   shapes: readonly T[],
@@ -71,31 +69,15 @@ export function timelineShapesOfEditor(
 
 /**
  * The same answer from records alone, for a snapshot counted without an
- * editor: the frame's own target key, or the legacy binding's target
- * when the frame predates it.
+ * editor.
  */
 export function timelineShapesOfRecords<T extends TimelineShape>(
   shapes: readonly T[],
-  bindings: readonly { type: string; fromId: string; toId: string }[],
 ): T[] {
-  const videoKeyById = new Map(
-    shapes
-      .filter((shape) => shape.type === YouTubeEmbedShapeType)
-      .map((shape) => [shape.id, getVideoKey(shape)] as const),
-  );
   return timelineShapesOf(shapes, (shape) => {
     const parsed = parseFrameMeta(shape.meta?.frame);
-    if (parsed.kind === "v2" && parsed.frame.action.type === "mediaControl") {
-      const videoKey = parsed.frame.action.videoKey;
-      if (videoKey != null) {
-        return videoKey;
-      }
-    }
-    const binding = bindings.find(
-      (candidate) =>
-        candidate.type === MediaControlBindingType &&
-        candidate.fromId === shape.id,
-    );
-    return binding != null ? (videoKeyById.get(binding.toId) ?? null) : null;
+    return parsed.kind === "v2" && parsed.frame.action.type === "mediaControl"
+      ? (parsed.frame.action.videoKey ?? null)
+      : null;
   });
 }
