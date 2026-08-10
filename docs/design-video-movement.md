@@ -754,26 +754,34 @@ or throttled: still holding the lock, no longer replying, and every
 active tab blocked behind it with no crash or navigation to release
 it.
 
-The queue is instead a shared resource with **short, per-transaction
-locking**. It belongs to the namespace, not to a tab, and so does
-its epoch; a Web Lock is taken only for the duration of one queue
-transaction — appending an operation with its sequence, or recording
-an outcome — and released immediately. Any tab may therefore write
-directly: the user edits in whichever window they are looking at, the
-edit is appended under the lock in that tab, and it is durable the
-moment that transaction commits, with no hand-off to another tab and
-no confirmation to lose. A suspended tab holds no lock between
-transactions and blocks nothing. Sequence assignment stays
-single-threaded because the append that allocates it is itself the
-critical section, and exactly-once falls out of the same durability:
-the operation exists once in the queue, and the epoch watermark
-already covers retries against the server. Whichever tab holds the
-sync connection drains the queue and records outcomes through the
-same short locks. Tests cover simultaneous edits from two tabs, a
-tab suspended mid-session while another edits, tab duplication, and
-a crash between append and transmission.
+Nor is it a lock of our own, for the same reason at smaller scale: a
+Web Lock is held until its callback settles, so a tab frozen inside
+the critical section holds it indefinitely and blocks every sibling
+just as a frozen leader would. The mutual exclusion is instead the
+storage layer's. The queue belongs to the namespace, not to a tab,
+and so does its epoch; appending an operation with its sequence, or
+recording an outcome, is **one read-write transaction** over the
+queue store, and the store already serializes those across contexts
+and aborts one that cannot finish. Sequence allocation is therefore
+single-threaded because the allocating read and the insert are the
+same transaction, and a tab frozen mid-transaction has that
+transaction rolled back rather than leaving a held lock: siblings
+proceed, and no sequence is allocated twice.
 
-Queue, lock and epoch are namespaced by **principal and document
+Any tab may write directly on that basis — the user edits in
+whichever window they are looking at, the edit is appended in that
+tab, and it is durable the moment its transaction commits, with no
+hand-off and no confirmation to lose. Exactly-once falls out of the
+same durability: the operation exists once in the queue, and the
+epoch watermark already covers retries against the server. Whichever
+tab holds the sync connection drains the queue and records outcomes
+through the same transactions. Tests cover simultaneous edits from
+two tabs, tab duplication, a crash between append and transmission,
+and — the case a lock could not survive — a tab frozen after
+beginning a queue transaction, asserting another tab still makes
+progress with no duplicate sequence.
+
+Queue and epoch are namespaced by **principal and document
 together**, not by document alone, because the epoch is bound to a
 principal and the two keys must not drift apart. Without that, a
 second user opening the same document in the same browser would
