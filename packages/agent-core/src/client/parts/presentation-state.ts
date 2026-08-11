@@ -1,9 +1,6 @@
 import type { Editor } from "tldraw";
-import {
-  deriveTimeline,
-  timelineShapesOfEditor,
-  type FrameAction,
-} from "anipres/models";
+import { deriveTimeline, type FrameAction } from "anipres/models";
+import { timelineShapesOfEditor } from "anipres";
 import { resolveMediaControlTarget } from "anipres/schema";
 import {
   FocusedEasingSchema,
