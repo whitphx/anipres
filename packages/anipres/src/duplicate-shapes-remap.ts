@@ -17,7 +17,6 @@ import { uniqueId, type Editor, type TLShape, type TLShapeId } from "tldraw";
 import type { VecLike } from "tldraw";
 import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
 import { remapDuplicatedVideoKeys } from "./media/remap-video-keys";
-import { ensureVideoKeyMaterialized } from "./media/normalize-video-identity";
 import {
   frameToMetaJson,
   parseFrameMeta,
@@ -117,14 +116,6 @@ export function createDuplicateShapesRemap(
           }
         }
       }
-      // A copy of a video whose key was never written would fall back
-      // to its own new id and become a different video; materialize
-      // before the copies are made.
-      ensureVideoKeyMaterialized(editor, [
-        ...editor.getShapeAndDescendantIds(
-          shapes.map((shape) => (typeof shape === "string" ? shape : shape.id)),
-        ),
-      ]);
       const shapeIdsBeforeCall = new Set(
         editor.getCurrentPageShapes().map((shape) => shape.id),
       );

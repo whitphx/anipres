@@ -10,7 +10,6 @@ import {
 } from "@anipres/agent-core";
 import { runEditCommand } from "./edit-command.js";
 import { runSummarizeCommand } from "./summarize-command.js";
-import { runConvertCommand } from "./convert-command.js";
 
 const MODEL_LIST = Object.keys(AGENT_MODEL_DEFINITIONS).join(", ");
 
@@ -107,30 +106,6 @@ const summarizeCommand = defineCommand({
   },
 });
 
-const convertCommand = defineCommand({
-  meta: {
-    name: "convert",
-    description:
-      "Bring a snapshot up to the current media vocabulary: media events name their video directly, and the `media-control` bindings a document written before that are removed. Idempotent, and no LLM call or API key is needed.",
-  },
-  args: {
-    snapshot: {
-      type: "positional",
-      description: "Path to the snapshot JSON to convert.",
-      required: true,
-    },
-    out: {
-      type: "string",
-      alias: "o",
-      description:
-        "Where to write the converted snapshot. Defaults to overwriting the input.",
-    },
-  },
-  async run({ args }) {
-    await runConvertCommand(args.snapshot, args.out ?? args.snapshot);
-  },
-});
-
 const main = defineCommand({
   meta: {
     name: "anipres-agent",
@@ -140,7 +115,6 @@ const main = defineCommand({
   subCommands: {
     edit: editCommand,
     summarize: summarizeCommand,
-    convert: convertCommand,
   },
 });
 

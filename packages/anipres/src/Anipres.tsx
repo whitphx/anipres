@@ -45,7 +45,6 @@ import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
 import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
 import { installVideoLifecycle } from "./media/marker-lifecycle";
-import { ensureVideoKeyMaterialized } from "./media/normalize-video-identity";
 import {
   applyPasteRemapToContent,
   alreadyOnPage,
@@ -639,9 +638,6 @@ const Inner = (props: InnerProps) => {
         const requestedShapeIds = shapes.map((shape) =>
           typeof shape === "string" ? shape : shape.id,
         );
-        ensureVideoKeyMaterialized(editor, [
-          ...editor.getShapeAndDescendantIds(requestedShapeIds),
-        ]);
         // Copying a video must carry its media events; see
         // expandShapeIdsWithMediaControlMarkers. The ids asked for are
         // recorded separately below, since what is added here has a

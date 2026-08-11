@@ -30,7 +30,6 @@ import {
   getVideoKey,
   isYouTubeEmbedShape,
 } from "../shapes/youtube-embed/YouTubeEmbedShape";
-import { ensureVideoKeyMaterialized } from "../media/normalize-video-identity";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import type { PresentationManager } from "../presentation-manager";
 import {
@@ -477,10 +476,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.run(
               () => {
                 applyStepKeyUpdates(insertion.updates);
-                // The source has to be carrying its identity before it
-                // is copied, and the copy has to keep it: this is a new
-                // carrier of the same video, not a new video.
-                ensureVideoKeyMaterialized(editor, [prevShape.id]);
                 const source = editor.getShape(prevShape.id) ?? prevShape;
                 const newShapeId = createShapeId();
                 editor.createShape({
@@ -500,13 +495,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           }}
           requestCueFrameAddAfterGroup={(shapeSelection) => {
             const selectedShapeId = shapeSelection.shapeId;
-            // Before anything is read, let alone cloned: the copies
-            // below are built from the source records, so a video whose
-            // identity was never written would hand its keyframe a
-            // blank one and the keyframe would become its own video.
-            ensureVideoKeyMaterialized(editor, [
-              ...editor.getShapeAndDescendantIds([selectedShapeId]),
-            ]);
 
             // The last selected frame per track, and the latest step any
             // of them belongs to — the new step goes right after it.
@@ -699,7 +687,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   });
                 }
               }
-              ensureVideoKeyMaterialized(editor, [prevShape.id]);
               const source = editor.getShape(prevShape.id) ?? prevShape;
               const newShapeId = createShapeId();
               editor.createShape({

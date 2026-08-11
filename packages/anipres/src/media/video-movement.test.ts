@@ -26,10 +26,6 @@ import {
   groupCarriersByVideoKey,
   resolveAnchorCarrier,
 } from "./video-anchor";
-import {
-  ensureVideoKeyMaterialized,
-  convertLegacyVideoIdentityInSnapshot,
-} from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
 import { isPlayerAnchor, readPlacements } from "./player-placement";
 import {
@@ -46,7 +42,6 @@ import {
   alreadyOnPage,
   dropContentAlreadyInDocument,
 } from "./remap-video-keys";
-import { youTubeEmbedShapeProps } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { getVideoTransitions } from "./video-transition";
 
 function createVideo(
@@ -66,16 +61,6 @@ function createVideo(
     },
   });
   return videoId;
-}
-
-/**
- * Runs the record-level conversion over this editor's document and
- * loads the result back, which is what the off-line tool does to a
- * deck's stored snapshot.
- */
-function convertInPlace(editor: Editor): void {
-  const converted = convertLegacyVideoIdentityInSnapshot(editor.getSnapshot());
-  editor.loadSnapshot(converted);
 }
 
 function anchorCarrierIds(editor: Editor, presentationMode: boolean) {
@@ -267,148 +252,6 @@ describe("marker lifecycle without the binding", () => {
       // video survived.
       editor.deleteShapes([videoId, keyframeId]);
       expect(markersOf(editor, videoId)).toHaveLength(0);
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("normalizeVideoIdentity", () => {
-  it("recovers an event whose target key came through empty", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createShapeId("legacy-video");
-      editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
-        x: 0,
-        y: 0,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
-      });
-      const markerId = createShapeId("legacy-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            // A malformed import, or data degraded in storage: a key
-            // that is present but names nothing.
-            action: { type: "mediaControl", command: "play", videoKey: "" },
-          }),
-        },
-      });
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-
-      convertInPlace(editor);
-
-      // Read as no key at all, so the binding still recovers it rather
-      // than the event pointing at a video that cannot exist.
-      const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
-      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
-        throw new Error("expected a mediaControl cue frame");
-      }
-      expect(parsed.frame.action.videoKey).toBe(videoId);
-    } finally {
-      dispose();
-    }
-  });
-
-  it("rewrites a legacy binding into the event's own target key", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      // A pre-videoKey document: the video has no key of its own, and
-      // the marker's frame names no target — the binding is the only
-      // record of what the event controls.
-      const videoId = createShapeId("legacy-video");
-      editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
-        x: 0,
-        y: 0,
-        props: {
-          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
-          videoId: "M7lc1UVf-VE",
-        },
-      });
-      const markerId = createShapeId("legacy-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-
-      convertInPlace(editor);
-
-      // The event's target is filled in from the binding; the video's
-      // own key is not written, because merely opening a document must
-      // leave it byte-identical.
-      const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
-      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
-        throw new Error("expected a mediaControl cue frame");
-      }
-      expect(parsed.frame.action.videoKey).toBe(videoId);
-    } finally {
-      dispose();
-    }
-  });
-
-  it("deletes a marker whose target cannot be resolved at all", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const markerId = createShapeId("unbound-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "orphan-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-
-      convertInPlace(editor);
-
-      expect(editor.getShape(markerId)).toBeUndefined();
     } finally {
       dispose();
     }
@@ -892,52 +735,6 @@ describe("timeline grouping", () => {
   });
 });
 
-describe("legacy records without the prop", () => {
-  it("adds no validated prop, so older builds still load the document", () => {
-    // tldraw validates custom shape props and rejects one it does not
-    // know, so a `videoKey` prop would make a document that used this
-    // feature fail to load wholesale on an earlier release. The key
-    // lives in unvalidated `meta` for exactly that reason.
-    expect(youTubeEmbedShapeProps).not.toHaveProperty("videoKey");
-  });
-
-  it("materializes an absent key when the video is about to be copied", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createShapeId("legacy");
-      editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
-        x: 0,
-        y: 0,
-        props: { videoId: "M7lc1UVf-VE" },
-      });
-      // Strip the key the minting handler wrote, leaving the record in
-      // the shape a pre-change document has.
-      const minted = editor.getShape(videoId);
-      if (minted == null) throw new Error("expected a video");
-      editor.store.put([{ ...minted, meta: {} }]);
-
-      // Merely opening a document must leave its records alone: this
-      // pass rewrites frames, which live in unvalidated meta, and never
-      // reaches for a video's own record.
-      const before = JSON.stringify(editor.getShape(videoId));
-      convertInPlace(editor);
-      expect(JSON.stringify(editor.getShape(videoId))).toBe(before);
-
-      // Copying is the first moment the key has to exist, or the copy
-      // would fall back to its own id and become a different video.
-      ensureVideoKeyMaterialized(editor, [videoId]);
-
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      expect(video.meta.videoKey).toBe(videoId);
-    } finally {
-      dispose();
-    }
-  });
-});
-
 describe("cross-document copy", () => {
   it("carries the video's real config out of the source document", () => {
     const [editor, dispose] = loadHeadlessEditor();
@@ -1020,56 +817,6 @@ describe("transition hygiene", () => {
 
       transitions.settle(videoId);
       expect(transitions.$transitions.get().size).toBe(0);
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("normalization covers every page", () => {
-  it("rewrites a legacy event's target on a page that is not open", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const otherPageId = editor.getPages()[0]!.id;
-      editor.createPage({ name: "second" });
-      const secondPageId = editor
-        .getPages()
-        .find((page) => page.id !== otherPageId)!.id;
-      editor.setCurrentPage(secondPageId);
-      const videoId = createVideo(editor, "legacy-elsewhere");
-      const markerId = createShapeId("legacy-marker-elsewhere");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame-elsewhere",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-      // Back to the first page, so the legacy records are off-screen.
-      editor.setCurrentPage(otherPageId);
-
-      convertInPlace(editor);
-
-      const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
-      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
-        throw new Error("expected a mediaControl cue frame");
-      }
-      expect(parsed.frame.action.videoKey).toBe(videoId);
     } finally {
       dispose();
     }
@@ -1268,7 +1015,6 @@ describe("a follow-up keyframe stays the same video", () => {
       // that frame, so a copy that replaces meta wholesale would become
       // an independent video — and the player would stop moving between
       // them.
-      ensureVideoKeyMaterialized(editor, [videoId]);
       const source = editor.getShape(videoId)!;
       const keyframeId = createShapeId("keyframe");
       editor.createShape({
@@ -1533,42 +1279,6 @@ describe("a refused duplicate leaves the original alone", () => {
   });
 });
 
-describe("a legacy video keeps its identity through a group keyframe", () => {
-  it("materializes before the copies are built, not after", () => {
-    const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
-    try {
-      // A pre-change record: no identity of its own.
-      const videoId = createShapeId("legacy-video");
-      editor.createShape({
-        id: videoId,
-        type: "youtube-embed",
-        x: 0,
-        y: 0,
-        props: { videoId: "M7lc1UVf-VE" },
-      });
-
-      // The grouped add-after path builds its copies from the source
-      // records, so the source has to be carrying its identity before
-      // any of them are constructed — materializing inside the write
-      // that follows is too late, and the copy becomes its own video.
-      ensureVideoKeyMaterialized(editor, [videoId]);
-      const source = editor.getShape(videoId)!;
-      const copyId = createShapeId("group-keyframe");
-      const copy = { ...source, id: copyId, x: 400 };
-      editor.createShape(copy);
-
-      const carriers =
-        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
-        [];
-      expect(carriers.map((c) => c.id).sort()).toEqual(
-        [videoId, copyId].sort(),
-      );
-    } finally {
-      dispose();
-    }
-  });
-});
-
 describe("a tween outliving its own clock", () => {
   it("holds the player at the destination until the step settles it", () => {
     const [editor, dispose] = loadHeadlessEditor();
@@ -1706,144 +1416,6 @@ describe("deleting a carrier on a page that is not open", () => {
   });
 });
 
-describe("converting a stored snapshot", () => {
-  it("takes a legacy snapshot in and gives a converted one back", () => {
-    const [source, disposeSource] = loadHeadlessEditor();
-    let legacy;
-    try {
-      const videoId = createVideo(source, "video");
-      const markerId = createShapeId("marker");
-      source.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 300,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-      source.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-      legacy = source.getSnapshot();
-    } finally {
-      disposeSource();
-    }
-
-    // What the off-line tool does: read the JSON, pass it through,
-    // write it back.
-    const converted = convertLegacyVideoIdentityInSnapshot(
-      JSON.parse(JSON.stringify(legacy)),
-    );
-
-    const records: {
-      typeName: string;
-      type?: string;
-      meta?: { frame?: unknown };
-    }[] = Object.values(converted.document.store);
-    expect(records.filter((r) => r.typeName === "binding")).toHaveLength(0);
-    const marker = records.find(
-      (r) => r.typeName === "shape" && r.type === "media-control",
-    );
-    const parsed = parseFrameMeta(marker?.meta?.frame);
-    if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
-      throw new Error("expected a mediaControl cue frame");
-    }
-    expect(parsed.frame.action.videoKey).toBe(createShapeId("video"));
-    // And the converted deck counts the step the legacy one could not.
-    expect(calculateTotalSteps(converted)).toBe(1);
-  });
-});
-
-describe("converting a legacy document", () => {
-  it("takes out an event whose target cannot be resolved at all", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      // No binding, no key: nothing the document contains says what
-      // this event controls, and no later record can supply it.
-      const markerId = createShapeId("legacy-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-
-      convertInPlace(editor);
-
-      expect(editor.getShape(markerId)).toBeUndefined();
-    } finally {
-      dispose();
-    }
-  });
-
-  it("drops the bindings once the events name their videos", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createVideo(editor, "video");
-      const markerId = createShapeId("legacy-marker");
-      editor.createShape({
-        id: markerId,
-        type: "media-control",
-        x: 0,
-        y: 0,
-        meta: {
-          frame: frameToMetaJson({
-            v: 2,
-            id: "legacy-frame",
-            type: "cue",
-            trackId: "T-media",
-            stepId: "s-media",
-            stepOrderKey: "a1",
-            action: { type: "mediaControl", command: "play" },
-          }),
-        },
-      });
-      editor.createBinding({
-        type: "media-control",
-        fromId: markerId,
-        toId: videoId,
-      });
-
-      convertInPlace(editor);
-
-      expect(resolveMediaControlVideoKey(editor, markerId)).toBe(videoId);
-      // One record of what an event controls, not two to keep in step.
-      expect(
-        editor.getBindingsFromShape(markerId, "media-control"),
-      ).toHaveLength(0);
-
-      // Idempotent: a converted document comes out unchanged.
-      const before = JSON.stringify(editor.getSnapshot());
-      convertInPlace(editor);
-      expect(JSON.stringify(editor.getSnapshot())).toBe(before);
-    } finally {
-      dispose();
-    }
-  });
-});
-
 describe("one batch deleting carriers on two pages", () => {
   it("repairs each page from its own capture", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
@@ -1896,73 +1468,6 @@ describe("one batch deleting carriers on two pages", () => {
 
       expect(configOn(firstPage.id)).toBe("FIRST");
       expect(configOn(secondPageId)).toBe("SECOND");
-    } finally {
-      dispose();
-    }
-  });
-});
-
-describe("materializing a video's key", () => {
-  it("reaches a locked carrier", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createVideo(editor, "video");
-      const minted = editor.getShape(videoId);
-      if (minted == null) throw new Error("expected a video");
-      editor.store.put([{ ...minted, meta: {}, isLocked: true }]);
-
-      ensureVideoKeyMaterialized(editor, [videoId]);
-
-      // Without the key the follow-up keyframe cloned from this
-      // carrier would fall back to its own id and split the video.
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      expect(video.meta.videoKey).toBe(videoId);
-    } finally {
-      dispose();
-    }
-  });
-
-  it("gives a locked video's copy an identity of its own", () => {
-    const [editor, dispose] = loadHeadlessEditor();
-    try {
-      const videoId = createVideo(editor, "video");
-      const manager = PresentationManager.create(
-        editor,
-        atom("current step index", 0),
-      );
-      const video = editor.getShape(videoId);
-      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
-      // tldraw refuses to duplicate a locked shape outright, but copies
-      // one that sits inside a group being duplicated.
-      editor.store.put([{ ...video, isLocked: true }]);
-      const companionId = createShapeId("companion");
-      editor.createShape({
-        id: companionId,
-        type: "geo",
-        x: 300,
-        y: 0,
-        props: { w: 50, h: 50 },
-      });
-      const groupId = createShapeId("group");
-      editor.createShape({ id: groupId, type: "group", x: 0, y: 0 });
-      editor.reparentShapes([videoId, companionId], groupId);
-
-      createDuplicateShapesRemap(editor, () =>
-        manager.$getTimelineDoc(),
-      ).install();
-      editor.select(groupId);
-      editor.duplicateShapes([groupId], { x: 1000, y: 0 });
-
-      const copy = editor
-        .getCurrentPageShapes()
-        .filter(isYouTubeEmbedShape)
-        .find((shape) => shape.id !== videoId);
-      if (copy == null) throw new Error("expected a copy");
-      expect(copy.isLocked).toBe(true);
-      // A copy that kept the source's key would join the source video
-      // and share its one runtime player.
-      expect(getVideoKey(copy)).not.toBe(videoId);
     } finally {
       dispose();
     }

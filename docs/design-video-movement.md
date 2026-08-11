@@ -20,18 +20,19 @@ it is a misrender rather than a loss, since the records the older build
 cannot interpret are still there when it rolls forward.
 
 What the design describes as a compatibility binding written beside
-every event is not built either, and deliberately so. Nothing writes
-the `media-control` binding and nothing resolves an event through one:
-a document that predates `videoKey` is converted off-line, once, by
-`convertLegacyVideoIdentity` — which reads the binding, writes the key
-into the event's own frame, and deletes the binding — and the type
-stays registered only so an unconverted document loads far enough to
-be converted. Keeping the binding alive alongside the key meant two
-records of the same fact, and every path that created, copied, moved
-or deleted a carrier had to keep them in step; each of those paths was
-a defect before it was a feature. The sections below that describe
-dual-writing, repointing and binding-less orphan recovery describe a
-design that was tried and dropped.
+every event is not built either, and the `media-control` binding it
+was to be written from is gone: type, util, registration and all. An
+event names its video by `videoKey` in its own frame and by nothing
+else. The binding shipped in no release — the embed feature that
+introduced it was still an unreleased changeset when this replaced it
+— so there is no published document to convert, and none is converted:
+a document written by a build of `main` between the two changes will
+not load. Keeping the binding alongside the key meant two records of
+the same fact, which every path that created, copied, moved or deleted
+a carrier had to keep in step, and each of those paths was a defect
+before it was a feature. The sections below that describe
+dual-writing, repointing, binding-less orphan recovery and conversion
+describe designs that were tried and dropped.
 
 Two further parts of what follows describe the player rather than the
 document, and are also not built. The Absent lifecycle below — pausing
@@ -107,15 +108,16 @@ whichever page happens to be open — a carrier deleted on a page the
 user is not looking at would otherwise be repaired against a page that
 holds none of its video, which repairs nothing and leaves a survivor
 on the real page holding whatever it last saw. `videoKey` itself is
-the exception, being document-wide: conversion walks every page, since
-a legacy video left unconverted elsewhere would have a follow-up
-keyframe mint a new key and split it in two.
+the exception, being document-wide: it is minted from the shape's own
+id, which is unique across pages, so a video carries the same identity
+wherever its carriers sit.
 
 An event's target key is read as absent when it is present but empty.
-An empty key names no video, and conversion takes any key that is
-present as already converted, so carrying it would strand an event the
-binding could still have recovered. Rejecting the frame instead would
-be worse: an unreadable frame is offered a repair that clears it.
+An empty key names no video, so the event resolves to nothing and the
+derivation drops it; carrying it would have every reader compare a key
+that can match none. Rejecting the frame instead would be worse: an
+unreadable frame is offered a repair that clears it, which would
+destroy the event over a malformed field.
 
 Cutting a video is the one place that retention is visible to the
 user rather than only to the store. A copy of a video carries its
