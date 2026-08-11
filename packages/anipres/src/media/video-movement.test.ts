@@ -28,7 +28,6 @@ import {
 } from "./video-anchor";
 import {
   ensureVideoKeyMaterialized,
-  convertLegacyVideoIdentity,
   convertLegacyVideoIdentityInSnapshot,
 } from "./normalize-video-identity";
 import { updateVideoConfig } from "./video-anchor";
@@ -67,6 +66,16 @@ function createVideo(
     },
   });
   return videoId;
+}
+
+/**
+ * Runs the record-level conversion over this editor's document and
+ * loads the result back, which is what the off-line tool does to a
+ * deck's stored snapshot.
+ */
+function convertInPlace(editor: Editor): void {
+  const converted = convertLegacyVideoIdentityInSnapshot(editor.getSnapshot());
+  editor.loadSnapshot(converted);
 }
 
 function anchorCarrierIds(editor: Editor, presentationMode: boolean) {
@@ -305,7 +314,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       // Read as no key at all, so the binding still recovers it rather
       // than the event pointing at a video that cannot exist.
@@ -360,7 +369,7 @@ describe("normalizeVideoIdentity", () => {
         toId: videoId,
       });
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       // The event's target is filled in from the binding; the video's
       // own key is not written, because merely opening a document must
@@ -397,7 +406,7 @@ describe("normalizeVideoIdentity", () => {
         },
       });
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       expect(editor.getShape(markerId)).toBeUndefined();
     } finally {
@@ -913,7 +922,7 @@ describe("legacy records without the prop", () => {
       // pass rewrites frames, which live in unvalidated meta, and never
       // reaches for a video's own record.
       const before = JSON.stringify(editor.getShape(videoId));
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
       expect(JSON.stringify(editor.getShape(videoId))).toBe(before);
 
       // Copying is the first moment the key has to exist, or the copy
@@ -1054,7 +1063,7 @@ describe("normalization covers every page", () => {
       // Back to the first page, so the legacy records are off-screen.
       editor.setCurrentPage(otherPageId);
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       const parsed = parseFrameMeta(editor.getShape(markerId)?.meta?.frame);
       if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
@@ -1737,7 +1746,11 @@ describe("converting a stored snapshot", () => {
       JSON.parse(JSON.stringify(legacy)),
     );
 
-    const records = Object.values(converted.document.store);
+    const records: {
+      typeName: string;
+      type?: string;
+      meta?: { frame?: unknown };
+    }[] = Object.values(converted.document.store);
     expect(records.filter((r) => r.typeName === "binding")).toHaveLength(0);
     const marker = records.find(
       (r) => r.typeName === "shape" && r.type === "media-control",
@@ -1777,7 +1790,7 @@ describe("converting a legacy document", () => {
         },
       });
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       expect(editor.getShape(markerId)).toBeUndefined();
     } finally {
@@ -1813,7 +1826,7 @@ describe("converting a legacy document", () => {
         toId: videoId,
       });
 
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
 
       expect(resolveMediaControlVideoKey(editor, markerId)).toBe(videoId);
       // One record of what an event controls, not two to keep in step.
@@ -1823,7 +1836,7 @@ describe("converting a legacy document", () => {
 
       // Idempotent: a converted document comes out unchanged.
       const before = JSON.stringify(editor.getSnapshot());
-      convertLegacyVideoIdentity(editor);
+      convertInPlace(editor);
       expect(JSON.stringify(editor.getSnapshot())).toBe(before);
     } finally {
       dispose();

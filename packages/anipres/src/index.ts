@@ -4,10 +4,6 @@ export {
   loadHeadlessEditor,
 } from "./headless-editor-utils.ts";
 export {
-  convertLegacyVideoIdentity,
-  convertLegacyVideoIdentityInSnapshot,
-} from "./media/normalize-video-identity.ts";
-export {
   customShapeUtils,
   allShapeUtils,
   allBindingUtils,
