@@ -19,20 +19,12 @@ closes. The stages are not built; the exposure is accepted for now, and
 it is a misrender rather than a loss, since the records the older build
 cannot interpret are still there when it rolls forward.
 
-What the design describes as a compatibility binding written beside
-every event is not built either, and the `media-control` binding it
-was to be written from is gone: type, util, registration and all. An
-event names its video by `videoKey` in its own frame and by nothing
-else. The binding shipped in no release — the embed feature that
-introduced it was still an unreleased changeset when this replaced it
-— so there is no published document to convert, and none is converted:
-a document written by a build of `main` between the two changes will
-not load. Keeping the binding alongside the key meant two records of
-the same fact, which every path that created, copied, moved or deleted
-a carrier had to keep in step, and each of those paths was a defect
-before it was a feature. The sections below that describe
-dual-writing, repointing, binding-less orphan recovery and conversion
-describe designs that were tried and dropped.
+The compatibility this design spends its length on is also not built,
+and no longer needed. It assumed the `media-control` binding was in
+users' documents; it never reached a release, so the binding is
+deleted outright — type, util, both registrations — and an event names
+its video by `videoKey` and by nothing else. See "Existing documents"
+and "Rollout", which record what that leaves.
 
 Two further parts of what follows describe the player rather than the
 document, and are also not built. The Absent lifecycle below — pausing
@@ -86,13 +78,6 @@ that video returning, by undo or from a peer, brings its events back
 with it. The cascade is therefore only ever storage cleanup, which is
 why withholding it costs a shared document nothing a user can see.
 
-A newly created media event is bound the way a returning carrier is,
-whatever created it — a clone of a frame's shapes can produce a marker
-while the video it names stays outside the clone. The compatibility
-binding is written for any marker that arrives without one, so an
-older build, which resolves an event only through the binding and
-deletes a marker that has none, never meets an event it will discard.
-
 A request made with several carriers of one video selected is one
 request about one video: adding a playback event with two keyframes
 selected adds one event, not one per carrier.
@@ -131,8 +116,8 @@ presence, and an ordinary cut and paste is taken for an import from
 another document, which mints a fresh key and splits the video in two.
 And a move lays down only what it removed: a payload shape whose record
 is already on the page the content is going to is dropped, with any
-binding that pointed at it, so the video does not end up with two
-records of every event. Already on that page, rather than anywhere in
+binding that pointed at it — an arrow's, say — so the video does not
+end up with two records of every event. Already on that page, rather than anywhere in
 the document, because moving a video to another page runs the same cut
 and paste: there the markers stayed behind on the page it left, and a
 video and its events being page-scoped, they have to be laid down again
@@ -159,12 +144,6 @@ the same key. Two documents forked from one snapshot hold the same key
 for videos that have been edited apart since, so resolving it here
 would import the wrong video's settings. Only a duplicate, whose source
 is by definition in this document, asks.
-
-Duplication creates its shapes before their keys are rewritten, so the
-lifecycle's binding repair has already run against the key each copy
-arrived with. The remap therefore points a copied event's compatibility
-binding at the video it now names, rather than leaving it on the
-source's carrier or on nothing at all.
 
 The configuration transfer that shares that batch is gated on nothing:
 it runs wherever a carrier is deleted. It removes no record and mints
@@ -1291,8 +1270,8 @@ restoring the deleted carrier restores a record whose values the
 transfer copied verbatim, so the tie it re-creates is between
 identical values, and no revision ever moves backwards. This is a one-shot
 write inside a structural delete, the same exposure as the marker
-cleanup and binding repointing that already live in that batch, not a
-standing reconcile pass over carrier records.
+cleanup that already lives in that batch, not a standing reconcile
+pass over carrier records.
 
 The deleting client's batch performs the transfer, in a shared room
 as well as an unsynced document. A client-computed transfer can be
@@ -1345,32 +1324,21 @@ the point.
 
 ### Existing documents
 
-Existing videos predate the prop, so it is materialized as
-`videoKey = shape.id`, which identifies each existing video as itself
-— correct because today every video is exactly one shape, and
-deterministic and idempotent, so it can run anywhere any number of
-times. Deliberately, this is **normalization, not a schema
-migration**: a tldraw migration would stamp new sequence versions
-into persisted snapshots, and every release that might ever reopen
-such a snapshot would then have to know those versions or refuse the
-document — a regress with no safe first deployment. Instead the
-persisted schema never gains a migration, only optional props, and
-the materialization runs at the same authorities that already own
-cleanup: the room server's standing invariant for shared documents —
-applied transactionally at room initialization, before any snapshot
-is served to any client, and again after every push — the
-load-and-batch pass for unsynced ones, and the paste wrapper for
-`TLContent` payloads. Every path a legacy record can travel ends in
-one of those three, so the key is in place before any copy can be
-made, and travels with every copy. A fixture opens a persisted
-legacy room and copies a video from it with no client push having
-occurred: the served snapshot is already normalized, and the copy
-carries its key.
+There are none. The `media-control` binding, and the media events that
+used it, arrived with an embed feature whose changeset was still
+pending when this design replaced it, so no published version of the
+library ever wrote one and no document a user holds can contain one.
+Nothing is migrated, normalized or converted, and the machinery for
+doing so — a load-time pass, an off-line tool, a server-side promotion
+at room initialization — is not built.
 
-A read-time fallback would not be enough: a follow-up keyframe copied
-from a video whose key was never stored would fall back to its _own_
-new shape id, splitting one video into two identities the first time
-it is animated. Materializing the key closes that hole.
+What that leaves is a window rather than a population: a document
+written by a build of `main` between the two changes holds a binding
+whose type is no longer registered, and will fail to load rather than
+degrade. That is accepted. Anything else would mean carrying a second
+record of which video an event controls, which every path that
+creates, copies, moves or deletes a carrier has to keep in step with
+the first — the cost the rest of this document is mostly about.
 
 ## What this removes
 
@@ -1384,15 +1352,13 @@ It also stops being _correct_ to bind to a shape: with several
 carriers, a binding to keyframe #1 would cascade-delete a video's
 events when that one keyframe is deleted.
 
-Removed: `bindMediaControlMarker`, `copyMediaControlBinding`,
-`getMediaControlBindingTargetId`, the marker parking hooks, and every
-lifecycle hook on `MediaControlBindingUtil`. The util itself survives
-as an inert shell, because on the client the util _is_ the schema
-registration — the `bindingUtils` array is what the store's schema is
-built from — and the worker keeps its explicit `createTLSchema` entry
-for the same reason. Both stay so that documents already holding the
-binding still validate long enough to be normalized; the Rollout section
-says how.
+Removed: the `media-control` binding entirely — the type, its props,
+`MediaControlBindingUtil`, the client's `bindingUtils` registration and
+the worker's `createTLSchema` entry — along with `bindMediaControlMarker`,
+`copyMediaControlBinding`, `getMediaControlBindingTargetId` and the
+marker parking hooks. Nothing survives as a shell: a shell would exist
+to let a document holding the binding validate long enough to be
+normalized, and there is no such document (see "Existing documents").
 
 Kept: the `media-control` marker shape. One frame per shape is still
 the rule, so a media event still needs a carrier that is not the video.
@@ -1912,269 +1878,39 @@ everything that reads frames.
 ## Rollout
 
 The persisted vocabulary changes: the `mediaControl` action gains its
-target key, `youtube-embed` gains `videoKey`, and the `media-control`
-binding stops being written. `SYNC_CLIENT_VERSION` moves three times
-— the acceptance stage described below takes 4, the rollback
-pre-release 5, the main release 6, leaving 3 to the release
-currently deployed — and the gate becomes two-sided: a server
-refuses clients newer than itself as well as older. Every stage
-takes its own number, the acceptance stage included, precisely
-because it is not behaviorally the current release: it carries the
-widened validators and the compatibility behavior a
-future-vocabulary room needs, and letting it share version 3 would
-make a dormant pre-stage tab indistinguishable from it — free to
-connect, after a rollback, to a room it would reject the vocabulary
-of. Numbered separately, that tab is refused and reloads. A rollback
-test parks a version-3 tab through stage B's promotion and
-reconnects it only after the rollback to stage A. One number per
-release keeps each client's vocabulary matched to the assets that
-serve it; the server side needs no such split, because every release
-in the sequence ships the same forked room server — arbitration,
-tombstones, stamps and all, gated by the document's vocabulary as
-stage A describes. What must survive the forced reload is
-client-side intent: an unacknowledged cascade claim is durable state
-in the same ordered intent store as explicit-deletion prunes, keyed
-to the document, and the pre-release client replays or cancels
-pending entries on connect exactly as the main client would. A
-last-carrier deletion made just before a rollback reload therefore
-keeps its claim, and a concurrent extension still wins add-wins
-arbitration instead of meeting bare, claimless removals; an
-end-to-end fixture deletes a last carrier, withholds the
-acknowledgement, forces the version-6-to-version-5 reload while
-another client adds a carrier, and verifies every marker survives.
-Refusal alone swaps no JavaScript, so the client
-defines the transition: on the incompatible-version response it stops
-reconnecting, forces an asset reload that bypasses caches, and — if
-the fetched bundle still reports the refused version, as it briefly
-can while a rollback propagates — backs off behind a visible
-"deployment changed, reloading" notice rather than spinning. An
-end-to-end test starts a version-6 browser client, rolls the
-deployment back, and proves the session resumes as version 5.
+target key, `youtube-embed` gains `videoKey` in `meta`, and the
+`media-control` binding is gone. `SYNC_CLIENT_VERSION` moves once, to
+4, and the gate stays two-sided: a server refuses clients newer than
+itself as well as older, because a newer client would write records
+the room has no registration for and the save would be rejected.
 
-Documents that already hold the binding are normalized on load, not
-stranded. The version gate only refuses _clients_; it does nothing
-for the binding records that existing documents contain, and those
-documents surface in more places than the sole-user framing suggests —
-synced rooms, snapshot files, clipboard payloads, locally cached
-copies. Every path lands at one of the three normalization
-authorities (see "Existing documents"), which apply the same
-idempotent rewrite:
+One move, not the three this design originally called for. The staged
+sequence it described — an acceptance release that widens validators
+and writes nothing, a pre-release that reads and preserves the new
+vocabulary, then the feature — existed to make each rollback land on a
+release that could still serve documents already written. That is the
+right shape when the vocabulary being replaced is in users' documents.
+It is not this case: the vocabulary being replaced never shipped (see
+"Existing documents"), so there is nothing for an intermediate release
+to preserve, and the stages would protect a population of size zero.
 
-- The binding type stays registered (see above), so the old records
-  load instead of failing validation.
-- `videoKey` is materialized as `shape.id` on every legacy video,
-  and its birth-ledger entry is backfilled in the same transaction —
-  a synthetic birth stamp at the normalization's own serialization
-  point, debited to the room rather than to any principal — so
-  late-revival detection covers legacy videos whose evidence later
-  expires. A fixture normalizes a legacy room, deletes such a video,
-  ages its evidence past the horizon, and proves a stale revival
-  still quarantines.
-- Each `media-control` binding is resolved: the video shape at its
-  `toId` supplies the target key written into the `mediaControl`
-  action carried by the marker at its `fromId`. The event keeps its
-  target. The binding record itself stays, per the rollback rule
-  below.
-- Legacy stores can also hold degraded records — a marker that lost
-  its binding, a binding whose endpoint is missing or of the wrong
-  type — and today the mount path deletes unbound markers as its
-  recovery. That recovery moves into the same pass: a marker whose
-  `mediaControl` action cannot be given a target — no binding, or a
-  binding that does not resolve to a video — is deleted, along with
-  any dangling binding. Deleting these is rollback-neutral, because
-  the previous release's own cleanup does the same.
-- The pass reads only what is in the store, so it is deterministic
-  and idempotent: running it again, anywhere, changes nothing.
-- A pasted `TLContent` payload goes through the paste wrapper —
-  which already does operation-scoped preprocessing for frame
-  remapping — before identity remapping runs. Pasted output is new
-  content, so it is written in the new vocabulary, without bindings.
+What the single move does not cover is a rollback past this release
+itself. A build that predates it knows nothing of a video spread
+across carriers: it mounts a player per carrier and keeps them all
+visible, so a presentation authored since would come up as several
+independent players. The gate refuses such a client while the two
+sides disagree, but a deployment rolled back on both sides agrees with
+itself again. Nothing is lost — the records the older build cannot
+interpret are still there, and it renders correctly again on roll
+forward — and no client-side change can close it, since making release
+N safe against a rollback to N-1 requires N-1 to already refuse.
+Closing it would mean shipping an acceptance release first, which is
+the sequence above, for a window that costs a misrender rather than
+data.
 
-Retained bindings alone cannot make rollback safe, because the
-materialized `videoKey` prop is itself a poison pill to the release
-currently deployed: its `youtube-embed` schema does not declare the
-property, and tldraw validation rejects unknown props, so a normalized
-document would fail to load before any binding is consulted. (The
-action's target key has no such problem — frames live in `shape.meta`,
-which tldraw does not validate, so older code just ignores the extra
-key.) Rollback therefore gets explicit floors, and each floor is
-itself deployable with a floor beneath it:
-
-- **Stage A, acceptance.** Identical to the current release except
-  that its validators accept the future optional props and it
-  carries the two-sided version gate the later stages rely on. It
-  writes nothing new, changes no behavior, and — like every release
-  in this sequence — adds no schema migrations: none exist, because
-  materialization is normalization, so no snapshot is ever stranded
-  behind unknown migration versions. The forked room server ships
-  here too, gated by the **document**, not by the protocol version
-  it serves: a room whose document bears no future vocabulary gets
-  none of the new machinery — no normalization, no stamping, nothing
-  written, which is the byte-identical guarantee — while a room
-  whose document already bears it, which only a later stage can have
-  produced, runs the complete authoritative pre-apply path — stamps,
-  arbitration, tombstones and all — whatever client protocol is
-  connected. The stage boundary gates which clients connect; the
-  document gates what the server does; and crossing from legacy to
-  future vocabulary is never a client's act at all, which is what
-  keeps the gate from becoming a bootstrap deadlock. Under stage A a
-  pure-legacy document is inert: every future field or record shape
-  in a push is stripped or rejected whatever the client says — the
-  declared version is an unauthenticated claim, and a doctored
-  connection cannot smuggle `videoKey` into a document that would
-  then strand on rollback. From stage B onward the server itself
-  **promotes** a legacy room at initialization: atomic, trusted
-  normalization plus an explicit persisted vocabulary marker, after
-  which the room is future-vocabulary and the full path serves it —
-  an integration test starts with a legacy shared room, lets stage B
-  promote it and accept its first new-vocabulary write, then rolls
-  back to stage A and proves the full path still serves it. A stage-B-to-A
-  integration test proves the rolled-back server issues
-  authoritative stamps and preserves cascade and tombstone semantics
-  on a future-vocabulary room, not merely that the client routes an
-  edit. That makes rolling stage A back to the current
-  release trivially safe; a round-trip test opens, persists, and
-  rolls a shared room back against the actual current release —
-  including a connection that deliberately submits future vocabulary
-  — before anything later ships. Stage A's write behavior is
-  document-sensitive, which is what makes both of its neighbors
-  safe: a document containing no future vocabulary gets exactly the
-  current release's behavior and stays byte-identical — the
-  A-to-current guarantee above — while a document already bearing
-  future vocabulary, which only a later stage can have produced (so
-  rolling it back past A is already out of the window), gets the
-  write-compatibility shims: media edits routed and stamped as
-  operations, duplicate and paste minting fresh keys. An ordinary
-  edit under a B-to-A rollback therefore cannot park a new value
-  under an old stamp, and a duplicate cannot rejoin its source;
-  fixtures edit and duplicate under rolled-back stage A on both
-  document kinds.
-- **Stage B, the pre-release.** The main release's rollback floor,
-  described next. Rolling it back means rolling back to stage A,
-  whose validators accept everything stage B writes.
-- **The main release.** Rolling back means rolling back to stage B.
-  Rolling back past a stage leaves the support window once the next
-  stage has shipped.
-
-The pre-release's contract is that every ordinary edit made under it
-leaves main-release documents consistent, which means it understands
-the new vocabulary without shipping any new feature:
-
-- It inherits stage A's widened validators and adds no migrations,
-  so snapshot version stamps never diverge between releases and a
-  room persisted by any of them loads under any other. The
-  `TLSocketRoom` round-trip fixture — build and persist a room under
-  the main release, reopen it under the pre-release — proves the
-  whole load path, not merely record validation.
-- Its duplicate and paste paths run the main release's identity
-  remap — shared code, not a reimplementation: a copied video gets a
-  fresh `videoKey` by the same rule the main release uses,
-  target-keyed markers travel with the copy the way bound markers do,
-  and their actions are rewritten to the fresh key. A rollback-window
-  duplicate therefore stays an independent video on roll-forward
-  instead of rejoining the original.
-- Its media-prop editing is authority-routed and revision-stamped,
-  exactly as the main release stamps its own edits, so a
-  rollback-window edit holds authority on roll-forward instead of
-  sitting unread on a non-owner record.
-- Its binding delete cascade is `videoKey`-aware: a bound video
-  deleted while another carrier of its key survives repoints the
-  binding at the survivor instead of cascading into the marker — a
-  state only main-release edits can produce, so purely legacy
-  documents behave as before. The same delete path performs the
-  authority transfer, so revision high-water marks survive
-  rollback-window deletions too.
-- Its mount-path cleanup narrows to true legacy orphans — markers
-  with neither binding nor target key — so new-vocabulary markers
-  pass through untouched.
-- Its playback path falls back to the action's target key when a
-  marker has no binding — one lookup, not a feature — so media events
-  authored by the main release keep executing during rollback instead
-  of loading as inert records. An end-to-end fixture presents a deck
-  under the rolled-back release and asserts the commands run, not
-  merely that the records survive.
-- Its `youtube-embed` render is key-aware for the same reason: among
-  carriers sharing a `videoKey` — a state only main-release documents
-  contain — exactly one, the carrier the target-key lookup selects,
-  mounts a live iframe, and the rest render posters. Without this, a
-  rolled-back deck holding movement keyframes would mount one player
-  per keyframe, resurrecting the duplicate-player hazard this design
-  exists to remove, with commands landing on a different carrier than
-  the one on screen. Rollback tests assert the iframe count, the
-  visible carrier, and the interaction target.
-
-Media events the pre-release authors are dual-written: the legacy
-binding its own behavior needs, and the action's target key
-alongside. The main release's normalization would derive the key
-from the binding anyway; writing it eagerly means the event is
-complete from the moment it exists, with no window where only the
-binding carries the truth. A fixture creates an event under the
-pre-release and proves it still targets and controls its video after
-roll-forward. The main release follows once the pre-release is
-deployed.
-
-Well-formed bindings are rewritten but not deleted. Deleting them
-would make an ordinary deployment rollback destructive: the previous
-release resolves events through bindings and deletes an unbound marker
-as an orphan, so a document opened once by the new release and then
-reopened by the old one would silently lose its media events. Left in
-place — inert to the new code, intact to the old — they keep
-everything the old release wrote survivable under rollback.
-
-Surviving the first open is not enough; the guarantee has to survive
-edits — and at the merged state, not in any one client's view, since
-a client-chosen replacement can itself be concurrently deleted,
-stranding the binding on a dead target while a third carrier lives.
-Binding repair is therefore part of the room server's standing
-post-merge invariant, exactly like authority transfer: after each
-applied push, any retained binding whose target is absent is
-repointed to a surviving carrier of its `videoKey` before the result
-is broadcast, and deleted only when no carrier survives. The
-rollback release then always finds bindings pointing at live shapes,
-whatever interleaving of deletions produced the merge; only when the
-last carrier goes do events, markers and bindings go together. Tests
-delete the bound carrier and its chosen replacement concurrently, in
-both delivery orders, through restart and through rollback. Unsynced
-documents get the same repair from the local batch cleanup, in the
-same history entry.
-
-Content
-authored by the new release (movement keyframes, new media events,
-pasted copies) is written without bindings. Under the pre-release its
-media events still execute, through the target-key playback fallback
-above; what stays dormant is the movement itself: the pre-release
-mounts no runtime player and never tweens, rendering the selected
-carrier as the one live embed and every other keyframe as a poster.
-Everything validates, survives the narrowed cleanup untouched, and
-works fully again on roll-forward.
-
-Media-prop edits made during the rollback window survive roll-forward
-by construction: they are routed and revision-stamped the same way
-the main release's own edits are, so they are the authoritative
-values every reader resolves after roll-forward. A fixture edits a media prop
-through a non-owner carrier under the pre-release and proves it holds
-authority after roll-forward.
-
-Fixtures pin all of this. A document captured from the pre-normalization
-schema, holding a video with `media-control` bindings, must load under
-the new schema with its event targeting intact — and, reopened under
-the previous release's schema and cleanup rules, must still have its
-events, including after the round trip that adds a keyframe and
-deletes the originally bound carrier. Another round trip covers the
-other direction: an event authored under the main release, opened
-under the pre-release, then reopened under the main release, survives
-both hops — including the variant where the bound carrier is deleted
-while the pre-release is the one running, and the variant where the
-_last_ carrier is deleted there, whose now-targetless markers the
-load sweep collects on roll-forward. Duplicating and pasting a video
-under the pre-release round-trips too: the copy returns to the main
-release as an independent identity with its events attached. Sibling fixtures hold the degraded states — an unbound marker,
-a binding with a missing or mistyped endpoint — and must come out with
-those records gone. A pre-change `TLContent` fixture pasted through
-the wrapper must come out with its event targeting the pasted video.
-
-A later release deletes the inert binding records once rolling back to
-binding-reading code stops being supported; the schema registration
-and the inert util go with them. That cleanup is the whole remaining
-compatibility surface, and it is a later judgment call, not a step in
-this rollout.
+The client defines the transition on refusal, because refusal alone
+swaps no JavaScript: it stops reconnecting, forces an asset reload
+that bypasses caches, and — if the fetched bundle still reports the
+refused version, as it briefly can while a deployment propagates —
+backs off behind a visible "deployment changed, reloading" notice
+rather than spinning.

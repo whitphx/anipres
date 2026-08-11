@@ -20,11 +20,16 @@
  * - 3: the `mediaControl` frame action plus the `youtube-embed` and
  *   `media-control` shapes and the `media-control` binding.
  * - 4: video identity — a `mediaControl` action names its target with
- *   a `videoKey`, and events are written without the `media-control`
- *   binding that used to carry it. The vocabulary itself is all in
- *   `meta`, which an older build ignores, but its mount path deletes a
- *   marker that has no binding as an orphan — so an older client must
- *   not open one of these documents.
+ *   a `videoKey`, and the `media-control` binding that used to carry
+ *   it is gone, its type no longer registered. The new vocabulary is
+ *   all in `meta`, which a version-3 client ignores, but it knows
+ *   nothing of one video spread across carriers and would mount a
+ *   player per carrier; and a version-3 document still holds bindings
+ *   this build cannot validate, so it fails to load rather than
+ *   degrading. Neither side may open the other's documents, which is
+ *   what the gate enforces. Version 3 shipped in no release: both
+ *   changesets are pending together, so no published version has
+ *   written either vocabulary.
  *
  * The server gate matches this value exactly. In the deployment this
  * repo ships, the worker serves the app bundle, so both sides move
