@@ -835,12 +835,18 @@ read carries no ordering evidence, so the claimant would win again.
 A counter at or above the ceiling is therefore not evidence of
 anything, and the client that reaches for it loses to any carrier
 that can still be read. At the very top of the range an edit can only
-tie the counter it found, leaving the session id to decide it — the
-one case a client cannot settle alone, and one more reason the room
-server is where stamps are meant to be issued. Starting the counter
-over instead would be worse than the tie, since a carrier this client
-has never seen can still merge holding the high counter and would
-outrank the restart, reverting the property an edit had just changed. A fresh identity minted from clipboard
+tie the counter it found, leaving the session id to decide which of
+the two is read. That is less than it sounds: an edit writes every
+carrier of its video, the record holding the high counter included, so
+the claim is overwritten rather than compared against, and the edit
+takes effect. What it cannot survive is a peer that re-sends the
+record after every edit, which no rule a client can apply would stop
+either — the writer is authenticated and the room accepts what it
+says. That case is what server-issued stamps are for. Starting the
+counter over instead of tying would be worse, since a carrier this
+client has never seen can still merge holding the high counter and
+would outrank the restart, reverting the property an edit had just
+changed. A fresh identity minted from clipboard
 content starts with no revision map at all, since a new video is not
 heir to the history of the one it was copied from.
 
@@ -1276,6 +1282,18 @@ identical values, and no revision ever moves backwards. This is a one-shot
 write inside a structural delete, the same exposure as the marker
 cleanup that already lives in that batch, not a standing reconcile
 pass over carrier records.
+
+A deletion that leaves no carrier at all has nothing to transfer to,
+and the capture becomes the only record of what the video was. It is
+held in runtime state until a carrier of that video appears — a peer
+that was editing offline, an undo — and applied then, so the video
+does not come back silently reverted to whatever settings that carrier
+happens to hold. The stamps applied are the ones that had already won,
+so a client that never saw the deletion is not contradicted and a
+later edit outranks them. Only this session can do it: the document
+has nowhere to say "this video was configured this way before it
+went", which is what the tombstones below would be, so a client that
+reloads in between cannot repair the revival.
 
 The deleting client's batch performs the transfer, in a shared room
 as well as an unsynced document. A client-computed transfer can be

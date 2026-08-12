@@ -1811,6 +1811,93 @@ describe("a tweening player's place in the stack", () => {
   });
 });
 
+describe("a video whose last carrier goes, then comes back", () => {
+  it("keeps the settings it had when a stale carrier arrives after", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const original = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(original)) throw new Error("expected a video");
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+
+      // The last carrier goes, so there is no survivor to repair.
+      editor.deleteShapes([videoId]);
+      expect(
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId),
+      ).toBeUndefined();
+
+      // A peer that was editing while offline sends its carrier, which
+      // predates the edit and holds the settings from before it.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...original,
+            id: createShapeId("zzz-from-a-peer"),
+            x: 900,
+            props: { ...original.props, videoId: "STALE" },
+            meta: { videoKey: videoId },
+          },
+        ]);
+      });
+
+      const carriers =
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(carriers).toHaveLength(1);
+      // Without this the video comes back silently reverted, with
+      // nothing left saying it had ever been configured.
+      expect(resolveVideoConfig(carriers)?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("a stamp forged at the top of the range", () => {
+  it("is overwritten by the next edit, which reaches every carrier", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+
+      // The largest counter a read accepts, under a session id that
+      // wins every tie: the most a peer can claim.
+      editor.store.mergeRemoteChanges(() => {
+        editor.store.put([
+          {
+            ...video,
+            id: createShapeId("zzz-forged"),
+            x: 900,
+            props: { ...video.props, videoId: "FORGED" },
+            meta: {
+              videoKey: videoId,
+              videoConfigRev: {
+                videoId: { c: CONFIG_STAMP_CEILING - 1, s: "\uffff" },
+              },
+            },
+          },
+        ]);
+      });
+      const carriersNow = () =>
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(videoId) ??
+        [];
+      expect(resolveVideoConfig(carriersNow())?.videoId).toBe("FORGED");
+
+      updateVideoConfig(editor, videoId, { videoId: "EDITED" });
+
+      // An edit writes every carrier of the video, the forged one
+      // included, so the claim it made is not there to be compared
+      // against any more. Only a peer that keeps re-sending the record
+      // holds the value, which no client-side rule can prevent and
+      // which is what the design's server-issued stamps are for.
+      expect(resolveVideoConfig(carriersNow())?.videoId).toBe("EDITED");
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

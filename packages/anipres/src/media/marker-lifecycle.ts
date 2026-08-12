@@ -223,6 +223,26 @@ export function installVideoLifecycle(
   // over the other's.
   let deletedByPage: Map<TLPageId, Set<string>> | null = null;
   const capturedByPage = new Map<TLPageId, Map<string, StampedVideoConfig>>();
+  /**
+   * What a video was configured to when its last carrier went.
+   *
+   * A deletion that leaves survivors repairs them and is done. A
+   * deletion that leaves none has nothing to write to, and the capture
+   * is then the only record of what the video was: a carrier can still
+   * arrive afterwards — a peer that was editing while offline, an undo
+   * — and would otherwise seat whatever settings it happens to be
+   * holding, silently reverting the ones that had won. Applying the
+   * capture writes stamps that were already the highest anyone had, so
+   * a client that never saw the deletion is not contradicted and any
+   * later edit outranks it.
+   *
+   * Runtime state, and only this session's: the document has no place
+   * to say "this video was configured this way before it went", which
+   * is what the room server's tombstones would be for. A client that
+   * reloads between the deletion and the revival cannot repair it.
+   */
+  const configsAwaitingACarrier = new Map<string, StampedVideoConfig>();
+  let revivedByPage: Map<TLPageId, Set<string>> | null = null;
   // Read while every carrier is still present: the stamps that won a
   // property may live only on the record about to go. The page has to
   // be read here too — once the operation completes the record is
@@ -261,8 +281,46 @@ export function installVideoLifecycle(
       }
     },
   );
+  const stopWatchRevivals = editor.sideEffects.registerAfterCreateHandler(
+    "shape",
+    (shape) => {
+      if (!isYouTubeEmbedShape(shape)) {
+        return;
+      }
+      const videoKey = getVideoKey(shape);
+      if (!configsAwaitingACarrier.has(videoKey)) {
+        return;
+      }
+      const pageId = editor.getAncestorPageId(shape);
+      if (pageId == null) {
+        return;
+      }
+      // Recorded rather than repaired here: the write belongs at the
+      // end of the operation, not part-way through creating a record.
+      revivedByPage ??= new Map();
+      const keys = revivedByPage.get(pageId) ?? new Set<string>();
+      keys.add(videoKey);
+      revivedByPage.set(pageId, keys);
+    },
+  );
   const stopCleanup = editor.sideEffects.registerOperationCompleteHandler(
     () => {
+      const revived = revivedByPage;
+      revivedByPage = null;
+      if (revived != null) {
+        for (const [pageId, keys] of revived) {
+          const shapes = shapesOnPage(editor, pageId);
+          for (const videoKey of keys) {
+            const captured = configsAwaitingACarrier.get(videoKey);
+            if (captured == null) {
+              continue;
+            }
+            configsAwaitingACarrier.delete(videoKey);
+            restoreStampedVideoConfig(editor, videoKey, captured, shapes);
+          }
+        }
+      }
+
       const byPage = deletedByPage;
       deletedByPage = null;
       if (byPage == null) {
@@ -280,9 +338,13 @@ export function installVideoLifecycle(
         // carrier whose stamps won a property would drop the video back
         // to whatever a stale carrier happened to be holding, with
         // nothing left to say the configuration had ever been edited.
+        const carriersByKey = groupCarriersByVideoKey(shapes);
         for (const [videoKey, captured] of capturedByPage.get(pageId) ??
           new Map<string, StampedVideoConfig>()) {
           restoreStampedVideoConfig(editor, videoKey, captured, shapes);
+          if ((carriersByKey.get(videoKey)?.length ?? 0) === 0) {
+            configsAwaitingACarrier.set(videoKey, captured);
+          }
         }
         if (soleWriter) {
           deleteOrphanedMediaMarkers(editor, keys, shapes);
@@ -294,6 +356,7 @@ export function installVideoLifecycle(
   return () => {
     stopMinting();
     stopCaptureConfigs();
+    stopWatchRevivals();
     stopParking();
     stopCleanup();
   };
