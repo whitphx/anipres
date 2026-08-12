@@ -278,7 +278,16 @@ export function runStep(
       .reverse()
       .flat()
       .find((fb) => fb.trackId === frameBatch.trackId);
-    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
+    // The last frame that moved something, not simply the last frame:
+    // a media event rides in the batch of the keyframe it follows, so
+    // a track's batch can end with a marker. A marker is nowhere — it
+    // carries an event, not a position — and taking it as the
+    // predecessor would start the next tween from a shape the player
+    // cannot be travelling from, so the tween would find no origin and
+    // the video would jump to its destination.
+    const predecessorLastFrame = [...(predecessorFrameBatch?.data ?? [])]
+      .reverse()
+      .find((frame) => frame.action.type !== "mediaControl");
     const predecessorShape =
       predecessorLastFrame != null
         ? editor.getShape(predecessorLastFrame.shapeId as TLShapeId)

@@ -2050,6 +2050,85 @@ describe("adding an event to a carrier that already moves", () => {
   });
 });
 
+describe("a movement that follows a keyframe carrying an event", () => {
+  it("still travels from that keyframe's carrier", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const carrier = (id: string, x: number, step: string, key: string) => {
+        const shapeId = createShapeId(id);
+        editor.createShape({
+          ...video,
+          id: shapeId,
+          x,
+          meta: {
+            videoKey: videoId,
+            frame: frameToMetaJson(
+              videoCue({
+                trackId: "T-video",
+                stepId: step,
+                stepOrderKey: key,
+                action: { type: "shapeAnimation", duration: 5000 },
+              }),
+            ),
+          },
+        });
+        return shapeId;
+      };
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      const middle = carrier("middle", 400, "s1", "a2");
+      carrier("last", 900, "s2", "a3");
+
+      // The event rides on the middle keyframe, so that batch now ends
+      // with a marker rather than with the carrier.
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      manager.attachMediaControlFrame(middle);
+
+      manager.moveTo(2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The next movement travels from the video that was there, not
+      // from the invisible marker that happened to be last in its
+      // batch: a marker is no carrier, so the tween would find no
+      // origin and the player would jump instead of moving.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(middle);
+
+      // And the placement resolves that origin, so the player is
+      // somewhere between the two rather than parked on the
+      // destination.
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(400);
+      expect(x).toBeLessThan(900);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
