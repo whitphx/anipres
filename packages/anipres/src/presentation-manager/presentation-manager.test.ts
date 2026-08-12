@@ -152,8 +152,8 @@ describe("attachMediaControlCueFrame", () => {
 
   it("mints one media track and reuses it for later events of the same video", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
 
       const markerFrames = getVideoMarkers(editor, videoId).map((shape) =>
         parseFrameMeta(shape?.meta?.frame),
@@ -179,7 +179,7 @@ describe("attachMediaControlCueFrame", () => {
 
   it("keeps the marker parked at the video's origin across video moves", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
       expect(marker!.x).toBe(0);
       expect(marker!.y).toBe(0);
@@ -199,7 +199,7 @@ describe("attachMediaControlCueFrame", () => {
       // Away from the origin, so parking at the VIDEO is what the
       // assertion below proves — not a reset to (0, 0).
       editor.updateShape({ id: videoId, type: "youtube-embed", x: 120, y: 90 });
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
       editor.updateShape({
         id: marker!.id,
@@ -216,7 +216,7 @@ describe("attachMediaControlCueFrame", () => {
 
   it("re-parks a marker that was moved on its own", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
 
       // The strip badge selects the marker, and selection-wide
@@ -232,8 +232,8 @@ describe("attachMediaControlCueFrame", () => {
 
   it("deletes the markers when the video loses its last carrier", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const markerIds = getVideoMarkers(editor, videoId).map((s) => s!.id);
       expect(markerIds).toHaveLength(2);
 
@@ -258,13 +258,15 @@ describe("attachMediaControlCueFrame", () => {
         stepOrderKey: "a0",
         action: { type: "shapeAnimation" },
       };
+      // Standalone, on its own media track: the carrier has no frame
+      // yet, so there is no batch for the event to join.
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId)!;
       editor.updateShape({
         id: videoId,
         type: video.type,
         meta: { ...video.meta, frame: frameToMetaJson(videoCue) },
       });
-      manager.attachMediaControlCueFrame(videoId);
 
       const groups = manager.$getMediaTrackGroups();
       const [marker] = getVideoMarkers(editor, videoId);

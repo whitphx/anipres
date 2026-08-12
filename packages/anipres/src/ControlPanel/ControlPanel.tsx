@@ -402,7 +402,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 ]),
               );
               byVideo.forEach((shape) => {
-                presentationManager.attachMediaControlCueFrame(shape.id);
+                presentationManager.attachMediaControlFrame(shape.id);
               });
             }}
           >

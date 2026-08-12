@@ -16,6 +16,8 @@ import {
   orderKeyBetween,
   parseFrameMeta,
   type CueFrame,
+  type Frame,
+  type SubFrame,
   type FrameAction,
   type TimelineDoc,
 } from "../timeline-model";
@@ -24,6 +26,10 @@ import {
   type RuntimeStep,
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
+import {
+  planSubFrameAddAfter,
+  type SubFrameAddAfterPlan,
+} from "../ControlPanel/operations";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import {
   getVideoKey,
@@ -253,12 +259,103 @@ export class PresentationManager {
    * media track), so the timeline shows them as a sequence and the step
    * machinery keeps them mutually exclusive within a step.
    */
-  attachMediaControlCueFrame(videoShapeId: TLShapeId) {
-    const video = this.editor.getShape(videoShapeId);
+  /**
+   * Adds a playback event for the video the given carrier belongs to.
+   *
+   * Where that carrier already holds a movement frame, the event joins
+   * that frame's batch as a sub frame, which is the only way to say
+   * that it happens *after* the movement: a step's batches run
+   * concurrently, so an event on its own track is simultaneous with
+   * the movement and no order between them exists to be edited. Inside
+   * a batch, frames run in sequence and their order is a stored key
+   * the timeline can drag.
+   *
+   * A carrier with no frame of its own has no batch to join, so the
+   * event becomes a cue frame in a new step, as every event did before.
+   */
+  private createMediaControlSubFrame(
+    carrierShapeId: TLShapeId,
+    videoKey: string,
+    plan: SubFrameAddAfterPlan,
+  ): void {
+    const subFrame: SubFrame = {
+      v: 2,
+      id: uniqueId(),
+      type: "sub",
+      cueFrameId: plan.cueFrameId,
+      orderKey: plan.orderKey,
+      // Always starts as "play" (the most common event); the user picks
+      // another command in the frame-edit popover.
+      action: { type: "mediaControl", command: "play", videoKey },
+    };
+    const markerId = createShapeId();
+    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
+    this.editor.run(() => {
+      // The batch's cue may need an id written, and its existing sub
+      // frames re-keyed to make room; both come from the plan.
+      if (plan.cueFrameUpdate != null) {
+        this.applyStoredFrame(
+          plan.cueFrameUpdate.shapeId as TLShapeId,
+          plan.cueFrameUpdate.frame,
+        );
+      }
+      for (const { shapeId, key } of plan.keyUpdates) {
+        const parsed = parseFrameMeta(
+          this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
+        );
+        if (parsed.kind === "v2" && parsed.frame.type === "sub") {
+          this.applyStoredFrame(shapeId as TLShapeId, {
+            ...parsed.frame,
+            orderKey: key,
+          });
+        }
+      }
+      this.editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        parentId: this.editor.getCurrentPageId(),
+        x: videoBounds?.x ?? 0,
+        y: videoBounds?.y ?? 0,
+        meta: { frame: frameToMetaJson(subFrame) },
+      });
+      this.editor.select(markerId);
+    });
+  }
+
+  private applyStoredFrame(shapeId: TLShapeId, frame: Frame): void {
+    const shape = this.editor.getShape(shapeId);
+    if (shape == null) {
+      return;
+    }
+    this.editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
+    });
+  }
+
+  attachMediaControlFrame(carrierShapeId: TLShapeId) {
+    const video = this.editor.getShape(carrierShapeId);
     if (!isYouTubeEmbedShape(video)) {
       return;
     }
     const videoKey = getVideoKey(video);
+
+    const plan = planSubFrameAddAfter({
+      doc: this.$getTimelineDoc(),
+      prevShapeId: carrierShapeId,
+      getStoredFrame: (shapeId) => {
+        const parsed = parseFrameMeta(
+          this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
+        );
+        return parsed.kind === "v2" ? parsed.frame : null;
+      },
+      mintId: uniqueId,
+    });
+    if (plan != null) {
+      this.createMediaControlSubFrame(carrierShapeId, videoKey, plan);
+      return;
+    }
 
     let mediaTrackId: string | null = null;
     for (const shape of this.editor.getCurrentPageShapes()) {
@@ -293,7 +390,7 @@ export class PresentationManager {
       action: { type: "mediaControl", command: "play", videoKey },
     };
     const markerId = createShapeId();
-    const videoBounds = this.editor.getShapePageBounds(videoShapeId);
+    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
     this.editor.run(() => {
       this.editor.createShape({
         id: markerId,

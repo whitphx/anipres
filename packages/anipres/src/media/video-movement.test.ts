@@ -9,6 +9,7 @@ import {
   loadHeadlessEditor,
 } from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
+import { timelineDocToRuntimeSteps } from "../timeline-model/runtime-steps";
 import { transitionProgress } from "./video-transition";
 import { createDuplicateShapesRemap } from "../duplicate-shapes-remap";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model";
@@ -172,7 +173,7 @@ describe("video identity", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       expect(markersOf(editor, videoId)).toHaveLength(1);
 
       createDuplicateShapesRemap(editor, () =>
@@ -205,7 +206,7 @@ describe("marker lifecycle without the binding", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
@@ -236,7 +237,7 @@ describe("marker lifecycle without the binding", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
@@ -700,10 +701,14 @@ describe("timeline grouping", () => {
       );
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      // Standalone, on its own media track: the carrier has no frame
+      // yet, so there is no batch for the event to join.
+      manager.attachMediaControlFrame(videoId);
       editor.updateShape({
         id: videoId,
         type: video.type,
         meta: {
+          ...editor.getShape(videoId)?.meta,
           frame: frameToMetaJson(
             videoCue({ trackId: "T-a", stepId: "s0", stepOrderKey: "a1" }),
           ),
@@ -722,7 +727,6 @@ describe("timeline grouping", () => {
           ),
         },
       });
-      manager.attachMediaControlCueFrame(videoId);
 
       const groups = manager.$getMediaTrackGroups();
       // One logical video, so every track it owns shares a row.
@@ -889,7 +893,7 @@ describe("shared documents keep events recoverable", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const markerIds = markersOf(editor, videoId).map((m) => m.id);
       expect(markerIds).toHaveLength(1);
 
@@ -1381,7 +1385,7 @@ describe("deleting a carrier on a page that is not open", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("zzz-keyframe");
@@ -1562,7 +1566,7 @@ describe("counting a snapshot's steps", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       expect(calculateTotalSteps(editor.getSnapshot())).toBe(
         manager.$getTotalSteps(),
       );
@@ -1629,7 +1633,7 @@ describe("what a move counts as already here", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = markersOf(editor, videoId);
       const frame = parseFrameMeta(marker.meta?.frame);
       if (frame.kind !== "v2") throw new Error("expected a v2 frame");
@@ -1993,6 +1997,59 @@ describe("resizing a video", () => {
   });
 });
 
+describe("adding an event to a carrier that already moves", () => {
+  it("joins that movement's batch, so it runs after it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      const stepsBefore = manager.$getTotalSteps();
+
+      manager.attachMediaControlFrame(videoId);
+
+      // A sub frame of the movement's own batch, not a cue on a track
+      // of its own: within a batch frames run in sequence, which is
+      // what "after the movement" means, and a step's batches do not.
+      const [marker] = markersOf(editor, videoId);
+      const parsed = parseFrameMeta(marker?.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.type !== "sub") {
+        throw new Error("expected a v2 sub frame on the marker");
+      }
+      expect(parsed.frame.cueFrameId).toBe("frame-s0");
+      // It joined a step rather than adding one.
+      expect(manager.$getTotalSteps()).toBe(stepsBefore);
+
+      const [step] = manager.$getTimelineDoc().steps;
+      const batch = step.batches.find((b) => b.trackId === "T-video");
+      expect(batch?.frames.map((f) => f.shapeId)).toEqual([videoId, marker.id]);
+      // And the runtime walks a batch in order, so the command is not
+      // sent until the movement's own duration has been waited out.
+      expect(
+        timelineDocToRuntimeSteps(manager.$getTimelineDoc())[0]
+          .flatMap((b) => b.data)
+          .map((f) => f.action.type),
+      ).toEqual(["shapeAnimation", "mediaControl"]);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
@@ -2111,7 +2168,7 @@ describe("a deleted video's events in a shared document", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const withVideo = manager.$getTotalSteps();
