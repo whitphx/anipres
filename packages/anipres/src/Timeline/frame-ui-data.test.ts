@@ -69,3 +69,57 @@ describe("calcFrameBatchUIData track grouping", () => {
     expect(grouped.steps).toEqual(ungrouped.steps);
   });
 });
+
+describe("a video's row when a step holds movement and an event", () => {
+  it("reads the movement first, whatever ids the frames were minted", () => {
+    // Both tracks describe one video, so they share a row, and both
+    // have a batch in step 0. Frame ids decide nothing here: the media
+    // event's sorts ahead of the movement's.
+    const doc = {
+      steps: [
+        {
+          id: "s0",
+          orderKey: "a1",
+          batches: [
+            {
+              id: "b-event",
+              trackId: "T-media",
+              frames: [
+                {
+                  id: "aaa-event",
+                  shapeId: "shape:marker",
+                  type: "cue" as const,
+                  action: { type: "mediaControl" as const, command: "play" },
+                },
+              ],
+            },
+            {
+              id: "b-move",
+              trackId: "T-video",
+              frames: [
+                {
+                  id: "zzz-move",
+                  shapeId: "shape:video",
+                  type: "cue" as const,
+                  action: { type: "shapeAnimation" as const },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      diagnostics: [],
+    };
+
+    const { tracks } = calcFrameBatchUIData(doc as never, {
+      "T-media": "video-key",
+      "T-video": "video-key",
+    });
+
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].frameBatches.map((b) => b.trackId)).toEqual([
+      "T-video",
+      "T-media",
+    ]);
+  });
+});

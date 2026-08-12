@@ -1968,6 +1968,31 @@ describe("one key, a video on each of two pages", () => {
   });
 });
 
+describe("resizing a video", () => {
+  it("keeps the aspect ratio the embedded player is fixed at", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const before = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(before)) throw new Error("expected a video");
+      const ratio = before.props.w / before.props.h;
+
+      // Dragging a corner handle out along one axis only.
+      editor.select(videoId);
+      editor.resizeShape(videoId, { x: 2, y: 1 });
+
+      const after = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(after)) throw new Error("expected a video");
+      expect(after.props.w).toBeGreaterThan(before.props.w);
+      // The player is letterboxed inside whatever box it is given, so a
+      // shape reshaped away from this grows bars rather than picture.
+      expect(after.props.w / after.props.h).toBeCloseTo(ratio, 5);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

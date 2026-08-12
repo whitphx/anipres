@@ -36,6 +36,11 @@ export interface Track {
   frameBatches: FrameBatchUIData[];
 }
 
+/** Movement before the events that ride on the same row. */
+function withinStepRank(batch: FrameBatchUIData): number {
+  return batch.data[0].action.type === "mediaControl" ? 1 : 0;
+}
+
 export function calcFrameBatchUIData(
   doc: TimelineDoc,
   /** Track id → group key; tracks with the same key merge into one row. */
@@ -114,8 +119,20 @@ export function calcFrameBatchUIData(
   const tracks: Track[] = [...trackById.values()];
   for (const track of tracks) {
     // Merged rows collect batches per source track; re-order by step so
-    // the row reads left to right.
-    track.frameBatches.sort((a, b) => a.globalIndex - b.globalIndex);
+    // the row reads left to right. Two of them can share a step — a
+    // video moving and one of its own events — and a step's batches
+    // run concurrently, so which reads first carries no meaning and
+    // cannot be dragged into a different one. Left to the derivation
+    // it would come out in frame-id order, which is to say arbitrarily
+    // and differently for every video, so the video's own movement is
+    // put ahead of the events it carries and equal ranks fall back to
+    // the track id.
+    track.frameBatches.sort(
+      (a, b) =>
+        a.globalIndex - b.globalIndex ||
+        withinStepRank(a) - withinStepRank(b) ||
+        (a.trackId < b.trackId ? -1 : a.trackId > b.trackId ? 1 : 0),
+    );
   }
   tracks.sort((a, b) => {
     // cameraZoom should be at the top
