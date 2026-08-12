@@ -26,9 +26,11 @@ import type { FrameUIData } from "../Timeline/frame-ui-data";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
-import { YouTubeEmbedShapeType } from "../shapes/youtube-embed/YouTubeEmbedShape";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
-import { copyMediaControlBinding } from "../shapes/media-control/MediaControlBinding";
 import type { PresentationManager } from "../presentation-manager";
 import {
   findFramePosition,
@@ -43,20 +45,14 @@ const COPIED_SHAPE_POSITION_OFFSET = { x: 100, y: 100 };
 
 /**
  * Whether a frame sequence may grow via the timeline's per-batch "+"
- * buttons, which clone the previous carrier shape. Media events are
- * keyed by ACTION, not carrier type — markers are safe to clone (the
- * group path does), but events are added via "+ Media event" and
- * chained by dragging one onto an earlier step. Videos are keyed by
- * carrier TYPE: a video copy would mount a second live player.
+ * buttons, which clone the previous carrier shape. The exclusion is by
+ * ACTION, not carrier type — markers are safe to clone (the group path
+ * does), but media events are added via "+ Media event" and chained by
+ * dragging one onto an earlier step. A video carrier is now an ordinary
+ * one: cloning it makes a movement keyframe, not a second player.
  */
-function canExtendFrameSequenceFrom(
-  frame: FrameUIData,
-  carrierShapeType: string | undefined,
-): boolean {
-  return (
-    frame.action.type !== "mediaControl" &&
-    carrierShapeType !== YouTubeEmbedShapeType
-  );
+function canExtendFrameSequenceFrom(frame: FrameUIData): boolean {
+  return frame.action.type !== "mediaControl";
 }
 
 export interface ControlPanelProps {
@@ -109,9 +105,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     };
   });
 
-  const selectedYouTubeEmbedShapes = selectedShapes.filter(
-    (shape) => shape.type === YouTubeEmbedShapeType,
-  );
+  const selectedYouTubeEmbedShapes = selectedShapes.filter(isYouTubeEmbedShape);
 
   const selectedAnimeFrameAttachableShapes = selectedShapes
     .map((shape) => {
@@ -398,7 +392,16 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             className={styles.playButton}
             title="Add a playback event (play, pause, …) for the selected video as a new step"
             onClick={() => {
-              selectedYouTubeEmbedShapes.forEach((shape) => {
+              // One event per video, not per carrier: a video that
+              // moves is several carriers, and selecting two of them is
+              // still one request about one video.
+              const byVideo = new Map(
+                selectedYouTubeEmbedShapes.map((shape) => [
+                  getVideoKey(shape),
+                  shape,
+                ]),
+              );
+              byVideo.forEach((shape) => {
                 presentationManager.attachMediaControlCueFrame(shape.id);
               });
             }}
@@ -413,10 +416,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           timelineDoc={doc}
           trackGroups={presentationManager.$getMediaTrackGroups()}
           canExtendFrameSequence={(cueFrame) =>
-            canExtendFrameSequenceFrom(
-              cueFrame,
-              editor.getShape(cueFrame.shapeId as TLShapeId)?.type,
-            )
+            canExtendFrameSequenceFrom(cueFrame)
           }
           onEditedStepsChange={handleEditedStepsChange}
           onFrameChange={handleFrameChange}
@@ -453,7 +453,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               position == null ||
               // The buttons are hidden for these frames; the guard keeps
               // the invariant local to the operation.
-              !canExtendFrameSequenceFrom(prevCueFrame, prevShape.type)
+              !canExtendFrameSequenceFrom(prevCueFrame)
             ) {
               return;
             }
@@ -476,13 +476,15 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             editor.run(
               () => {
                 applyStepKeyUpdates(insertion.updates);
+                const source = editor.getShape(prevShape.id) ?? prevShape;
                 const newShapeId = createShapeId();
                 editor.createShape({
-                  ...prevShape,
+                  ...source,
                   id: newShapeId,
-                  x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-                  y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+                  x: source.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                  y: source.y + COPIED_SHAPE_POSITION_OFFSET.y,
                   meta: {
+                    ...source.meta,
                     frame: frameToMetaJson(newCueFrame),
                   },
                 });
@@ -531,10 +533,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                 );
               const shouldCopyThisShape =
                 original.type === GroupShapeUtil.type ||
-                // Never copy a video as a keyframe carrier: the copy
-                // would mount a second live player.
-                (isShapeLastSelectedFrameInItsTrack &&
-                  original.type !== YouTubeEmbedShapeType);
+                isShapeLastSelectedFrameInItsTrack;
 
               if (shouldCopyThisShape) {
                 const newShapeId = createShapeId();
@@ -632,11 +631,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
               () => {
                 applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
-                for (const { original, copied } of clonedShapes) {
-                  if (original.type === MediaControlShapeType) {
-                    copyMediaControlBinding(editor, original.id, copied.id);
-                  }
-                }
 
                 const rootCreatedShape = shapesToCreate.find(
                   (s) => s.parentId === editor.getCurrentPageId(),
@@ -661,7 +655,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             if (
               prevShape == null ||
               plan == null ||
-              !canExtendFrameSequenceFrom(prevFrame, prevShape.type)
+              !canExtendFrameSequenceFrom(prevFrame)
             ) {
               return;
             }
@@ -693,13 +687,15 @@ export const ControlPanel = track((props: ControlPanelProps) => {
                   });
                 }
               }
+              const source = editor.getShape(prevShape.id) ?? prevShape;
               const newShapeId = createShapeId();
               editor.createShape({
-                ...prevShape,
+                ...source,
                 id: newShapeId,
-                x: prevShape.x + COPIED_SHAPE_POSITION_OFFSET.x,
-                y: prevShape.y + COPIED_SHAPE_POSITION_OFFSET.y,
+                x: source.x + COPIED_SHAPE_POSITION_OFFSET.x,
+                y: source.y + COPIED_SHAPE_POSITION_OFFSET.y,
                 meta: {
+                  ...source.meta,
                   frame: frameToMetaJson(newSubFrame),
                 },
               });

@@ -5,8 +5,11 @@ import type {
   TLShape,
   TLShapeId,
 } from "tldraw";
-import { YouTubeEmbedShapeType } from "../youtube-embed/YouTubeEmbedShape";
-import { getMediaControlBindingTargetId } from "./MediaControlBinding";
+import { parseFrameMeta } from "../../timeline-model/parse";
+import {
+  getDefaultAnchorCarrier,
+  groupCarriersByVideoKey,
+} from "../../media/video-anchor";
 
 export const MediaControlShapeType = "media-control" as const;
 
@@ -14,12 +17,11 @@ export type MediaControlShapeProps = Record<string, never>;
 
 /**
  * An invisible record that carries one animation frame in its
- * `meta.frame` for a video it is bound to (see
- * {@link MediaControlBinding}), exactly like any other framed shape —
- * which is what lets media events reuse the whole timeline machinery
+ * `meta.frame` for the video that frame names, exactly like any other
+ * framed shape — which is what lets media events reuse the whole timeline machinery
  * (steps, sub frames, drag & drop, reconciliation) without changing the
- * one-frame-per-shape data model. It is a shape only because shapes and
- * bindings are tldraw's extension points for synced records: it never
+ * one-frame-per-shape data model. It is a shape only because a shape is
+ * tldraw's extension point for a synced record: it never
  * renders, exposes no hit area, and `getShapeVisibility` excludes it
  * from the canvas entirely. Its visual representation is the media-event
  * strip drawn by the YouTube embed shape's own component.
@@ -32,18 +34,57 @@ export type MediaControlShape = TLBaseShape<
 export const mediaControlShapeProps: RecordProps<MediaControlShape> = {};
 
 /**
- * Resolves the media shape a marker controls, or null for an orphaned
- * marker.
+ * The `videoKey` a marker's event acts on, or null for an orphan.
+ *
+ * The key travels in the frame's action, which is why the binding is no
+ * longer needed: with several carriers per video, a binding to one
+ * keyframe would name a shape rather than the video. The binding is
+ * still read as a fallback so a document that has not been normalized
+ * yet — one opened straight from storage, before the mount pass runs —
+ * still resolves its events.
+ */
+export function resolveMediaControlVideoKey(
+  editor: Editor,
+  markerShapeId: string,
+): string | null {
+  const marker = editor.getShape(markerShapeId as TLShapeId);
+  if (marker?.type !== MediaControlShapeType) {
+    return null;
+  }
+  const parsed = parseFrameMeta(marker.meta?.frame);
+  if (
+    parsed.kind === "v2" &&
+    parsed.frame.action.type === "mediaControl" &&
+    parsed.frame.action.videoKey != null
+  ) {
+    return parsed.frame.action.videoKey;
+  }
+  return null;
+}
+
+/**
+ * A representative carrier of the video a marker controls — its default
+ * anchor — or null when the video has no carrier left.
+ *
+ * A video that moves is several carriers, so there is no one shape that
+ * *is* the video and this answer names a stand-in for it. The choice is
+ * a pure function of the carriers present, so two readers of the same
+ * document get the same shape; it moves only when the video's own
+ * starting keyframe changes. Callers wanting to say something about the
+ * video itself should carry its `videoKey`, which
+ * `resolveMediaControlVideoKey` gives them, rather than treat this id
+ * as the video's identity.
  */
 export function resolveMediaControlTarget(
   editor: Editor,
   markerShapeId: string,
 ): TLShape | null {
-  const marker = editor.getShape(markerShapeId as TLShapeId);
-  if (marker?.type !== MediaControlShapeType) {
+  const videoKey = resolveMediaControlVideoKey(editor, markerShapeId);
+  if (videoKey == null) {
     return null;
   }
-  const targetId = getMediaControlBindingTargetId(editor, marker.id);
-  const target = targetId != null ? editor.getShape(targetId) : null;
-  return target?.type === YouTubeEmbedShapeType ? target : null;
+  const carriers = groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+    videoKey,
+  );
+  return carriers != null ? getDefaultAnchorCarrier(carriers) : null;
 }

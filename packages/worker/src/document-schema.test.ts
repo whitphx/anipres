@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  MediaControlBindingType,
-  MediaControlShapeType,
-  YouTubeEmbedShapeType,
-} from "anipres/schema";
+import { MediaControlShapeType, YouTubeEmbedShapeType } from "anipres/schema";
 import { documentSchema } from "./document-schema";
 
 /**
@@ -52,17 +48,7 @@ describe("document schema registration", () => {
       meta: {},
       props: {},
     };
-    const binding = {
-      id: "binding:b1",
-      typeName: "binding",
-      type: MediaControlBindingType,
-      fromId: "shape:marker",
-      toId: "shape:video",
-      meta: {},
-      props: {},
-    };
-
-    for (const record of [video, marker, binding]) {
+    for (const record of [video, marker]) {
       expect(() =>
         documentSchema.validateRecord(
           // validateRecord forwards the store only to an

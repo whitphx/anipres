@@ -16,6 +16,8 @@ import type {
 import { deriveTimeline } from "./timeline-model";
 
 import { allShapeUtils, allBindingUtils } from "./shape-utils";
+import { installVideoLifecycle } from "./media/marker-lifecycle";
+import { timelineShapesOfRecords } from "./media/live-media-events";
 
 const defaultTextOptions: TLTextOptions = {
   tipTapConfig: { extensions: tipTapDefaultExtensions },
@@ -25,6 +27,15 @@ const defaultTextOptions: TLTextOptions = {
 interface LoadHeadlessEditorOptions {
   snapshot?: Partial<TLEditorSnapshot> | TLStoreSnapshot;
   pageId?: TLPageId;
+  /**
+   * Whether this editor is the only writer of the snapshot it is given.
+   *
+   * See VideoLifecycleOptions. Defaults to **false**: a snapshot is not
+   * evidence of exclusive ownership — a synced document edited offline
+   * is one too — so cleanup that can destroy events requires the caller
+   * to say it is replacing a document rather than merging into one.
+   */
+  soleWriter?: boolean;
 }
 export function loadHeadlessEditor(
   opts: LoadHeadlessEditorOptions = {},
@@ -61,7 +72,16 @@ export function loadHeadlessEditor(
 
   if (pageId) editor.setCurrentPage(pageId);
 
+  // The same video normalization, marker parking and orphan cleanup the
+  // React mount installs: these used to ride the binding util, which a
+  // headless editor got through the schema, so keeping them reachable
+  // here is what stops the agent path from diverging.
+  const stopVideoLifecycle = installVideoLifecycle(editor, {
+    soleWriter: opts.soleWriter ?? false,
+  });
+
   const dispose = () => {
+    stopVideoLifecycle();
     editor.dispose();
     container.remove();
   };
@@ -165,7 +185,9 @@ export function calculateTotalSteps(
       }
     }
   }
-  const shapes = allShapes.filter((shape) => onPage.has(shape.id));
+  const shapes = timelineShapesOfRecords(
+    allShapes.filter((shape) => onPage.has(shape.id)),
+  );
   const doc = deriveTimeline({
     shapes: shapes.map((shape) => ({
       shapeId: shape.id,

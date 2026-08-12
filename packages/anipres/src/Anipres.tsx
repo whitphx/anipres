@@ -37,13 +37,24 @@ import "tldraw/tldraw.css";
 
 import { SlideShapeType } from "./shapes/slide/SlideShape";
 import { MediaControlShapeType } from "./shapes/media-control/MediaControlShape";
-import { getMediaControlBindingTargetId } from "./shapes/media-control/MediaControlBinding";
 import { expandShapeIdsWithMediaControlMarkers } from "./shapes/media-control/expand-with-markers";
 import { PresentationModeContext } from "./presentation-mode-context";
 import { SlideShapeTool } from "./shapes/slide/SlideShapeTool";
 import { ThemeImageShapeTool } from "./shapes/theme-image/ThemeImageShapeTool";
 import { ThemeImageToolbar } from "./shapes/theme-image/ThemeImageToolbar";
 import { YouTubeEmbedShapeType } from "./shapes/youtube-embed/YouTubeEmbedShape";
+import { createVideoPlayerLayer } from "./media/VideoPlayerLayer";
+import { installVideoLifecycle } from "./media/marker-lifecycle";
+import {
+  applyPasteRemapToContent,
+  alreadyOnPage,
+  dropContentAlreadyInDocument,
+  canonicalizeContentVideoConfig,
+} from "./media/remap-video-keys";
+import {
+  groupCarriersByVideoKey,
+  resolveVideoConfig,
+} from "./media/video-anchor";
 import { YouTubeEmbedShapeTool } from "./shapes/youtube-embed/YouTubeEmbedShapeTool";
 import { YouTubePlayerManager } from "./media/youtube-player-manager";
 import { augmentContentWithThemeImageAssets } from "./augmentContentWithThemeImageAssets";
@@ -229,6 +240,7 @@ const createComponents = (signals: {
 }): TLComponents => {
   const { $currentStepIndex, $presentationMode } = signals;
   return {
+    OnTheCanvas: createVideoPlayerLayer($presentationMode),
     TopPanel: () => {
       const editor = useEditor();
       const presentationManager = PresentationManager.get(editor);
@@ -313,6 +325,7 @@ interface InnerProps {
   snapshot?: TLEditorSnapshot | TLStoreSnapshot;
   store?: TLStore | TLStoreWithStatus;
   perInstanceAtoms: AnipresAtoms;
+  soleWriter?: boolean;
   assetUrls?: TldrawProps["assetUrls"];
   maxAssetSize?: TldrawProps["maxAssetSize"];
   user: TLUser;
@@ -323,6 +336,7 @@ const Inner = (props: InnerProps) => {
     snapshot,
     store,
     perInstanceAtoms,
+    soleWriter,
     assetUrls,
     maxAssetSize,
     user,
@@ -336,22 +350,17 @@ const Inner = (props: InnerProps) => {
       $currentStepIndex,
     );
 
-    // Markers whose binding is gone (legacy documents, external
-    // content) are invisible and their events silently no-op; delete
-    // them instead of letting them accumulate.
-    const orphanedMarkerIds = editor
-      .getCurrentPageShapes()
-      .filter(
-        (shape) =>
-          shape.type === MediaControlShapeType &&
-          getMediaControlBindingTargetId(editor, shape.id) == null,
-      )
-      .map((shape) => shape.id);
-    if (orphanedMarkerIds.length > 0) {
-      editor.deleteShapes(orphanedMarkerIds);
-    }
-
     const stopHandlers: (() => void)[] = [];
+
+    stopHandlers.push(
+      installVideoLifecycle(editor, {
+        // Declared by the host, never inferred from whether a `store`
+        // was passed: a synced document edited offline is mounted from
+        // a snapshot and its edits merge later, so it has collaborators
+        // even with no store in sight. See VideoLifecycleOptions.
+        soleWriter: soleWriter ?? false,
+      }),
+    );
 
     // Existing-frame-id set for the beforeCreate safety net below. It is
     // O(page) to build, and editor.duplicateShapes of N framed shapes
@@ -626,12 +635,39 @@ const Inner = (props: InnerProps) => {
       editorWithInternal.getContentFromCurrentPage = (
         shapes: TLShapeId[] | TLShape[],
       ) => {
-        const content = originalGetContent(shapes);
+        const requestedShapeIds = shapes.map((shape) =>
+          typeof shape === "string" ? shape : shape.id,
+        );
+        // Copying a video must carry its media events; see
+        // expandShapeIdsWithMediaControlMarkers. The ids asked for are
+        // recorded separately below, since what is added here has a
+        // lifetime of its own — a cut deletes the carrier and leaves
+        // the markers, which would read as content from elsewhere.
+        const content = originalGetContent(
+          expandShapeIdsWithMediaControlMarkers(editor, shapes),
+        );
         if (!content) return content;
         augmentContentWithThemeImageAssets(content, (id) =>
           editor.getAsset(id),
         );
-        return attachCopyProvenance(content, copySourceToken);
+        // Stamp each copied video's real configuration while the source
+        // document is still here to ask: a copy of a later keyframe
+        // carries that keyframe's own props, which may be blank, and a
+        // paste into another document has nothing to recover them from.
+        const canonicalized = canonicalizeContentVideoConfig(
+          content,
+          (videoKey) =>
+            resolveVideoConfig(
+              groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+                videoKey,
+              ) ?? [],
+            ),
+        );
+        return attachCopyProvenance(
+          canonicalized,
+          copySourceToken,
+          requestedShapeIds,
+        );
       };
     } else {
       console.warn(
@@ -641,27 +677,6 @@ const Inner = (props: InnerProps) => {
           "external pastes, the safe fallback). " +
           "This is likely caused by a tldraw version upgrade. " +
           "See: https://github.com/whitphx/anipres/issues/387",
-      );
-    }
-
-    // Copying a video must carry its media events; see
-    // expandShapeIdsWithMediaControlMarkers.
-    const editorWithGet = editor as Editor & {
-      getContentFromCurrentPage?: (
-        shapes: TLShapeId[] | TLShape[],
-      ) => TLContent | undefined;
-    };
-    if (typeof editorWithGet.getContentFromCurrentPage === "function") {
-      const originalGetContent =
-        editorWithGet.getContentFromCurrentPage.bind(editor);
-      editorWithGet.getContentFromCurrentPage = (shapes) =>
-        originalGetContent(
-          expandShapeIdsWithMediaControlMarkers(editor, shapes),
-        );
-    } else {
-      console.warn(
-        "anipres: editor.getContentFromCurrentPage is missing or has an unexpected signature. " +
-          "Copying a video will not carry its media events.",
       );
     }
 
@@ -720,6 +735,12 @@ const Inner = (props: InnerProps) => {
             shapeExistsInDocument: (shapeId) =>
               editor.getShape(shapeId as TLShapeId) != null,
           });
+          if (operation === "move") {
+            content = dropContentAlreadyInDocument(
+              content,
+              alreadyOnPage(editor),
+            );
+          }
           const remap = remapContentFrames({
             shapes: content.shapes.map((shape) => ({
               shapeId: shape.id,
@@ -735,20 +756,16 @@ const Inner = (props: InnerProps) => {
             mintId: uniqueId,
           });
           existingStepKeyUpdates = remap.existingStepKeyUpdates;
-          if (remap.updatedFrames.size > 0) {
-            content = {
-              ...content,
-              shapes: content.shapes.map((shape) => {
-                const frame = remap.updatedFrames.get(shape.id);
-                return frame != null
-                  ? {
-                      ...shape,
-                      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
-                    }
-                  : shape;
-              }),
-            };
-          }
+          content = applyPasteRemapToContent(content, remap.updatedFrames, {
+            operation,
+            mintKey: uniqueId,
+            resolveSourceConfig: (videoKey) =>
+              resolveVideoConfig(
+                groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+                  videoKey,
+                ) ?? [],
+              ),
+          });
         } catch (e) {
           console.warn("anipres: paste frame preprocessing failed:", e);
           existingStepKeyUpdates = [];
@@ -864,6 +881,20 @@ export interface AnipresProps {
   onMount?: (editor: Editor, moveTo: (stepIndex: number) => void) => void;
   snapshot?: InnerProps["snapshot"];
   store?: InnerProps["store"];
+  /**
+   * Whether this client is the document's only writer.
+   *
+   * Cleanup that depends on seeing the whole document — removing a
+   * video's event markers once its last carrier is gone — runs only
+   * when it is set, because that claim cannot be settled against
+   * concurrent editors and getting it wrong destroys events nothing can
+   * rebuild. Defaults to **false**, the conservative answer: a synced
+   * document, including one edited offline for a later merge, must not
+   * opt in, and a caller that has not thought about it does not
+   * silently get the destructive behavior. Set it for a document you
+   * alone are editing.
+   */
+  soleWriter?: boolean;
   assetUrls?: InnerProps["assetUrls"];
   maxAssetSize?: InnerProps["maxAssetSize"];
   stepHotkeyEnabled?: boolean;
@@ -879,6 +910,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
       onMount,
       snapshot,
       store,
+      soleWriter,
       assetUrls,
       maxAssetSize,
       stepHotkeyEnabled,
@@ -964,6 +996,7 @@ export const Anipres = React.forwardRef<AnipresRef, AnipresProps>(
         perInstanceAtoms={anipresAtoms}
         snapshot={snapshot}
         store={store}
+        soleWriter={soleWriter}
         assetUrls={memoizedAssetUrls}
         maxAssetSize={maxAssetSize}
         user={user}

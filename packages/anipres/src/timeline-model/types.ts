@@ -45,14 +45,19 @@ export const MEDIA_CONTROL_COMMANDS = [
 export type MediaControlCommand = (typeof MEDIA_CONTROL_COMMANDS)[number];
 
 /**
- * Fires a playback command against the media shape the frame's marker
- * is bound to. `duration` is the wait
- * before the batch's next frame runs, not an animation length — the
- * command itself is instantaneous.
+ * Fires a playback command against the video named by `videoKey`.
+ * `duration` is the wait before the batch's next frame runs, not an
+ * animation length — the command itself is instantaneous.
  */
 export interface MediaControlFrameAction extends FrameActionBase {
   type: "mediaControl";
   command: MediaControlCommand;
+  /**
+   * The `videoKey` of the video this event controls. Absent on frames
+   * written when the target was carried by a `media-control` binding
+   * instead; normalization fills it in from that binding.
+   */
+  videoKey?: string;
   duration?: number;
   /** setVolume only: absolute volume, 0–100. */
   volume?: number;

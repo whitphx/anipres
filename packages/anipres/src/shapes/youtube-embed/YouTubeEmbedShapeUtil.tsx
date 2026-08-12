@@ -5,21 +5,33 @@ import {
   stopEventPropagation,
   toDomPrecision,
   useEditor,
-  useIsEditing,
   useValue,
 } from "tldraw";
 import type { Geometry2d, TLShapeId } from "tldraw";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useState } from "react";
 import {
+  getVideoKey,
   YouTubeEmbedShape,
   YouTubeEmbedShapeType,
   youTubeEmbedShapeProps,
 } from "./YouTubeEmbedShape";
 import { parseYouTubeUrl } from "./youtube-url";
-import { YouTubePlayerManager } from "../../media/youtube-player-manager";
+import {
+  useIsPlayerAnchor,
+  usePresentationModeAtom,
+} from "../../media/player-placement";
+import {
+  getDefaultAnchorCarrier,
+  groupCarriersByVideoKey,
+  resolveVideoConfig,
+  updateVideoConfig,
+} from "../../media/video-anchor";
+import {
+  MediaControlShapeType,
+  resolveMediaControlVideoKey,
+} from "../media-control/MediaControlShape";
 import { PresentationModeContext } from "../../presentation-mode-context";
 import { PresentationManager } from "../../presentation-manager";
-import { MediaControlBindingType } from "../media-control/MediaControlBinding";
 import { MEDIA_COMMAND_ICONS, listMediaEvents } from "./media-events";
 
 export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
@@ -91,41 +103,26 @@ export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
 // eslint-disable-next-line react-refresh/only-export-components
 function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
   const editor = useEditor();
-  const isEditing = useIsEditing(shape.id);
-  const { w, h, videoId, start, muted, controls, altText } = shape.props;
-
-  // The IFrame API creates and OWNS the player iframe inside this
-  // container. It must never be rendered through React: a React-owned
-  // iframe and the widget API both mutate the element (src, attributes),
-  // and every re-render then resets the other side's changes — the
-  // embed reloads in a loop and the player handshake never completes.
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container == null || videoId === "") {
-      return;
-    }
-    const host = document.createElement("div");
-    container.appendChild(host);
-    const manager = YouTubePlayerManager.get(editor);
-    manager.register(shape.id, host, {
-      videoId,
-      muted,
-      start,
-      controls,
-      // "" keeps the API-created iframe's own default title.
-      title: altText,
-    });
-    return () => {
-      manager.unregister(shape.id);
-      // destroy() removes the player iframe; this catches whatever is
-      // left (e.g. the untouched host when the API never loaded).
-      container.replaceChildren();
-    };
-    // altText is applied only at player creation; retitling must not
-    // rebuild the player.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, shape.id, videoId, muted, start, controls]);
+  const { w, h } = shape.props;
+  // One configuration per video: a keyframe added before the URL was
+  // submitted must still show that video's poster, not an empty form.
+  const config = useValue(
+    "video config",
+    () =>
+      resolveVideoConfig(
+        groupCarriersByVideoKey(editor.getCurrentPageShapes()).get(
+          getVideoKey(shape),
+        ) ?? [shape],
+      ),
+    [editor, shape],
+  );
+  const videoId = config?.videoId ?? "";
+  const altText = config?.altText ?? "";
+  const $presentationMode = usePresentationModeAtom();
+  // The carrier currently anchoring the live player draws nothing: the
+  // player *is* its visual. `OnTheCanvas` renders before the shapes in
+  // the DOM, so an equal-z-index poster would paint over it.
+  const isPlayerAnchor = useIsPlayerAnchor(shape, $presentationMode);
 
   if (videoId === "") {
     return (
@@ -154,38 +151,30 @@ function YouTubeEmbed({ shape }: { shape: YouTubeEmbedShape }) {
       style={{
         width: w,
         height: h,
-        // The iframe swallows pointer events, so the shape is only
-        // interactive while in editing state — matching tldraw's own
-        // embed shape (double-click, or a single click in presentation
-        // mode, to interact with the player).
-        pointerEvents: isEditing ? "all" : "none",
+        // Input belongs to exactly one of the player and its anchored
+        // carrier at a time. Anchoring hands it to the player so the
+        // video's own controls stay reachable through this container,
+        // which is still the later DOM sibling; otherwise the carrier
+        // keeps it and selecting, dragging and resizing are ordinary
+        // canvas gestures.
+        pointerEvents: isPlayerAnchor ? "none" : "all",
       }}
     >
-      <div
-        ref={containerRef}
-        style={{
-          width: "100%",
-          height: "100%",
-          borderRadius: 8,
-          overflow: "hidden",
-          backgroundColor: "#1f1f1f",
-        }}
-      />
-      {/* Announceable label while (or in case) the player-owned iframe
-          is absent — the container itself must stay free of React
-          children. */}
-      <span
-        style={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          overflow: "hidden",
-          clipPath: "inset(50%)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {altText !== "" ? altText : "YouTube video player"}
-      </span>
+      {!isPlayerAnchor && (
+        <img
+          src={`https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`}
+          alt={altText !== "" ? altText : "YouTube video"}
+          draggable={false}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            borderRadius: 8,
+            backgroundColor: "#1f1f1f",
+            pointerEvents: "none",
+          }}
+        />
+      )}
       <MediaEventStrip shape={shape} />
     </HTMLContainer>
   );
@@ -211,14 +200,32 @@ function MediaEventStrip({ shape }: { shape: YouTubeEmbedShape }) {
       if (manager == null) {
         return [];
       }
+      // One strip per video, not per carrier: it hangs off the same
+      // carrier the player anchors to by default, so an animated video
+      // does not repeat its event badges under every keyframe.
+      const carriers = groupCarriersByVideoKey(
+        editor.getCurrentPageShapes(),
+      ).get(getVideoKey(shape));
+      if (
+        carriers == null ||
+        getDefaultAnchorCarrier(carriers)?.id !== shape.id
+      ) {
+        return [];
+      }
+      const videoKey = getVideoKey(shape);
       const markerIds = new Set(
         editor
-          .getBindingsToShape(shape.id, MediaControlBindingType)
-          .map((binding) => binding.fromId as string),
+          .getCurrentPageShapes()
+          .filter(
+            (candidate) =>
+              candidate.type === MediaControlShapeType &&
+              resolveMediaControlVideoKey(editor, candidate.id) === videoKey,
+          )
+          .map((marker) => marker.id as string),
       );
       return listMediaEvents(manager.$getTimelineDoc(), markerIds);
     },
-    [editor, shape.id],
+    [editor, shape],
   );
   const selectedShapeIds = useValue(
     "selected shape ids",
@@ -305,14 +312,14 @@ function YouTubeUrlForm({ shape }: { shape: YouTubeEmbedShape }) {
           setInvalid(true);
           return;
         }
-        editor.updateShape<YouTubeEmbedShape>({
-          id: shape.id,
-          type: shape.type,
-          props: {
-            url: value.trim(),
-            videoId: parsed.videoId,
-            start: parsed.start ?? 0,
-          },
+        // Submitting a URL edits the VIDEO, not the keyframe the form
+        // happened to be rendered under, so it reaches every carrier of
+        // it — which is also what keeps the value alive when the
+        // carrier that owns it is deleted.
+        updateVideoConfig(editor, getVideoKey(shape), {
+          url: value.trim(),
+          videoId: parsed.videoId,
+          start: parsed.start ?? 0,
         });
       }}
       style={{

@@ -4,10 +4,8 @@ import { createShapeId } from "tldraw";
 import type { Editor, TLShapeId } from "tldraw";
 import { loadHeadlessEditor } from "../../headless-editor-utils";
 import { createDuplicateShapesRemap } from "../../duplicate-shapes-remap";
-import {
-  bindMediaControlMarker,
-  getMediaControlBindingTargetId,
-} from "./MediaControlBinding";
+import { frameToMetaJson } from "../../timeline-model";
+import { resolveMediaControlVideoKey } from "./MediaControlShape";
 import { expandShapeIdsWithMediaControlMarkers } from "./expand-with-markers";
 
 function createVideoWithMarker(editor: Editor): {
@@ -26,8 +24,25 @@ function createVideoWithMarker(editor: Editor): {
     },
   });
   const markerId = createShapeId("marker");
-  editor.createShape({ id: markerId, type: "media-control", x: 0, y: 0 });
-  bindMediaControlMarker(editor, markerId, videoId);
+  // A marker names its video in its own frame; the key a placed video
+  // mints is its own id.
+  editor.createShape({
+    id: markerId,
+    type: "media-control",
+    x: 0,
+    y: 0,
+    meta: {
+      frame: frameToMetaJson({
+        v: 2,
+        id: "media-frame",
+        type: "cue",
+        trackId: "T-media",
+        stepId: "s-media",
+        stepOrderKey: "a1",
+        action: { type: "mediaControl", command: "play", videoKey: videoId },
+      }),
+    },
+  });
   return { videoId, markerId };
 }
 
@@ -144,10 +159,13 @@ describe("expandShapeIdsWithMediaControlMarkers", () => {
       expect(otherCopyBounds.x).toBe(originalOtherBounds.x + 100);
       expect(otherCopyBounds.y).toBe(originalOtherBounds.y + 50);
 
-      // The marker copy is bound to the video copy, not the original.
-      expect(getMediaControlBindingTargetId(editor, markerCopy.id)).toBe(
-        videoCopy.id,
-      );
+      // The marker copy targets the video COPY, which the remap gave a
+      // fresh key of its own — a duplicate is an independent video, not
+      // another carrier of the source.
+      const copyKey = (videoCopy as { meta?: { videoKey?: string } }).meta
+        ?.videoKey;
+      expect(copyKey).not.toBe(videoId);
+      expect(resolveMediaControlVideoKey(editor, markerCopy.id)).toBe(copyKey);
     } finally {
       dispose();
     }

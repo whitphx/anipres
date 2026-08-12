@@ -36,11 +36,3 @@ export type {
   MediaControlShape,
   MediaControlShapeProps,
 } from "./shapes/media-control/MediaControlShape.ts";
-export {
-  mediaControlBindingProps,
-  MediaControlBindingType,
-} from "./shapes/media-control/MediaControlBinding.ts";
-export type {
-  MediaControlBinding,
-  MediaControlBindingProps,
-} from "./shapes/media-control/MediaControlBinding.ts";

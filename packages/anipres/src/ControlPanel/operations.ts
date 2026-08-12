@@ -26,6 +26,11 @@ export function followupActionFrom(prevAction: FrameAction): FrameAction {
     return {
       type: "mediaControl",
       command: prevAction.command,
+      // The follow-up controls the same video: an event that lost its
+      // target key would name nothing at all.
+      ...(prevAction.videoKey !== undefined
+        ? { videoKey: prevAction.videoKey }
+        : {}),
       ...(prevAction.command === "setVolume" && prevAction.volume !== undefined
         ? { volume: prevAction.volume }
         : {}),

@@ -11,9 +11,14 @@ import type {
 } from "../timeline-model/runtime-steps";
 import {
   MediaControlShapeType,
-  resolveMediaControlTarget,
+  resolveMediaControlVideoKey,
 } from "../shapes/media-control/MediaControlShape";
 import { YouTubePlayerManager } from "../media/youtube-player-manager";
+import {
+  getVideoKey,
+  isYouTubeEmbedShape,
+} from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { getVideoTransitions } from "../media/video-transition";
 import { PresentationManager } from "./presentation-manager";
 
 async function runFrames(
@@ -22,6 +27,8 @@ async function runFrames(
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
   generation: number,
+  /** Read before the batch was hidden; see `VideoTransition`. */
+  renderingBeforeHide: ReadonlyMap<string, { index: number; opacity: number }>,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
@@ -42,12 +49,12 @@ async function runFrames(
     const immediate = duration === 0;
 
     if (action.type === "mediaControl") {
-      // The command targets the marker's bound video, not the marker
-      // itself. `duration` still applies below as the wait before the
-      // batch's next frame.
-      const target = resolveMediaControlTarget(editor, shape.id);
-      if (target != null) {
-        YouTubePlayerManager.get(editor).command(target.id, action);
+      // The command targets the video the frame names, not the marker
+      // carrying it. `duration` still applies below as the wait before
+      // the batch's next frame.
+      const videoKey = resolveMediaControlVideoKey(editor, shape.id);
+      if (videoKey != null) {
+        YouTubePlayerManager.get(editor).command(videoKey, action);
       }
     } else if (action.type === "cameraZoom") {
       const { inset = 0, easing = "easeInCubic" } = action;
@@ -73,6 +80,48 @@ async function runFrames(
       // attachCueFrame overwrites any shape's frame without checking
       // the type, so the frame is honored for its `duration` wait
       // below rather than animating a zero-size invisible shape.
+    } else if (action.type === "shapeAnimation" && isYouTubeEmbedShape(shape)) {
+      // A batch's first keyframe sets the starting pose and waits for
+      // nothing, the same as every other animated shape: the frame has
+      // no predecessor to have travelled from.
+      if (predecessorShape == null) {
+        predecessorShape = shape;
+        continue;
+      }
+      // A video keyframe keeps its duration and easing — step timing is
+      // untouched — but mints no tween clone: the runtime-owned player
+      // is the video's moving representation, and a cloned poster would
+      // visibly ride the same path beside it. Skipping the clone also
+      // keeps identity clean, since no transient shape carrying a
+      // `videoKey` ever exists for carrier counting to trip over.
+      //
+      // The player travels instead, on runtime state the placement read
+      // consults ahead of the visibility rule. Without it the tween
+      // would find no visible carrier — both are hidden while it runs —
+      // and would unmount the iframe and remount it at the destination,
+      // losing exactly the playback position this exists to preserve.
+      if (predecessorShape.id !== shape.id) {
+        const { easing = "easeInCubic" } = action;
+        const transitions = getVideoTransitions(editor);
+        const rendering = renderingBeforeHide.get(shape.id);
+        transitions.start(getVideoKey(shape), {
+          fromShapeId: predecessorShape.id,
+          toShapeId: shape.id,
+          startedAt: Date.now(),
+          durationMs: duration,
+          easing,
+          zIndex: rendering?.index ?? 0,
+          opacity: rendering?.opacity ?? shape.opacity,
+        });
+        // A superseded run must not leave the player mid-flight: the
+        // successor reconciles to the folded target with no tween.
+        // Nothing unregisters it: clearing an already settled
+        // transition does nothing, and the run's effects are dropped
+        // wholesale when the next one starts.
+        presentationManager.registerRunEffect(() => {
+          transitions.clear();
+        });
+      }
     } else if (action.type === "shapeAnimation") {
       const { easing = "easeInCubic" } = action;
       editor.selectNone();
@@ -240,6 +289,20 @@ export function runStep(
       .map((frame) => editor.getShape(frame.shapeId as TLShapeId))
       .filter((shape) => shape != null);
 
+    // Before the hide: tldraw drops a hidden shape from
+    // `getRenderingShapes()`, so a video's stacking and composed
+    // opacity have to be read while its carrier is still rendered.
+    const renderingBeforeHide = new Map<
+      string,
+      { index: number; opacity: number }
+    >();
+    for (const rendering of editor.getRenderingShapes()) {
+      renderingBeforeHide.set(rendering.id, {
+        index: rendering.index,
+        opacity: rendering.opacity,
+      });
+    }
+
     editor.run(
       () => {
         editor.updateShapes(
@@ -262,6 +325,7 @@ export function runStep(
       predecessorShape ?? null,
       markBeforeAnimation,
       generation,
+      renderingBeforeHide,
     ).finally(() => {
       // A superseded run leaves cleanup to its successor (which already
       // cleared the flags at its start) or to cancelActiveRun: clearing
@@ -285,6 +349,14 @@ export function runStep(
         },
         { history: "ignore", ignoreShapeLock: true },
       );
+      // Now that the destination carrier is visible again, and in the
+      // same turn, so no read falls between the two and finds neither.
+      const transitions = getVideoTransitions(editor);
+      for (const shape of frameShapes) {
+        if (isYouTubeEmbedShape(shape)) {
+          transitions.settle(getVideoKey(shape));
+        }
+      }
       editor.bailToMark(markBeforeAnimation);
     });
     promises.push(promise);

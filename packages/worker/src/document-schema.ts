@@ -4,8 +4,6 @@ import {
   defaultShapeSchemas,
 } from "tldraw";
 import {
-  mediaControlBindingProps,
-  MediaControlBindingType,
   mediaControlShapeProps,
   MediaControlShapeType,
   slideShapeProps,
@@ -24,8 +22,5 @@ export const documentSchema = createTLSchema({
     [YouTubeEmbedShapeType]: { props: youTubeEmbedShapeProps },
     [MediaControlShapeType]: { props: mediaControlShapeProps },
   },
-  bindings: {
-    ...defaultBindingSchemas,
-    [MediaControlBindingType]: { props: mediaControlBindingProps },
-  },
+  bindings: defaultBindingSchemas,
 });

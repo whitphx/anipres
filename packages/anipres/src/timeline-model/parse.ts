@@ -87,6 +87,9 @@ function parseFrameAction(value: unknown): FrameAction | null {
     ) {
       return null;
     }
+    if (value.videoKey !== undefined && typeof value.videoKey !== "string") {
+      return null;
+    }
     if (value.command === "setVolume") {
       if (
         value.volume !== undefined &&
@@ -98,6 +101,17 @@ function parseFrameAction(value: unknown): FrameAction | null {
       }
     } else if (value.volume !== undefined) {
       return null;
+    }
+    // An empty key names no video, so it is read as no key at all and
+    // the event resolves to nothing, which the timeline derivation
+    // drops. Carrying it would have every reader compare a key that
+    // can match none. Not grounds for rejecting the frame, though: an
+    // unreadable frame is offered a repair that clears it, which would
+    // destroy the event over a malformed field.
+    if (value.videoKey === "") {
+      const rest = { ...value };
+      delete rest.videoKey;
+      return rest as FrameAction;
     }
     return value as FrameAction;
   }

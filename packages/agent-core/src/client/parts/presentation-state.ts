@@ -1,5 +1,6 @@
 import type { Editor } from "tldraw";
 import { deriveTimeline, type FrameAction } from "anipres/models";
+import { timelineShapesOfEditor } from "anipres";
 import { resolveMediaControlTarget } from "anipres/schema";
 import {
   FocusedEasingSchema,
@@ -28,12 +29,17 @@ function summarise(editor: Editor): {
   totalSteps: number;
   steps: PresentationStatePart["steps"];
 } {
-  const shapes = editor.getCurrentPageShapes();
+  // The same shapes the runtime derives its own timeline from, so the
+  // step numbers the agent reasons about are the ones the user sees: a
+  // media event whose video has no carrier left occupies no step, and
+  // counting it would shift every later step out of line.
   const doc = deriveTimeline({
-    shapes: shapes.map((shape) => ({
-      shapeId: shape.id,
-      frameMeta: shape.meta?.frame,
-    })),
+    shapes: timelineShapesOfEditor(editor, editor.getCurrentPageShapes()).map(
+      (shape) => ({
+        shapeId: shape.id,
+        frameMeta: shape.meta?.frame,
+      }),
+    ),
   });
 
   // The timeline labels steps from 0, where the label counts
@@ -45,9 +51,12 @@ function summarise(editor: Editor): {
     batches: step.batches.map((batch) => ({
       trackId: batch.trackId,
       frames: batch.frames.map((frame) => {
-        // A mediaControl frame's carrier is a marker shape; the video
-        // it controls is the marker's binding target, which the agent
-        // can't resolve itself (markers aren't in its shape vocabulary).
+        // A mediaControl frame's carrier is a marker shape, which the
+        // agent can't resolve itself — markers aren't in its shape
+        // vocabulary. A video that moves is several carriers, so this
+        // names a representative one of them rather than the video,
+        // deterministically, so the agent can talk about which video a
+        // command belongs to.
         const target =
           frame.action.type === "mediaControl"
             ? resolveMediaControlTarget(editor, frame.shapeId)
