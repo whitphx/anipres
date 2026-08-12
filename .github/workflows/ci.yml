@@ -463,8 +463,15 @@ jobs:
 
       - name: Package and Publish
         id: changesets
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        # v2 pushes the release commit and its tags through the GitHub
+        # API rather than the git CLI, which is what this upgrade is
+        # for: a CLI push that lands but loses its response is retried
+        # against a ref that has already moved, and reports a failure
+        # for work it completed. `push-with-git-cli` restores the old
+        # behavior if that is ever needed.
+        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # v2.0.0
         with:
-          publish: pnpm ci:publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `publish` in v1; the token moved from the environment to an
+          # input, which v2 no longer reads from `GITHUB_TOKEN`.
+          publish-script: pnpm ci:publish
+          github-token: ${{ secrets.GITHUB_TOKEN }}
