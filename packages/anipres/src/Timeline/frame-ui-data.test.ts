@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { calcFrameBatchUIData } from "./frame-ui-data";
 import { deriveTimeline } from "../timeline-model";
-import type { CueFrame } from "../timeline-model";
+import type { CueFrame, TimelineDoc } from "../timeline-model";
 
 function cue(
   id: string,
@@ -67,5 +67,63 @@ describe("calcFrameBatchUIData track grouping", () => {
     // Grouping is display-only: the frames' (trackId, trackIndex)
     // coordinates — what drag & drop operates on — are unchanged.
     expect(grouped.steps).toEqual(ungrouped.steps);
+  });
+});
+
+describe("a video's row when a step holds movement and an event", () => {
+  it("reads the movement first, whatever ids the frames were minted", () => {
+    // Both tracks describe one video, so they share a row, and both
+    // have a batch in step 0. Frame ids decide nothing here: the media
+    // event's sorts ahead of the movement's.
+    const doc: TimelineDoc = {
+      version: 1,
+      detachedFrames: [],
+      steps: [
+        {
+          id: "s0",
+          orderKey: "a1",
+          batches: [
+            {
+              trackId: "T-media",
+              frames: [
+                {
+                  frameId: "aaa-event",
+                  shapeId: "shape:marker",
+                  action: { type: "mediaControl", command: "play" },
+                },
+              ],
+            },
+            {
+              trackId: "T-video",
+              frames: [
+                {
+                  frameId: "zzz-move",
+                  shapeId: "shape:video",
+                  action: { type: "shapeAnimation" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      diagnostics: [],
+    };
+
+    const { tracks } = calcFrameBatchUIData(doc, {
+      "T-media": "video-key",
+      "T-video": "video-key",
+    });
+
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].frameBatches.map((b) => b.trackId)).toEqual([
+      "T-video",
+      "T-media",
+    ]);
+    // The cue frame's own id travels into the row, which a fixture
+    // naming the field wrongly would leave undefined.
+    expect(tracks[0].frameBatches.map((b) => b.data[0].id)).toEqual([
+      "zzz-move",
+      "aaa-event",
+    ]);
   });
 });

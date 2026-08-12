@@ -38,6 +38,14 @@ export class YouTubeEmbedShapeUtil extends BaseBoxShapeUtil<YouTubeEmbedShape> {
   static override readonly type = YouTubeEmbedShapeType;
   static override readonly props = youTubeEmbedShapeProps;
 
+  // The embedded video has a fixed aspect ratio of its own, and the
+  // player is letterboxed inside whatever box it is given, so a shape
+  // reshaped away from it grows bars rather than picture: the handles
+  // move but the video does not follow them.
+  override isAspectRatioLocked() {
+    return true;
+  }
+
   override getDefaultProps(): YouTubeEmbedShape["props"] {
     return {
       w: 480,
