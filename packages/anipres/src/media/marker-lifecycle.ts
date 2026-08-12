@@ -240,8 +240,17 @@ export function installVideoLifecycle(
    * to say "this video was configured this way before it went", which
    * is what the room server's tombstones would be for. A client that
    * reloads between the deletion and the revival cannot repair it.
+   *
+   * Held per page, like everything else a deletion captures: one key
+   * can name a video on two pages — a page duplicated, a document
+   * imported — and a capture from one of them applied to the other
+   * would overwrite settings that were never deleted, and be spent
+   * when the page it came from needed it.
    */
-  const configsAwaitingACarrier = new Map<string, StampedVideoConfig>();
+  const configsAwaitingACarrier = new Map<
+    TLPageId,
+    Map<string, StampedVideoConfig>
+  >();
   let revivedByPage: Map<TLPageId, Set<string>> | null = null;
   // Read while every carrier is still present: the stamps that won a
   // property may live only on the record about to go. The page has to
@@ -287,12 +296,12 @@ export function installVideoLifecycle(
       if (!isYouTubeEmbedShape(shape)) {
         return;
       }
-      const videoKey = getVideoKey(shape);
-      if (!configsAwaitingACarrier.has(videoKey)) {
-        return;
-      }
       const pageId = editor.getAncestorPageId(shape);
       if (pageId == null) {
+        return;
+      }
+      const videoKey = getVideoKey(shape);
+      if (!configsAwaitingACarrier.get(pageId)?.has(videoKey)) {
         return;
       }
       // Recorded rather than repaired here: the write belongs at the
@@ -310,12 +319,13 @@ export function installVideoLifecycle(
       if (revived != null) {
         for (const [pageId, keys] of revived) {
           const shapes = shapesOnPage(editor, pageId);
+          const awaiting = configsAwaitingACarrier.get(pageId);
           for (const videoKey of keys) {
-            const captured = configsAwaitingACarrier.get(videoKey);
+            const captured = awaiting?.get(videoKey);
             if (captured == null) {
               continue;
             }
-            configsAwaitingACarrier.delete(videoKey);
+            awaiting?.delete(videoKey);
             restoreStampedVideoConfig(editor, videoKey, captured, shapes);
           }
         }
@@ -343,7 +353,11 @@ export function installVideoLifecycle(
           new Map<string, StampedVideoConfig>()) {
           restoreStampedVideoConfig(editor, videoKey, captured, shapes);
           if ((carriersByKey.get(videoKey)?.length ?? 0) === 0) {
-            configsAwaitingACarrier.set(videoKey, captured);
+            const awaiting =
+              configsAwaitingACarrier.get(pageId) ??
+              new Map<string, StampedVideoConfig>();
+            awaiting.set(videoKey, captured);
+            configsAwaitingACarrier.set(pageId, awaiting);
           }
         }
         if (soleWriter) {

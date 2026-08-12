@@ -1898,6 +1898,76 @@ describe("a stamp forged at the top of the range", () => {
   });
 });
 
+describe("one key, a video on each of two pages", () => {
+  it("keeps each page's settings when one page loses its video", () => {
+    const [editor, dispose] = loadHeadlessEditor({ soleWriter: false });
+    try {
+      const sharedKey = "video-key";
+      const [pageA] = editor.getPages();
+      const pageB = PageRecordType.createId("b");
+      editor.createPage({ id: pageB, name: "B" });
+
+      const addCarrier = (pageId: TLPageId, id: string): TLShapeId => {
+        editor.setCurrentPage(pageId);
+        const shapeId = createVideo(editor, id);
+        const shape = editor.getShape(shapeId);
+        if (!isYouTubeEmbedShape(shape)) throw new Error("expected a video");
+        editor.updateShape({
+          id: shapeId,
+          type: shape.type,
+          meta: { ...shape.meta, videoKey: sharedKey },
+        });
+        return shapeId;
+      };
+      const configOn = (pageId: TLPageId) =>
+        resolveVideoConfig(
+          groupCarriersByVideoKey(
+            [...editor.getPageShapeIds(pageId)]
+              .map((shapeId) => editor.getShape(shapeId))
+              .filter((shape) => shape != null),
+          ).get(sharedKey) ?? [],
+        )?.videoId;
+
+      addCarrier(pageB, "on-b");
+      updateVideoConfig(editor, sharedKey, { videoId: "B-CONFIG" });
+
+      const onA = addCarrier(pageA.id, "on-a");
+      // The record as it was before page A was configured, which is
+      // what an undo or a peer's stale copy brings back.
+      const staleA = editor.getShape(onA);
+      if (staleA == null) throw new Error("expected a video");
+      // Twice, so page A's revisions outrank page B's.
+      updateVideoConfig(editor, sharedKey, { videoId: "A-CONFIG" });
+      updateVideoConfig(editor, sharedKey, { videoId: "A-CONFIG" });
+
+      // Page A loses its only carrier, so its settings are held for a
+      // carrier of that video to come back to.
+      editor.deleteShapes([onA]);
+
+      // A carrier appears on page B. Same key, but a different video:
+      // page A's held settings are not its to receive, and must not be
+      // spent on it either.
+      editor.setCurrentPage(pageB);
+      const bCarrier = editor
+        .getCurrentPageShapes()
+        .filter(isYouTubeEmbedShape)[0];
+      editor.createShape({
+        ...bCarrier,
+        id: createShapeId("also-on-b"),
+        x: 900,
+      });
+      expect(configOn(pageB)).toBe("B-CONFIG");
+
+      // And page A's are still there when its own video returns.
+      editor.setCurrentPage(pageA.id);
+      editor.createShape({ ...staleA, id: createShapeId("back-on-a") });
+      expect(configOn(pageA.id)).toBe("A-CONFIG");
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
