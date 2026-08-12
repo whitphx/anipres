@@ -1,7 +1,7 @@
 {
   "name": "anipres-worker",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     "./animation-data-version": "./src/animation-data-version.ts",

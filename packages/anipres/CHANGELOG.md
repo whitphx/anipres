@@ -1,5 +1,33 @@
 # anipres
 
+## 0.17.0
+
+### Minor Changes
+
+- [#513](https://github.com/whitphx/anipres/pull/513) [`8ab0a90`](https://github.com/whitphx/anipres/commit/8ab0a907fce77578107b15b6b10405b356fc7d3d) Thanks [@whitphx](https://github.com/whitphx)! - Let a video move and resize across presentation steps.
+
+  A video shape no longer mounts a player. Shapes render a poster and the runtime owns exactly one live player per video, positioned to follow whichever carrier currently represents it, so a copy of a video is harmless and its keyframes become ordinary copies — the follow-up-frame buttons, drag & drop, duplicate-remap and paste all apply to videos unchanged. Videos also stop being exempt from the latest-frame-of-batch visibility rule.
+
+  Carriers of one video are tied together by a `videoKey` in their `meta` rather than by the `media-control` binding, which a media event now names directly; a video's shared settings resolve per property by revision stamp, so concurrent edits converge.
+
+  The shared-room arbitration for deleting a video's last carrier is designed but not built, so removing the event markers of a deleted video runs only where the client is the document's sole writer; in a synced document those markers are left in place rather than risking their loss to a concurrent edit. A media event whose video has no carrier left is dropped by the timeline derivation either way, so a deleted video leaves no empty steps behind wherever its markers linger, and a carrier of that video returning brings its events back. Carrying a video's settings onto the surviving carriers is not gated that way and runs wherever a carrier is deleted, since deleting the carrier whose revisions won a setting would otherwise drop the video back to a stale carrier's older value.
+
+  **Deploy note.** `SYNC_CLIENT_VERSION` moves to 4: an older client has no notion of a video that moves, mounts a player per carrier and keeps them all visible, so a moving video comes up as several independent players.
+
+  The `media-control` binding that the unreleased embed feature used to record which video an event controls is removed outright, type and all, rather than converted: it never reached a release, so no published version can have written one. A document that does hold one, from a build of `main` between the two changes, will not load.
+
+- [#500](https://github.com/whitphx/anipres/pull/500) [`bcbe2e0`](https://github.com/whitphx/anipres/commit/bcbe2e05673e983876a974c1cd0ad67b949db208) Thanks [@whitphx](https://github.com/whitphx)! - Add YouTube video embedding with timeline-driven playback control: a new `youtube-embed` shape carries a video and renders its poster, the live YouTube IFrame Player being held by the runtime and positioned over whichever shape currently represents that video, and `mediaControl` animation frames (play, pause, stop, mute, unmute, setVolume) — carried by `media-control` marker shapes that name the video — fire as the presentation advances. Step jumps and backward navigation reconcile each player to the state implied by the event history, so playback stays deterministic.
+
+  The sync version gate now keys on a new `SYNC_CLIENT_VERSION` (exported from `anipres/models`), raised to 3 for the `youtube-embed` and `media-control` records and the `mediaControl` frame action. `TIMELINE_FORMAT_VERSION` stays 2: the shape of a frame record is unchanged. The gate matches this version exactly rather than treating it as a floor: a client below it cannot read the records a document may hold, and a client above it would write records the worker has no schema registration for, which the room would reject on save.
+
+  This release is one-way: once a document holds a `youtube-embed` or `media-control` record, a worker without those schema registrations cannot load its room. Roll forward rather than back, and keep the registrations in any release that follows. Deploy ordering is not a concern — the worker serves the app bundle and both ship from one build — but a tab left open across the deploy still runs the previous bundle and is refused by the gate until it reloads. The agent's `presentationState` prompt part also changes shape (per-frame actions instead of one action per batch); the server accepts the previous form and normalizes it, so an older tab's agent requests don't fail with a 400.
+
+### Patch Changes
+
+- [#515](https://github.com/whitphx/anipres/pull/515) [`2150fe6`](https://github.com/whitphx/anipres/commit/2150fe648e1ca56dc4ae1ad2d19f14f3437a90a2) Thanks [@whitphx](https://github.com/whitphx)! - Lock a YouTube embed's aspect ratio while resizing. The embedded player is letterboxed inside whatever box the shape is given, so a shape reshaped away from the video's own ratio grew bars rather than picture, and the handles moved without the video following them.
+
+  Order a video's own movement ahead of its media events where both fall in the same step of its timeline row. A step's batches run concurrently, so which of the two reads first carries no meaning and cannot be dragged into a different one; left to the derivation it came out in frame-id order, which is to say arbitrarily, and differently for every video.
+
 ## 0.16.0
 
 ### Minor Changes
