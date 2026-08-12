@@ -24,6 +24,21 @@ export interface VideoTransition {
   startedAt: number;
   durationMs: number;
   easing: keyof typeof EASINGS;
+  /**
+   * The destination carrier's rendering context, read before the step
+   * hid it.
+   *
+   * tldraw drops a hidden shape from `getRenderingShapes()` entirely
+   * (`getUnorderedRenderingShapes` returns without pushing it), and
+   * both carriers are hidden for the length of a tween. Reading the
+   * player's stacking and composed opacity from that set mid-flight
+   * would therefore find nothing and fall back to a bare `0` and the
+   * carrier's own opacity, dropping the moving video behind every
+   * ordinary shape — their indices start at `maxShapesPerPage * 2` —
+   * and losing whatever a translucent ancestor contributes.
+   */
+  zIndex: number;
+  opacity: number;
 }
 
 /**

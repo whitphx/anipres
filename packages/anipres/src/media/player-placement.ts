@@ -218,8 +218,15 @@ export function readPlacements(
       clipPath: tweening
         ? "none"
         : (editor.getShapeClipPath(anchor.id) ?? "none"),
-      opacity: renderingByShapeId.get(anchor.id)?.opacity ?? anchor.opacity,
-      zIndex: renderingByShapeId.get(anchor.id)?.index ?? 0,
+      // Mid-tween both carriers are hidden and so absent from the
+      // rendering set, which is why the transition carries what the
+      // destination had before the step hid it.
+      opacity:
+        transition?.opacity ??
+        renderingByShapeId.get(anchor.id)?.opacity ??
+        anchor.opacity,
+      zIndex:
+        transition?.zIndex ?? renderingByShapeId.get(anchor.id)?.index ?? 0,
       // Input belongs to exactly one of the player and its anchored
       // carrier at a time. Presenting, the player holds it whenever the
       // video's own controls are enabled; editing, only while the user

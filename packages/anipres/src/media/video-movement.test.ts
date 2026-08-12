@@ -295,6 +295,8 @@ describe("movement keeps one player", () => {
         startedAt: Date.now(),
         durationMs: 10_000,
         easing: "linear",
+        zIndex: 2000,
+        opacity: 1,
       });
 
       const [placement] = readPlacements(editor, true);
@@ -329,6 +331,8 @@ describe("movement keeps one player", () => {
         startedAt: Date.now(),
         durationMs: 10_000,
         easing: "linear",
+        zIndex: 2000,
+        opacity: 1,
       });
 
       manager.cancelActiveRun();
@@ -809,6 +813,8 @@ describe("transition hygiene", () => {
         startedAt: Date.now(),
         durationMs: 0,
         easing: "linear",
+        zIndex: 2000,
+        opacity: 1,
       });
       const stored = transitions.$transitions.get().get(videoId);
       expect(stored?.toShapeId).toBe(toShapeId);
@@ -853,6 +859,8 @@ describe("rotation tween", () => {
         startedAt: Date.now() - 5_000,
         durationMs: 10_000,
         easing: "linear",
+        zIndex: 2000,
+        opacity: 1,
       });
 
       const [placement] = readPlacements(editor, false);
@@ -1296,6 +1304,8 @@ describe("a tween outliving its own clock", () => {
         startedAt: Date.now() - 1000,
         durationMs: 100,
         easing: "easeInCubic" as const,
+        zIndex: 2000,
+        opacity: 1,
       };
       transitions.start("video-key", transition);
 
@@ -1693,6 +1703,111 @@ describe("pasting an event without its video", () => {
       () => "minted",
     );
     expect(pasted.shapes).toHaveLength(1);
+  });
+});
+
+describe("a tweening player's place in the stack", () => {
+  it("keeps the destination's stacking and opacity while it travels", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const destinationId = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destinationId,
+        x: 900,
+        meta: { videoKey: videoId },
+      });
+
+      // tldraw leaves a hidden shape out of `getRenderingShapes()`, and
+      // a step hides both carriers for the length of a tween, so the
+      // player's stacking and composed opacity can only come from what
+      // was read before the hide.
+      getVideoTransitions(editor).start(videoId, {
+        fromShapeId: videoId,
+        toShapeId: destinationId,
+        startedAt: Date.now(),
+        durationMs: 1000,
+        easing: "linear",
+        zIndex: 2317,
+        opacity: 0.25,
+      });
+
+      const [placement] = readPlacements(editor, true);
+      // Not 0, which would put the moving video behind every ordinary
+      // shape, whose indices start well above it.
+      expect(placement?.zIndex).toBe(2317);
+      // And not the carrier's own opacity, which ignores a translucent
+      // ancestor.
+      expect(placement?.opacity).toBe(0.25);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("reads that context from the step, before it hides the carrier", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const destinationId = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destinationId,
+        x: 900,
+        opacity: 0.5,
+        meta: {
+          videoKey: videoId,
+          frame: frameToMetaJson(
+            videoCue({
+              trackId: "T-video",
+              stepId: "s1",
+              stepOrderKey: "a2",
+              action: { type: "shapeAnimation", duration: 5000 },
+            }),
+          ),
+        },
+      });
+      editor.updateShape({
+        id: videoId,
+        type: "youtube-embed",
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({
+              trackId: "T-video",
+              stepId: "s0",
+              stepOrderKey: "a1",
+              action: { type: "shapeAnimation" },
+            }),
+          ),
+        },
+      });
+      const rendered = editor
+        .getRenderingShapes()
+        .find((shape) => shape.id === destinationId);
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.moveTo(1);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.toShapeId).toBe(destinationId);
+      expect(transition?.zIndex).toBe(rendered?.index);
+      expect(transition?.opacity).toBe(rendered?.opacity);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
   });
 });
 

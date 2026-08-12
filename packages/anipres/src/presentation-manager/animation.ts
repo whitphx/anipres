@@ -27,6 +27,8 @@ async function runFrames(
   predecessorShape: TLShape | null,
   historyStoppingPoint: string,
   generation: number,
+  /** Read before the batch was hidden; see `VideoTransition`. */
+  renderingBeforeHide: ReadonlyMap<string, { index: number; opacity: number }>,
 ): Promise<void> {
   const editor = presentationManager.editor;
   for (const frame of frames) {
@@ -101,12 +103,15 @@ async function runFrames(
       if (predecessorShape.id !== shape.id) {
         const { easing = "easeInCubic" } = action;
         const transitions = getVideoTransitions(editor);
+        const rendering = renderingBeforeHide.get(shape.id);
         transitions.start(getVideoKey(shape), {
           fromShapeId: predecessorShape.id,
           toShapeId: shape.id,
           startedAt: Date.now(),
           durationMs: duration,
           easing,
+          zIndex: rendering?.index ?? 0,
+          opacity: rendering?.opacity ?? shape.opacity,
         });
         // A superseded run must not leave the player mid-flight: the
         // successor reconciles to the folded target with no tween.
@@ -284,6 +289,20 @@ export function runStep(
       .map((frame) => editor.getShape(frame.shapeId as TLShapeId))
       .filter((shape) => shape != null);
 
+    // Before the hide: tldraw drops a hidden shape from
+    // `getRenderingShapes()`, so a video's stacking and composed
+    // opacity have to be read while its carrier is still rendered.
+    const renderingBeforeHide = new Map<
+      string,
+      { index: number; opacity: number }
+    >();
+    for (const rendering of editor.getRenderingShapes()) {
+      renderingBeforeHide.set(rendering.id, {
+        index: rendering.index,
+        opacity: rendering.opacity,
+      });
+    }
+
     editor.run(
       () => {
         editor.updateShapes(
@@ -306,6 +325,7 @@ export function runStep(
       predecessorShape ?? null,
       markBeforeAnimation,
       generation,
+      renderingBeforeHide,
     ).finally(() => {
       // A superseded run leaves cleanup to its successor (which already
       // cleared the flags at its start) or to cancelActiveRun: clearing

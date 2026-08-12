@@ -254,7 +254,11 @@ drags the carrier while the player is idle.
 
 During a step tween the transform and the width/height interpolate
 between the outgoing and incoming carriers' stored values, opacity and
-`z-index` follow the incoming carrier, and the clip path is dropped
+`z-index` follow the incoming carrier — read before the step hides it,
+since tldraw leaves a hidden shape out of `getRenderingShapes()`
+entirely and both carriers are hidden for the length of the tween, so
+reading them mid-flight would find nothing and drop the moving video
+behind every ordinary shape — and the clip path is dropped
 for the duration, the incoming carrier's mask applying when the tween
 lands. Unclipped travel is not a compromise; it is what every other
 animated shape already does — the tween clone is created as a
