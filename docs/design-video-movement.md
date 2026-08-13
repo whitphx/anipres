@@ -203,6 +203,19 @@ the special case collapses:
 - The video's exemption from the visibility rule goes away: with real
   copies on the track, the latest-frame-of-batch rule is correct again.
 
+Two refinements of that rule survive, because media events share a
+video's track once an event joins a keyframe's batch. An event rides an
+invisible marker, which is a command rather than a place, so the
+latest-frame-of-batch rule reads the batch's last frame that puts
+something on stage: a batch ending in a marker still shows the carrier
+before it, and a batch holding only markers does not take the track
+over at all. For the same reason a movement takes its origin from the
+last earlier frame of the track whose carrier is not a marker, rather
+than from whatever frame came last. Without the first, an event dragged
+into a step of its own unmounts the player it was just attached to
+control; without the second, the video jumps to its destination instead
+of travelling there.
+
 ### Where the player lives
 
 `components.OnTheCanvas` renders inside `tl-html-layer tl-shapes`, the

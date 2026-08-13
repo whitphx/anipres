@@ -19,6 +19,7 @@ import {
   type Frame,
   type SubFrame,
   type FrameAction,
+  type MediaControlFrameAction,
   type TimelineDoc,
 } from "../timeline-model";
 import {
@@ -28,9 +29,10 @@ import {
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
 import {
+  findFramePosition,
   planSubFrameAddAfter,
-  type SubFrameAddAfterPlan,
 } from "../ControlPanel/operations";
+import { applySubFrameAddAfterPlan } from "../ControlPanel/apply-plan";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import {
   getVideoKey,
@@ -253,108 +255,85 @@ export class PresentationManager {
     });
   }
 
-  /**
-   * Adds a media control event to a video shape: a marker shape bound
-   * to the video, carrying a mediaControl cue frame, appended as a new
-   * step at the end. All media events of one video share one track (its
-   * media track), so the timeline shows them as a sequence and the step
-   * machinery keeps them mutually exclusive within a step.
-   */
+  private createMediaEventMarker(carrierShapeId: TLShapeId, frame: Frame) {
+    const markerId = createShapeId();
+    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
+    this.editor.createShape({
+      id: markerId,
+      type: MediaControlShapeType,
+      // Explicit page parent: without it, createShape hit-tests for a
+      // receiving parent (a tldraw frame, a focused group) and would
+      // rewrite the page coordinates below into that parent's space.
+      parentId: this.editor.getCurrentPageId(),
+      // Never rendered; parked at the video's origin only so the
+      // record's coordinates are not misleading in raw-store reads.
+      x: videoBounds?.x ?? 0,
+      y: videoBounds?.y ?? 0,
+      meta: { frame: frameToMetaJson(frame) },
+    });
+    this.editor.select(markerId);
+  }
+
   /**
    * Adds a playback event for the video the given carrier belongs to.
    *
-   * Where that carrier already holds a movement frame, the event joins
-   * that frame's batch as a sub frame, which is the only way to say
-   * that it happens *after* the movement: a step's batches run
-   * concurrently, so an event on its own track is simultaneous with
-   * the movement and no order between them exists to be edited. Inside
-   * a batch, frames run in sequence and their order is a stored key
-   * the timeline can drag.
+   * Where that carrier already holds a frame, the event joins that
+   * frame's batch as a sub frame, which is the only way to say that it
+   * happens *after* the movement: a step's batches run concurrently, so
+   * an event on its own track is simultaneous with the movement and no
+   * order between them exists to be edited. Inside a batch, frames run
+   * in sequence and their order is a stored key the timeline can drag.
    *
    * A carrier with no frame of its own has no batch to join, so the
-   * event becomes a cue frame in a new step, as every event did before.
+   * event becomes a cue frame in a new step, on the video's media track.
    */
-  private createMediaControlSubFrame(
-    carrierShapeId: TLShapeId,
-    videoKey: string,
-    plan: SubFrameAddAfterPlan,
-  ): void {
-    const subFrame: SubFrame = {
-      v: 2,
-      id: uniqueId(),
-      type: "sub",
-      cueFrameId: plan.cueFrameId,
-      orderKey: plan.orderKey,
-      // Always starts as "play" (the most common event); the user picks
-      // another command in the frame-edit popover.
-      action: { type: "mediaControl", command: "play", videoKey },
-    };
-    const markerId = createShapeId();
-    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
-    this.editor.run(() => {
-      // The batch's cue may need an id written, and its existing sub
-      // frames re-keyed to make room; both come from the plan.
-      if (plan.cueFrameUpdate != null) {
-        this.applyStoredFrame(
-          plan.cueFrameUpdate.shapeId as TLShapeId,
-          plan.cueFrameUpdate.frame,
-        );
-      }
-      for (const { shapeId, key } of plan.keyUpdates) {
-        const parsed = parseFrameMeta(
-          this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
-        );
-        if (parsed.kind === "v2" && parsed.frame.type === "sub") {
-          this.applyStoredFrame(shapeId as TLShapeId, {
-            ...parsed.frame,
-            orderKey: key,
-          });
-        }
-      }
-      this.editor.createShape({
-        id: markerId,
-        type: MediaControlShapeType,
-        parentId: this.editor.getCurrentPageId(),
-        x: videoBounds?.x ?? 0,
-        y: videoBounds?.y ?? 0,
-        meta: { frame: frameToMetaJson(subFrame) },
-      });
-      this.editor.select(markerId);
-    });
-  }
-
-  private applyStoredFrame(shapeId: TLShapeId, frame: Frame): void {
-    const shape = this.editor.getShape(shapeId);
-    if (shape == null) {
-      return;
-    }
-    this.editor.updateShape({
-      id: shape.id,
-      type: shape.type,
-      meta: { ...shape.meta, frame: frameToMetaJson(frame) },
-    });
-  }
-
   attachMediaControlFrame(carrierShapeId: TLShapeId) {
     const video = this.editor.getShape(carrierShapeId);
     if (!isYouTubeEmbedShape(video)) {
       return;
     }
     const videoKey = getVideoKey(video);
+    // Always starts as "play" (the most common event); the user picks
+    // another command in the frame-edit popover.
+    const action: MediaControlFrameAction = {
+      type: "mediaControl",
+      command: "play",
+      videoKey,
+    };
 
-    const plan = planSubFrameAddAfter({
-      doc: this.$getTimelineDoc(),
-      prevShapeId: carrierShapeId,
-      getStoredFrame: (shapeId) => {
-        const parsed = parseFrameMeta(
-          this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
-        );
-        return parsed.kind === "v2" ? parsed.frame : null;
-      },
-      mintId: uniqueId,
-    });
+    const doc = this.$getTimelineDoc();
+    const carrierPosition = findFramePosition(doc, carrierShapeId);
+    const plan =
+      carrierPosition == null
+        ? null
+        : planSubFrameAddAfter({
+            doc,
+            // After everything already in the batch, not after the
+            // carrier: clicking twice would otherwise put the second
+            // event ahead of the first, since a cue's insertion index
+            // is the head of the sub list.
+            prevShapeId: carrierPosition.batch.frames.at(-1)!.shapeId,
+            getStoredFrame: (shapeId) => {
+              const parsed = parseFrameMeta(
+                this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
+              );
+              return parsed.kind === "v2" ? parsed.frame : null;
+            },
+            mintId: uniqueId,
+          });
     if (plan != null) {
-      this.createMediaControlSubFrame(carrierShapeId, videoKey, plan);
+      const subFrame: SubFrame = {
+        v: 2,
+        id: uniqueId(),
+        type: "sub",
+        cueFrameId: plan.cueFrameId,
+        orderKey: plan.orderKey,
+        action,
+      };
+      this.editor.run(() => {
+        applySubFrameAddAfterPlan(this.editor, plan);
+        this.createMediaEventMarker(carrierShapeId, subFrame);
+      });
       return;
     }
 
@@ -378,7 +357,6 @@ export class PresentationManager {
       }
     }
 
-    const doc = this.$getTimelineDoc();
     const cueFrame: CueFrame = {
       v: 2,
       id: uniqueId(),
@@ -386,29 +364,10 @@ export class PresentationManager {
       trackId: mediaTrackId ?? newTrackId(),
       stepId: uniqueId(),
       stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
-      // Always starts as "play" (the most common event); the user picks
-      // another command in the frame-edit popover.
-      action: { type: "mediaControl", command: "play", videoKey },
+      action,
     };
-    const markerId = createShapeId();
-    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
     this.editor.run(() => {
-      this.editor.createShape({
-        id: markerId,
-        type: MediaControlShapeType,
-        // Explicit page parent: without it, createShape hit-tests for a
-        // receiving parent (a tldraw frame, a focused group) and would
-        // rewrite the page coordinates below into that parent's space.
-        parentId: this.editor.getCurrentPageId(),
-        // Never rendered; parked at the video's origin only so the
-        // record's coordinates are not misleading in raw-store reads.
-        x: videoBounds?.x ?? 0,
-        y: videoBounds?.y ?? 0,
-        meta: {
-          frame: frameToMetaJson(cueFrame),
-        },
-      });
-      this.editor.select(markerId);
+      this.createMediaEventMarker(carrierShapeId, cueFrame);
     });
   }
 

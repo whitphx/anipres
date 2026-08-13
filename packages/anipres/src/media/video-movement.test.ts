@@ -2050,6 +2050,48 @@ describe("adding an event to a carrier that already moves", () => {
     }
   });
 
+  it("appends a second event after the first, not ahead of it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+      const [first] = markersOf(editor, videoId);
+      manager.attachMediaControlFrame(videoId);
+      const second = markersOf(editor, videoId).find((m) => m.id !== first.id);
+
+      // The insertion goes after everything already in the batch. Were
+      // it to go after the carrier, the second click would land at the
+      // head of the sub list and the events would run in the reverse of
+      // the order they were added in.
+      const [step] = manager.$getTimelineDoc().steps;
+      const batch = step.batches.find((b) => b.trackId === "T-video");
+      expect(batch?.frames.map((f) => f.shapeId)).toEqual([
+        videoId,
+        first.id,
+        second?.id,
+      ]);
+    } finally {
+      dispose();
+    }
+  });
+
   it("leaves the player where it was, so the event has something to control", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {

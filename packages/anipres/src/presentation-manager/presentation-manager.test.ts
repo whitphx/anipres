@@ -121,7 +121,7 @@ function getVideoMarkers(editor: Editor, videoId: TLShapeId) {
     );
 }
 
-describe("attachMediaControlCueFrame", () => {
+describe("attachMediaControlFrame", () => {
   function withVideoEditor<T>(
     run: (ctx: {
       manager: PresentationManager;
