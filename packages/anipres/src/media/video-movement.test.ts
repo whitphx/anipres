@@ -44,6 +44,7 @@ import {
   dropContentAlreadyInDocument,
 } from "./remap-video-keys";
 import { getVideoTransitions } from "./video-transition";
+import { withCommand } from "../Timeline/FrameEditor/media-command";
 
 function createVideo(
   editor: Editor,
@@ -2348,6 +2349,55 @@ describe("a movement whose track holds only an event in between", () => {
     } finally {
       dispose();
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("changing an event's command", () => {
+  it("leaves the event on the timeline", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlFrame(videoId);
+      const [marker] = markersOf(editor, videoId);
+      const parsed = parseFrameMeta(marker.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+        throw new Error("expected a v2 media event");
+      }
+
+      // What the frame editor writes when the Command select changes.
+      editor.updateShape({
+        id: marker.id,
+        type: marker.type,
+        meta: {
+          ...marker.meta,
+          frame: frameToMetaJson({
+            ...parsed.frame,
+            action: withCommand(parsed.frame.action, "pause"),
+          }),
+        },
+      });
+
+      // The timeline is derived from the markers that name a video, so
+      // an event whose command change dropped its key would be dropped
+      // with it: gone from the timeline, from the video's event strip,
+      // and from playback, while its marker lingers unreachable.
+      expect(resolveMediaControlVideoKey(editor, marker.id)).toBe(videoId);
+      expect(
+        manager
+          .$getTimelineDoc()
+          .steps.flatMap((step) => step.batches)
+          .flatMap((batch) => batch.frames)
+          .map((frame) => frame.action),
+      ).toEqual([
+        { type: "mediaControl", command: "pause", videoKey: videoId },
+      ]);
+    } finally {
+      dispose();
     }
   });
 });
