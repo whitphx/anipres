@@ -219,7 +219,14 @@ async function runFrames(
 
     await new Promise((resolve) => setTimeout(resolve, duration));
 
-    predecessorShape = shape;
+    // Same rule as the one runStep applies across batches: a marker is
+    // an event, not a place, so the batch's next movement still travels
+    // from the last frame that moved something. A marker can precede a
+    // movement inside a batch, since dragging an event onto a later
+    // keyframe merges the two into one, the event ahead of it.
+    if (shape.type !== MediaControlShapeType) {
+      predecessorShape = shape;
+    }
   }
 }
 

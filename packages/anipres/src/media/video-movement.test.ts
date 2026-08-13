@@ -2129,6 +2129,103 @@ describe("a movement that follows a keyframe carrying an event", () => {
   });
 });
 
+describe("a movement that follows an event inside its own batch", () => {
+  it("travels from the carrier the batch started at", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      // What dragging an event onto a later movement leaves: the two
+      // merge into one batch, the event's frame becoming its cue and
+      // the movement a sub frame after it.
+      const markerId = createShapeId("marker");
+      editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        x: 400,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-event",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a2",
+            action: {
+              type: "mediaControl",
+              command: "play",
+              videoKey: videoId,
+            },
+          }),
+        },
+      });
+      const destination = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destination,
+        x: 400,
+        meta: {
+          videoKey: videoId,
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-destination",
+            type: "sub",
+            cueFrameId: "frame-event",
+            orderKey: "a1",
+            action: { type: "shapeAnimation", duration: 5000 },
+          }),
+        },
+      });
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      expect(
+        timelineDocToRuntimeSteps(manager.$getTimelineDoc())[1]
+          .flatMap((b) => b.data)
+          .map((f) => f.action.type),
+      ).toEqual(["mediaControl", "shapeAnimation"]);
+
+      manager.moveTo(1);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Running the event first leaves the movement's origin where it
+      // was. The marker it ran on is no carrier of the video, so a
+      // tween from it would find no origin to travel from.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(videoId);
+
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(400);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
