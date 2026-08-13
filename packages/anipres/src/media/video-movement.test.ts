@@ -2226,6 +2226,96 @@ describe("a movement that follows an event inside its own batch", () => {
   });
 });
 
+describe("a movement whose track holds only an event in between", () => {
+  it("travels from the last carrier the track moved to", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      // What dragging an event out of its batch onto a step of its own
+      // leaves: a batch of the video's own track that holds no
+      // movement, standing between two that do.
+      const markerId = createShapeId("marker");
+      editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-event",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a2",
+            action: {
+              type: "mediaControl",
+              command: "play",
+              videoKey: videoId,
+            },
+          }),
+        },
+      });
+      const destination = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destination,
+        x: 400,
+        meta: {
+          videoKey: videoId,
+          frame: frameToMetaJson(
+            videoCue({
+              trackId: "T-video",
+              stepId: "s2",
+              stepOrderKey: "a3",
+              action: { type: "shapeAnimation", duration: 5000 },
+            }),
+          ),
+        },
+      });
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      manager.moveTo(2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The event-only batch is not where the video is: it holds no
+      // position at all, so the movement travels from the carrier the
+      // track last moved to, rather than starting at its destination.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(videoId);
+
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(400);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });

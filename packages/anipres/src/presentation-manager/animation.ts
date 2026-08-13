@@ -280,19 +280,21 @@ export function runStep(
 
   const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
-    const predecessorFrameBatch = steps
+    // The last frame that moved something, not simply the last frame of
+    // the nearest batch: a media event rides on an invisible marker, so
+    // a track's batch can end with one, or be nothing but one once an
+    // event is dragged onto a step of its own. A marker is nowhere — it
+    // carries an event, not a position — so a tween starting from it
+    // names an origin the player cannot be travelling from, and a batch
+    // holding only events would hide the movement before it entirely.
+    // Either way the tween finds no origin and the video jumps to its
+    // destination. So the search runs over every earlier frame of the
+    // track rather than stopping at the batch that happens to be last.
+    const predecessorLastFrame = steps
       .slice(0, index)
-      .reverse()
       .flat()
-      .find((fb) => fb.trackId === frameBatch.trackId);
-    // The last frame that moved something, not simply the last frame:
-    // a media event rides in the batch of the keyframe it follows, so
-    // a track's batch can end with a marker. A marker is nowhere — it
-    // carries an event, not a position — and taking it as the
-    // predecessor would start the next tween from a shape the player
-    // cannot be travelling from, so the tween would find no origin and
-    // the video would jump to its destination.
-    const predecessorLastFrame = [...(predecessorFrameBatch?.data ?? [])]
+      .filter((fb) => fb.trackId === frameBatch.trackId)
+      .flatMap((fb) => fb.data)
       .reverse()
       .find((frame) => frame.action.type !== "mediaControl");
     const predecessorShape =
