@@ -23,6 +23,7 @@ import {
 } from "../timeline-model";
 import {
   timelineDocToRuntimeSteps,
+  type RuntimeBatch,
   type RuntimeStep,
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
@@ -625,20 +626,32 @@ export class PresentationManager {
     const doc = this.$getTimelineDoc();
     const currentStepIndex = this.$currentStepIndex.get();
 
+    // What a batch leaves on stage: its last frame that puts something
+    // there. A media event does not — it rides an invisible marker,
+    // which is nothing to look at and stands in for nothing — so a
+    // batch ending in one would hide the carrier before it and leave a
+    // video with no carrier on stage at all, unmounting the player the
+    // event was just attached to control.
+    const shownFrameOf = (batch: RuntimeBatch) =>
+      [...batch.data]
+        .reverse()
+        .find((frame) => frame.action.type !== "mediaControl");
+
     // shapeId -> its batch and position within it.
     const frameInfoByShapeId = new Map<
       string,
-      { stepIndex: number; trackId: string; isLastFrameOfBatch: boolean }
+      { stepIndex: number; trackId: string; isShownFrameOfBatch: boolean }
     >();
     for (const step of orderedSteps) {
       for (const batch of step) {
-        batch.data.forEach((frame, frameIndex) => {
+        const shownFrame = shownFrameOf(batch);
+        for (const frame of batch.data) {
           frameInfoByShapeId.set(frame.shapeId, {
             stepIndex: batch.stepIndex,
             trackId: batch.trackId,
-            isLastFrameOfBatch: frameIndex === batch.data.length - 1,
+            isShownFrameOfBatch: frame === shownFrame,
           });
-        });
+        }
       }
     }
     // Detached frames are excluded from playback: hidden.
@@ -647,10 +660,16 @@ export class PresentationManager {
     );
 
     // The latest batch per track among the steps played so far — the only
-    // batch whose last frame should be visible for that track.
+    // batch whose shown frame should be visible for that track. A batch
+    // that shows nothing does not take the track over: an event dragged
+    // onto a step of its own would otherwise clear the stage of the
+    // movement before it.
     const latestStepIndexPerTrack = new Map<string, number>();
     for (const step of orderedSteps.slice(0, currentStepIndex + 1)) {
       for (const batch of step) {
+        if (shownFrameOf(batch) == null) {
+          continue;
+        }
         latestStepIndexPerTrack.set(batch.trackId, batch.stepIndex);
       }
     }
@@ -689,11 +708,11 @@ export class PresentationManager {
         return [shapeId, "hidden"];
       }
 
-      // Only the last frame of the track's latest played batch is visible.
+      // Only the shown frame of the track's latest played batch is visible.
       const latestStepIndex = latestStepIndexPerTrack.get(frameInfo.trackId);
       if (
         latestStepIndex === frameInfo.stepIndex &&
-        frameInfo.isLastFrameOfBatch
+        frameInfo.isShownFrameOfBatch
       ) {
         return [shapeId, "visible"];
       }

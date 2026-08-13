@@ -2048,6 +2048,42 @@ describe("adding an event to a carrier that already moves", () => {
       dispose();
     }
   });
+
+  it("leaves the player where it was, so the event has something to control", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+
+      // The marker joins the batch after the carrier, but a marker is
+      // nothing to look at: were it to take the carrier's place as what
+      // the step shows, the video would have no carrier on stage and
+      // the player would unmount, the "play" just attached to it going
+      // nowhere.
+      expect(anchorCarrierIds(editor, true)).toEqual([videoId]);
+      const [placement] = readPlacements(editor, true);
+      expect(placement?.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
 });
 
 describe("a movement that follows a keyframe carrying an event", () => {
