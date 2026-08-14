@@ -26,6 +26,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
+import { hasSimultaneousMediaEvents } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
 import type { ShapeSelection } from "./selection";
@@ -475,7 +476,10 @@ export function Timeline({
         dstGlobalIndex,
         dstType,
       );
-      if (newSteps != null) {
+      // Refused rather than accepted-and-flagged: the drop is the only
+      // way to pair two of a video's events in one step, and the two
+      // would then run in an order nothing in the document records.
+      if (newSteps != null && !hasSimultaneousMediaEvents(newSteps)) {
         onEditedStepsChange(newSteps);
       }
     },

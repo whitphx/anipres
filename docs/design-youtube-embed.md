@@ -96,11 +96,13 @@ joins that frame's batch, and so sits on the carrier's track; every
 other event of the video goes on the video's media track, minted on the
 first such event and reused afterwards. Two events landing in one step
 on that shared media track are caught by the existing same-track-split
-diagnostic — but a video can now hold events on two tracks, and two
-events of one video reaching the same step on different tracks run
-concurrently with nothing to flag them. `setVolume` is absolute rather
-than relative volume-up/down so that folding (below) and repeated runs
-stay deterministic.
+diagnostic. Because a video can hold events on two tracks, the pair
+that diagnostic cannot see — one event on each track, in one step — is
+refused at the drag instead: `hasSimultaneousMediaEvents` rejects a
+drop that would produce it, a drop being the only way to reach it.
+Events within one batch are sequential and so never a conflict.
+`setVolume` is absolute rather than relative volume-up/down so that
+folding (below) and repeated runs stay deterministic.
 
 The `mediaControl` action and the new shape/binding types expand what a
 document persists, so `SYNC_CLIENT_VERSION` is bumped to 3 and the sync
