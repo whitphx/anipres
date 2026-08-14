@@ -103,7 +103,10 @@ that would introduce it is refused
 (`editIntroducesMediaConflict`), and attaching an event to a carrier
 whose step already holds one for that video opens a step of its own
 instead of joining the batch. Events within one batch are sequential
-and so never a conflict.
+and so never a conflict. Both guards are client-local, so a merge of
+two separately valid edits can still produce the pair; every other
+conflict here is a derived diagnostic for that reason, and giving this
+one the same treatment is [issue #518](https://github.com/whitphx/anipres/issues/518).
 `setVolume` is absolute rather than relative volume-up/down so that
 folding (below) and repeated runs stay deterministic.
 
