@@ -93,6 +93,62 @@ describe("editIntroducesMediaConflict", () => {
     ).toBe(true);
   });
 
+  it("allows dragging an event out of a conflict that has three", () => {
+    const before = step([
+      { trackId: "T-a", frames: [["e1", play("vid")]] },
+      { trackId: "T-b", frames: [["e2", play("vid")]] },
+      { trackId: "T-c", frames: [["e3", play("vid")]] },
+    ]);
+    const after = [
+      step([
+        { trackId: "T-a", frames: [["e1", play("vid")]] },
+        { trackId: "T-b", frames: [["e2", play("vid")]] },
+      ]),
+      step([{ trackId: "T-c", frames: [["e3", play("vid")]] }]),
+    ];
+
+    // Strictly fewer events running at once. Refusing this would trap
+    // the user in a conflict they can only leave in one move.
+    expect(editIntroducesMediaConflict([before], after)).toBe(false);
+  });
+
+  it("catches an event pulled out of the batch it ran in sequence with", () => {
+    const before = step([
+      {
+        trackId: "T-a",
+        frames: [
+          ["e1", play("vid")],
+          ["e2", play("vid")],
+        ],
+      },
+      { trackId: "T-b", frames: [["e3", play("vid")]] },
+    ]);
+    // The same three events, regrouped: e1 and e2 were sequential and
+    // now run at once. The set of events involved is unchanged, so only
+    // a per-pair identity sees this.
+    const after = step([
+      { trackId: "T-a", frames: [["e1", play("vid")]] },
+      {
+        trackId: "T-b",
+        frames: [
+          ["e2", play("vid")],
+          ["e3", play("vid")],
+        ],
+      },
+    ]);
+
+    expect(editIntroducesMediaConflict([before], [after])).toBe(true);
+  });
+
+  it("recognizes a conflict whose step an edit moved", () => {
+    const existing = conflictOf("vid", "e1", "e2");
+    const other = step([{ trackId: "T-x", frames: [["x1", move()]] }]);
+
+    expect(
+      editIntroducesMediaConflict([existing, other], [other, existing]),
+    ).toBe(false);
+  });
+
   it("allows two events of one video inside one batch", () => {
     // Frames within a batch run in sequence, so their order exists and
     // is editable — that is the whole point of the sub-frame form.
