@@ -2050,6 +2050,64 @@ describe("adding an event to a carrier that already moves", () => {
     }
   });
 
+  it("opens a step of its own when the carrier's step already has an event", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const videoKey = getVideoKey(video);
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      // An event of the same video already in that step, on the media
+      // track — the arrangement a drag can produce.
+      editor.createShape({
+        id: createShapeId("existing-event"),
+        type: MediaControlShapeType,
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-existing",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s0",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "pause", videoKey },
+          } as CueFrame),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+
+      // Joining the movement's batch would put two of this video's
+      // events in one step on two tracks, which run at once with no
+      // order between them and no diagnostic that can see the pair.
+      const doc = manager.$getTimelineDoc();
+      expect(doc.steps).toHaveLength(2);
+      expect(
+        doc.steps[0].batches.flatMap((b) =>
+          b.frames.filter((f) => f.action.type === "mediaControl"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
   it("appends a second event after the first, not ahead of it", () => {
     const [editor, dispose] = loadHeadlessEditor();
     try {

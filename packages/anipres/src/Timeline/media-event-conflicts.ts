@@ -1,8 +1,13 @@
-import type { EditedStep } from "../timeline-model";
+import type { FrameAction } from "../timeline-model";
+
+/** Satisfied by both a derived `StepData` and an edited `EditedStep`. */
+interface StepLike {
+  batches: readonly { frames: readonly { action: FrameAction }[] }[];
+}
 
 /**
- * Whether a step layout would fire two playback events for one video at
- * the same time.
+ * Whether a timeline edit would newly leave a video with two playback
+ * events firing at once.
  *
  * A step's batches run concurrently, so two events of one video in
  * separate batches have no order between them and the player ends up in
@@ -12,10 +17,22 @@ import type { EditedStep } from "../timeline-model";
  * and nothing downstream sees those two as related. Events within one
  * batch run in sequence, so they are not a conflict.
  *
- * An event whose `videoKey` is absent names no video yet (normalization
- * fills it in from the binding) and cannot be paired with anything.
+ * An event with no `videoKey` names no video and nothing runs for it,
+ * so it cannot be paired with anything.
  */
-export function hasSimultaneousMediaEvents(steps: EditedStep[]): boolean {
+export function editIntroducesMediaConflict(
+  before: readonly StepLike[],
+  after: readonly StepLike[],
+): boolean {
+  // Introduces, not holds: the edited layout covers the whole timeline,
+  // so a pair reached some other way would otherwise block every later
+  // edit, including the one that would resolve it.
+  return (
+    hasSimultaneousMediaEvents(after) && !hasSimultaneousMediaEvents(before)
+  );
+}
+
+function hasSimultaneousMediaEvents(steps: readonly StepLike[]): boolean {
   for (const step of steps) {
     const videosInStep = new Set<string>();
     for (const batch of step.batches) {

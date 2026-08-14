@@ -26,7 +26,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
-import { hasSimultaneousMediaEvents } from "./media-event-conflicts";
+import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
 import type { ShapeSelection } from "./selection";
@@ -427,11 +427,18 @@ export function Timeline({
   }, [shapeSelections, frameEditorDOMs]);
 
   const [draggedFrame, setDraggedFrame] = useState<FrameUIData | null>(null);
+  // A refused drop springs the frame back with nothing else to show for
+  // it, so the reason is announced next to the diagnostics; the next
+  // drag clears it.
+  const [refusedDropReason, setRefusedDropReason] = useState<string | null>(
+    null,
+  );
 
   const handleDragStart = useCallback<
     NonNullable<DndContextProps["onDragStart"]>
   >((event) => {
     const { active } = event;
+    setRefusedDropReason(null);
     const frame = active.data.current?.frame as FrameUIData | undefined;
     if (frame == null) {
       return;
@@ -476,14 +483,20 @@ export function Timeline({
         dstGlobalIndex,
         dstType,
       );
-      // Refused rather than accepted-and-flagged: the drop is the only
-      // way to pair two of a video's events in one step, and the two
-      // would then run in an order nothing in the document records.
-      if (newSteps != null && !hasSimultaneousMediaEvents(newSteps)) {
-        onEditedStepsChange(newSteps);
+      if (newSteps == null) {
+        return;
       }
+      // Refused rather than accepted-and-flagged: no diagnostic can see
+      // this pair.
+      if (editIntroducesMediaConflict(timelineDoc.steps, newSteps)) {
+        setRefusedDropReason(
+          "That step already has an event for this video, and two of them would run at once.",
+        );
+        return;
+      }
+      onEditedStepsChange(newSteps);
     },
-    [steps, stepSources, onEditedStepsChange],
+    [steps, stepSources, timelineDoc, onEditedStepsChange],
   );
 
   // To capture click events on draggable elements.
@@ -513,12 +526,17 @@ export function Timeline({
           (every shape edit) does not re-announce the whole list. */}
       <div
         className={
-          timelineDoc.diagnostics.length > 0
+          timelineDoc.diagnostics.length > 0 || refusedDropReason != null
             ? styles.diagnosticsPanel
             : undefined
         }
         aria-live="polite"
       >
+        {refusedDropReason != null && (
+          <div className={styles.diagnosticItem}>
+            <span>{refusedDropReason}</span>
+          </div>
+        )}
         {timelineDoc.diagnostics.map((diagnostic) => (
           <div
             key={diagnosticKey(diagnostic)}

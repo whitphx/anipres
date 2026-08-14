@@ -98,9 +98,12 @@ first such event and reused afterwards. Two events landing in one step
 on that shared media track are caught by the existing same-track-split
 diagnostic. Because a video can hold events on two tracks, the pair
 that diagnostic cannot see — one event on each track, in one step — is
-refused at the drag instead: `hasSimultaneousMediaEvents` rejects a
-drop that would produce it, a drop being the only way to reach it.
-Events within one batch are sequential and so never a conflict.
+prevented rather than reported, at both paths that reach it: a drop
+that would introduce it is refused
+(`editIntroducesMediaConflict`), and attaching an event to a carrier
+whose step already holds one for that video opens a step of its own
+instead of joining the batch. Events within one batch are sequential
+and so never a conflict.
 `setVolume` is absolute rather than relative volume-up/down so that
 folding (below) and repeated runs stay deterministic.
 

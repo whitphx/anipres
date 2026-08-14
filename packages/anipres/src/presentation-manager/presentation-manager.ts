@@ -303,8 +303,23 @@ export class PresentationManager {
 
     const doc = this.$getTimelineDoc();
     const carrierPosition = findFramePosition(doc, carrierShapeId);
+    // Joining the batch would leave this video with an event in each of
+    // two batches of one step, which run concurrently — the pair the
+    // same-track-split diagnostic cannot see, since the tracks differ.
+    // A step of its own is where the event can still be ordered.
+    const stepAlreadyHasAnEvent =
+      carrierPosition != null &&
+      doc.steps[carrierPosition.stepIndex].batches.some(
+        (batch) =>
+          batch !== carrierPosition.batch &&
+          batch.frames.some(
+            (frame) =>
+              frame.action.type === "mediaControl" &&
+              frame.action.videoKey === videoKey,
+          ),
+      );
     const plan =
-      carrierPosition == null
+      carrierPosition == null || stepAlreadyHasAnEvent
         ? null
         : planSubFrameAddAfter({
             doc,
