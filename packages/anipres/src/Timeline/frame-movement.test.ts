@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moveFrame } from "./frame-movement";
+import { moveFrame, reorderFrameWithinBatch } from "./frame-movement";
 import { calcFrameBatchUIData } from "./frame-ui-data";
 import { deriveTimeline, reconcileEditedSteps } from "../timeline-model";
 import type { CueFrame, EditedStep, SubFrame } from "../timeline-model";
@@ -126,6 +126,121 @@ describe("moveFrame", () => {
     // behind promoted to cue of its own batch.
     const result = moveFrame(steps, stepSources, "T", 2, 1, -1, "after");
     expect(layout(result)).toEqual([["T:t1"], ["T:t2"], ["U:u1"], ["T:t3"]]);
+  });
+});
+
+describe("reorderFrameWithinBatch", () => {
+  // Track T: one batch in step 0 (t1), one in step 2 whose frames are
+  // t2 (cue), t3, t4. Track U sits in step 1 and must never move.
+  const THREE = [
+    { shapeId: "shape:1", frame: cue("t1", "s1", "a1", "T") },
+    { shapeId: "shape:2", frame: cue("u1", "s2", "a2", "U") },
+    { shapeId: "shape:3", frame: cue("t2", "s3", "a3", "T") },
+    { shapeId: "shape:4", frame: sub("t3", "t2", "a0") },
+    { shapeId: "shape:5", frame: sub("t4", "t2", "a1") },
+  ];
+  // Track T's frames are numbered across the whole timeline, so the
+  // step-2 batch occupies trackIndex 1..3.
+  const [T2, T3, T4] = [1, 2, 3];
+
+  it("demotes the cue when it moves back, promoting what now leads", () => {
+    const { steps, stepSources } = makeSteps(THREE);
+    const result = reorderFrameWithinBatch(steps, stepSources, "T", 2, T2, T4);
+    expect(layout(result)).toEqual([["T:t1"], ["U:u1"], ["T:t3,t4,t2"]]);
+  });
+
+  it("promotes a sub dragged to the front", () => {
+    const { steps, stepSources } = makeSteps(THREE);
+    const result = reorderFrameWithinBatch(steps, stepSources, "T", 2, T4, T2);
+    expect(layout(result)).toEqual([["T:t1"], ["U:u1"], ["T:t4,t2,t3"]]);
+  });
+
+  it("moves only the dragged frame, never the ones behind it", () => {
+    // The across-steps move pushes the far side of the batch along; a
+    // reorder must not, or a batch of three would be unreadable.
+    const { steps, stepSources } = makeSteps(THREE);
+    const result = reorderFrameWithinBatch(steps, stepSources, "T", 2, T3, T4);
+    expect(layout(result)).toEqual([["T:t1"], ["U:u1"], ["T:t2,t4,t3"]]);
+  });
+
+  it("swaps the two frames of a two-frame batch", () => {
+    const { steps, stepSources } = makeSteps(BASE);
+    // BASE's step-2 batch is t2 (cue, trackIndex 1) + t3 (trackIndex 2).
+    const result = reorderFrameWithinBatch(steps, stepSources, "T", 2, 2, 1);
+    expect(layout(result)).toEqual([["T:t1"], ["U:u1"], ["T:t3,t2"]]);
+  });
+
+  it("declines a drop onto the frame's own place", () => {
+    const { steps, stepSources } = makeSteps(THREE);
+    expect(
+      reorderFrameWithinBatch(steps, stepSources, "T", 2, T3, T3),
+    ).toBeUndefined();
+  });
+
+  it("declines a destination outside the dragged frame's batch", () => {
+    const { steps, stepSources } = makeSteps(THREE);
+    // t1 is track T's other batch, a step away: dropping onto it still
+    // means "merge at its step", which is moveFrame's business.
+    expect(
+      reorderFrameWithinBatch(steps, stepSources, "T", 2, T2, 0),
+    ).toBeUndefined();
+    // A step that holds no batch of this track at all.
+    expect(
+      reorderFrameWithinBatch(steps, stepSources, "T", 1, T2, T3),
+    ).toBeUndefined();
+  });
+
+  it("keeps every step's source identity, including the reordered one", () => {
+    const { steps, stepSources } = makeSteps(THREE);
+    const result = reorderFrameWithinBatch(steps, stepSources, "T", 2, T2, T4);
+    expect(result?.map((step) => step.source?.id)).toEqual(
+      stepSources.map((source) => source.id),
+    );
+  });
+
+  it("writes only the reordered batch's frames, keeping the step's identity", () => {
+    const frames = THREE;
+    const { steps, stepSources } = makeSteps(frames);
+    const edited = reorderFrameWithinBatch(steps, stepSources, "T", 2, T2, T4);
+
+    let minted = 0;
+    const result = reconcileEditedSteps({
+      currentFrames: frames,
+      editedSteps: edited!,
+      mintId: () => `minted-${++minted}`,
+    });
+    // Bounded to the batch: the two frames whose roles swapped plus the
+    // one whose `cueFrameId` now names a different cue. The step is led
+    // by a frame that was a sub until now, which has no stored step
+    // identity of its own; the carried source supplies it, so no other
+    // step is re-keyed and no step id is minted.
+    expect(result.updates.map((u) => u.shapeId).sort()).toEqual([
+      "shape:3",
+      "shape:4",
+      "shape:5",
+    ]);
+
+    const updatedByShapeId = new Map(
+      result.updates.map((u) => [u.shapeId, u.frame]),
+    );
+    const applied = frames.map(({ shapeId, frame }) => ({
+      shapeId,
+      frameMeta: updatedByShapeId.get(shapeId) ?? frame,
+    }));
+    const doc = deriveTimeline({ shapes: applied });
+
+    expect(doc.steps.map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
+    expect(doc.diagnostics).toEqual([]);
+    const reordered = doc.steps[2].batches.find((b) => b.trackId === "T");
+    expect(reordered?.frames.map((f) => f.frameId)).toEqual(["t3", "t4", "t2"]);
+    // The promoted frame carries the batch's track, and the demoted one
+    // now hangs off it.
+    const promoted = updatedByShapeId.get("shape:4") as CueFrame;
+    expect(promoted.type).toBe("cue");
+    expect(promoted.trackId).toBe("T");
+    expect((updatedByShapeId.get("shape:3") as SubFrame).cueFrameId).toBe(
+      promoted.id,
+    );
   });
 });
 

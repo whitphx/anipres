@@ -37,6 +37,14 @@ $inbetween-droppable-cell-width: 16px;
     }
   }
 
+  // The frame whose place a within-batch drop would take. Drawn inset so
+  // the box never changes size: dnd-kit measured these rects when the
+  // drag started, and a frame that grew would move the target it names.
+  .reorderTarget {
+    box-shadow: inset 0 0 0 2px var(--color-selected);
+    border-radius: var(--radius-2);
+  }
+
   .inbetweenDroppableCell {
     width: $inbetween-droppable-cell-width;
     height: 100%;

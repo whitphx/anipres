@@ -6,12 +6,16 @@ import type {
 import type { FrameBatchUIData, FrameUIData } from "./frame-ui-data";
 
 // The Timeline drag & drop semantics (pinned by frame-movement.test.ts):
-// moving a frame takes it — plus, within its batch, the frames on the far
-// side of it relative to the move direction, plus every same-track batch
-// between source and destination — and "pushes" them toward the
-// destination. Frames that were cues start new batches (each becoming its
-// own step); when dropped "at" a step that already has a same-track batch,
-// the sequences merge into one batch.
+// moving a frame ACROSS steps takes it — plus, within its batch, the
+// frames on the far side of it relative to the move direction, plus every
+// same-track batch between source and destination — and "pushes" them
+// toward the destination. Frames that were cues start new batches (each
+// becoming its own step); when dropped "at" a step that already has a
+// same-track batch, the sequences merge into one batch.
+//
+// Moving a frame WITHIN its batch is the other operation
+// (`reorderFrameWithinBatch`) and deliberately does neither: exactly the
+// dragged frame changes place.
 //
 // The output is a plain EditedStep[] structure; reconcileEditedSteps
 // turns it into a minimal per-shape diff. Each output step that displays
@@ -66,6 +70,88 @@ function rebatch(pushedOut: RoleFrame[], trackId: string): EditedBatch[] {
   return batches.map(batchToEdited);
 }
 
+/**
+ * Carries the doc step identity an output step displays, so that
+ * reconciliation can keep a step's stored id and key. A step led by a
+ * frame that was a sub until this edit has no stored identity of its
+ * own to supply.
+ */
+function sourcedWith(stepSources: readonly EditedStepSource[]) {
+  return (batches: EditedBatch[], stepIndex: number): EditedStep => ({
+    batches,
+    ...(stepSources[stepIndex] != null
+      ? { source: stepSources[stepIndex] }
+      : {}),
+  });
+}
+
+/**
+ * Reorders ONE frame inside its own batch — the drop `moveFrame` cannot
+ * express, since a same-step move is a no-op for an "at" drop and
+ * splits the frame into a step of its own for an "after" drop.
+ *
+ * It deliberately does not follow the push-and-sweep convention above:
+ * exactly the dragged frame moves, because a reorder that also dragged
+ * the frames behind it would be unreadable in a batch of three. Nothing
+ * enters or leaves a batch, so no step empties and none splits.
+ * `frames[0]` takes the cue role, so moving the cue back demotes it and
+ * promotes whatever leads in its place.
+ *
+ * `dstTrackIndex` names the frame whose place the dragged one takes.
+ */
+export function reorderFrameWithinBatch(
+  steps: FrameBatchUIData[][],
+  stepSources: readonly EditedStepSource[],
+  trackId: string,
+  globalIndex: number,
+  srcTrackIndex: number,
+  dstTrackIndex: number,
+): EditedStep[] | undefined {
+  if (srcTrackIndex === dstTrackIndex) {
+    return undefined;
+  }
+  const step = steps[globalIndex];
+  if (step == null) {
+    return undefined;
+  }
+  const batch = step.find(
+    (frameBatch) =>
+      frameBatch.trackId === trackId &&
+      frameBatch.data.some((frame) => frame.trackIndex === srcTrackIndex),
+  );
+  if (batch == null) {
+    return undefined;
+  }
+  const from = batch.data.findIndex(
+    (frame) => frame.trackIndex === srcTrackIndex,
+  );
+  // Both ends must be in the SAME batch: dropping onto another batch's
+  // frame keeps meaning "merge at that batch's step".
+  const to = batch.data.findIndex(
+    (frame) => frame.trackIndex === dstTrackIndex,
+  );
+  if (to < 0) {
+    return undefined;
+  }
+  // dnd-kit's own `arrayMove`: `to` names a position among the frames
+  // that remain, not a gap, so it needs no adjustment for the removal.
+  const frames = [...batch.data];
+  const [moved] = frames.splice(from, 1);
+  frames.splice(to, 0, moved);
+
+  const sourced = sourcedWith(stepSources);
+  return steps.map((stepBatches, stepIndex) =>
+    sourced(
+      stepBatches.map((frameBatch) =>
+        frameBatch === batch
+          ? batchToEdited({ trackId, frames })
+          : uiBatchToEdited(frameBatch),
+      ),
+      stepIndex,
+    ),
+  );
+}
+
 export function moveFrame(
   steps: FrameBatchUIData[][],
   stepSources: readonly EditedStepSource[],
@@ -75,12 +161,7 @@ export function moveFrame(
   dstGlobalIndex: number,
   dstType: "after" | "at",
 ): EditedStep[] | undefined {
-  const sourced = (batches: EditedBatch[], stepIndex: number): EditedStep => ({
-    batches,
-    ...(stepSources[stepIndex] != null
-      ? { source: stepSources[stepIndex] }
-      : {}),
-  });
+  const sourced = sourcedWith(stepSources);
   if (
     srcGlobalIndex < dstGlobalIndex ||
     (srcGlobalIndex === dstGlobalIndex && dstType === "after")
