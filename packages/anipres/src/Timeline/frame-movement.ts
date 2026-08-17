@@ -14,9 +14,8 @@ import type { FrameBatchUIData, FrameUIData } from "./frame-ui-data";
 // same-track batch, the sequences merge into one batch.
 //
 // Moving a frame WITHIN its batch is the other operation
-// (`reorderFrameWithinBatch`) and deliberately does not push or sweep:
-// exactly the dragged frame changes place. The two coincide for a batch
-// of two, which is why the divergence is easy to miss.
+// (`reorderFrameWithinBatch`) and deliberately does neither: exactly the
+// dragged frame changes place.
 //
 // The output is a plain EditedStep[] structure; reconcileEditedSteps
 // turns it into a minimal per-shape diff. Each output step that displays
@@ -134,10 +133,10 @@ export function reorderFrameWithinBatch(
   if (to < 0) {
     return undefined;
   }
+  // dnd-kit's own `arrayMove`: `to` names a position among the frames
+  // that remain, not a gap, so it needs no adjustment for the removal.
   const frames = [...batch.data];
   const [moved] = frames.splice(from, 1);
-  // `to` is a position among the remaining frames, not a gap, so it
-  // needs no adjustment for the splice above.
   frames.splice(to, 0, moved);
 
   const sourced = sourcedWith(stepSources);

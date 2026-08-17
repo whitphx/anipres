@@ -250,9 +250,9 @@ muted for decks that must play a video on their very first step.
   same-track batch it merges the two instead, promoting itself to cue
   and demoting that batch's cue to a sub. (Leftward, onto an EARLIER
   batch, the demotion goes the other way and the destination keeps its
-  cue.) The within-batch move is the one place the timeline moves
-  exactly the dragged frame: an across-steps drag also pushes the
-  frames behind it and sweeps up the same-track batches it passes.
+  cue.) The within-batch move never pushes or sweeps: an across-steps
+  drag also carries the frames behind it and the same-track batches it
+  passes.
 - The frame-edit popover edits the command (and volume for setVolume)
   on media frames. Each per-batch "+" is offered by the frame it would
   extend, since a "+" clones that frame's carrier: the sub button by

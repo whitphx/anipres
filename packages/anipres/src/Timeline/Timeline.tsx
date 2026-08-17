@@ -7,8 +7,6 @@ import {
   useSensor,
   DragOverlay,
   KeyboardSensor,
-  rectIntersection,
-  type CollisionDetection,
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
@@ -28,6 +26,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame, reorderFrameWithinBatch } from "./frame-movement";
+import { createFrameCollisionDetection } from "./frame-collision";
 import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
@@ -539,40 +538,7 @@ export function Timeline({
     [steps, stepSources, timelineDoc, onEditedStepsChange],
   );
 
-  // A frame's place within its batch is the first droppable here nested
-  // inside another (the step column), so the default rect intersection
-  // needs two corrections.
-  const collisionDetection = useCallback<CollisionDetection>((args) => {
-    const activeBatchId = args.active.data.current?.batchId;
-    const srcTrackIndex = args.active.data.current?.trackIndex;
-    const collisions = rectIntersection({
-      ...args,
-      // A batch's places belong to its own frames. Without this, a
-      // drop onto ANOTHER batch's frame could resolve to that frame's
-      // place instead of its step, silently killing the merge that
-      // puts an event in front of a movement.
-      droppableContainers: args.droppableContainers.filter(
-        (container) =>
-          container.data.current?.type !== "within" ||
-          container.data.current?.batchId === activeBatchId,
-      ),
-    });
-    const placeOf = (collision: (typeof collisions)[number]) =>
-      collision.data?.droppableContainer?.data?.current?.type === "within"
-        ? (collision.data.droppableContainer.data.current as {
-            trackIndex: number;
-          })
-        : null;
-    const [top] = collisions;
-    if (top != null && placeOf(top)?.trackIndex === srcTrackIndex) {
-      // Still mostly over its own place: the pointer has not travelled
-      // far enough to mean a reorder, so let the step-level targets
-      // answer — otherwise a sliver of overlap with a neighbour would
-      // shadow the strip that moves the frame to a step of its own.
-      return collisions.filter((collision) => placeOf(collision) == null);
-    }
-    return collisions;
-  }, []);
+  const collisionDetection = useMemo(() => createFrameCollisionDetection(), []);
 
   // To capture click events on draggable elements.
   // Ref: https://github.com/clauderic/dnd-kit/issues/591
