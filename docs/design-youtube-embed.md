@@ -240,24 +240,30 @@ muted for decks that must play a video on their very first step.
   request about one video, and the event joins the one the video is
   showing at the current step — a selection is a set, so a rule that
   read its order would place the event differently for selections that
-  look identical, and picking the carrier on stage leaves the video's
-  later keyframes ahead of the event, which is what the drag below
-  needs.
+  look identical, and picking the carrier on stage puts the event where
+  the user is looking, with whatever later keyframes the video has
+  still ahead of it for the drag below.
 - An event runs BEFORE a movement by being dragged onto a later
-  keyframe of the same track: a drop "at" an existing same-track batch
+  keyframe of the same track: a drop "at" a LATER same-track batch
   merges the two, promoting the dragged frame to cue and demoting the
-  destination's cue to a sub behind it. There is no reordering within a
-  batch — a drag whose source and destination are one step is a no-op
-  for an "at" drop and splits the frame into a step of its own for an
-  "after" drop — so this merge is the only way to change the order of
-  two frames that already share a batch.
+  destination's cue to a sub behind it. (Leftward, onto an EARLIER
+  batch, the demotion goes the other way and the destination keeps its
+  cue.) There is no reordering within a batch — a drag whose source and
+  destination are one step is a no-op for an "at" drop and splits the
+  frame into a step of its own for an "after" drop — so this merge is
+  the only way to change the order of two frames that already share a
+  batch.
 - The frame-edit popover edits the command (and volume for setVolume)
   on media frames. Each per-batch "+" is offered by the frame it would
   extend, since a "+" clones that frame's carrier: the sub button by
   the batch's last frame, the cue button by its cue. Neither is offered
   for a media frame — "+ Media event" is how events are added (a marker
   inside a grouped selection is still cloned by the group "+") — so a
-  batch ending in an event keeps its cue "+" and loses its sub "+".
+  batch ending in an event keeps its cue "+" and loses its sub "+",
+  while a batch whose CUE is an event gains the sub "+" its last frame
+  earns. The container the two sit in has no size of its own, so the
+  cue "+" expands from the sub "+" on hover and stands alone when there
+  is no sub "+" to expand from.
   Chaining ("play, wait, pause" in one step) is done by dragging an
   event onto an earlier step, which merges same-track sequences into
   one batch.

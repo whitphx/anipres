@@ -35,28 +35,27 @@ interface CarrierRank {
 export function pickMediaEventCarriers<
   T extends { id: string; meta?: Record<string, unknown> },
 >(doc: TimelineDoc, currentStepIndex: number, shapes: readonly T[]): T[] {
-  const stepIndexByShapeId = new Map<string, number>();
-  const positionByShapeId = new Map<string, number>();
+  const placeByShapeId = new Map<
+    string,
+    { stepIndex: number; position: number }
+  >();
   let position = 0;
-  doc.steps.forEach((step, stepIndex) => {
-    for (const batch of step.batches) {
+  for (let stepIndex = 0; stepIndex < doc.steps.length; stepIndex++) {
+    for (const batch of doc.steps[stepIndex].batches) {
       for (const frame of batch.frames) {
-        stepIndexByShapeId.set(frame.shapeId, stepIndex);
-        positionByShapeId.set(frame.shapeId, position++);
+        placeByShapeId.set(frame.shapeId, { stepIndex, position: position++ });
       }
     }
-  });
+  }
 
   const rankOf = (shape: T): CarrierRank => {
-    const stepIndex = stepIndexByShapeId.get(shape.id);
+    const place = placeByShapeId.get(shape.id);
+    if (place == null) {
+      return { standing: UNFRAMED, position: -1, id: shape.id };
+    }
     return {
-      standing:
-        stepIndex == null
-          ? UNFRAMED
-          : stepIndex <= currentStepIndex
-            ? ON_STAGE
-            : UPCOMING,
-      position: positionByShapeId.get(shape.id) ?? -1,
+      standing: place.stepIndex <= currentStepIndex ? ON_STAGE : UPCOMING,
+      position: place.position,
       id: shape.id,
     };
   };

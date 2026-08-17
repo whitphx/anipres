@@ -67,6 +67,7 @@ const FrameIcon = React.forwardRef<HTMLElement, FrameIconProps>(
         ref,
         className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
         onClick: props.onClick,
+        ...(props.as === "button" ? { type: "button" } : {}),
       },
       props.children,
     );
@@ -172,11 +173,6 @@ const StepColumn = React.memo(
                     const frames = trackFrameBatch.data;
 
                     const [cueFrame, ...subFrames] = frames;
-                    // Each "+" is offered by the frame it would extend:
-                    // the sub button clones the batch's last frame, the
-                    // cue button its cue, and the two can differ — a
-                    // batch ending in a media event has a cue that
-                    // extends and a last frame that does not.
                     const lastFrame = frames.at(-1)!;
                     return (
                       <div
@@ -238,6 +234,12 @@ const StepColumn = React.memo(
                             </DraggableFrameUI>
                           );
                         })}
+                        {/* Each "+" is offered by the frame it would
+                            extend, since a "+" clones that frame's
+                            carrier: the sub button the batch's last
+                            frame, the cue button its cue. The two
+                            differ on a batch ending in a media event,
+                            which nothing may clone. */}
                         {(canExtendFrameSequence(lastFrame) ||
                           canExtendFrameSequence(cueFrame)) && (
                           <div className={styles.frameAddButtonContainer}>
