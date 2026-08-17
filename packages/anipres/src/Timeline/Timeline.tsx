@@ -172,6 +172,12 @@ const StepColumn = React.memo(
                     const frames = trackFrameBatch.data;
 
                     const [cueFrame, ...subFrames] = frames;
+                    // Each "+" is offered by the frame it would extend:
+                    // the sub button clones the batch's last frame, the
+                    // cue button its cue, and the two can differ — a
+                    // batch ending in a media event has a cue that
+                    // extends and a last frame that does not.
+                    const lastFrame = frames.at(-1)!;
                     return (
                       <div
                         key={trackFrameBatch.id}
@@ -232,27 +238,32 @@ const StepColumn = React.memo(
                             </DraggableFrameUI>
                           );
                         })}
-                        {canExtendFrameSequence(cueFrame) && (
+                        {(canExtendFrameSequence(lastFrame) ||
+                          canExtendFrameSequence(cueFrame)) && (
                           <div className={styles.frameAddButtonContainer}>
-                            <FrameIcon
-                              as="button"
-                              subFrame
-                              onClick={() =>
-                                requestSubFrameAddAfter(frames.at(-1)!)
-                              }
-                            >
-                              +
-                            </FrameIcon>
-                            <div className={styles.hoverExpandedPart}>
+                            {canExtendFrameSequence(lastFrame) && (
                               <FrameIcon
                                 as="button"
+                                subFrame
                                 onClick={() =>
-                                  requestCueFrameAddAfter(cueFrame)
+                                  requestSubFrameAddAfter(lastFrame)
                                 }
                               >
                                 +
                               </FrameIcon>
-                            </div>
+                            )}
+                            {canExtendFrameSequence(cueFrame) && (
+                              <div className={styles.hoverExpandedPart}>
+                                <FrameIcon
+                                  as="button"
+                                  onClick={() =>
+                                    requestCueFrameAddAfter(cueFrame)
+                                  }
+                                >
+                                  +
+                                </FrameIcon>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

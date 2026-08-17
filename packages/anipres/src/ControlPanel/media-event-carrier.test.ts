@@ -30,14 +30,49 @@ const carrier = (id: string, videoKey?: string) => ({
 });
 
 describe("pickMediaEventCarriers", () => {
-  it("takes the last carrier of a video in presentation order", () => {
+  it("takes the carrier the video is showing at the current step", () => {
+    const doc = docWithCarriers([["v1"], ["v2"], ["v3"]]);
+    const shapes = [
+      carrier("v1", "vid"),
+      carrier("v2", "vid"),
+      carrier("v3", "vid"),
+    ];
+
+    expect(pickMediaEventCarriers(doc, 1, shapes)).toEqual([
+      carrier("v2", "vid"),
+    ]);
+    // Selection is a set, so the same picture must give the same answer.
+    expect(pickMediaEventCarriers(doc, 1, [...shapes].reverse())).toEqual([
+      carrier("v2", "vid"),
+    ]);
+  });
+
+  it("leaves the video's later keyframes ahead of the event", () => {
+    // The point of picking the on-stage carrier: a keyframe after it
+    // is what a drag merges the event in front of.
     const doc = docWithCarriers([["v1"], ["v2"], ["v3"]]);
     const shapes = [carrier("v1", "vid"), carrier("v3", "vid")];
 
-    expect(pickMediaEventCarriers(doc, shapes)).toEqual([carrier("v3", "vid")]);
-    // Selection is a set, so the same picture must give the same answer.
-    expect(pickMediaEventCarriers(doc, [...shapes].reverse())).toEqual([
-      carrier("v3", "vid"),
+    expect(pickMediaEventCarriers(doc, 0, shapes)).toEqual([
+      carrier("v1", "vid"),
+    ]);
+  });
+
+  it("holds the last carrier reached when the current step is past them all", () => {
+    const doc = docWithCarriers([["v1"], ["v2"]]);
+    const shapes = [carrier("v1", "vid"), carrier("v2", "vid")];
+
+    expect(pickMediaEventCarriers(doc, 5, shapes)).toEqual([
+      carrier("v2", "vid"),
+    ]);
+  });
+
+  it("takes the next carrier due when the selection is all ahead", () => {
+    const doc = docWithCarriers([["v1"], ["v2"], ["v3"]]);
+    const shapes = [carrier("v2", "vid"), carrier("v3", "vid")];
+
+    expect(pickMediaEventCarriers(doc, 0, shapes)).toEqual([
+      carrier("v2", "vid"),
     ]);
   });
 
@@ -45,7 +80,10 @@ describe("pickMediaEventCarriers", () => {
     const doc = docWithCarriers([["v1", "v2"]]);
 
     expect(
-      pickMediaEventCarriers(doc, [carrier("v2", "vid"), carrier("v1", "vid")]),
+      pickMediaEventCarriers(doc, 0, [
+        carrier("v2", "vid"),
+        carrier("v1", "vid"),
+      ]),
     ).toEqual([carrier("v2", "vid")]);
   });
 
@@ -53,7 +91,7 @@ describe("pickMediaEventCarriers", () => {
     const doc = docWithCarriers([["a1"], ["b1"], ["a2"]]);
 
     expect(
-      pickMediaEventCarriers(doc, [
+      pickMediaEventCarriers(doc, 2, [
         carrier("a1", "vid-a"),
         carrier("b1", "vid-b"),
         carrier("a2", "vid-a"),
@@ -65,7 +103,7 @@ describe("pickMediaEventCarriers", () => {
     const doc = docWithCarriers([["v1"]]);
 
     expect(
-      pickMediaEventCarriers(doc, [
+      pickMediaEventCarriers(doc, 0, [
         carrier("unframed", "vid"),
         carrier("v1", "vid"),
       ]),
@@ -75,17 +113,19 @@ describe("pickMediaEventCarriers", () => {
   it("falls back to a video's sole unframed carrier", () => {
     const doc = docWithCarriers([]);
 
-    expect(pickMediaEventCarriers(doc, [carrier("unframed", "vid")])).toEqual([
-      carrier("unframed", "vid"),
-    ]);
+    expect(
+      pickMediaEventCarriers(doc, 0, [carrier("unframed", "vid")]),
+    ).toEqual([carrier("unframed", "vid")]);
   });
 
   it("breaks a tie between unframed carriers the same way every time", () => {
     const doc = docWithCarriers([]);
     const shapes = [carrier("a", "vid"), carrier("b", "vid")];
 
-    expect(pickMediaEventCarriers(doc, shapes)).toEqual([carrier("b", "vid")]);
-    expect(pickMediaEventCarriers(doc, [...shapes].reverse())).toEqual([
+    expect(pickMediaEventCarriers(doc, 0, shapes)).toEqual([
+      carrier("b", "vid"),
+    ]);
+    expect(pickMediaEventCarriers(doc, 0, [...shapes].reverse())).toEqual([
       carrier("b", "vid"),
     ]);
   });
@@ -93,8 +133,8 @@ describe("pickMediaEventCarriers", () => {
   it("treats carriers with no videoKey as separate videos", () => {
     const doc = docWithCarriers([["v1"], ["v2"]]);
 
-    expect(pickMediaEventCarriers(doc, [carrier("v1"), carrier("v2")])).toEqual(
-      [carrier("v1"), carrier("v2")],
-    );
+    expect(
+      pickMediaEventCarriers(doc, 0, [carrier("v1"), carrier("v2")]),
+    ).toEqual([carrier("v1"), carrier("v2")]);
   });
 });

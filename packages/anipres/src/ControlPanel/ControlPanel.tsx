@@ -381,6 +381,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             onClick={() => {
               for (const shape of pickMediaEventCarriers(
                 doc,
+                currentStepIndex,
                 selectedYouTubeEmbedShapes,
               )) {
                 presentationManager.attachMediaControlFrame(shape.id);

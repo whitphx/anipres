@@ -1,51 +1,88 @@
 import type { TimelineDoc } from "../timeline-model";
 import { getVideoKey } from "../shapes/youtube-embed/YouTubeEmbedShape";
 
+/** Where a carrier stands relative to the step being viewed. */
+const ON_STAGE = 0;
+const UPCOMING = 1;
+const UNFRAMED = 2;
+
+interface CarrierRank {
+  standing: typeof ON_STAGE | typeof UPCOMING | typeof UNFRAMED;
+  position: number;
+  id: string;
+}
+
 /**
  * Picks the one carrier per video that a new playback event attaches
- * to: the last of the selected carriers in presentation order.
+ * to: the one the video is showing at the current step.
  *
  * A video that moves is several carriers, so a selection can hold more
  * than one of the same video while still being a single request about
- * a single video. Which one wins decides the step the event runs in,
- * so it cannot come from the selection's own order — a selection is a
- * set, and two selections that look identical would then place the
- * event differently. Taking the last means the event follows all the
- * movement the selection covers, and selecting the whole video puts it
- * at the end, where every event used to go.
+ * a single video. Which one wins decides the step the event runs in, so
+ * it cannot come from the selection's own order — a selection is a set,
+ * and two selections that look identical would then place the event
+ * differently. Taking the carrier on stage puts the event where the
+ * user is looking, and leaves the video's later keyframes ahead of it,
+ * which is what a drag needs to merge the event in front of one.
  *
- * A carrier holding no frame has no position and so loses to any
+ * A selection entirely ahead of the current step has nothing on stage,
+ * so the first of those carriers wins — the one the video reaches next.
+ * A carrier holding no frame has no position at all and loses to any
  * carrier that has one, the event then becoming a cue frame in a new
- * step. Carriers that tie — several unframed ones — fall back to the
- * shape id, which is arbitrary but at least the same every time.
+ * step. Ties fall back to the shape id, which is arbitrary but at least
+ * the same every time.
  */
 export function pickMediaEventCarriers<
   T extends { id: string; meta?: Record<string, unknown> },
->(doc: TimelineDoc, shapes: readonly T[]): T[] {
+>(doc: TimelineDoc, currentStepIndex: number, shapes: readonly T[]): T[] {
+  const stepIndexByShapeId = new Map<string, number>();
   const positionByShapeId = new Map<string, number>();
   let position = 0;
-  for (const step of doc.steps) {
+  doc.steps.forEach((step, stepIndex) => {
     for (const batch of step.batches) {
       for (const frame of batch.frames) {
+        stepIndexByShapeId.set(frame.shapeId, stepIndex);
         positionByShapeId.set(frame.shapeId, position++);
       }
     }
-  }
-  const isLater = (shape: T, than: T) => {
-    const shapePosition = positionByShapeId.get(shape.id) ?? -1;
-    const thanPosition = positionByShapeId.get(than.id) ?? -1;
-    return shapePosition === thanPosition
-      ? shape.id > than.id
-      : shapePosition > thanPosition;
+  });
+
+  const rankOf = (shape: T): CarrierRank => {
+    const stepIndex = stepIndexByShapeId.get(shape.id);
+    return {
+      standing:
+        stepIndex == null
+          ? UNFRAMED
+          : stepIndex <= currentStepIndex
+            ? ON_STAGE
+            : UPCOMING,
+      position: positionByShapeId.get(shape.id) ?? -1,
+      id: shape.id,
+    };
   };
 
-  const latestPerVideo = new Map<string, T>();
+  const beats = (a: CarrierRank, b: CarrierRank): boolean => {
+    if (a.standing !== b.standing) {
+      return a.standing < b.standing;
+    }
+    if (a.position !== b.position) {
+      // The last one reached among those on stage; the next one due
+      // among those still ahead.
+      return a.standing === ON_STAGE
+        ? a.position > b.position
+        : a.position < b.position;
+    }
+    return a.id > b.id;
+  };
+
+  const pickedPerVideo = new Map<string, { shape: T; rank: CarrierRank }>();
   for (const shape of shapes) {
     const videoKey = getVideoKey(shape);
-    const incumbent = latestPerVideo.get(videoKey);
-    if (incumbent == null || isLater(shape, incumbent)) {
-      latestPerVideo.set(videoKey, shape);
+    const rank = rankOf(shape);
+    const incumbent = pickedPerVideo.get(videoKey);
+    if (incumbent == null || beats(rank, incumbent.rank)) {
+      pickedPerVideo.set(videoKey, { shape, rank });
     }
   }
-  return [...latestPerVideo.values()];
+  return [...pickedPerVideo.values()].map(({ shape }) => shape);
 }

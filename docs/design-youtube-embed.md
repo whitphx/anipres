@@ -237,15 +237,28 @@ muted for decks that must play a video on their very first step.
   frame's batch as a sub frame and so runs after it; a carrier with no
   frame has no batch to join, so the event becomes a cue frame in a new
   final step. Several selected keyframes of one video are still one
-  request about one video, and the event follows the last of them in
-  presentation order — a selection is a set, so a rule that read its
-  order would place the event differently for selections that look
-  identical. The user repositions the event by dragging in the timeline.
+  request about one video, and the event joins the one the video is
+  showing at the current step — a selection is a set, so a rule that
+  read its order would place the event differently for selections that
+  look identical, and picking the carrier on stage leaves the video's
+  later keyframes ahead of the event, which is what the drag below
+  needs.
+- An event runs BEFORE a movement by being dragged onto a later
+  keyframe of the same track: a drop "at" an existing same-track batch
+  merges the two, promoting the dragged frame to cue and demoting the
+  destination's cue to a sub behind it. There is no reordering within a
+  batch — a drag whose source and destination are one step is a no-op
+  for an "at" drop and splits the frame into a step of its own for an
+  "after" drop — so this merge is the only way to change the order of
+  two frames that already share a batch.
 - The frame-edit popover edits the command (and volume for setVolume)
-  on media frames. The timeline's per-batch "+" buttons are withheld on
-  media batches — "+ Media event" is how events are added (a marker
-  inside a grouped selection is still cloned by the group "+"), and
-  chaining ("play, wait, pause" in one step) is done by dragging an
+  on media frames. Each per-batch "+" is offered by the frame it would
+  extend, since a "+" clones that frame's carrier: the sub button by
+  the batch's last frame, the cue button by its cue. Neither is offered
+  for a media frame — "+ Media event" is how events are added (a marker
+  inside a grouped selection is still cloned by the group "+") — so a
+  batch ending in an event keeps its cue "+" and loses its sub "+".
+  Chaining ("play, wait, pause" in one step) is done by dragging an
   event onto an earlier step, which merges same-track sequences into
   one batch.
 - The `muted`, `controls`, and `altText` props have no editor UI yet
