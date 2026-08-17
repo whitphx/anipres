@@ -7,6 +7,8 @@ import {
   useSensor,
   DragOverlay,
   KeyboardSensor,
+  rectIntersection,
+  type CollisionDetection,
   type DndContextProps,
 } from "@dnd-kit/core";
 import { PointerSensor, MouseSensor, TouchSensor } from "./dnd-sensors";
@@ -25,7 +27,7 @@ import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
-import { moveFrame } from "./frame-movement";
+import { moveFrame, reorderFrameWithinBatch } from "./frame-movement";
 import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
@@ -181,6 +183,7 @@ const StepColumn = React.memo(
                       >
                         <DraggableFrameUI
                           id={trackFrameBatch.id}
+                          batchId={trackFrameBatch.id}
                           // The batch's real track id, not the row id:
                           // drag & drop identifies frames by (trackId,
                           // trackIndex) in the data model's terms.
@@ -188,6 +191,7 @@ const StepColumn = React.memo(
                           trackIndex={cueFrame.trackIndex}
                           globalIndex={trackFrameBatch.globalIndex}
                           frame={cueFrame}
+                          reorderTarget={frames.length > 1}
                         >
                           <FrameEditor
                             frame={cueFrame}
@@ -211,10 +215,12 @@ const StepColumn = React.memo(
                             <DraggableFrameUI
                               key={subFrame.shapeId}
                               id={subFrame.shapeId}
+                              batchId={trackFrameBatch.id}
                               trackId={trackFrameBatch.trackId}
                               trackIndex={subFrame.trackIndex}
                               globalIndex={trackFrameBatch.globalIndex}
                               frame={subFrame}
+                              reorderTarget={frames.length > 1}
                             >
                               <FrameEditor
                                 frame={subFrame}
@@ -474,28 +480,49 @@ export function Timeline({
       const srcTrackIndex = active.data.current?.trackIndex;
       const srcGlobalIndex = active.data.current?.globalIndex;
       const dstType = over.data.current?.type;
-      const dstGlobalIndex = over.data.current?.globalIndex;
       if (
         !(
           typeof trackId === "string" &&
           typeof srcTrackIndex === "number" &&
-          typeof srcGlobalIndex === "number" &&
-          typeof dstGlobalIndex === "number" &&
-          (dstType === "at" || dstType === "after")
+          typeof srcGlobalIndex === "number"
         )
       ) {
         return;
       }
 
-      const newSteps = moveFrame(
-        steps,
-        stepSources,
-        trackId,
-        srcGlobalIndex,
-        srcTrackIndex,
-        dstGlobalIndex,
-        dstType,
-      );
+      let newSteps: EditedStep[] | undefined;
+      if (dstType === "within") {
+        const dstTrackIndex = over.data.current?.trackIndex;
+        // Only a frame's own batch reorders in place. A drop onto some
+        // other batch's frame still means "merge at that batch's step",
+        // which the collision filter keeps out of reach anyway.
+        if (
+          typeof dstTrackIndex === "number" &&
+          over.data.current?.batchId === active.data.current?.batchId
+        ) {
+          newSteps = reorderFrameWithinBatch(
+            steps,
+            stepSources,
+            trackId,
+            srcGlobalIndex,
+            srcTrackIndex,
+            dstTrackIndex,
+          );
+        }
+      } else if (dstType === "at" || dstType === "after") {
+        const dstGlobalIndex = over.data.current?.globalIndex;
+        if (typeof dstGlobalIndex === "number") {
+          newSteps = moveFrame(
+            steps,
+            stepSources,
+            trackId,
+            srcGlobalIndex,
+            srcTrackIndex,
+            dstGlobalIndex,
+            dstType,
+          );
+        }
+      }
       if (newSteps == null) {
         return;
       }
@@ -511,6 +538,41 @@ export function Timeline({
     },
     [steps, stepSources, timelineDoc, onEditedStepsChange],
   );
+
+  // A frame's place within its batch is the first droppable here nested
+  // inside another (the step column), so the default rect intersection
+  // needs two corrections.
+  const collisionDetection = useCallback<CollisionDetection>((args) => {
+    const activeBatchId = args.active.data.current?.batchId;
+    const srcTrackIndex = args.active.data.current?.trackIndex;
+    const collisions = rectIntersection({
+      ...args,
+      // A batch's places belong to its own frames. Without this, a
+      // drop onto ANOTHER batch's frame could resolve to that frame's
+      // place instead of its step, silently killing the merge that
+      // puts an event in front of a movement.
+      droppableContainers: args.droppableContainers.filter(
+        (container) =>
+          container.data.current?.type !== "within" ||
+          container.data.current?.batchId === activeBatchId,
+      ),
+    });
+    const placeOf = (collision: (typeof collisions)[number]) =>
+      collision.data?.droppableContainer?.data?.current?.type === "within"
+        ? (collision.data.droppableContainer.data.current as {
+            trackIndex: number;
+          })
+        : null;
+    const [top] = collisions;
+    if (top != null && placeOf(top)?.trackIndex === srcTrackIndex) {
+      // Still mostly over its own place: the pointer has not travelled
+      // far enough to mean a reorder, so let the step-level targets
+      // answer — otherwise a sliver of overlap with a neighbour would
+      // shadow the strip that moves the frame to a step of its own.
+      return collisions.filter((collision) => placeOf(collision) == null);
+    }
+    return collisions;
+  }, []);
 
   // To capture click events on draggable elements.
   // Ref: https://github.com/clauderic/dnd-kit/issues/591
@@ -530,6 +592,7 @@ export function Timeline({
     <FrameMoveTogetherDndContext
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      collisionDetection={collisionDetection}
       sensors={sensors}
       autoScroll={AUTO_SCROLL_CONFIG}
     >
