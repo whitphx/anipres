@@ -84,15 +84,24 @@ $inbetween-droppable-cell-width: 16px;
 
     .hoverExpandedPart {
       display: none;
+
+      // A batch ending in a media event offers no sub "+", leaving this
+      // the container's only child. The container has no size of its
+      // own, so there would be nothing to hover to expand from.
+      &:only-child {
+        display: flex;
+      }
     }
   }
   &:not(.dragging) {
     .frameBatchControl:hover > .frameAddButtonContainer,
+    .frameBatchControl:focus-within > .frameAddButtonContainer,
     .frameAddButtonContainer:hover {
       display: flex;
     }
 
-    .frameAddButtonContainer:hover > .hoverExpandedPart {
+    .frameAddButtonContainer:hover > .hoverExpandedPart,
+    .frameAddButtonContainer:focus-within > .hoverExpandedPart {
       display: flex;
     }
   }

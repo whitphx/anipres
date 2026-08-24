@@ -8,7 +8,10 @@ import {
   type TLShapeId,
 } from "tldraw";
 import { PresentationManager } from "./presentation-manager";
-import { resolveMediaControlVideoKey } from "../shapes/media-control/MediaControlShape";
+import {
+  MediaControlShapeType,
+  resolveMediaControlVideoKey,
+} from "../shapes/media-control/MediaControlShape";
 import {
   getVideoKey,
   isYouTubeEmbedShape,
@@ -118,7 +121,7 @@ function getVideoMarkers(editor: Editor, videoId: TLShapeId) {
     );
 }
 
-describe("attachMediaControlCueFrame", () => {
+describe("attachMediaControlFrame", () => {
   function withVideoEditor<T>(
     run: (ctx: {
       manager: PresentationManager;
@@ -152,8 +155,8 @@ describe("attachMediaControlCueFrame", () => {
 
   it("mints one media track and reuses it for later events of the same video", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
 
       const markerFrames = getVideoMarkers(editor, videoId).map((shape) =>
         parseFrameMeta(shape?.meta?.frame),
@@ -179,7 +182,7 @@ describe("attachMediaControlCueFrame", () => {
 
   it("keeps the marker parked at the video's origin across video moves", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
       expect(marker!.x).toBe(0);
       expect(marker!.y).toBe(0);
@@ -199,7 +202,7 @@ describe("attachMediaControlCueFrame", () => {
       // Away from the origin, so parking at the VIDEO is what the
       // assertion below proves — not a reset to (0, 0).
       editor.updateShape({ id: videoId, type: "youtube-embed", x: 120, y: 90 });
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
       editor.updateShape({
         id: marker!.id,
@@ -216,7 +219,7 @@ describe("attachMediaControlCueFrame", () => {
 
   it("re-parks a marker that was moved on its own", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = getVideoMarkers(editor, videoId);
 
       // The strip badge selects the marker, and selection-wide
@@ -232,8 +235,8 @@ describe("attachMediaControlCueFrame", () => {
 
   it("deletes the markers when the video loses its last carrier", () => {
     withVideoEditor(({ manager, editor, videoId }) => {
-      manager.attachMediaControlCueFrame(videoId);
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const markerIds = getVideoMarkers(editor, videoId).map((s) => s!.id);
       expect(markerIds).toHaveLength(2);
 
@@ -258,13 +261,15 @@ describe("attachMediaControlCueFrame", () => {
         stepOrderKey: "a0",
         action: { type: "shapeAnimation" },
       };
+      // Standalone, on its own media track: the carrier has no frame
+      // yet, so there is no batch for the event to join.
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId)!;
       editor.updateShape({
         id: videoId,
         type: video.type,
         meta: { ...video.meta, frame: frameToMetaJson(videoCue) },
       });
-      manager.attachMediaControlCueFrame(videoId);
 
       const groups = manager.$getMediaTrackGroups();
       const [marker] = getVideoMarkers(editor, videoId);
@@ -747,5 +752,81 @@ describe("video visibility in presentation mode", () => {
     expect(
       videoVisibility({ withSubFrameOnItsBatch: true, currentStepIndex: 1 }),
     ).toBe("hidden");
+  });
+});
+
+describe("what an event leaves on stage", () => {
+  function visibilities(options: { eventOnAStepOfItsOwn: boolean }) {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      const videoId = createShapeId("video");
+      editor.createShape({
+        id: videoId,
+        type: "youtube-embed",
+        props: {
+          url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+          videoId: "M7lc1UVf-VE",
+        },
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "video-cue",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a1",
+            action: { type: "shapeAnimation" },
+          } satisfies CueFrame),
+        },
+      });
+      const markerId = createShapeId("marker");
+      const event = { type: "mediaControl", command: "play" } as const;
+      editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        meta: {
+          frame: frameToMetaJson(
+            options.eventOnAStepOfItsOwn
+              ? // Dragged out of the video's batch onto a step of its
+                // own, which keeps it on the video's track.
+                ({
+                  v: 2,
+                  id: "event-cue",
+                  type: "cue",
+                  trackId: "T-video",
+                  stepId: "s2",
+                  stepOrderKey: "a2",
+                  action: { ...event, videoKey: videoId },
+                } satisfies CueFrame)
+              : ({
+                  v: 2,
+                  id: "event-sub",
+                  type: "sub",
+                  cueFrameId: "video-cue",
+                  orderKey: "a1",
+                  action: { ...event, videoKey: videoId },
+                } satisfies SubFrame),
+          ),
+        },
+      });
+      return manager.$getShapeVisibilitiesInPresentationMode()[videoId];
+    } finally {
+      dispose();
+    }
+  }
+
+  // An event is not a place, so it replaces nothing: the carrier it was
+  // attached to stays on stage, and a player anchored to it stays
+  // mounted. Hiding it would unmount the very video the event controls.
+  it("keeps the carrier of the movement it rides on visible", () => {
+    expect(visibilities({ eventOnAStepOfItsOwn: false })).toBe("visible");
+  });
+
+  it("keeps the carrier visible from a step of its own too", () => {
+    expect(visibilities({ eventOnAStepOfItsOwn: true })).toBe("visible");
   });
 });

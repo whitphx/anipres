@@ -219,7 +219,14 @@ async function runFrames(
 
     await new Promise((resolve) => setTimeout(resolve, duration));
 
-    predecessorShape = shape;
+    // Same rule as the one runStep applies across batches: a marker is
+    // an event, not a place, so the batch's next movement still travels
+    // from the last frame that moved something. A marker can precede a
+    // movement inside a batch, since dragging an event onto a later
+    // keyframe merges the two into one, the event ahead of it.
+    if (shape.type !== MediaControlShapeType) {
+      predecessorShape = shape;
+    }
   }
 }
 
@@ -273,16 +280,29 @@ export function runStep(
 
   const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
-    const predecessorFrameBatch = steps
-      .slice(0, index)
-      .reverse()
-      .flat()
-      .find((fb) => fb.trackId === frameBatch.trackId);
-    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
+    // The last frame that put something somewhere, not simply the last
+    // frame of the nearest batch: a media event rides on an invisible
+    // marker, so a track's batch can end with one, or be nothing but one
+    // once an event is dragged onto a step of its own. A marker is
+    // nowhere — it carries an event, not a position — so a tween
+    // starting from it names an origin the player cannot be travelling
+    // from, and a batch holding only events would hide the movement
+    // before it entirely. Either way the tween finds no origin and the
+    // video jumps to its destination. So the search runs over every
+    // earlier frame of the track rather than stopping at the batch that
+    // happens to be last. It excludes by CARRIER, matching runFrames: a
+    // marker is nowhere whatever frame it ended up carrying.
     const predecessorShape =
-      predecessorLastFrame != null
-        ? editor.getShape(predecessorLastFrame.shapeId as TLShapeId)
-        : null;
+      steps
+        .slice(0, index)
+        .flat()
+        .filter((fb) => fb.trackId === frameBatch.trackId)
+        .flatMap((fb) => fb.data)
+        .reverse()
+        .map((frame) => editor.getShape(frame.shapeId as TLShapeId))
+        .find(
+          (shape) => shape != null && shape.type !== MediaControlShapeType,
+        ) ?? null;
 
     const frames = frameBatch.data;
     const frameShapes = frames
@@ -322,7 +342,7 @@ export function runStep(
     const promise = runFrames(
       presentationManager,
       frames,
-      predecessorShape ?? null,
+      predecessorShape,
       markBeforeAnimation,
       generation,
       renderingBeforeHide,

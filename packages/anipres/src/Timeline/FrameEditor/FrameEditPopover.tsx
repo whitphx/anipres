@@ -7,10 +7,10 @@ import {
 import {
   MEDIA_CONTROL_COMMANDS,
   type MediaControlCommand,
-  type MediaControlFrameAction,
 } from "../../timeline-model";
 import { DEFAULT_MEDIA_VOLUME } from "../../media/media-state";
 import type { FrameUIData } from "../frame-ui-data";
+import { withCommand } from "./media-command";
 import { NumberField } from "./NumberField";
 import { SelectField } from "./SelectField";
 import styles from "./FrameEditPopover.module.scss";
@@ -22,25 +22,6 @@ function isEasingOption(value: string): value is keyof typeof EASINGS {
 
 function isMediaControlCommand(value: string): value is MediaControlCommand {
   return (MEDIA_CONTROL_COMMANDS as readonly string[]).includes(value);
-}
-
-/**
- * Rebuilds a valid mediaControl action for a new command: `volume` is
- * only allowed alongside setVolume, so it must be added/stripped rather
- * than spread through.
- */
-function withCommand(
-  action: MediaControlFrameAction,
-  command: MediaControlCommand,
-): MediaControlFrameAction {
-  return {
-    type: "mediaControl",
-    command,
-    ...(action.duration !== undefined ? { duration: action.duration } : {}),
-    ...(command === "setVolume"
-      ? { volume: action.volume ?? DEFAULT_MEDIA_VOLUME }
-      : {}),
-  };
 }
 
 export interface FrameEditPopoverProps {

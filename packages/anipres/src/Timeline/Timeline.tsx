@@ -26,6 +26,7 @@ import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame } from "./frame-movement";
+import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
 import type { ShapeSelection } from "./selection";
@@ -66,6 +67,7 @@ const FrameIcon = React.forwardRef<HTMLElement, FrameIconProps>(
         ref,
         className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
         onClick: props.onClick,
+        ...(props.as === "button" ? { type: "button" } : {}),
       },
       props.children,
     );
@@ -171,6 +173,7 @@ const StepColumn = React.memo(
                     const frames = trackFrameBatch.data;
 
                     const [cueFrame, ...subFrames] = frames;
+                    const lastFrame = frames.at(-1)!;
                     return (
                       <div
                         key={trackFrameBatch.id}
@@ -231,27 +234,38 @@ const StepColumn = React.memo(
                             </DraggableFrameUI>
                           );
                         })}
-                        {canExtendFrameSequence(cueFrame) && (
+                        {/* Each "+" is offered by the frame it would
+                            extend, since a "+" clones that frame's
+                            carrier: the sub button the batch's last
+                            frame, the cue button its cue. The two
+                            differ on a batch ending in a media event,
+                            which nothing may clone. */}
+                        {(canExtendFrameSequence(lastFrame) ||
+                          canExtendFrameSequence(cueFrame)) && (
                           <div className={styles.frameAddButtonContainer}>
-                            <FrameIcon
-                              as="button"
-                              subFrame
-                              onClick={() =>
-                                requestSubFrameAddAfter(frames.at(-1)!)
-                              }
-                            >
-                              +
-                            </FrameIcon>
-                            <div className={styles.hoverExpandedPart}>
+                            {canExtendFrameSequence(lastFrame) && (
                               <FrameIcon
                                 as="button"
+                                subFrame
                                 onClick={() =>
-                                  requestCueFrameAddAfter(cueFrame)
+                                  requestSubFrameAddAfter(lastFrame)
                                 }
                               >
                                 +
                               </FrameIcon>
-                            </div>
+                            )}
+                            {canExtendFrameSequence(cueFrame) && (
+                              <div className={styles.hoverExpandedPart}>
+                                <FrameIcon
+                                  as="button"
+                                  onClick={() =>
+                                    requestCueFrameAddAfter(cueFrame)
+                                  }
+                                >
+                                  +
+                                </FrameIcon>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -426,11 +440,18 @@ export function Timeline({
   }, [shapeSelections, frameEditorDOMs]);
 
   const [draggedFrame, setDraggedFrame] = useState<FrameUIData | null>(null);
+  // A refused drop springs the frame back with nothing else to show for
+  // it, so the reason is announced next to the diagnostics; the next
+  // drag clears it.
+  const [refusedDropReason, setRefusedDropReason] = useState<string | null>(
+    null,
+  );
 
   const handleDragStart = useCallback<
     NonNullable<DndContextProps["onDragStart"]>
   >((event) => {
     const { active } = event;
+    setRefusedDropReason(null);
     const frame = active.data.current?.frame as FrameUIData | undefined;
     if (frame == null) {
       return;
@@ -475,11 +496,20 @@ export function Timeline({
         dstGlobalIndex,
         dstType,
       );
-      if (newSteps != null) {
-        onEditedStepsChange(newSteps);
+      if (newSteps == null) {
+        return;
       }
+      // Refused rather than accepted-and-flagged: no diagnostic can see
+      // this pair.
+      if (editIntroducesMediaConflict(timelineDoc.steps, newSteps)) {
+        setRefusedDropReason(
+          "That step already has an event for this video, and two of them would run at once.",
+        );
+        return;
+      }
+      onEditedStepsChange(newSteps);
     },
-    [steps, stepSources, onEditedStepsChange],
+    [steps, stepSources, timelineDoc, onEditedStepsChange],
   );
 
   // To capture click events on draggable elements.
@@ -509,12 +539,17 @@ export function Timeline({
           (every shape edit) does not re-announce the whole list. */}
       <div
         className={
-          timelineDoc.diagnostics.length > 0
+          timelineDoc.diagnostics.length > 0 || refusedDropReason != null
             ? styles.diagnosticsPanel
             : undefined
         }
         aria-live="polite"
       >
+        {refusedDropReason != null && (
+          <div className={styles.diagnosticItem}>
+            <span>{refusedDropReason}</span>
+          </div>
+        )}
         {timelineDoc.diagnostics.map((diagnostic) => (
           <div
             key={diagnosticKey(diagnostic)}

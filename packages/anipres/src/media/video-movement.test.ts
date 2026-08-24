@@ -9,6 +9,7 @@ import {
   loadHeadlessEditor,
 } from "../headless-editor-utils";
 import { PresentationManager } from "../presentation-manager";
+import { timelineDocToRuntimeSteps } from "../timeline-model/runtime-steps";
 import { transitionProgress } from "./video-transition";
 import { createDuplicateShapesRemap } from "../duplicate-shapes-remap";
 import { frameToMetaJson, parseFrameMeta } from "../timeline-model";
@@ -43,6 +44,7 @@ import {
   dropContentAlreadyInDocument,
 } from "./remap-video-keys";
 import { getVideoTransitions } from "./video-transition";
+import { withCommand } from "../Timeline/FrameEditor/media-command";
 
 function createVideo(
   editor: Editor,
@@ -172,7 +174,7 @@ describe("video identity", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       expect(markersOf(editor, videoId)).toHaveLength(1);
 
       createDuplicateShapesRemap(editor, () =>
@@ -205,7 +207,7 @@ describe("marker lifecycle without the binding", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
@@ -236,7 +238,7 @@ describe("marker lifecycle without the binding", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("keyframe");
@@ -700,10 +702,14 @@ describe("timeline grouping", () => {
       );
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      // Standalone, on its own media track: the carrier has no frame
+      // yet, so there is no batch for the event to join.
+      manager.attachMediaControlFrame(videoId);
       editor.updateShape({
         id: videoId,
         type: video.type,
         meta: {
+          ...editor.getShape(videoId)?.meta,
           frame: frameToMetaJson(
             videoCue({ trackId: "T-a", stepId: "s0", stepOrderKey: "a1" }),
           ),
@@ -722,7 +728,6 @@ describe("timeline grouping", () => {
           ),
         },
       });
-      manager.attachMediaControlCueFrame(videoId);
 
       const groups = manager.$getMediaTrackGroups();
       // One logical video, so every track it owns shares a row.
@@ -889,7 +894,7 @@ describe("shared documents keep events recoverable", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const markerIds = markersOf(editor, videoId).map((m) => m.id);
       expect(markerIds).toHaveLength(1);
 
@@ -1381,7 +1386,7 @@ describe("deleting a carrier on a page that is not open", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const keyframeId = createShapeId("zzz-keyframe");
@@ -1562,7 +1567,7 @@ describe("counting a snapshot's steps", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       expect(calculateTotalSteps(editor.getSnapshot())).toBe(
         manager.$getTotalSteps(),
       );
@@ -1629,7 +1634,7 @@ describe("what a move counts as already here", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const [marker] = markersOf(editor, videoId);
       const frame = parseFrameMeta(marker.meta?.frame);
       if (frame.kind !== "v2") throw new Error("expected a v2 frame");
@@ -1993,6 +1998,510 @@ describe("resizing a video", () => {
   });
 });
 
+describe("adding an event to a carrier that already moves", () => {
+  it("joins that movement's batch, so it runs after it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      const stepsBefore = manager.$getTotalSteps();
+
+      manager.attachMediaControlFrame(videoId);
+
+      // A sub frame of the movement's own batch, not a cue on a track
+      // of its own: within a batch frames run in sequence, which is
+      // what "after the movement" means, and a step's batches do not.
+      const [marker] = markersOf(editor, videoId);
+      const parsed = parseFrameMeta(marker?.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.type !== "sub") {
+        throw new Error("expected a v2 sub frame on the marker");
+      }
+      expect(parsed.frame.cueFrameId).toBe("frame-s0");
+      // It joined a step rather than adding one.
+      expect(manager.$getTotalSteps()).toBe(stepsBefore);
+
+      const [step] = manager.$getTimelineDoc().steps;
+      const batch = step.batches.find((b) => b.trackId === "T-video");
+      expect(batch?.frames.map((f) => f.shapeId)).toEqual([videoId, marker.id]);
+      // And the runtime walks a batch in order, so the command is not
+      // sent until the movement's own duration has been waited out.
+      expect(
+        timelineDocToRuntimeSteps(manager.$getTimelineDoc())[0]
+          .flatMap((b) => b.data)
+          .map((f) => f.action.type),
+      ).toEqual(["shapeAnimation", "mediaControl"]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("opens a step of its own when the carrier's step already has an event", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const videoKey = getVideoKey(video);
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      // An event of the same video already in that step, on the media
+      // track — the arrangement a drag can produce.
+      editor.createShape({
+        id: createShapeId("existing-event"),
+        type: MediaControlShapeType,
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-existing",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s0",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "pause", videoKey },
+          } as CueFrame),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+
+      // Joining the movement's batch would put two of this video's
+      // events in one step on two tracks, which run at once with no
+      // order between them and no diagnostic that can see the pair.
+      const doc = manager.$getTimelineDoc();
+      expect(doc.steps).toHaveLength(2);
+      expect(
+        doc.steps[0].batches.flatMap((b) =>
+          b.frames.filter((f) => f.action.type === "mediaControl"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("appends a second event after the first, not ahead of it", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+      const [first] = markersOf(editor, videoId);
+      manager.attachMediaControlFrame(videoId);
+      const second = markersOf(editor, videoId).find((m) => m.id !== first.id);
+
+      // The insertion goes after everything already in the batch. Were
+      // it to go after the carrier, the second click would land at the
+      // head of the sub list and the events would run in the reverse of
+      // the order they were added in.
+      const [step] = manager.$getTimelineDoc().steps;
+      const batch = step.batches.find((b) => b.trackId === "T-video");
+      expect(batch?.frames.map((f) => f.shapeId)).toEqual([
+        videoId,
+        first.id,
+        second?.id,
+      ]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("leaves the player where it was, so the event has something to control", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+
+      // The marker joins the batch after the carrier, but a marker is
+      // nothing to look at: were it to take the carrier's place as what
+      // the step shows, the video would have no carrier on stage and
+      // the player would unmount, the "play" just attached to it going
+      // nowhere.
+      expect(anchorCarrierIds(editor, true)).toEqual([videoId]);
+      const [placement] = readPlacements(editor, true);
+      expect(placement?.videoKey).toBe(videoId);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("a movement that follows a keyframe carrying an event", () => {
+  it("still travels from that keyframe's carrier", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const carrier = (id: string, x: number, step: string, key: string) => {
+        const shapeId = createShapeId(id);
+        editor.createShape({
+          ...video,
+          id: shapeId,
+          x,
+          meta: {
+            videoKey: videoId,
+            frame: frameToMetaJson(
+              videoCue({
+                trackId: "T-video",
+                stepId: step,
+                stepOrderKey: key,
+                action: { type: "shapeAnimation", duration: 5000 },
+              }),
+            ),
+          },
+        });
+        return shapeId;
+      };
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      const middle = carrier("middle", 400, "s1", "a2");
+      carrier("last", 900, "s2", "a3");
+
+      // The event rides on the middle keyframe, so that batch now ends
+      // with a marker rather than with the carrier.
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      manager.attachMediaControlFrame(middle);
+
+      manager.moveTo(2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The next movement travels from the video that was there, not
+      // from the invisible marker that happened to be last in its
+      // batch: a marker is no carrier, so the tween would find no
+      // origin and the player would jump instead of moving.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(middle);
+
+      // And the placement resolves that origin, so the player is
+      // somewhere between the two rather than parked on the
+      // destination.
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(400);
+      expect(x).toBeLessThan(900);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("a movement that follows an event inside its own batch", () => {
+  it("travels from the carrier the batch started at", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      // What dragging an event onto a later movement leaves: the two
+      // merge into one batch, the event's frame becoming its cue and
+      // the movement a sub frame after it.
+      const markerId = createShapeId("marker");
+      editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        x: 400,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-event",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a2",
+            action: {
+              type: "mediaControl",
+              command: "play",
+              videoKey: videoId,
+            },
+          }),
+        },
+      });
+      const destination = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destination,
+        x: 400,
+        meta: {
+          videoKey: videoId,
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-destination",
+            type: "sub",
+            cueFrameId: "frame-event",
+            orderKey: "a1",
+            action: { type: "shapeAnimation", duration: 5000 },
+          }),
+        },
+      });
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      expect(
+        timelineDocToRuntimeSteps(manager.$getTimelineDoc())[1]
+          .flatMap((b) => b.data)
+          .map((f) => f.action.type),
+      ).toEqual(["mediaControl", "shapeAnimation"]);
+
+      manager.moveTo(1);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Running the event first leaves the movement's origin where it
+      // was. The marker it ran on is no carrier of the video, so a
+      // tween from it would find no origin to travel from.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(videoId);
+
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(400);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("a movement whose track holds only an event in between", () => {
+  it("travels from the last carrier the track moved to", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+
+      // What dragging an event out of its batch onto a step of its own
+      // leaves: a batch of the video's own track that holds no
+      // movement, standing between two that do.
+      const markerId = createShapeId("marker");
+      editor.createShape({
+        id: markerId,
+        type: MediaControlShapeType,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-event",
+            type: "cue",
+            trackId: "T-video",
+            stepId: "s1",
+            stepOrderKey: "a2",
+            action: {
+              type: "mediaControl",
+              command: "play",
+              videoKey: videoId,
+            },
+          }),
+        },
+      });
+      const destination = createShapeId("destination");
+      editor.createShape({
+        ...video,
+        id: destination,
+        x: 400,
+        meta: {
+          videoKey: videoId,
+          frame: frameToMetaJson(
+            videoCue({
+              trackId: "T-video",
+              stepId: "s2",
+              stepOrderKey: "a3",
+              action: { type: "shapeAnimation", duration: 5000 },
+            }),
+          ),
+        },
+      });
+
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 1),
+      );
+      manager.moveTo(2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The event-only batch is not where the video is: it holds no
+      // position at all, so the movement travels from the carrier the
+      // track last moved to, rather than starting at its destination.
+      const transition = getVideoTransitions(editor)
+        .$transitions.get()
+        .get(videoId);
+      expect(transition?.fromShapeId).toBe(videoId);
+
+      const [placement] = readPlacements(editor, true);
+      const x = Number(
+        /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([-\d.]+)/.exec(
+          placement?.transform ?? "",
+        )?.[1],
+      );
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(400);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("changing an event's command", () => {
+  it("leaves the event on the timeline", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      manager.attachMediaControlFrame(videoId);
+      const [marker] = markersOf(editor, videoId);
+      const parsed = parseFrameMeta(marker.meta?.frame);
+      if (parsed.kind !== "v2" || parsed.frame.action.type !== "mediaControl") {
+        throw new Error("expected a v2 media event");
+      }
+
+      // What the frame editor writes when the Command select changes.
+      editor.updateShape({
+        id: marker.id,
+        type: marker.type,
+        meta: {
+          ...marker.meta,
+          frame: frameToMetaJson({
+            ...parsed.frame,
+            action: withCommand(parsed.frame.action, "pause"),
+          }),
+        },
+      });
+
+      // The timeline is derived from the markers that name a video, so
+      // an event whose command change dropped its key would be dropped
+      // with it: gone from the timeline, from the video's event strip,
+      // and from playback, while its marker lingers unreachable.
+      expect(resolveMediaControlVideoKey(editor, marker.id)).toBe(videoId);
+      expect(
+        manager
+          .$getTimelineDoc()
+          .steps.flatMap((step) => step.batches)
+          .flatMap((batch) => batch.frames)
+          .map((frame) => frame.action),
+      ).toEqual([
+        { type: "mediaControl", command: "pause", videoKey: videoId },
+      ]);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe("a locked carrier", () => {
   it("still receives the video's configuration and its repair", () => {
     const [editor, dispose] = loadHeadlessEditor({ soleWriter: true });
@@ -2111,7 +2620,7 @@ describe("a deleted video's events in a shared document", () => {
         editor,
         atom("current step index", 0),
       );
-      manager.attachMediaControlCueFrame(videoId);
+      manager.attachMediaControlFrame(videoId);
       const video = editor.getShape(videoId);
       if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
       const withVideo = manager.$getTotalSteps();
