@@ -243,16 +243,16 @@ muted for decks that must play a video on their very first step.
   look identical, and picking the carrier on stage puts the event where
   the user is looking, with whatever later keyframes the video has
   still ahead of it for the drag below.
-- An event runs BEFORE a movement by being dragged onto a later
-  keyframe of the same track: a drop "at" a LATER same-track batch
-  merges the two, promoting the dragged frame to cue and demoting the
-  destination's cue to a sub behind it. (Leftward, onto an EARLIER
+- An event runs BEFORE a movement in one of two ways. Dragged onto
+  another frame of its own batch it changes place there
+  (`reorderFrameWithinBatch`), and leading the batch makes it the cue,
+  the frame it displaced becoming a sub behind it. Dragged onto a LATER
+  same-track batch it merges the two instead, promoting itself to cue
+  and demoting that batch's cue to a sub. (Leftward, onto an EARLIER
   batch, the demotion goes the other way and the destination keeps its
-  cue.) There is no reordering within a batch — a drag whose source and
-  destination are one step is a no-op for an "at" drop and splits the
-  frame into a step of its own for an "after" drop — so this merge is
-  the only way to change the order of two frames that already share a
-  batch.
+  cue.) The within-batch move never pushes or sweeps: an across-steps
+  drag also carries the frames behind it and the same-track batches it
+  passes.
 - The frame-edit popover edits the command (and volume for setVolume)
   on media frames. Each per-batch "+" is offered by the frame it would
   extend, since a "+" clones that frame's carrier: the sub button by
