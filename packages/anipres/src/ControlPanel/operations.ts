@@ -257,7 +257,7 @@ const compareByFrameIdThenShapeId = (
  * derivation canonicalizes with in memory.
  */
 export function planStepKeyAlignment(input: {
-  currentFrames: { shapeId: string; frame: Frame }[];
+  currentFrames: readonly { shapeId: string; frame: Frame }[];
   stepId: string;
 }): { shapeId: string; frame: CueFrame }[] {
   const members = input.currentFrames
@@ -293,7 +293,7 @@ export interface SameTrackSplitPlan {
  */
 export function planSameTrackSplitMaterialization(input: {
   doc: TimelineDoc;
-  currentFrames: { shapeId: string; frame: Frame }[];
+  currentFrames: readonly { shapeId: string; frame: Frame }[];
   stepId: string;
   trackId: string;
   /** The diagnostic's shapeIds (the split-off members). */

@@ -99,14 +99,14 @@ on that shared media track are caught by the existing same-track-split
 diagnostic. Because a video can hold events on two tracks, the pair
 that diagnostic cannot see — one event on each track, in one step — is
 prevented rather than reported, at both paths that reach it: a drop
-that would introduce it is refused
-(`editIntroducesMediaConflict`), and attaching an event to a carrier
-whose step already holds one for that video opens a step of its own,
-directly after the carrier's, instead of joining the batch. Events within one batch are sequential
-and so never a conflict. Both guards are client-local, so a merge of
-two separately valid edits can still produce the pair; every other
-conflict here is a derived diagnostic for that reason, and giving this
-one the same treatment is [issue #518](https://github.com/whitphx/anipres/issues/518).
+that would introduce it is refused (`editIntroducesMediaConflict`), and
+attaching an event to a carrier whose step already holds one for that
+video opens a step of its own, directly after the carrier's, instead of
+joining the batch. Events within one batch are sequential and so never
+a conflict. Both guards are client-local, so a merge of two separately
+valid edits can still produce the pair; every other conflict here is a
+derived diagnostic for that reason, and giving this one the same
+treatment is [issue #518](https://github.com/whitphx/anipres/issues/518).
 `setVolume` is absolute rather than relative volume-up/down so that
 folding (below) and repeated runs stay deterministic.
 
@@ -234,15 +234,15 @@ muted for decks that must play a video on their very first step.
 - With a video selected, the control panel's "+ Media event" button
   adds a play event for it (a marker carrying the frame). Where the
   selected carrier holds a frame of its own, the event joins that
-  frame's batch as a sub frame and so runs after it. Where it cannot —
-  the carrier holds no frame to build a batch around, or that step
-  already holds an event for the video — the event becomes a cue frame
-  in a step of its own, opened directly after the carrier's step so
-  that it lands beside the movement the user is looking at. A carrier
-  with no frame anchors no step, so its event goes last instead.
+  frame's batch as a sub frame and so runs after it. Where that step
+  already holds an event for the video, joining would make the pair the
+  timeline cannot express, so the event becomes a cue frame in a step
+  of its own, opened directly after the carrier's step and beside the
+  movement the user is looking at. A carrier with no frame anchors no
+  step at all, so its event is a cue frame in a final step, as before.
   Several selected keyframes of one video are still one request about
-  one video, and the event joins the one the video is
-  showing at the current step — a selection is a set, so a rule that
+  one video, and the event joins the one the video is showing at the
+  current step — a selection is a set, so a rule that
   read its order would place the event differently for selections that
   look identical, and picking the carrier on stage puts the event where
   the user is looking, with whatever later keyframes the video has

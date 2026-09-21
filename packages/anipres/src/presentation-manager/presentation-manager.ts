@@ -213,7 +213,7 @@ export class PresentationManager {
     return this.$getOrderedSteps().length;
   }
 
-  @computed $getStoredFrames(): { shapeId: string; frame: Frame }[] {
+  @computed $getStoredFrames(): readonly { shapeId: string; frame: Frame }[] {
     return this.$getCurrentPageDescendantShapes().flatMap((shape) => {
       const parsed = parseFrameMeta(shape.meta?.frame);
       return parsed.kind === "v2"
@@ -229,6 +229,12 @@ export class PresentationManager {
    * step identity — including split members displayed under synthetic
    * recovery steps — and a normalization can never re-key a step away
    * from its unresolved split siblings.
+   *
+   * A caller that builds its updates from the derived steps hands over
+   * the reserved id of any synthetic recovery step among them. Nothing
+   * stores a reserved id, so such an update matches no frame and writes
+   * nothing; the split's real members are reached by the source step's
+   * own update instead.
    */
   applyStepKeyUpdates(updates: readonly { id: string; key: string }[]) {
     if (updates.length === 0) return;
@@ -658,13 +664,12 @@ export class PresentationManager {
         .map((shape) => shape.id as string),
     );
 
-    // What a batch leaves on stage: its last frame whose carrier puts
-    // something there. A marker does not — it is nothing to look at and
-    // stands in for nothing — so a batch ending in one would hide the
-    // carrier before it and leave a video with no carrier on stage at
-    // all, unmounting the player the event was just attached to
-    // control. Recognised by CARRIER, the way a movement's origin
-    // recognises one: a marker is nowhere whatever frame it carries.
+    // What a batch leaves on stage: its last frame whose carrier is not
+    // a marker. A batch ending in one would otherwise hide the carrier
+    // before it and leave a video with no carrier on stage at all,
+    // unmounting the player the event was just attached to control.
+    // Recognised by carrier, matching `findPredecessorShape` in
+    // animation.ts — see there for why a marker stands in for nothing.
     const shownFrameOf = (batch: RuntimeBatch) =>
       [...batch.data]
         .reverse()
