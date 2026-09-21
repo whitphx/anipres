@@ -651,16 +651,24 @@ export class PresentationManager {
     const doc = this.$getTimelineDoc();
     const currentStepIndex = this.$currentStepIndex.get();
 
-    // What a batch leaves on stage: its last frame that puts something
-    // there. A media event does not — it rides an invisible marker,
-    // which is nothing to look at and stands in for nothing — so a
-    // batch ending in one would hide the carrier before it and leave a
-    // video with no carrier on stage at all, unmounting the player the
-    // event was just attached to control.
+    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
+    const markerShapeIds = new Set(
+      pageDescendantShapes
+        .filter((shape) => shape.type === MediaControlShapeType)
+        .map((shape) => shape.id as string),
+    );
+
+    // What a batch leaves on stage: its last frame whose carrier puts
+    // something there. A marker does not — it is nothing to look at and
+    // stands in for nothing — so a batch ending in one would hide the
+    // carrier before it and leave a video with no carrier on stage at
+    // all, unmounting the player the event was just attached to
+    // control. Recognised by CARRIER, the way a movement's origin
+    // recognises one: a marker is nowhere whatever frame it carries.
     const shownFrameOf = (batch: RuntimeBatch) =>
       [...batch.data]
         .reverse()
-        .find((frame) => frame.action.type !== "mediaControl");
+        .find((frame) => !markerShapeIds.has(frame.shapeId));
 
     // shapeId -> its batch and position within it.
     const frameInfoByShapeId = new Map<
@@ -699,7 +707,6 @@ export class PresentationManager {
       }
     }
 
-    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
     const shapesVisibilities = pageDescendantShapes.map<
       [TLShapeId, ShapeVisibility]
     >((shape) => {
