@@ -84,15 +84,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     return shape != null ? getStoredFrame(shape) : null;
   };
 
-  const collectStoredFrames = () => {
-    return presentationManager
-      .$getCurrentPageDescendantShapes()
-      .flatMap((shape) => {
-        const frame = getStoredFrame(shape);
-        return frame != null ? [{ shapeId: shape.id as string, frame }] : [];
-      });
-  };
-
   const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => {
     const leafShapes = getLeafShapes(editor, shape);
     const leafFrameShapeIds = leafShapes
@@ -129,33 +120,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     })
     .filter((shape) => shape != null);
 
-  /**
-   * Applies step-key rewrites produced by collision-run normalization —
-   * bounded to the run, executed inline in the mutating transaction.
-   * Keyed by STORED stepId, so the write reaches EVERY cue sharing the
-   * step identity — including split members displayed under synthetic
-   * recovery steps — and a normalization can never re-key a step away
-   * from its unresolved split siblings.
-   */
-  const applyStepKeyUpdates = (updates: { id: string; key: string }[]) => {
-    if (updates.length === 0) return;
-    const frames = collectStoredFrames();
-    for (const { id: stepId, key } of updates) {
-      for (const entry of frames) {
-        if (
-          entry.frame.type === "cue" &&
-          entry.frame.stepId === stepId &&
-          entry.frame.stepOrderKey !== key
-        ) {
-          writeFrame(editor, entry.shapeId as TLShapeId, {
-            ...entry.frame,
-            stepOrderKey: key,
-          });
-        }
-      }
-    }
-  };
-
   const handleFrameChange = (newFrame: FrameUIData) => {
     // Only the action is editable through the frame editor UI.
     const shape = editor.getShape(newFrame.shapeId as TLShapeId);
@@ -171,7 +135,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
   const handleEditedStepsChange = (editedSteps: EditedStep[]) => {
     const result = reconcileEditedSteps({
-      currentFrames: collectStoredFrames(),
+      currentFrames: presentationManager.$getStoredFrames(),
       editedSteps,
       mintId: uniqueId,
     });
@@ -259,7 +223,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // Explicit "align step keys" repair — the only path that
         // persists this convergence.
         const alignment = planStepKeyAlignment({
-          currentFrames: collectStoredFrames(),
+          currentFrames: presentationManager.$getStoredFrames(),
           stepId: diagnostic.stepId,
         });
         editor.run(() => {
@@ -273,7 +237,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // Keeper rule shared with the derivation's representative (cue
         // preferred), so the repair never detaches an attached sub frame.
         const plan = planDuplicateFrameIdRepair(
-          collectStoredFrames(),
+          presentationManager.$getStoredFrames(),
           diagnostic.frameId,
           uniqueId,
         );
@@ -289,7 +253,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // persists the split into a stored step.
         const plan = planSameTrackSplitMaterialization({
           doc,
-          currentFrames: collectStoredFrames(),
+          currentFrames: presentationManager.$getStoredFrames(),
           stepId: diagnostic.stepId,
           trackId: diagnostic.trackId,
           shapeIds: diagnostic.shapeIds,
@@ -299,7 +263,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           return;
         }
         editor.run(() => {
-          applyStepKeyUpdates(plan.stepKeyUpdates);
+          presentationManager.applyStepKeyUpdates(plan.stepKeyUpdates);
           writeFrame(
             editor,
             plan.splitUpdate.shapeId as TLShapeId,
@@ -457,7 +421,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             editor.run(
               () => {
-                applyStepKeyUpdates(insertion.updates);
+                presentationManager.applyStepKeyUpdates(insertion.updates);
                 const source = editor.getShape(prevShape.id) ?? prevShape;
                 const newShapeId = createShapeId();
                 editor.createShape({
@@ -611,7 +575,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             editor.run(
               () => {
-                applyStepKeyUpdates(insertion.updates);
+                presentationManager.applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
 
                 const rootCreatedShape = shapesToCreate.find(

@@ -2107,6 +2107,73 @@ describe("adding an event to a carrier that already moves", () => {
       dispose();
     }
   });
+  it("opens it beside the carrier, not at the end of the deck", () => {
+    const [editor, dispose] = loadHeadlessEditor();
+    try {
+      const videoId = createVideo(editor, "video");
+      const manager = PresentationManager.create(
+        editor,
+        atom("current step index", 0),
+      );
+      const video = editor.getShape(videoId);
+      if (!isYouTubeEmbedShape(video)) throw new Error("expected a video");
+      const videoKey = getVideoKey(video);
+      editor.updateShape({
+        id: videoId,
+        type: video.type,
+        meta: {
+          ...video.meta,
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-video", stepId: "s0", stepOrderKey: "a1" }),
+          ),
+        },
+      });
+      editor.createShape({
+        id: createShapeId("existing-event"),
+        type: MediaControlShapeType,
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson({
+            v: 2,
+            id: "frame-existing",
+            type: "cue",
+            trackId: "T-media",
+            stepId: "s0",
+            stepOrderKey: "a1",
+            action: { type: "mediaControl", command: "pause", videoKey },
+          } as CueFrame),
+        },
+      });
+      // A step after the carrier's, so "beside the carrier" and "last in
+      // the deck" are two different places.
+      const laterId = createShapeId("later");
+      editor.createShape({
+        id: laterId,
+        type: "geo",
+        x: 0,
+        y: 0,
+        meta: {
+          frame: frameToMetaJson(
+            videoCue({ trackId: "T-other", stepId: "s1", stepOrderKey: "a2" }),
+          ),
+        },
+      });
+
+      manager.attachMediaControlFrame(videoId);
+
+      const doc = manager.$getTimelineDoc();
+      expect(doc.steps).toHaveLength(3);
+      expect(
+        doc.steps[1].batches.flatMap((b) => b.frames.map((f) => f.action.type)),
+      ).toEqual(["mediaControl"]);
+      expect(
+        doc.steps[2].batches.flatMap((b) => b.frames.map((f) => f.shapeId)),
+      ).toEqual([laterId]);
+    } finally {
+      dispose();
+    }
+  });
 
   it("appends a second event after the first, not ahead of it", () => {
     const [editor, dispose] = loadHeadlessEditor();

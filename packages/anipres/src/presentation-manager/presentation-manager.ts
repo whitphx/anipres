@@ -13,6 +13,7 @@ import {
 import {
   deriveTimeline,
   frameToMetaJson,
+  makeInsertionSpace,
   orderKeyBetween,
   parseFrameMeta,
   type CueFrame,
@@ -32,7 +33,10 @@ import {
   findFramePosition,
   planSubFrameAddAfter,
 } from "../ControlPanel/operations";
-import { applySubFrameAddAfterPlan } from "../ControlPanel/apply-plan";
+import {
+  applySubFrameAddAfterPlan,
+  writeFrame,
+} from "../ControlPanel/apply-plan";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import {
   getVideoKey,
@@ -209,6 +213,42 @@ export class PresentationManager {
     return this.$getOrderedSteps().length;
   }
 
+  @computed $getStoredFrames(): { shapeId: string; frame: Frame }[] {
+    return this.$getCurrentPageDescendantShapes().flatMap((shape) => {
+      const parsed = parseFrameMeta(shape.meta?.frame);
+      return parsed.kind === "v2"
+        ? [{ shapeId: shape.id as string, frame: parsed.frame }]
+        : [];
+    });
+  }
+
+  /**
+   * Applies step-key rewrites produced by collision-run normalization —
+   * bounded to the run, executed inline in the mutating transaction.
+   * Keyed by STORED stepId, so the write reaches EVERY cue sharing the
+   * step identity — including split members displayed under synthetic
+   * recovery steps — and a normalization can never re-key a step away
+   * from its unresolved split siblings.
+   */
+  applyStepKeyUpdates(updates: readonly { id: string; key: string }[]) {
+    if (updates.length === 0) return;
+    const frames = this.$getStoredFrames();
+    for (const { id: stepId, key } of updates) {
+      for (const entry of frames) {
+        if (
+          entry.frame.type === "cue" &&
+          entry.frame.stepId === stepId &&
+          entry.frame.stepOrderKey !== key
+        ) {
+          writeFrame(this.editor, entry.shapeId as TLShapeId, {
+            ...entry.frame,
+            stepOrderKey: key,
+          });
+        }
+      }
+    }
+  }
+
   attachCueFrame(shapeId: TLShapeId, frameAction: FrameAction) {
     // One new step appended at the end for this operation; grouped shapes
     // land in the same step (fresh tracks per leaf shape).
@@ -372,16 +412,27 @@ export class PresentationManager {
       }
     }
 
+    // Directly after the carrier's step, so an event that could not
+    // join the batch still lands beside the movement the user is
+    // looking at rather than at the far end of the deck. A carrier with
+    // no frame of its own anchors nothing, so its event goes last.
+    const insertion = makeInsertionSpace(
+      doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
+      carrierPosition != null
+        ? carrierPosition.stepIndex + 1
+        : doc.steps.length,
+    );
     const cueFrame: CueFrame = {
       v: 2,
       id: uniqueId(),
       type: "cue",
       trackId: mediaTrackId ?? newTrackId(),
       stepId: uniqueId(),
-      stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
+      stepOrderKey: insertion.insertedKey,
       action,
     };
     this.editor.run(() => {
+      this.applyStepKeyUpdates(insertion.updates);
       this.createMediaEventMarker(carrierShapeId, cueFrame);
     });
   }
