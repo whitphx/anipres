@@ -4,14 +4,12 @@ export interface FrameDraggingState {
   deltaX: number;
   /**
    * Whether the drop currently under the pointer would carry the frames
-   * beside this one along with it, which decides whether they are shown
-   * moving. A drag across steps pushes the frames on the far side of
-   * the dragged one toward the destination, so they do travel with it.
-   * A reorder inside the batch moves exactly the dragged frame and
-   * swaps it with the one whose place it takes, so shoving the
-   * neighbours there would promise a rearrangement that never happens —
-   * and it is a media event, which the batch exists to order against a
-   * movement, that a user reorders this way.
+   * beside this one along with it. A drag across steps pushes the
+   * frames on the far side of the dragged one toward the destination,
+   * so they do travel with it. A reorder inside the batch moves exactly
+   * the dragged frame and swaps it with the one whose place it takes,
+   * so shoving the neighbours there would promise a rearrangement that
+   * never happens.
    */
   pushesNeighbours: boolean;
 }

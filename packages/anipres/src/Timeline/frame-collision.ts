@@ -1,4 +1,5 @@
 import { rectIntersection, type CollisionDetection } from "@dnd-kit/core";
+import { WITHIN_DROP_TYPE } from "./droppable-data";
 
 /**
  * A frame's place within its batch is the timeline's first droppable
@@ -23,7 +24,7 @@ export function createFrameCollisionDetection(
       // event in front of a movement.
       droppableContainers: args.droppableContainers.filter(
         (container) =>
-          container.data.current?.type !== "within" ||
+          container.data.current?.type !== WITHIN_DROP_TYPE ||
           container.data.current?.batchId === activeBatchId,
       ),
     });
@@ -31,7 +32,8 @@ export function createFrameCollisionDetection(
     // batch no two frames share a trackIndex, so this cannot match a
     // frame of another batch that happens to carry the same index.
     const placeTrackIndexOf = (collision: (typeof collisions)[number]) =>
-      collision.data?.droppableContainer?.data?.current?.type === "within"
+      collision.data?.droppableContainer?.data?.current?.type ===
+      WITHIN_DROP_TYPE
         ? (collision.data.droppableContainer.data.current.trackIndex as number)
         : null;
     const [top] = collisions;

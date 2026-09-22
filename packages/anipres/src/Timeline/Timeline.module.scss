@@ -37,11 +37,16 @@ $inbetween-droppable-cell-width: 16px;
     }
   }
 
-  // The frame whose place a within-batch drop would take. Drawn inset so
-  // the box never changes size: dnd-kit measured these rects when the
-  // drag started, and a frame that grew would move the target it names.
+  // The frame whose place a within-batch drop would take. Drawn as an
+  // outline, which sits outside the border box: the dragged frame is
+  // over this one by the time the drop resolves here, and its
+  // neighbours no longer step aside, so a ring drawn inside the box
+  // would be the part covered. An outline also leaves layout alone,
+  // which a border would not — dnd-kit measured these rects at drag
+  // start, and a frame that grew would move the target it names.
   .reorderTarget {
-    box-shadow: inset 0 0 0 2px var(--color-selected);
+    outline: 2px solid var(--color-selected);
+    outline-offset: 1px;
     border-radius: var(--radius-2);
   }
 

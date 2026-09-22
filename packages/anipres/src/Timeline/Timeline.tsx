@@ -27,6 +27,7 @@ import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
 import { moveFrame, reorderFrameWithinBatch } from "./frame-movement";
 import { createFrameCollisionDetection } from "./frame-collision";
+import { WITHIN_DROP_TYPE } from "./droppable-data";
 import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
@@ -490,7 +491,7 @@ export function Timeline({
       }
 
       let newSteps: EditedStep[] | undefined;
-      if (dstType === "within") {
+      if (dstType === WITHIN_DROP_TYPE) {
         const dstTrackIndex = over.data.current?.trackIndex;
         // Only a frame's own batch reorders in place. A drop onto some
         // other batch's frame still means "merge at that batch's step",

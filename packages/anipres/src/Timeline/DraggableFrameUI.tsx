@@ -3,6 +3,7 @@ import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useDraggableFrameDelta } from "./FrameMoveTogetherDndContext";
 import type { FrameUIData } from "./frame-ui-data";
 import styles from "./Timeline.module.scss";
+import { WITHIN_DROP_TYPE } from "./droppable-data";
 
 export const DraggableFrameUI = React.memo(
   ({
@@ -50,7 +51,7 @@ export const DraggableFrameUI = React.memo(
       id: `within-${frame.shapeId}`,
       disabled: !reorderTarget,
       data: useMemo(
-        () => ({ type: "within" as const, batchId, trackIndex }),
+        () => ({ type: WITHIN_DROP_TYPE, batchId, trackIndex }),
         [batchId, trackIndex],
       ),
     });
