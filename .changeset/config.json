@@ -1,10 +1,11 @@
 {
-  "$schema": "https://unpkg.com/@changesets/config@3.0.5/schema.json",
+  "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
   "changelog": ["@changesets/changelog-github", { "repo": "whitphx/anipres" }],
   "commit": false,
   "fixed": [],
   "linked": [],
   "access": "public",
+  "privatePackages": { "version": true, "tag": false },
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": []
