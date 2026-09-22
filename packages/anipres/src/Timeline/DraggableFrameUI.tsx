@@ -79,8 +79,8 @@ export const DraggableFrameUI = React.memo(
         style={style}
         // The step column's own highlight goes out the moment a frame's
         // place wins the collision, so the place has to say it is the
-        // target — and the sibling frames' shove is not that: it plays
-        // for any drag along the track, wherever the drop would land.
+        // target. The sibling frames stand still for the same drag, so
+        // the outline is the only thing naming where the frame lands.
         className={`${className ?? ""} ${isOver ? styles.reorderTarget : ""}`}
       >
         {children}

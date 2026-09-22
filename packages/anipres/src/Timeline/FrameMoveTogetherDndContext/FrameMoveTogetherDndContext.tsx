@@ -5,72 +5,11 @@ import {
   draggableFrameDOMContext,
   type DraggableFrameDOMContext,
 } from "./draggableFrameDOMContext";
+import { calcDraggableDOMDeltaXs } from "./frame-drag-deltas";
 
 type DraggableFrameDOMs = Record<string, (HTMLElement | null)[]>; // obj[trackId][trackIndex] = HTMLElement | null
 
 const DND_CONTEXT_MODIFIERS = [restrictToHorizontalAxis];
-
-interface FrameDraggingState {
-  trackId: string;
-  trackIndex: number;
-  deltaX: number;
-}
-function calcDraggableDOMDeltaXs(
-  draggingState: FrameDraggingState,
-  draggableDOMOrgRects: Record<string, (DOMRect | null)[]>,
-) {
-  const { trackId, trackIndex, deltaX: delta } = draggingState;
-
-  const rectsInTrack = draggableDOMOrgRects[trackId];
-  if (rectsInTrack == null) {
-    return null;
-  }
-
-  const selfRect = rectsInTrack[trackIndex];
-  if (selfRect == null) {
-    return null;
-  }
-
-  if (delta === 0) {
-    return null;
-  }
-
-  const draggableDOMDeltaXs: Record<number, number> = {};
-  draggableDOMDeltaXs[trackIndex] = delta;
-  if (delta > 0) {
-    // Dragging right
-    let right = selfRect.right + delta;
-    for (let i = trackIndex + 1; i < rectsInTrack.length; i++) {
-      const domRect = rectsInTrack[i];
-      if (domRect == null) continue;
-      if (domRect.left < right) {
-        const delta = right - domRect.left;
-        draggableDOMDeltaXs[i] = delta;
-        right = right + domRect.width;
-      } else {
-        break;
-      }
-    }
-    return { [trackId]: draggableDOMDeltaXs };
-  } else if (delta < 0) {
-    // Dragging left
-    let left = selfRect.left + delta;
-    for (let i = trackIndex - 1; i >= 0; i--) {
-      const domRect = rectsInTrack[i];
-      if (domRect == null) continue;
-      if (left < domRect.right) {
-        const delta = left - domRect.right;
-        draggableDOMDeltaXs[i] = delta;
-        left = left - domRect.width;
-      } else {
-        break;
-      }
-    }
-    return { [trackId]: draggableDOMDeltaXs };
-  }
-
-  return null;
-}
 
 export const FrameMoveTogetherDndContext = React.memo(
   ({
@@ -93,7 +32,7 @@ export const FrameMoveTogetherDndContext = React.memo(
       NonNullable<DndContextProps["onDragMove"]>
     >(
       (event) => {
-        const { active, delta } = event;
+        const { active, over, delta } = event;
         const trackId = active.data.current?.trackId;
         const trackIndex = active.data.current?.trackIndex;
         if (typeof trackId === "string" && typeof trackIndex === "number") {
@@ -101,6 +40,7 @@ export const FrameMoveTogetherDndContext = React.memo(
             trackId,
             trackIndex,
             deltaX: delta.x,
+            pushesNeighbours: over?.data.current?.type !== "within",
           };
           setDraggableDOMDeltaXs(
             calcDraggableDOMDeltaXs(draggingState, draggableDOMOrgRects),
