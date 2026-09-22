@@ -13,17 +13,30 @@ import {
 import {
   deriveTimeline,
   frameToMetaJson,
+  makeInsertionSpace,
   orderKeyBetween,
   parseFrameMeta,
   type CueFrame,
+  type Frame,
+  type SubFrame,
   type FrameAction,
+  type MediaControlFrameAction,
   type TimelineDoc,
 } from "../timeline-model";
 import {
   timelineDocToRuntimeSteps,
+  type RuntimeBatch,
   type RuntimeStep,
 } from "../timeline-model/runtime-steps";
 import { newTrackId } from "../models";
+import {
+  findFramePosition,
+  planSubFrameAddAfter,
+} from "../ControlPanel/operations";
+import {
+  applySubFrameAddAfterPlan,
+  writeFrame,
+} from "../ControlPanel/apply-plan";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
 import {
   getVideoKey,
@@ -200,6 +213,48 @@ export class PresentationManager {
     return this.$getOrderedSteps().length;
   }
 
+  @computed $getStoredFrames(): readonly { shapeId: string; frame: Frame }[] {
+    return this.$getCurrentPageDescendantShapes().flatMap((shape) => {
+      const parsed = parseFrameMeta(shape.meta?.frame);
+      return parsed.kind === "v2"
+        ? [{ shapeId: shape.id as string, frame: parsed.frame }]
+        : [];
+    });
+  }
+
+  /**
+   * Applies step-key rewrites produced by collision-run normalization —
+   * bounded to the run, executed inline in the mutating transaction.
+   * Keyed by STORED stepId, so the write reaches EVERY cue sharing the
+   * step identity — including split members displayed under synthetic
+   * recovery steps — and a normalization can never re-key a step away
+   * from its unresolved split siblings.
+   *
+   * A caller that builds its updates from the derived steps hands over
+   * the reserved id of any synthetic recovery step among them. Nothing
+   * stores a reserved id, so such an update matches no frame and writes
+   * nothing; the split's real members are reached by the source step's
+   * own update instead.
+   */
+  applyStepKeyUpdates(updates: readonly { id: string; key: string }[]) {
+    if (updates.length === 0) return;
+    const frames = this.$getStoredFrames();
+    for (const { id: stepId, key } of updates) {
+      for (const entry of frames) {
+        if (
+          entry.frame.type === "cue" &&
+          entry.frame.stepId === stepId &&
+          entry.frame.stepOrderKey !== key
+        ) {
+          writeFrame(this.editor, entry.shapeId as TLShapeId, {
+            ...entry.frame,
+            stepOrderKey: key,
+          });
+        }
+      }
+    }
+  }
+
   attachCueFrame(shapeId: TLShapeId, frameAction: FrameAction) {
     // One new step appended at the end for this operation; grouped shapes
     // land in the same step (fresh tracks per leaf shape).
@@ -246,19 +301,102 @@ export class PresentationManager {
     });
   }
 
+  private createMediaEventMarker(carrierShapeId: TLShapeId, frame: Frame) {
+    const markerId = createShapeId();
+    const videoBounds = this.editor.getShapePageBounds(carrierShapeId);
+    this.editor.createShape({
+      id: markerId,
+      type: MediaControlShapeType,
+      // Explicit page parent: without it, createShape hit-tests for a
+      // receiving parent (a tldraw frame, a focused group) and would
+      // rewrite the page coordinates below into that parent's space.
+      parentId: this.editor.getCurrentPageId(),
+      // Never rendered; parked at the video's origin only so the
+      // record's coordinates are not misleading in raw-store reads.
+      x: videoBounds?.x ?? 0,
+      y: videoBounds?.y ?? 0,
+      meta: { frame: frameToMetaJson(frame) },
+    });
+    this.editor.select(markerId);
+  }
+
   /**
-   * Adds a media control event to a video shape: a marker shape bound
-   * to the video, carrying a mediaControl cue frame, appended as a new
-   * step at the end. All media events of one video share one track (its
-   * media track), so the timeline shows them as a sequence and the step
-   * machinery keeps them mutually exclusive within a step.
+   * Adds a playback event for the video the given carrier belongs to.
+   *
+   * Where that carrier already holds a frame, the event joins that
+   * frame's batch as a sub frame, which is the only way to say that it
+   * happens *after* the movement: a step's batches run concurrently, so
+   * an event on its own track is simultaneous with the movement and no
+   * order between them exists to be edited. Inside a batch, frames run
+   * in sequence and their order is a stored key the timeline can drag.
+   *
+   * A carrier with no frame of its own has no batch to join, so the
+   * event becomes a cue frame in a new step, on the video's media track.
    */
-  attachMediaControlCueFrame(videoShapeId: TLShapeId) {
-    const video = this.editor.getShape(videoShapeId);
+  attachMediaControlFrame(carrierShapeId: TLShapeId) {
+    const video = this.editor.getShape(carrierShapeId);
     if (!isYouTubeEmbedShape(video)) {
       return;
     }
     const videoKey = getVideoKey(video);
+    // Always starts as "play" (the most common event); the user picks
+    // another command in the frame-edit popover.
+    const action: MediaControlFrameAction = {
+      type: "mediaControl",
+      command: "play",
+      videoKey,
+    };
+
+    const doc = this.$getTimelineDoc();
+    const carrierPosition = findFramePosition(doc, carrierShapeId);
+    // Joining the batch would leave this video with an event in each of
+    // two batches of one step, which run concurrently — the pair the
+    // same-track-split diagnostic cannot see, since the tracks differ.
+    // A step of its own is where the event can still be ordered.
+    const stepAlreadyHasAnEvent =
+      carrierPosition != null &&
+      doc.steps[carrierPosition.stepIndex].batches.some(
+        (batch) =>
+          batch !== carrierPosition.batch &&
+          batch.frames.some(
+            (frame) =>
+              frame.action.type === "mediaControl" &&
+              frame.action.videoKey === videoKey,
+          ),
+      );
+    const plan =
+      carrierPosition == null || stepAlreadyHasAnEvent
+        ? null
+        : planSubFrameAddAfter({
+            doc,
+            // After everything already in the batch, not after the
+            // carrier: clicking twice would otherwise put the second
+            // event ahead of the first, since a cue's insertion index
+            // is the head of the sub list.
+            prevShapeId: carrierPosition.batch.frames.at(-1)!.shapeId,
+            getStoredFrame: (shapeId) => {
+              const parsed = parseFrameMeta(
+                this.editor.getShape(shapeId as TLShapeId)?.meta?.frame,
+              );
+              return parsed.kind === "v2" ? parsed.frame : null;
+            },
+            mintId: uniqueId,
+          });
+    if (plan != null) {
+      const subFrame: SubFrame = {
+        v: 2,
+        id: uniqueId(),
+        type: "sub",
+        cueFrameId: plan.cueFrameId,
+        orderKey: plan.orderKey,
+        action,
+      };
+      this.editor.run(() => {
+        applySubFrameAddAfterPlan(this.editor, plan);
+        this.createMediaEventMarker(carrierShapeId, subFrame);
+      });
+      return;
+    }
 
     let mediaTrackId: string | null = null;
     for (const shape of this.editor.getCurrentPageShapes()) {
@@ -280,37 +418,28 @@ export class PresentationManager {
       }
     }
 
-    const doc = this.$getTimelineDoc();
+    // Directly after the carrier's step, so an event that could not
+    // join the batch still lands beside the movement the user is
+    // looking at rather than at the far end of the deck. A carrier with
+    // no frame of its own anchors nothing, so its event goes last.
+    const insertion = makeInsertionSpace(
+      doc.steps.map((step) => ({ id: step.id, key: step.orderKey })),
+      carrierPosition != null
+        ? carrierPosition.stepIndex + 1
+        : doc.steps.length,
+    );
     const cueFrame: CueFrame = {
       v: 2,
       id: uniqueId(),
       type: "cue",
       trackId: mediaTrackId ?? newTrackId(),
       stepId: uniqueId(),
-      stepOrderKey: orderKeyBetween(doc.steps.at(-1)?.orderKey ?? null, null),
-      // Always starts as "play" (the most common event); the user picks
-      // another command in the frame-edit popover.
-      action: { type: "mediaControl", command: "play", videoKey },
+      stepOrderKey: insertion.insertedKey,
+      action,
     };
-    const markerId = createShapeId();
-    const videoBounds = this.editor.getShapePageBounds(videoShapeId);
     this.editor.run(() => {
-      this.editor.createShape({
-        id: markerId,
-        type: MediaControlShapeType,
-        // Explicit page parent: without it, createShape hit-tests for a
-        // receiving parent (a tldraw frame, a focused group) and would
-        // rewrite the page coordinates below into that parent's space.
-        parentId: this.editor.getCurrentPageId(),
-        // Never rendered; parked at the video's origin only so the
-        // record's coordinates are not misleading in raw-store reads.
-        x: videoBounds?.x ?? 0,
-        y: videoBounds?.y ?? 0,
-        meta: {
-          frame: frameToMetaJson(cueFrame),
-        },
-      });
-      this.editor.select(markerId);
+      this.applyStepKeyUpdates(insertion.updates);
+      this.createMediaEventMarker(carrierShapeId, cueFrame);
     });
   }
 
@@ -528,20 +657,39 @@ export class PresentationManager {
     const doc = this.$getTimelineDoc();
     const currentStepIndex = this.$currentStepIndex.get();
 
+    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
+    const markerShapeIds = new Set(
+      pageDescendantShapes
+        .filter((shape) => shape.type === MediaControlShapeType)
+        .map((shape) => shape.id as string),
+    );
+
+    // What a batch leaves on stage: its last frame whose carrier is not
+    // a marker. A batch ending in one would otherwise hide the carrier
+    // before it and leave a video with no carrier on stage at all,
+    // unmounting the player the event was just attached to control.
+    // Recognised by carrier, matching `findPredecessorShape` in
+    // animation.ts — see there for why a marker stands in for nothing.
+    const shownFrameOf = (batch: RuntimeBatch) =>
+      [...batch.data]
+        .reverse()
+        .find((frame) => !markerShapeIds.has(frame.shapeId));
+
     // shapeId -> its batch and position within it.
     const frameInfoByShapeId = new Map<
       string,
-      { stepIndex: number; trackId: string; isLastFrameOfBatch: boolean }
+      { stepIndex: number; trackId: string; isShownFrameOfBatch: boolean }
     >();
     for (const step of orderedSteps) {
       for (const batch of step) {
-        batch.data.forEach((frame, frameIndex) => {
+        const shownFrame = shownFrameOf(batch);
+        for (const frame of batch.data) {
           frameInfoByShapeId.set(frame.shapeId, {
             stepIndex: batch.stepIndex,
             trackId: batch.trackId,
-            isLastFrameOfBatch: frameIndex === batch.data.length - 1,
+            isShownFrameOfBatch: frame === shownFrame,
           });
-        });
+        }
       }
     }
     // Detached frames are excluded from playback: hidden.
@@ -550,15 +698,20 @@ export class PresentationManager {
     );
 
     // The latest batch per track among the steps played so far — the only
-    // batch whose last frame should be visible for that track.
+    // batch whose shown frame should be visible for that track. A batch
+    // that shows nothing does not take the track over: an event dragged
+    // onto a step of its own would otherwise clear the stage of the
+    // movement before it.
     const latestStepIndexPerTrack = new Map<string, number>();
     for (const step of orderedSteps.slice(0, currentStepIndex + 1)) {
       for (const batch of step) {
+        if (shownFrameOf(batch) == null) {
+          continue;
+        }
         latestStepIndexPerTrack.set(batch.trackId, batch.stepIndex);
       }
     }
 
-    const pageDescendantShapes = this.$getCurrentPageDescendantShapes();
     const shapesVisibilities = pageDescendantShapes.map<
       [TLShapeId, ShapeVisibility]
     >((shape) => {
@@ -592,11 +745,11 @@ export class PresentationManager {
         return [shapeId, "hidden"];
       }
 
-      // Only the last frame of the track's latest played batch is visible.
+      // Only the shown frame of the track's latest played batch is visible.
       const latestStepIndex = latestStepIndexPerTrack.get(frameInfo.trackId);
       if (
         latestStepIndex === frameInfo.stepIndex &&
-        frameInfo.isLastFrameOfBatch
+        frameInfo.isShownFrameOfBatch
       ) {
         return [shapeId, "visible"];
       }

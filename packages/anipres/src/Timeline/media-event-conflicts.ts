@@ -1,0 +1,79 @@
+import type { FrameAction } from "../timeline-model";
+
+/** Satisfied by both a derived `StepData` and an edited `EditedStep`. */
+interface StepLike {
+  batches: readonly {
+    frames: readonly { shapeId: string; action: FrameAction }[];
+  }[];
+}
+
+/**
+ * Whether a timeline edit would newly leave a video with two playback
+ * events firing at once.
+ *
+ * A step's batches run concurrently, so two events of one video in
+ * separate batches have no order between them and the player ends up in
+ * whichever state the API applied last. Events sharing a track are
+ * already caught by the same-track-split diagnostic, but a video holds
+ * events on two tracks as soon as one of them joins a keyframe's batch,
+ * and nothing downstream sees those two as related. Events within one
+ * batch run in sequence, so they are not a conflict.
+ *
+ * Newly, because the edited layout covers the whole timeline: an edit
+ * has to stay possible while a conflict sits elsewhere, or the drag
+ * that would separate the two is refused along with everything else.
+ */
+export function editIntroducesMediaConflict(
+  before: readonly StepLike[],
+  after: readonly StepLike[],
+): boolean {
+  const known = conflictingPairs(before);
+  return [...conflictingPairs(after)].some((pair) => !known.has(pair));
+}
+
+/**
+ * One key per pair of a video's events that a step runs at once.
+ *
+ * A pair rather than the whole colliding group, so that shrinking a
+ * group reads as a subset of what the document already had and stays
+ * allowed, while regrouping the same events — pulling one out of a
+ * batch it ran in sequence with — reads as the new collision it is.
+ * Shape ids identify the events: tldraw guarantees them unique, and a
+ * shape carries one frame, so a pair names the same two events wherever
+ * an edit moves their step.
+ */
+function conflictingPairs(steps: readonly StepLike[]): Set<string> {
+  const pairs = new Set<string>();
+  for (const step of steps) {
+    const batchesByVideo = new Map<string, string[][]>();
+    for (const batch of step.batches) {
+      const shapeIdsByVideo = new Map<string, string[]>();
+      for (const frame of batch.frames) {
+        // An event with no `videoKey` names no video and nothing runs
+        // for it, so it cannot be paired with anything.
+        if (frame.action.type === "mediaControl" && frame.action.videoKey) {
+          const shapeIds = shapeIdsByVideo.get(frame.action.videoKey) ?? [];
+          shapeIds.push(frame.shapeId);
+          shapeIdsByVideo.set(frame.action.videoKey, shapeIds);
+        }
+      }
+      for (const [videoKey, shapeIds] of shapeIdsByVideo) {
+        const batches = batchesByVideo.get(videoKey) ?? [];
+        batches.push(shapeIds);
+        batchesByVideo.set(videoKey, batches);
+      }
+    }
+    for (const [videoKey, batches] of batchesByVideo) {
+      const inEarlierBatches: string[] = [];
+      for (const shapeIds of batches) {
+        for (const shapeId of shapeIds) {
+          for (const other of inEarlierBatches) {
+            pairs.add(JSON.stringify([videoKey, ...[shapeId, other].sort()]));
+          }
+        }
+        inEarlierBatches.push(...shapeIds);
+      }
+    }
+  }
+  return pairs;
+}

@@ -22,7 +22,7 @@ export interface DuplicateFrameIdRepairPlan {
  * 3. Every other duplicate gets a fresh id.
  */
 export function planDuplicateFrameIdRepair(
-  currentFrames: { shapeId: string; frame: Frame }[],
+  currentFrames: readonly { shapeId: string; frame: Frame }[],
   frameId: string,
   mintId: () => string,
 ): DuplicateFrameIdRepairPlan {

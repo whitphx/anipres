@@ -91,11 +91,24 @@ batch's next frame, so "play, wait 3 s, pause" is a cue frame plus a sub
 frame, exactly like chained animations. Because media events are
 ordinary cue/sub frames, steps, tracks, drag & drop, sub-frame
 chaining, reconciliation, and the paste/duplicate remap all work on
-them without changes. All events of one video share one track (minted
-on first event, reused afterwards), so simultaneous conflicting
-commands on one video surface as the existing same-track-split
-diagnostic. `setVolume` is absolute rather than relative volume-up/down
-so that folding (below) and repeated runs stay deterministic.
+them without changes. An event added to a carrier that holds a frame
+joins that frame's batch, and so sits on the carrier's track; every
+other event of the video goes on the video's media track, minted on the
+first such event and reused afterwards. Two events landing in one step
+on that shared media track are caught by the existing same-track-split
+diagnostic. Because a video can hold events on two tracks, the pair
+that diagnostic cannot see — one event on each track, in one step — is
+prevented rather than reported, at both paths that reach it: a drop
+that would introduce it is refused (`editIntroducesMediaConflict`), and
+attaching an event to a carrier whose step already holds one for that
+video opens a step of its own, directly after the carrier's, instead of
+joining the batch. Events within one batch are sequential and so never
+a conflict. Both guards are client-local, so a merge of two separately
+valid edits can still produce the pair; every other conflict here is a
+derived diagnostic for that reason, and giving this one the same
+treatment is [issue #518](https://github.com/whitphx/anipres/issues/518).
+`setVolume` is absolute rather than relative volume-up/down so that
+folding (below) and repeated runs stay deterministic.
 
 The `mediaControl` action and the new shape/binding types expand what a
 document persists, so `SYNC_CLIENT_VERSION` is bumped to 3 and the sync
@@ -219,13 +232,43 @@ muted for decks that must play a video on their very first step.
   parses the pasted URL (`watch`, `youtu.be`, `shorts`, `live`,
   `embed`, or a bare video id).
 - With a video selected, the control panel's "+ Media event" button
-  appends a play event as a new final step (marker + cue frame); the
-  user repositions it by dragging in the timeline.
+  adds a play event for it (a marker carrying the frame). Where the
+  selected carrier holds a frame of its own, the event joins that
+  frame's batch as a sub frame and so runs after it. Where that step
+  already holds an event for the video, joining would make the pair the
+  timeline cannot express, so the event becomes a cue frame in a step
+  of its own, opened directly after the carrier's step and beside the
+  movement the user is looking at. A carrier with no frame anchors no
+  step at all, so its event is a cue frame in a final step, as before.
+  Several selected keyframes of one video are still one request about
+  one video, and the event joins the one the video is showing at the
+  current step — a selection is a set, so a rule that
+  read its order would place the event differently for selections that
+  look identical, and picking the carrier on stage puts the event where
+  the user is looking, with whatever later keyframes the video has
+  still ahead of it for the drag below.
+- An event runs BEFORE a movement in one of two ways. Dragged onto
+  another frame of its own batch it changes place there
+  (`reorderFrameWithinBatch`), and leading the batch makes it the cue,
+  the frame it displaced becoming a sub behind it. Dragged onto a LATER
+  same-track batch it merges the two instead, promoting itself to cue
+  and demoting that batch's cue to a sub. (Leftward, onto an EARLIER
+  batch, the demotion goes the other way and the destination keeps its
+  cue.) The within-batch move never pushes or sweeps: an across-steps
+  drag also carries the frames behind it and the same-track batches it
+  passes.
 - The frame-edit popover edits the command (and volume for setVolume)
-  on media frames. The timeline's per-batch "+" buttons are withheld on
-  media batches — "+ Media event" is how events are added (a marker
-  inside a grouped selection is still cloned by the group "+"), and
-  chaining ("play, wait, pause" in one step) is done by dragging an
+  on media frames. Each per-batch "+" is offered by the frame it would
+  extend, since a "+" clones that frame's carrier: the sub button by
+  the batch's last frame, the cue button by its cue. Neither is offered
+  for a media frame — "+ Media event" is how events are added (a marker
+  inside a grouped selection is still cloned by the group "+") — so a
+  batch ending in an event keeps its cue "+" and loses its sub "+",
+  while a batch whose CUE is an event gains the sub "+" its last frame
+  earns. The container the two sit in has no size of its own, so the
+  cue "+" expands from the sub "+" on hover and stands alone when there
+  is no sub "+" to expand from.
+  Chaining ("play, wait, pause" in one step) is done by dragging an
   event onto an earlier step, which merges same-track sequences into
   one batch.
 - The `muted`, `controls`, and `altText` props have no editor UI yet

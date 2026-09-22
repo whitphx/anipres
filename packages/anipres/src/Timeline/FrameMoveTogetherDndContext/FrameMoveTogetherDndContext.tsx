@@ -1,82 +1,28 @@
 import React, { useCallback, useRef, useState, useMemo } from "react";
-import { DndContext, type DndContextProps } from "@dnd-kit/core";
+import {
+  DndContext,
+  type DndContextProps,
+  type DragMoveEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import {
   draggableFrameDOMContext,
   type DraggableFrameDOMContext,
 } from "./draggableFrameDOMContext";
+import { calcDraggableDOMDeltaXs } from "./frame-drag-deltas";
+import { WITHIN_DROP_TYPE } from "../droppable-data";
 
 type DraggableFrameDOMs = Record<string, (HTMLElement | null)[]>; // obj[trackId][trackIndex] = HTMLElement | null
 
 const DND_CONTEXT_MODIFIERS = [restrictToHorizontalAxis];
-
-interface FrameDraggingState {
-  trackId: string;
-  trackIndex: number;
-  deltaX: number;
-}
-function calcDraggableDOMDeltaXs(
-  draggingState: FrameDraggingState,
-  draggableDOMOrgRects: Record<string, (DOMRect | null)[]>,
-) {
-  const { trackId, trackIndex, deltaX: delta } = draggingState;
-
-  const rectsInTrack = draggableDOMOrgRects[trackId];
-  if (rectsInTrack == null) {
-    return null;
-  }
-
-  const selfRect = rectsInTrack[trackIndex];
-  if (selfRect == null) {
-    return null;
-  }
-
-  if (delta === 0) {
-    return null;
-  }
-
-  const draggableDOMDeltaXs: Record<number, number> = {};
-  draggableDOMDeltaXs[trackIndex] = delta;
-  if (delta > 0) {
-    // Dragging right
-    let right = selfRect.right + delta;
-    for (let i = trackIndex + 1; i < rectsInTrack.length; i++) {
-      const domRect = rectsInTrack[i];
-      if (domRect == null) continue;
-      if (domRect.left < right) {
-        const delta = right - domRect.left;
-        draggableDOMDeltaXs[i] = delta;
-        right = right + domRect.width;
-      } else {
-        break;
-      }
-    }
-    return { [trackId]: draggableDOMDeltaXs };
-  } else if (delta < 0) {
-    // Dragging left
-    let left = selfRect.left + delta;
-    for (let i = trackIndex - 1; i >= 0; i--) {
-      const domRect = rectsInTrack[i];
-      if (domRect == null) continue;
-      if (left < domRect.right) {
-        const delta = left - domRect.right;
-        draggableDOMDeltaXs[i] = delta;
-        left = left - domRect.width;
-      } else {
-        break;
-      }
-    }
-    return { [trackId]: draggableDOMDeltaXs };
-  }
-
-  return null;
-}
 
 export const FrameMoveTogetherDndContext = React.memo(
   ({
     children,
     onDragStart,
     onDragMove,
+    onDragOver,
     onDragEnd,
     onDragCancel,
     ...dndContextProps
@@ -89,27 +35,53 @@ export const FrameMoveTogetherDndContext = React.memo(
       Record<string, (DOMRect | null)[]>
     >({});
 
+    const showDrag = useCallback(
+      (event: DragMoveEvent | DragOverEvent) => {
+        const { active, over, delta } = event;
+        const trackId = active.data.current?.trackId;
+        const trackIndex = active.data.current?.trackIndex;
+        if (typeof trackId !== "string" || typeof trackIndex !== "number") {
+          return;
+        }
+        setDraggableDOMDeltaXs(
+          calcDraggableDOMDeltaXs(
+            {
+              trackId,
+              trackIndex,
+              deltaX: delta.x,
+              pushesNeighbours: over?.data.current?.type !== WITHIN_DROP_TYPE,
+            },
+            draggableDOMOrgRects,
+          ),
+        );
+      },
+      [draggableDOMOrgRects],
+    );
+
     const handleDragMove = useCallback<
       NonNullable<DndContextProps["onDragMove"]>
     >(
       (event) => {
-        const { active, delta } = event;
-        const trackId = active.data.current?.trackId;
-        const trackIndex = active.data.current?.trackIndex;
-        if (typeof trackId === "string" && typeof trackIndex === "number") {
-          const draggingState = {
-            trackId,
-            trackIndex,
-            deltaX: delta.x,
-          };
-          setDraggableDOMDeltaXs(
-            calcDraggableDOMDeltaXs(draggingState, draggableDOMOrgRects),
-          );
-        }
-
+        showDrag(event);
         onDragMove?.(event);
       },
-      [onDragMove, draggableDOMOrgRects],
+      [showDrag, onDragMove],
+    );
+    // Also on drag OVER, because `over` is one render behind inside
+    // `onDragMove`: dnd-kit sets it in an effect that runs after the one
+    // firing this callback, so the move that crosses onto a frame's
+    // place still reports the target it left. `onDragOver` fires on
+    // exactly that crossing, carrying the new target. Without it a
+    // keyboard drag would preview the wrong thing for the whole gap
+    // between two arrow presses.
+    const handleDragOver = useCallback<
+      NonNullable<DndContextProps["onDragOver"]>
+    >(
+      (event) => {
+        showDrag(event);
+        onDragOver?.(event);
+      },
+      [showDrag, onDragOver],
     );
 
     const handleDragEnd = useCallback<
@@ -186,6 +158,7 @@ export const FrameMoveTogetherDndContext = React.memo(
           {...dndContextProps}
           onDragStart={handleDragStart}
           onDragMove={handleDragMove}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
           modifiers={DND_CONTEXT_MODIFIERS}

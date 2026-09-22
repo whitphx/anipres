@@ -26,12 +26,11 @@ import type { FrameUIData } from "../Timeline/frame-ui-data";
 import { Timeline, type ShapeSelection } from "../Timeline";
 import styles from "./ControlPanel.module.scss";
 import { SlideShapeType } from "../shapes/slide/SlideShape";
-import {
-  getVideoKey,
-  isYouTubeEmbedShape,
-} from "../shapes/youtube-embed/YouTubeEmbedShape";
+import { isYouTubeEmbedShape } from "../shapes/youtube-embed/YouTubeEmbedShape";
 import { MediaControlShapeType } from "../shapes/media-control/MediaControlShape";
 import type { PresentationManager } from "../presentation-manager";
+import { pickMediaEventCarriers } from "./media-event-carrier";
+import { applySubFrameAddAfterPlan, writeFrame } from "./apply-plan";
 import {
   findFramePosition,
   followupActionFrom,
@@ -85,15 +84,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     return shape != null ? getStoredFrame(shape) : null;
   };
 
-  const collectStoredFrames = () => {
-    return presentationManager
-      .$getCurrentPageDescendantShapes()
-      .flatMap((shape) => {
-        const frame = getStoredFrame(shape);
-        return frame != null ? [{ shapeId: shape.id as string, frame }] : [];
-      });
-  };
-
   const shapeSelections: ShapeSelection[] = selectedShapes.map((shape) => {
     const leafShapes = getLeafShapes(editor, shape);
     const leafFrameShapeIds = leafShapes
@@ -130,48 +120,6 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     })
     .filter((shape) => shape != null);
 
-  const writeFrame = (shapeId: TLShapeId, frame: Frame) => {
-    const shape = editor.getShape(shapeId);
-    if (shape == null) {
-      return;
-    }
-    editor.updateShape({
-      id: shape.id,
-      type: shape.type,
-      meta: {
-        ...shape.meta,
-        frame: frameToMetaJson(frame),
-      },
-    });
-  };
-
-  /**
-   * Applies step-key rewrites produced by collision-run normalization —
-   * bounded to the run, executed inline in the mutating transaction.
-   * Keyed by STORED stepId, so the write reaches EVERY cue sharing the
-   * step identity — including split members displayed under synthetic
-   * recovery steps — and a normalization can never re-key a step away
-   * from its unresolved split siblings.
-   */
-  const applyStepKeyUpdates = (updates: { id: string; key: string }[]) => {
-    if (updates.length === 0) return;
-    const frames = collectStoredFrames();
-    for (const { id: stepId, key } of updates) {
-      for (const entry of frames) {
-        if (
-          entry.frame.type === "cue" &&
-          entry.frame.stepId === stepId &&
-          entry.frame.stepOrderKey !== key
-        ) {
-          writeFrame(entry.shapeId as TLShapeId, {
-            ...entry.frame,
-            stepOrderKey: key,
-          });
-        }
-      }
-    }
-  };
-
   const handleFrameChange = (newFrame: FrameUIData) => {
     // Only the action is editable through the frame editor UI.
     const shape = editor.getShape(newFrame.shapeId as TLShapeId);
@@ -182,18 +130,18 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     if (frame == null) {
       return;
     }
-    writeFrame(shape.id, { ...frame, action: newFrame.action });
+    writeFrame(editor, shape.id, { ...frame, action: newFrame.action });
   };
 
   const handleEditedStepsChange = (editedSteps: EditedStep[]) => {
     const result = reconcileEditedSteps({
-      currentFrames: collectStoredFrames(),
+      currentFrames: presentationManager.$getStoredFrames(),
       editedSteps,
       mintId: uniqueId,
     });
     editor.run(() => {
       for (const { shapeId, frame } of result.updates) {
-        writeFrame(shapeId as TLShapeId, frame);
+        writeFrame(editor, shapeId as TLShapeId, frame);
       }
       for (const shapeId of result.removedShapeIds) {
         const shape = editor.getShape(shapeId as TLShapeId);
@@ -275,12 +223,12 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // Explicit "align step keys" repair — the only path that
         // persists this convergence.
         const alignment = planStepKeyAlignment({
-          currentFrames: collectStoredFrames(),
+          currentFrames: presentationManager.$getStoredFrames(),
           stepId: diagnostic.stepId,
         });
         editor.run(() => {
           for (const update of alignment) {
-            writeFrame(update.shapeId as TLShapeId, update.frame);
+            writeFrame(editor, update.shapeId as TLShapeId, update.frame);
           }
         });
         return;
@@ -289,13 +237,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // Keeper rule shared with the derivation's representative (cue
         // preferred), so the repair never detaches an attached sub frame.
         const plan = planDuplicateFrameIdRepair(
-          collectStoredFrames(),
+          presentationManager.$getStoredFrames(),
           diagnostic.frameId,
           uniqueId,
         );
         editor.run(() => {
           for (const update of plan.updates) {
-            writeFrame(update.shapeId as TLShapeId, update.frame);
+            writeFrame(editor, update.shapeId as TLShapeId, update.frame);
           }
         });
         return;
@@ -305,7 +253,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
         // persists the split into a stored step.
         const plan = planSameTrackSplitMaterialization({
           doc,
-          currentFrames: collectStoredFrames(),
+          currentFrames: presentationManager.$getStoredFrames(),
           stepId: diagnostic.stepId,
           trackId: diagnostic.trackId,
           shapeIds: diagnostic.shapeIds,
@@ -315,8 +263,9 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           return;
         }
         editor.run(() => {
-          applyStepKeyUpdates(plan.stepKeyUpdates);
+          presentationManager.applyStepKeyUpdates(plan.stepKeyUpdates);
           writeFrame(
+            editor,
             plan.splitUpdate.shapeId as TLShapeId,
             plan.splitUpdate.frame,
           );
@@ -351,11 +300,13 @@ export const ControlPanel = track((props: ControlPanelProps) => {
     editor.run(() => {
       if (plan?.cueFrameUpdate != null) {
         writeFrame(
+          editor,
           plan.cueFrameUpdate.shapeId as TLShapeId,
           plan.cueFrameUpdate.frame,
         );
       }
       writeFrame(
+        editor,
         shape.id,
         plan != null
           ? { ...frame, cueFrameId: plan.cueFrameId, orderKey: plan.orderKey }
@@ -390,20 +341,15 @@ export const ControlPanel = track((props: ControlPanelProps) => {
           <button
             type="button"
             className={styles.playButton}
-            title="Add a playback event (play, pause, …) for the selected video as a new step"
+            title="Add a playback event (play, pause, …) for the selected video"
             onClick={() => {
-              // One event per video, not per carrier: a video that
-              // moves is several carriers, and selecting two of them is
-              // still one request about one video.
-              const byVideo = new Map(
-                selectedYouTubeEmbedShapes.map((shape) => [
-                  getVideoKey(shape),
-                  shape,
-                ]),
-              );
-              byVideo.forEach((shape) => {
-                presentationManager.attachMediaControlCueFrame(shape.id);
-              });
+              for (const shape of pickMediaEventCarriers(
+                doc,
+                currentStepIndex,
+                selectedYouTubeEmbedShapes,
+              )) {
+                presentationManager.attachMediaControlFrame(shape.id);
+              }
             }}
           >
             + Media event
@@ -475,7 +421,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             editor.run(
               () => {
-                applyStepKeyUpdates(insertion.updates);
+                presentationManager.applyStepKeyUpdates(insertion.updates);
                 const source = editor.getShape(prevShape.id) ?? prevShape;
                 const newShapeId = createShapeId();
                 editor.createShape({
@@ -629,7 +575,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
 
             editor.run(
               () => {
-                applyStepKeyUpdates(insertion.updates);
+                presentationManager.applyStepKeyUpdates(insertion.updates);
                 editor.createShapes(shapesToCreate);
 
                 const rootCreatedShape = shapesToCreate.find(
@@ -670,23 +616,7 @@ export const ControlPanel = track((props: ControlPanelProps) => {
             };
 
             editor.run(() => {
-              // Cue-id freshening (duplicate-id disambiguation) shares the
-              // transaction with the new sub frame's creation.
-              if (plan.cueFrameUpdate != null) {
-                writeFrame(
-                  plan.cueFrameUpdate.shapeId as TLShapeId,
-                  plan.cueFrameUpdate.frame,
-                );
-              }
-              for (const { shapeId, key } of plan.keyUpdates) {
-                const stored = getStoredFrameByShapeId(shapeId);
-                if (stored?.type === "sub") {
-                  writeFrame(shapeId as TLShapeId, {
-                    ...stored,
-                    orderKey: key,
-                  });
-                }
-              }
+              applySubFrameAddAfterPlan(editor, plan);
               const source = editor.getShape(prevShape.id) ?? prevShape;
               const newShapeId = createShapeId();
               editor.createShape({

@@ -25,7 +25,10 @@ import { FrameMoveTogetherDndContext } from "./FrameMoveTogetherDndContext";
 import { DraggableFrameUI } from "./DraggableFrameUI";
 import styles from "./Timeline.module.scss";
 import { FrameEditor } from "./FrameEditor/FrameEditor";
-import { moveFrame } from "./frame-movement";
+import { moveFrame, reorderFrameWithinBatch } from "./frame-movement";
+import { createFrameCollisionDetection } from "./frame-collision";
+import { WITHIN_DROP_TYPE } from "./droppable-data";
+import { editIntroducesMediaConflict } from "./media-event-conflicts";
 import { DelegateTldrawCssVars } from "./DelegateTldrawCssVars";
 import { GroupSelection } from "./GroupSelection";
 import type { ShapeSelection } from "./selection";
@@ -66,6 +69,7 @@ const FrameIcon = React.forwardRef<HTMLElement, FrameIconProps>(
         ref,
         className: `${styles.frameIcon} ${props.isSelected ? styles.selected : ""} ${props.subFrame ? styles.subFrame : ""}`,
         onClick: props.onClick,
+        ...(props.as === "button" ? { type: "button" } : {}),
       },
       props.children,
     );
@@ -171,6 +175,7 @@ const StepColumn = React.memo(
                     const frames = trackFrameBatch.data;
 
                     const [cueFrame, ...subFrames] = frames;
+                    const lastFrame = frames.at(-1)!;
                     return (
                       <div
                         key={trackFrameBatch.id}
@@ -178,6 +183,7 @@ const StepColumn = React.memo(
                       >
                         <DraggableFrameUI
                           id={trackFrameBatch.id}
+                          batchId={trackFrameBatch.id}
                           // The batch's real track id, not the row id:
                           // drag & drop identifies frames by (trackId,
                           // trackIndex) in the data model's terms.
@@ -185,6 +191,7 @@ const StepColumn = React.memo(
                           trackIndex={cueFrame.trackIndex}
                           globalIndex={trackFrameBatch.globalIndex}
                           frame={cueFrame}
+                          reorderTarget={frames.length > 1}
                         >
                           <FrameEditor
                             frame={cueFrame}
@@ -208,10 +215,12 @@ const StepColumn = React.memo(
                             <DraggableFrameUI
                               key={subFrame.shapeId}
                               id={subFrame.shapeId}
+                              batchId={trackFrameBatch.id}
                               trackId={trackFrameBatch.trackId}
                               trackIndex={subFrame.trackIndex}
                               globalIndex={trackFrameBatch.globalIndex}
                               frame={subFrame}
+                              reorderTarget={frames.length > 1}
                             >
                               <FrameEditor
                                 frame={subFrame}
@@ -231,27 +240,38 @@ const StepColumn = React.memo(
                             </DraggableFrameUI>
                           );
                         })}
-                        {canExtendFrameSequence(cueFrame) && (
+                        {/* Each "+" is offered by the frame it would
+                            extend, since a "+" clones that frame's
+                            carrier: the sub button the batch's last
+                            frame, the cue button its cue. The two
+                            differ on a batch ending in a media event,
+                            which nothing may clone. */}
+                        {(canExtendFrameSequence(lastFrame) ||
+                          canExtendFrameSequence(cueFrame)) && (
                           <div className={styles.frameAddButtonContainer}>
-                            <FrameIcon
-                              as="button"
-                              subFrame
-                              onClick={() =>
-                                requestSubFrameAddAfter(frames.at(-1)!)
-                              }
-                            >
-                              +
-                            </FrameIcon>
-                            <div className={styles.hoverExpandedPart}>
+                            {canExtendFrameSequence(lastFrame) && (
                               <FrameIcon
                                 as="button"
+                                subFrame
                                 onClick={() =>
-                                  requestCueFrameAddAfter(cueFrame)
+                                  requestSubFrameAddAfter(lastFrame)
                                 }
                               >
                                 +
                               </FrameIcon>
-                            </div>
+                            )}
+                            {canExtendFrameSequence(cueFrame) && (
+                              <div className={styles.hoverExpandedPart}>
+                                <FrameIcon
+                                  as="button"
+                                  onClick={() =>
+                                    requestCueFrameAddAfter(cueFrame)
+                                  }
+                                >
+                                  +
+                                </FrameIcon>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -426,11 +446,18 @@ export function Timeline({
   }, [shapeSelections, frameEditorDOMs]);
 
   const [draggedFrame, setDraggedFrame] = useState<FrameUIData | null>(null);
+  // A refused drop springs the frame back with nothing else to show for
+  // it, so the reason is announced next to the diagnostics; the next
+  // drag clears it.
+  const [refusedDropReason, setRefusedDropReason] = useState<string | null>(
+    null,
+  );
 
   const handleDragStart = useCallback<
     NonNullable<DndContextProps["onDragStart"]>
   >((event) => {
     const { active } = event;
+    setRefusedDropReason(null);
     const frame = active.data.current?.frame as FrameUIData | undefined;
     if (frame == null) {
       return;
@@ -453,34 +480,66 @@ export function Timeline({
       const srcTrackIndex = active.data.current?.trackIndex;
       const srcGlobalIndex = active.data.current?.globalIndex;
       const dstType = over.data.current?.type;
-      const dstGlobalIndex = over.data.current?.globalIndex;
       if (
         !(
           typeof trackId === "string" &&
           typeof srcTrackIndex === "number" &&
-          typeof srcGlobalIndex === "number" &&
-          typeof dstGlobalIndex === "number" &&
-          (dstType === "at" || dstType === "after")
+          typeof srcGlobalIndex === "number"
         )
       ) {
         return;
       }
 
-      const newSteps = moveFrame(
-        steps,
-        stepSources,
-        trackId,
-        srcGlobalIndex,
-        srcTrackIndex,
-        dstGlobalIndex,
-        dstType,
-      );
-      if (newSteps != null) {
-        onEditedStepsChange(newSteps);
+      let newSteps: EditedStep[] | undefined;
+      if (dstType === WITHIN_DROP_TYPE) {
+        const dstTrackIndex = over.data.current?.trackIndex;
+        // Only a frame's own batch reorders in place. A drop onto some
+        // other batch's frame still means "merge at that batch's step",
+        // which the collision filter keeps out of reach anyway.
+        if (
+          typeof dstTrackIndex === "number" &&
+          over.data.current?.batchId === active.data.current?.batchId
+        ) {
+          newSteps = reorderFrameWithinBatch(
+            steps,
+            stepSources,
+            trackId,
+            srcGlobalIndex,
+            srcTrackIndex,
+            dstTrackIndex,
+          );
+        }
+      } else if (dstType === "at" || dstType === "after") {
+        const dstGlobalIndex = over.data.current?.globalIndex;
+        if (typeof dstGlobalIndex === "number") {
+          newSteps = moveFrame(
+            steps,
+            stepSources,
+            trackId,
+            srcGlobalIndex,
+            srcTrackIndex,
+            dstGlobalIndex,
+            dstType,
+          );
+        }
       }
+      if (newSteps == null) {
+        return;
+      }
+      // Refused rather than accepted-and-flagged: no diagnostic can see
+      // this pair.
+      if (editIntroducesMediaConflict(timelineDoc.steps, newSteps)) {
+        setRefusedDropReason(
+          "That step already has an event for this video, and two of them would run at once.",
+        );
+        return;
+      }
+      onEditedStepsChange(newSteps);
     },
-    [steps, stepSources, onEditedStepsChange],
+    [steps, stepSources, timelineDoc, onEditedStepsChange],
   );
+
+  const collisionDetection = useMemo(() => createFrameCollisionDetection(), []);
 
   // To capture click events on draggable elements.
   // Ref: https://github.com/clauderic/dnd-kit/issues/591
@@ -500,6 +559,7 @@ export function Timeline({
     <FrameMoveTogetherDndContext
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      collisionDetection={collisionDetection}
       sensors={sensors}
       autoScroll={AUTO_SCROLL_CONFIG}
     >
@@ -509,12 +569,17 @@ export function Timeline({
           (every shape edit) does not re-announce the whole list. */}
       <div
         className={
-          timelineDoc.diagnostics.length > 0
+          timelineDoc.diagnostics.length > 0 || refusedDropReason != null
             ? styles.diagnosticsPanel
             : undefined
         }
         aria-live="polite"
       >
+        {refusedDropReason != null && (
+          <div className={styles.diagnosticItem}>
+            <span>{refusedDropReason}</span>
+          </div>
+        )}
         {timelineDoc.diagnostics.map((diagnostic) => (
           <div
             key={diagnosticKey(diagnostic)}

@@ -36,7 +36,7 @@ import { compareOrderKeys, orderKeysBetween } from "./order-key";
 
 export interface ReconcileInput {
   /** Current frames keyed by the shape carrying them. */
-  currentFrames: { shapeId: string; frame: Frame }[];
+  currentFrames: readonly { shapeId: string; frame: Frame }[];
   /** The edited timeline structure; array order = presentation order. */
   editedSteps: EditedStep[];
   /** Mints ids for new steps (injectable for deterministic tests). */

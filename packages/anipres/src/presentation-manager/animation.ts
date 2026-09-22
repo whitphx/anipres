@@ -219,7 +219,14 @@ async function runFrames(
 
     await new Promise((resolve) => setTimeout(resolve, duration));
 
-    predecessorShape = shape;
+    // Same rule as the one runStep applies across batches: a marker is
+    // an event, not a place, so the batch's next movement still travels
+    // from the last frame that moved something. A marker can precede a
+    // movement inside a batch, since dragging an event onto a later
+    // keyframe merges the two into one, the event ahead of it.
+    if (shape.type !== MediaControlShapeType) {
+      predecessorShape = shape;
+    }
   }
 }
 
@@ -251,6 +258,55 @@ export function clearHiddenDuringAnimationFlags(editor: Editor): void {
   );
 }
 
+/**
+ * The pose a movement in step `index` travels from: the track's last
+ * frame before that step whose carrier puts something somewhere.
+ *
+ * Not simply the last frame of the nearest batch. A media event rides
+ * an invisible marker, so a track's batch can end with one, or be
+ * nothing but one once an event is dragged onto a step of its own. A
+ * marker is nowhere — it carries an event, not a position — so a tween
+ * starting from it names an origin the player cannot be travelling
+ * from, and a batch holding only events would hide the movement before
+ * it entirely. Either way the tween finds no origin and the video jumps
+ * to its destination.
+ *
+ * The scan walks backwards and stops at the first carrier it accepts,
+ * so the ordinary case — a movement whose predecessor is the frame just
+ * before it — costs one lookup however long the deck is. It excludes by
+ * CARRIER, matching runFrames: a marker is nowhere whatever frame it
+ * ended up carrying.
+ */
+function findPredecessorShape(
+  editor: Editor,
+  steps: RuntimeStep[],
+  index: number,
+  trackId: string,
+): TLShape | null {
+  for (let stepIndex = index - 1; stepIndex >= 0; stepIndex--) {
+    const batches = steps[stepIndex];
+    for (let batchIndex = batches.length - 1; batchIndex >= 0; batchIndex--) {
+      const batch = batches[batchIndex];
+      if (batch.trackId !== trackId) {
+        continue;
+      }
+      for (
+        let frameIndex = batch.data.length - 1;
+        frameIndex >= 0;
+        frameIndex--
+      ) {
+        const shape = editor.getShape(
+          batch.data[frameIndex].shapeId as TLShapeId,
+        );
+        if (shape != null && shape.type !== MediaControlShapeType) {
+          return shape;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 export function runStep(
   presentationManager: PresentationManager,
   steps: RuntimeStep[],
@@ -273,16 +329,12 @@ export function runStep(
 
   const promises: Promise<void>[] = [];
   step.forEach((frameBatch) => {
-    const predecessorFrameBatch = steps
-      .slice(0, index)
-      .reverse()
-      .flat()
-      .find((fb) => fb.trackId === frameBatch.trackId);
-    const predecessorLastFrame = predecessorFrameBatch?.data.at(-1);
-    const predecessorShape =
-      predecessorLastFrame != null
-        ? editor.getShape(predecessorLastFrame.shapeId as TLShapeId)
-        : null;
+    const predecessorShape = findPredecessorShape(
+      editor,
+      steps,
+      index,
+      frameBatch.trackId,
+    );
 
     const frames = frameBatch.data;
     const frameShapes = frames
@@ -322,7 +374,7 @@ export function runStep(
     const promise = runFrames(
       presentationManager,
       frames,
-      predecessorShape ?? null,
+      predecessorShape,
       markBeforeAnimation,
       generation,
       renderingBeforeHide,
