@@ -17,6 +17,7 @@ export default async function updateStickyComment({
   marker,
   prNumber,
   body,
+  shouldWrite,
 }) {
   const fullBody = `${marker}\n${body}`;
 
@@ -31,6 +32,13 @@ export default async function updateStickyComment({
         (c) =>
           c.body?.startsWith(marker) && c.user?.login === "github-actions[bot]",
       );
+
+      // Inside the loop so the caller judges the comment as it stands now,
+      // not a body another job has since replaced.
+      if (shouldWrite && !shouldWrite(existing?.body ?? null)) {
+        core.info(`Left the ${marker} comment on PR #${prNumber} unchanged`);
+        return;
+      }
 
       if (existing) {
         await github.rest.issues.updateComment({
