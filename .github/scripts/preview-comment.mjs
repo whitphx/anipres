@@ -67,11 +67,17 @@ function deploymentLines(headSha) {
   ];
 }
 
+// Says only which commit the comment covers, and which one the PR is on now.
+// Whether the head itself deployed is not knowable from a run the PR has moved
+// past, so the notice claims nothing about it.
 const staleLines = (builtSha, prHeadSha) => [
-  `⚠️ No preview has been published for this pull request's head, ${commitLink(prHeadSha)}.`,
+  `⚠️ This comment is outdated: it describes ${commitLink(builtSha)}, and this pull request's head is now ${commitLink(prHeadSha)}.`,
   "",
-  `The most recent one covered ${commitLink(builtSha)}. The next completed CI run replaces this.`,
+  "The next completed CI run replaces it.",
 ];
+
+const comment = (lines, builtSha) =>
+  [HEADING, "", ...lines, "", builtShaTag(builtSha)].join("\n");
 
 export default async function run({ github, context, core }) {
   const repository = `${context.repo.owner}/${context.repo.repo}`;
@@ -89,11 +95,19 @@ export default async function run({ github, context, core }) {
   // Looser than deploy-worker-preview's filter on purpose: fork and Dependabot
   // PRs get no worker deploy but still get the comment, and a run the PR has
   // moved past still has to find its PR to retire an outdated comment.
-  const pullRequests = associatedPullRequests.filter(
+  const openPullRequests = associatedPullRequests.filter(
     (pullRequest) =>
       pullRequest.state === "open" &&
       pullRequest.base.repo.full_name === repository,
   );
+  // More than one open PR can contain this commit — one stacked on this one,
+  // say — and the comment belongs to the PR whose head it is. Falling back to
+  // the looser set is what lets a run the PR has moved past find its PR.
+  const headPullRequests = openPullRequests.filter(
+    (pullRequest) => pullRequest.head.sha === headSha,
+  );
+  const pullRequests =
+    headPullRequests.length === 1 ? headPullRequests : openPullRequests;
   // A PR closed while post-build was running has nowhere to put the comment;
   // that's not a deployment failure.
   if (pullRequests.length !== 1) {
@@ -112,24 +126,18 @@ export default async function run({ github, context, core }) {
     core,
     marker: MARKER,
     prNumber,
-    body: [
-      HEADING,
-      "",
-      ...(describesHead
-        ? deploymentLines(headSha)
-        : staleLines(headSha, head.sha)),
-      "",
-      builtShaTag(headSha),
-    ].join("\n"),
-    // A run the PR has moved past knows nothing about the current head's
-    // deployments, so it may only retire a comment it can prove is outdated —
-    // never create one, and never touch one whose commit it cannot read, which
-    // is every comment written before this tag existed.
-    shouldWrite: describesHead
-      ? undefined
-      : (existingBody) => {
+    body: describesHead
+      ? comment(deploymentLines(headSha), headSha)
+      : // A run the PR has moved past knows nothing about the current head's
+        // deployments, so it may only retire a comment it can prove is
+        // outdated — never create one, and never touch one whose commit it
+        // cannot read, which is every comment written before this tag existed.
+        // The notice names the commit that comment covers, which this run's
+        // own may well be older than.
+        (existingBody) => {
           const builtSha = readBuiltSha(existingBody);
-          return builtSha !== null && builtSha !== head.sha;
+          if (builtSha === null || builtSha === head.sha) return null;
+          return comment(staleLines(builtSha, head.sha), builtSha);
         },
   });
 }
