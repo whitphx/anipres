@@ -340,7 +340,9 @@ jobs:
   #
   # A failed run deploys nothing, and a comment still advertising the
   # previous commit's previews would send reviewers to code that is no
-  # longer the PR's head — so this job runs whatever CI concluded.
+  # longer the PR's head — so this job runs whatever CI concluded, and a
+  # run the PR has moved past retires the comment it can no longer vouch
+  # for rather than leaving it to read as current.
   comment-preview-urls:
     if: ${{ always() && github.event.workflow_run.event == 'pull_request' }}
     needs:
@@ -373,94 +375,16 @@ jobs:
           WORKER_RESULT: ${{ needs.deploy-worker-preview.result }}
           CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.event.workflow_run.head_sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
             const path = require('node:path')
             const { pathToFileURL } = require('node:url')
-
-            const repository = `${context.repo.owner}/${context.repo.repo}`
-            const headSha = process.env.HEAD_SHA
-            const associatedPullRequests = await github.paginate(
-              github.rest.repos.listPullRequestsAssociatedWithCommit,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: headSha,
-                per_page: 100,
-              },
-            )
-            // Looser than deploy-worker-preview's filter on purpose: fork and
-            // Dependabot PRs get no worker deploy but still get the comment.
-            const pullRequests = associatedPullRequests.filter((pullRequest) =>
-              pullRequest.state === 'open' &&
-              pullRequest.base.repo.full_name === repository &&
-              pullRequest.head.sha === headSha
-            )
-            // A PR closed or pushed over while post-build was running has
-            // nowhere to put the comment; that's not a deployment failure.
-            if (pullRequests.length !== 1) {
-              core.info(`Found ${pullRequests.length} open pull requests at ${headSha}; skipping the preview comment.`)
-              return
-            }
-
-            const commitLink = `[\`${headSha.slice(0, 7)}\`](${process.env.COMMIT_URL})`
-
-            const summary = () => {
-              if (process.env.CI_CONCLUSION !== 'success') {
-                return [
-                  `Nothing deployed for ${commitLink} — [CI](${process.env.CI_RUN_URL}) concluded \`${process.env.CI_CONCLUSION}\`.`,
-                ]
-              }
-
-              const targets = [
-                { name: 'App', url: process.env.APP_URL, result: process.env.APP_RESULT },
-                { name: 'Slidev addon demo', url: process.env.SLIDEV_URL, result: process.env.SLIDEV_RESULT },
-                { name: 'Worker (auth + sync)', url: process.env.WORKER_URL, result: process.env.WORKER_RESULT },
-              ]
-              // Bare URLs instead of `[text](url)` — nothing in the cell is
-              // then interpretable as markup.
-              const cell = ({ url, result }) =>
-                url
-                  ? url
-                  : result === 'skipped'
-                    ? '— _not deployed_'
-                    : `⚠️ deploy \`${result}\``
-
-              // deploy-worker-preview also reports `skipped` when an earlier job
-              // in the chain fails, which is not the fork/Dependabot case — a
-              // deployed app is what distinguishes the two.
-              const workerNote = process.env.WORKER_URL
-                ? 'The preview worker is shared by every PR — last deploy wins.'
-                : process.env.WORKER_RESULT === 'skipped' && process.env.APP_URL
-                  ? 'The preview worker is not deployed for fork or Dependabot PRs.'
-                  : null
-
-              return [
-                '| Target | URL |',
-                '| --- | --- |',
-                ...targets.map((target) => `| ${target.name} | ${cell(target)} |`),
-                '',
-                `Built from ${commitLink} · [post-build run](${process.env.RUN_URL}).`,
-                ...(workerNote ? ['', `> ${workerNote}`] : []),
-              ]
-            }
-
-            const body = ['## 🚀 Preview deployments', '', ...summary()].join('\n')
-
             const moduleUrl = pathToFileURL(
-              path.join(process.env.GITHUB_WORKSPACE, '.github/scripts/sticky-comment.mjs'),
+              path.join(process.env.GITHUB_WORKSPACE, '.github/scripts/preview-comment.mjs'),
             ).href
-            const { default: updateStickyComment } = await import(moduleUrl)
-            await updateStickyComment({
-              github,
-              context,
-              core,
-              marker: '<!-- preview-deployments -->',
-              prNumber: pullRequests[0].number,
-              body,
-            })
+            const { default: run } = await import(moduleUrl)
+            await run({ github, context, core })
 
   report-status:
     if: ${{ always() && needs.initialize-status.result != 'skipped' }}

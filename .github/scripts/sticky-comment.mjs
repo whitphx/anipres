@@ -10,6 +10,10 @@
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+// `body` is the comment to write, or a function of the comment as it stands
+// (null when there is none) returning that, or null to leave it alone. The
+// function runs inside the retry loop, so a body derived from the existing
+// comment can't be derived from one another job has since replaced.
 export default async function updateStickyComment({
   github,
   context,
@@ -18,8 +22,6 @@ export default async function updateStickyComment({
   prNumber,
   body,
 }) {
-  const fullBody = `${marker}\n${body}`;
-
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const comments = await github.paginate(github.rest.issues.listComments, {
@@ -31,6 +33,14 @@ export default async function updateStickyComment({
         (c) =>
           c.body?.startsWith(marker) && c.user?.login === "github-actions[bot]",
       );
+
+      const resolved =
+        typeof body === "function" ? body(existing?.body ?? null) : body;
+      if (resolved === null) {
+        core.info(`Left the ${marker} comment on PR #${prNumber} unchanged`);
+        return;
+      }
+      const fullBody = `${marker}\n${resolved}`;
 
       if (existing) {
         await github.rest.issues.updateComment({
